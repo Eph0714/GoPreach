@@ -1,4 +1,4 @@
-package com.emfitsolutions.gopreach.ui.screens.admins
+package com.emfitsolutions.gopreach.ui.screens.elders
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,33 +24,35 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 
-/** Spec §3/§5.1 — Manage Admins, Super-Admin only. */
+/** Shared list UI for [ManageCoordinatorEldersScreen] and [ManageRegularEldersScreen] —
+ * same card layout as Manage Admins (name/scope/contact/active toggle/temp-credential
+ * lookup), just parameterized by title and what "scope" means for that role. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ManageAdminsScreen(
+fun ElderListScreen(
+    title: String,
+    scopeLabel: String,
+    rows: List<ElderRow>,
     onBack: () -> Unit,
     onAddNew: () -> Unit,
-    viewModel: ManageAdminsViewModel = hiltViewModel(),
+    onSetActive: (ElderRow, Boolean) -> Unit,
 ) {
-    val admins by viewModel.admins.collectAsStateWithLifecycle()
     var lookupTarget by remember { mutableStateOf<Person?>(null) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Admins") },
+                title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -60,16 +62,16 @@ fun ManageAdminsScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = onAddNew) {
-                Icon(Icons.Rounded.Add, contentDescription = "Enroll Admin")
+                Icon(Icons.Rounded.Add, contentDescription = "Enroll $title")
             }
         },
     ) { padding ->
-        if (admins.isEmpty()) {
+        if (rows.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("No admins enrolled yet. Tap + to enroll one.", style = MaterialTheme.typography.bodyMedium)
+                Text("None enrolled yet. Tap + to enroll one.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyColumn(
@@ -77,7 +79,7 @@ fun ManageAdminsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(admins, key = { it.person.id }) { row ->
+                items(rows, key = { it.person.id }) { row ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -86,7 +88,7 @@ fun ManageAdminsScreen(
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(row.person.fullName, style = MaterialTheme.typography.titleMedium)
-                                Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
+                                Text("$scopeLabel: ${row.scopeName}", style = MaterialTheme.typography.bodySmall)
                                 Text("Contact: ${row.person.contact}", style = MaterialTheme.typography.bodySmall)
                                 Text(
                                     if (row.isActive) "Active" else "Inactive",
@@ -101,10 +103,7 @@ fun ManageAdminsScreen(
                                     )
                                 }
                             }
-                            Switch(
-                                checked = row.isActive,
-                                onCheckedChange = { checked -> viewModel.setActive(row.assignment, checked) },
-                            )
+                            Switch(checked = row.isActive, onCheckedChange = { checked -> onSetActive(row, checked) })
                         }
                     }
                 }

@@ -112,10 +112,10 @@ fun AdminHomeScreen(
                         DashboardTile("Admins", Icons.Rounded.AdminPanelSettings, { onNavigate(Destinations.MANAGE_ADMINS) })
                     }
                     if (canEnrollCoordinatorElder) {
-                        DashboardTile("Coordinator Elder", Icons.Rounded.PersonAdd, { onNavigate(Destinations.ENROLL_COORDINATOR_ELDER) })
+                        DashboardTile("Coordinator Elder", Icons.Rounded.PersonAdd, { onNavigate(Destinations.MANAGE_COORDINATOR_ELDERS) })
                     }
                     if (canEnrollRegularElderOrPublisher) {
-                        DashboardTile("Regular Elder", Icons.Rounded.PersonAdd, { onNavigate(Destinations.ENROLL_REGULAR_ELDER) })
+                        DashboardTile("Regular Elder", Icons.Rounded.PersonAdd, { onNavigate(Destinations.MANAGE_REGULAR_ELDERS) })
                         DashboardTile("Publisher", Icons.Rounded.PersonAdd, { onNavigate(Destinations.ENROLL_PUBLISHER) })
                     }
                 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -27,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.emfitsolutions.gopreach.data.repository.ThemePreference
+import com.emfitsolutions.gopreach.ui.components.ThemeOptionRow
 
 /**
  * Control Panel — Super-Admin only (spec §5.1). Logo upload/replace lands here
@@ -45,6 +48,7 @@ fun ControlPanelScreen(
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val theme by viewModel.theme.collectAsStateWithLifecycle()
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) viewModel.uploadLogo(uri, currentPersonId)
@@ -105,6 +109,19 @@ fun ControlPanelScreen(
                     "Only a Super-Admin can change the app logo.",
                     style = MaterialTheme.typography.bodySmall,
                 )
+            }
+
+            Text("Appearance", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Your own display preference — applies instantly, only on this device.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                    ThemeOptionRow("System default", ThemePreference.SYSTEM, theme, viewModel::setTheme)
+                    ThemeOptionRow("Light", ThemePreference.LIGHT, theme, viewModel::setTheme)
+                    ThemeOptionRow("Dark", ThemePreference.DARK, theme, viewModel::setTheme)
+                }
             }
         }
     }

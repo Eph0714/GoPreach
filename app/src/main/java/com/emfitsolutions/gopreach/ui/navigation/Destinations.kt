@@ -24,6 +24,8 @@ object Destinations {
     const val ENROLL_COORDINATOR_ELDER = "enroll_coordinator_elder"
     const val ENROLL_REGULAR_ELDER = "enroll_regular_elder"
     const val ENROLL_PUBLISHER = "enroll_publisher"
+    const val MANAGE_COORDINATOR_ELDERS = "manage_coordinator_elders"
+    const val MANAGE_REGULAR_ELDERS = "manage_regular_elders"
 
     // Phase 3
     const val CONTROL_PANEL = "control_panel"

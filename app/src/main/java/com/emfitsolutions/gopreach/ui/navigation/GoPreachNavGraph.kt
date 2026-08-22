@@ -25,6 +25,8 @@ import com.emfitsolutions.gopreach.ui.screens.calendar.CalendarScope
 import com.emfitsolutions.gopreach.ui.screens.calendar.CalendarScreen
 import com.emfitsolutions.gopreach.ui.screens.congregations.ManageCongregationsScreen
 import com.emfitsolutions.gopreach.ui.screens.controlpanel.ControlPanelScreen
+import com.emfitsolutions.gopreach.ui.screens.elders.ManageCoordinatorEldersScreen
+import com.emfitsolutions.gopreach.ui.screens.elders.ManageRegularEldersScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.AdminEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.CongregationEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.CoordinatorElderEnrollmentScreen
@@ -170,6 +172,20 @@ fun GoPreachNavGraph(
             ManageAdminsScreen(
                 onBack = { navController.popBackStack() },
                 onAddNew = { navController.navigate(Destinations.ENROLL_ADMIN) },
+            )
+        }
+        composable(Destinations.MANAGE_COORDINATOR_ELDERS) {
+            ManageCoordinatorEldersScreen(
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+                onBack = { navController.popBackStack() },
+                onAddNew = { navController.navigate(Destinations.ENROLL_COORDINATOR_ELDER) },
+            )
+        }
+        composable(Destinations.MANAGE_REGULAR_ELDERS) {
+            ManageRegularEldersScreen(
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
+                onBack = { navController.popBackStack() },
+                onAddNew = { navController.navigate(Destinations.ENROLL_REGULAR_ELDER) },
             )
         }
         composable(Destinations.BACKUP_RESTORE) {
