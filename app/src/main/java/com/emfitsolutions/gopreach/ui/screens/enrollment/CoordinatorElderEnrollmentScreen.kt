@@ -1,5 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.enrollment
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -59,7 +61,13 @@ fun CoordinatorElderEnrollmentScreen(
             )
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+        ) {
             if (uiState.result != null) {
                 TempCredentialsResultCard(credentials = uiState.result!!, onDone = onDone)
             } else {
