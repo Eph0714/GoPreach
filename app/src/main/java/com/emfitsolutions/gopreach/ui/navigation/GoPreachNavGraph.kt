@@ -94,7 +94,6 @@ fun GoPreachNavGraph(
     NavHost(navController = navController, startDestination = Destinations.LOGIN) {
         composable(Destinations.LOGIN) {
             LoginScreen(
-                onAboutClick = { navController.navigate(Destinations.ABOUT) },
                 onForgotPasswordClick = { navController.navigate(Destinations.FORGOT_PASSWORD) },
                 onSignedIn = { /* routing handled reactively above */ },
             )

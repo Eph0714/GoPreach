@@ -54,10 +54,10 @@ class RegularElderEnrollmentViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(RegularElderEnrollmentUiState())
     val uiState: StateFlow<RegularElderEnrollmentUiState> = _uiState.asStateFlow()
 
-    fun onNameChange(value: String) = _uiState.update { it.copy(name = value, errorMessage = null) }
-    fun onAddressChange(value: String) = _uiState.update { it.copy(address = value, errorMessage = null) }
+    fun onNameChange(value: String) = _uiState.update { it.copy(name = value.uppercase(), errorMessage = null) }
+    fun onAddressChange(value: String) = _uiState.update { it.copy(address = value.uppercase(), errorMessage = null) }
     fun onEmailChange(value: String) = _uiState.update { it.copy(email = value, errorMessage = null) }
-    fun onContactChange(value: String) = _uiState.update { it.copy(contact = value, errorMessage = null) }
+    fun onContactChange(value: String) = _uiState.update { it.copy(contact = value.uppercase(), errorMessage = null) }
     fun onElderTitleSelected(id: String) = _uiState.update { it.copy(selectedElderTitleId = id, errorMessage = null) }
 
     fun save(enrollingPersonId: String) {

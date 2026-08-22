@@ -7,14 +7,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Assignment
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.PeopleAlt
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Assignment
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.PeopleAlt
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
@@ -46,7 +46,7 @@ fun PublisherHomeScreen(
             logoContent = { DynamicAppLogo() },
             topEndAction = {
                 IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Color.White)
+                    Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
                 }
             },
         )
@@ -57,18 +57,18 @@ fun PublisherHomeScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             DashboardSection("My Ministry") {
-                DashboardTile("Monthly Report", Icons.Filled.Assignment, { onNavigate(Destinations.MONTHLY_REPORT) })
-                DashboardTile("Bible Study Record", Icons.AutoMirrored.Filled.MenuBook, { onNavigate(Destinations.BIBLE_STUDY_RECORD) })
-                DashboardTile("Interested People", Icons.Filled.PeopleAlt, { onNavigate(Destinations.INTERESTED_PEOPLE) })
-                DashboardTile("Share Location", Icons.Filled.LocationOn, { onNavigate(Destinations.SHARE_LOCATION) })
-                DashboardTile("Calendar", Icons.Filled.CalendarMonth, { onNavigate(Destinations.CALENDAR) })
+                DashboardTile("Monthly Report", Icons.Rounded.Assignment, { onNavigate(Destinations.MONTHLY_REPORT) })
+                DashboardTile("Bible Study Record", Icons.AutoMirrored.Rounded.MenuBook, { onNavigate(Destinations.BIBLE_STUDY_RECORD) })
+                DashboardTile("Interested People", Icons.Rounded.PeopleAlt, { onNavigate(Destinations.INTERESTED_PEOPLE) })
+                DashboardTile("Share Location", Icons.Rounded.LocationOn, { onNavigate(Destinations.SHARE_LOCATION) })
+                DashboardTile("Calendar", Icons.Rounded.CalendarMonth, { onNavigate(Destinations.CALENDAR) })
             }
 
             DashboardSection("Account") {
                 if (onSwitchToAdmin != null) {
-                    DashboardTile("Admin App", Icons.Filled.SwapHoriz, onSwitchToAdmin)
+                    DashboardTile("Admin App", Icons.Rounded.SwapHoriz, onSwitchToAdmin)
                 }
-                DashboardTile("Sign Out", Icons.AutoMirrored.Filled.Logout, viewModel::signOut)
+                DashboardTile("Sign Out", Icons.AutoMirrored.Rounded.Logout, viewModel::signOut)
             }
         }
     }

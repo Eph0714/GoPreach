@@ -2,7 +2,7 @@ package com.emfitsolutions.gopreach.ui.components
 
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -48,7 +48,7 @@ fun DynamicAppLogo(viewModel: LogoViewModel = hiltViewModel()) {
         )
     } else {
         Icon(
-            imageVector = Icons.Filled.MenuBook,
+            imageVector = Icons.Rounded.MenuBook,
             contentDescription = null,
             tint = Color.White,
             modifier = Modifier.size(48.dp),

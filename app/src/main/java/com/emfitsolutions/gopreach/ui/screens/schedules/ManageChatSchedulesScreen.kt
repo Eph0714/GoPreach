@@ -1,5 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.schedules
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,9 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -69,7 +72,7 @@ fun ManageChatSchedulesScreen(
                 title = { Text("Chat Schedule") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
             )
@@ -77,7 +80,7 @@ fun ManageChatSchedulesScreen(
         floatingActionButton = {
             if (canEdit) {
                 FloatingActionButton(onClick = { showCreateDialog = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = "New Chat Schedule")
+                    Icon(Icons.Rounded.Add, contentDescription = "New Chat Schedule")
                 }
             }
         },
@@ -114,7 +117,7 @@ fun ManageChatSchedulesScreen(
                             }
                             if (canEdit) {
                                 IconButton(onClick = { pendingDelete = schedule }) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete")
                                 }
                             }
                         }
@@ -168,10 +171,13 @@ private fun CreateChatScheduleDialog(
         onDismissRequest = onDismiss,
         title = { Text("New Chat Schedule") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 OutlinedTextField(
                     value = title,
-                    onValueChange = { title = it },
+                    onValueChange = { title = it.uppercase() },
                     label = { Text("Event Title") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,
@@ -179,7 +185,7 @@ private fun CreateChatScheduleDialog(
                 )
                 OutlinedTextField(
                     value = description,
-                    onValueChange = { description = it },
+                    onValueChange = { description = it.uppercase() },
                     label = { Text("Description (optional)") },
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),

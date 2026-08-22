@@ -1,5 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.biblestudy
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,9 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,14 +60,14 @@ fun BibleStudyScreen(
                 title = { Text("Bible Study Record") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
             )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreateDialog = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "New Bible Study")
+                Icon(Icons.Rounded.Add, contentDescription = "New Bible Study")
             }
         },
     ) { padding ->
@@ -96,7 +99,7 @@ fun BibleStudyScreen(
                                 }
                             }
                             IconButton(onClick = { pendingDelete = record }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                                Icon(Icons.Rounded.Delete, contentDescription = "Delete")
                             }
                         }
                     }
@@ -144,10 +147,13 @@ private fun CreateBibleStudyDialog(
         onDismissRequest = onDismiss,
         title = { Text("New Bible Study") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it },
+                    onValueChange = { name = it.uppercase() },
                     label = { Text("Bible Study Name") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,
@@ -155,14 +161,14 @@ private fun CreateBibleStudyDialog(
                 )
                 OutlinedTextField(
                     value = address,
-                    onValueChange = { address = it },
+                    onValueChange = { address = it.uppercase() },
                     label = { Text("Address") },
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = contact,
-                    onValueChange = { contact = it },
+                    onValueChange = { contact = it.uppercase() },
                     label = { Text("Contact (optional)") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,

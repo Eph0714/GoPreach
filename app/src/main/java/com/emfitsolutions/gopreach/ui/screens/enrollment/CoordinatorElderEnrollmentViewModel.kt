@@ -51,10 +51,10 @@ class CoordinatorElderEnrollmentViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CoordinatorElderEnrollmentUiState())
     val uiState: StateFlow<CoordinatorElderEnrollmentUiState> = _uiState.asStateFlow()
 
-    fun onNameChange(value: String) = _uiState.update { it.copy(name = value, errorMessage = null) }
-    fun onAddressChange(value: String) = _uiState.update { it.copy(address = value, errorMessage = null) }
+    fun onNameChange(value: String) = _uiState.update { it.copy(name = value.uppercase(), errorMessage = null) }
+    fun onAddressChange(value: String) = _uiState.update { it.copy(address = value.uppercase(), errorMessage = null) }
     fun onEmailChange(value: String) = _uiState.update { it.copy(email = value, errorMessage = null) }
-    fun onContactChange(value: String) = _uiState.update { it.copy(contact = value, errorMessage = null) }
+    fun onContactChange(value: String) = _uiState.update { it.copy(contact = value.uppercase(), errorMessage = null) }
     fun onCongregationSelected(id: String) = _uiState.update { it.copy(selectedCongregationId = id, errorMessage = null) }
 
     suspend fun isEnrollerSuperAdmin(enrollingPersonId: String): Boolean =

@@ -32,9 +32,9 @@ class CongregationEnrollmentViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CongregationEnrollmentUiState())
     val uiState: StateFlow<CongregationEnrollmentUiState> = _uiState.asStateFlow()
 
-    fun onNameChange(value: String) = _uiState.update { it.copy(name = value, errorMessage = null) }
-    fun onAddressChange(value: String) = _uiState.update { it.copy(address = value, errorMessage = null) }
-    fun onCodeChange(value: String) = _uiState.update { it.copy(code = value, errorMessage = null) }
+    fun onNameChange(value: String) = _uiState.update { it.copy(name = value.uppercase(), errorMessage = null) }
+    fun onAddressChange(value: String) = _uiState.update { it.copy(address = value.uppercase(), errorMessage = null) }
+    fun onCodeChange(value: String) = _uiState.update { it.copy(code = value.uppercase(), errorMessage = null) }
 
     fun save(createdByPersonId: String) {
         val state = _uiState.value

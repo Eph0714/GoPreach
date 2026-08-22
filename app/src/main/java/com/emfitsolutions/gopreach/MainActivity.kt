@@ -1,11 +1,12 @@
 package com.emfitsolutions.gopreach
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -18,7 +19,12 @@ import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
+    // FragmentActivity, not the usual bare ComponentActivity, because
+    // androidx.biometric.BiometricPrompt (used by the login screen's fingerprint/
+    // face sign-in) needs a FragmentManager to host its internal dialog fragment.
+    // FragmentActivity is itself a ComponentActivity, so setContent{}/enableEdgeToEdge()
+    // below are unaffected.
 
     @Inject
     lateinit var themePreferenceRepository: ThemePreferenceRepository
@@ -37,7 +43,14 @@ class MainActivity : ComponentActivity() {
             // a clean, consistent look, which a fixed brand palette delivers more
             // reliably than colors that shift with the user's wallpaper.
             GoPreachTheme(darkTheme = darkTheme, dynamicColor = false) {
-                Surface(modifier = Modifier.fillMaxSize()) {
+                // enableEdgeToEdge() opts this app out of the system's automatic
+                // windowSoftInputMode="adjustResize" handling — Compose has to react to
+                // the IME inset itself, or the keyboard simply draws on top of whatever
+                // field/button was underneath it instead of the content shrinking to
+                // make room. imePadding() here, once, is what actually gets every form
+                // and dialog in the app to scroll its focused field (and its Save
+                // button) up above the keyboard instead of behind it.
+                Surface(modifier = Modifier.fillMaxSize().imePadding()) {
                     GoPreachNavGraph()
                 }
             }

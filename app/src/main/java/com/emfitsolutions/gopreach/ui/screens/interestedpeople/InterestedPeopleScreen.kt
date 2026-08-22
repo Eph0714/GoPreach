@@ -1,5 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.interestedpeople
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,9 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
@@ -95,14 +98,14 @@ private fun InterestedPeopleListScreen(
                 title = { Text("Interested People") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
             )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreateDialog = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "New Interested Person")
+                Icon(Icons.Rounded.Add, contentDescription = "New Interested Person")
             }
         },
     ) { padding ->
@@ -135,7 +138,7 @@ private fun InterestedPeopleListScreen(
                                 Text(person.address, style = MaterialTheme.typography.bodySmall)
                             }
                             IconButton(onClick = { pendingDelete = person }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                                Icon(Icons.Rounded.Delete, contentDescription = "Delete")
                             }
                         }
                     }
@@ -184,10 +187,13 @@ private fun CreateInterestedPersonDialog(
         onDismissRequest = onDismiss,
         title = { Text("New Interested Person") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it },
+                    onValueChange = { name = it.uppercase() },
                     label = { Text("Name") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,
@@ -203,14 +209,14 @@ private fun CreateInterestedPersonDialog(
                 }
                 OutlinedTextField(
                     value = address,
-                    onValueChange = { address = it },
+                    onValueChange = { address = it.uppercase() },
                     label = { Text("Address") },
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = religion,
-                    onValueChange = { religion = it },
+                    onValueChange = { religion = it.uppercase() },
                     label = { Text("Religion (optional)") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,
@@ -260,14 +266,14 @@ private fun InterestedPersonDetailScreen(
                 title = { Text(person.name) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
             )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showAddVisit = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "Log Visit")
+                Icon(Icons.Rounded.Add, contentDescription = "Log Visit")
             }
         },
     ) { padding ->
@@ -305,7 +311,7 @@ private fun InterestedPersonDetailScreen(
                             )
                         }
                         IconButton(onClick = { viewModel.deleteVisit(person.id, visit.id) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete visit")
+                            Icon(Icons.Rounded.Delete, contentDescription = "Delete visit")
                         }
                     }
                 }
@@ -338,11 +344,14 @@ private fun AddVisitDialog(
         onDismissRequest = onDismiss,
         title = { Text("Log Visit") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 DateTimeField(label = "Visit Date/Time", valueMillis = visitDate, onValueChange = { visitDate = it })
                 OutlinedTextField(
                     value = topic,
-                    onValueChange = { topic = it },
+                    onValueChange = { topic = it.uppercase() },
                     label = { Text("Topic Discussed (optional)") },
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),

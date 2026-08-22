@@ -16,9 +16,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.emfitsolutions.gopreach.ui.theme.AccentGold
-import com.emfitsolutions.gopreach.ui.theme.PrimaryBlue
-import com.emfitsolutions.gopreach.ui.theme.PrimaryBlueDark
 
 /**
  * The gradient banner shown on entry/dashboard screens (login, home).
@@ -45,7 +42,10 @@ fun AppBanner(
             .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(PrimaryBlueDark, PrimaryBlue),
+                    // Theme-driven, not a hardcoded brand color, so this reads navy blue
+                    // in light mode and purple/black in dark mode (spec: two distinct
+                    // theme identities, not just a dimmed copy of the light one).
+                    colors = listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary),
                 )
             ),
         contentAlignment = Alignment.Center,
@@ -64,7 +64,7 @@ fun AppBanner(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = AccentGold,
+                    color = MaterialTheme.colorScheme.secondary,
                 )
             }
         }

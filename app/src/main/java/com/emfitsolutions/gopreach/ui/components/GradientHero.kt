@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -17,8 +18,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.emfitsolutions.gopreach.ui.theme.PrimaryBlue
-import com.emfitsolutions.gopreach.ui.theme.PrimaryBlueDark
 
 /**
  * The gradient hero panel used behind the login screen's content — a deeper
@@ -38,7 +37,12 @@ fun GradientHero(
             .fillMaxWidth()
             .height(height)
             .clip(RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp))
-            .background(Brush.verticalGradient(colors = listOf(PrimaryBlueDark, PrimaryBlue))),
+            .background(
+                Brush.verticalGradient(
+                    // Theme-driven: navy blue in light mode, purple/black in dark mode.
+                    colors = listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary),
+                )
+            ),
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width

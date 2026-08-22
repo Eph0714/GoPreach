@@ -57,15 +57,15 @@ class PublisherEnrollmentViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(PublisherEnrollmentUiState())
     val uiState: StateFlow<PublisherEnrollmentUiState> = _uiState.asStateFlow()
 
-    fun onLastNameChange(v: String) = _uiState.update { it.copy(lastName = v, errorMessage = null) }
-    fun onFirstNameChange(v: String) = _uiState.update { it.copy(firstName = v, errorMessage = null) }
-    fun onMiddleInitialChange(v: String) = _uiState.update { it.copy(middleInitial = v) }
-    fun onExtensionNameChange(v: String) = _uiState.update { it.copy(extensionName = v) }
-    fun onAddressChange(v: String) = _uiState.update { it.copy(address = v, errorMessage = null) }
+    fun onLastNameChange(v: String) = _uiState.update { it.copy(lastName = v.uppercase(), errorMessage = null) }
+    fun onFirstNameChange(v: String) = _uiState.update { it.copy(firstName = v.uppercase(), errorMessage = null) }
+    fun onMiddleInitialChange(v: String) = _uiState.update { it.copy(middleInitial = v.uppercase()) }
+    fun onExtensionNameChange(v: String) = _uiState.update { it.copy(extensionName = v.uppercase()) }
+    fun onAddressChange(v: String) = _uiState.update { it.copy(address = v.uppercase(), errorMessage = null) }
     fun onGenderChange(v: Gender) = _uiState.update { it.copy(gender = v, errorMessage = null) }
-    fun onContactChange(v: String) = _uiState.update { it.copy(contact = v, errorMessage = null) }
-    fun onContactPersonChange(v: String) = _uiState.update { it.copy(contactPerson = v) }
-    fun onContactPersonNumberChange(v: String) = _uiState.update { it.copy(contactPersonNumber = v) }
+    fun onContactChange(v: String) = _uiState.update { it.copy(contact = v.uppercase(), errorMessage = null) }
+    fun onContactPersonChange(v: String) = _uiState.update { it.copy(contactPerson = v.uppercase()) }
+    fun onContactPersonNumberChange(v: String) = _uiState.update { it.copy(contactPersonNumber = v.uppercase()) }
     fun onCategoryChange(v: PublisherCategory) = _uiState.update { it.copy(category = v) }
     fun onGroupSelected(id: String) = _uiState.update { it.copy(selectedGroupId = id, errorMessage = null) }
 

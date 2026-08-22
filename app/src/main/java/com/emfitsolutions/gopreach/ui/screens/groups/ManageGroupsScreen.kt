@@ -1,5 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.groups
 
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,9 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
@@ -64,14 +67,14 @@ fun ManageGroupsScreen(
                 title = { Text("Groups") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
             )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreateDialog = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "New Group")
+                Icon(Icons.Rounded.Add, contentDescription = "New Group")
             }
         },
     ) { padding ->
@@ -103,7 +106,7 @@ fun ManageGroupsScreen(
                                 )
                             }
                             IconButton(onClick = { pendingDelete = row.group }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Delete group")
+                                Icon(Icons.Rounded.Delete, contentDescription = "Delete group")
                             }
                         }
                     }
@@ -159,7 +162,10 @@ private fun CreateGroupDialog(
         onDismissRequest = onDismiss,
         title = { Text("New Group") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 if (fixedCongregationId == null) {
                     CongregationPickerDropdown(
                         congregations = congregations,
@@ -169,7 +175,7 @@ private fun CreateGroupDialog(
                 }
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it },
+                    onValueChange = { name = it.uppercase() },
                     label = { Text("Group Name") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,

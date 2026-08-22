@@ -10,8 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -54,7 +54,7 @@ fun ReportsScreen(
                 title = { Text("Reports") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
             )
@@ -104,7 +104,7 @@ fun ReportsScreen(
                             }
                             if (canEditReports) {
                                 IconButton(onClick = { onEditPublisher(row.person.id) }) {
-                                    Icon(Icons.Filled.Edit, contentDescription = "Edit this month's report")
+                                    Icon(Icons.Rounded.Edit, contentDescription = "Edit this month's report")
                                 }
                             }
                         }

@@ -7,22 +7,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.AccountBalance
-import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.Backup
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.AccountBalance
+import androidx.compose.material.icons.rounded.AdminPanelSettings
+import androidx.compose.material.icons.rounded.Assessment
+import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Chat
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.People
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,7 +70,7 @@ fun AdminHomeScreen(
             logoContent = { DynamicAppLogo() },
             topEndAction = {
                 IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Color.White)
+                    Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
                 }
             },
         )
@@ -85,33 +85,33 @@ fun AdminHomeScreen(
 
             if (canManagePublishersAndGroups) {
                 DashboardSection("Management") {
-                    DashboardTile("Publishers", Icons.Filled.People, { onNavigate(Destinations.MANAGE_PUBLISHERS) })
-                    DashboardTile("Groups", Icons.Filled.Groups, { onNavigate(Destinations.MANAGE_GROUPS) })
-                    DashboardTile("Territories", Icons.Filled.Map, { onNavigate(Destinations.MANAGE_TERRITORIES) })
+                    DashboardTile("Publishers", Icons.Rounded.People, { onNavigate(Destinations.MANAGE_PUBLISHERS) })
+                    DashboardTile("Groups", Icons.Rounded.Groups, { onNavigate(Destinations.MANAGE_GROUPS) })
+                    DashboardTile("Territories", Icons.Rounded.Map, { onNavigate(Destinations.MANAGE_TERRITORIES) })
                 }
             }
 
             if (role != null) {
                 DashboardSection("Ministry") {
-                    DashboardTile("Chat Schedule", Icons.Filled.Chat, { onNavigate(Destinations.MANAGE_CHAT_SCHEDULES) })
-                    DashboardTile("Reports", Icons.Filled.Assessment, { onNavigate(Destinations.REPORTS) })
-                    DashboardTile("Share Location", Icons.Filled.LocationOn, { onNavigate(Destinations.SHARE_LOCATION) })
-                    DashboardTile("Calendar", Icons.Filled.CalendarMonth, { onNavigate(Destinations.CALENDAR) })
+                    DashboardTile("Chat Schedule", Icons.Rounded.Chat, { onNavigate(Destinations.MANAGE_CHAT_SCHEDULES) })
+                    DashboardTile("Reports", Icons.Rounded.Assessment, { onNavigate(Destinations.REPORTS) })
+                    DashboardTile("Share Location", Icons.Rounded.LocationOn, { onNavigate(Destinations.SHARE_LOCATION) })
+                    DashboardTile("Calendar", Icons.Rounded.CalendarMonth, { onNavigate(Destinations.CALENDAR) })
                 }
             }
 
             if (isSuperAdmin || canEnrollCoordinatorElder || canEnrollRegularElderOrPublisher) {
                 DashboardSection("Enrollment") {
                     if (isSuperAdmin) {
-                        DashboardTile("Congregations", Icons.Filled.AccountBalance, { onNavigate(Destinations.MANAGE_CONGREGATIONS) })
-                        DashboardTile("Admins", Icons.Filled.AdminPanelSettings, { onNavigate(Destinations.MANAGE_ADMINS) })
+                        DashboardTile("Congregations", Icons.Rounded.AccountBalance, { onNavigate(Destinations.MANAGE_CONGREGATIONS) })
+                        DashboardTile("Admins", Icons.Rounded.AdminPanelSettings, { onNavigate(Destinations.MANAGE_ADMINS) })
                     }
                     if (canEnrollCoordinatorElder) {
-                        DashboardTile("Coordinator Elder", Icons.Filled.PersonAdd, { onNavigate(Destinations.ENROLL_COORDINATOR_ELDER) })
+                        DashboardTile("Coordinator Elder", Icons.Rounded.PersonAdd, { onNavigate(Destinations.ENROLL_COORDINATOR_ELDER) })
                     }
                     if (canEnrollRegularElderOrPublisher) {
-                        DashboardTile("Regular Elder", Icons.Filled.PersonAdd, { onNavigate(Destinations.ENROLL_REGULAR_ELDER) })
-                        DashboardTile("Publisher", Icons.Filled.PersonAdd, { onNavigate(Destinations.ENROLL_PUBLISHER) })
+                        DashboardTile("Regular Elder", Icons.Rounded.PersonAdd, { onNavigate(Destinations.ENROLL_REGULAR_ELDER) })
+                        DashboardTile("Publisher", Icons.Rounded.PersonAdd, { onNavigate(Destinations.ENROLL_PUBLISHER) })
                     }
                 }
             }
@@ -119,22 +119,22 @@ fun AdminHomeScreen(
             if (canAccessControlPanel || isSuperAdmin || canViewUserLogs) {
                 DashboardSection("System") {
                     if (canAccessControlPanel) {
-                        DashboardTile("Control Panel", Icons.Filled.Tune, { onNavigate(Destinations.CONTROL_PANEL) })
+                        DashboardTile("Control Panel", Icons.Rounded.Tune, { onNavigate(Destinations.CONTROL_PANEL) })
                     }
                     if (isSuperAdmin) {
-                        DashboardTile("Backup & Restore", Icons.Filled.Backup, { onNavigate(Destinations.BACKUP_RESTORE) })
+                        DashboardTile("Backup & Restore", Icons.Rounded.Backup, { onNavigate(Destinations.BACKUP_RESTORE) })
                     }
                     if (canViewUserLogs) {
-                        DashboardTile("User Logs", Icons.Filled.History, { onNavigate(Destinations.USER_LOGS) })
+                        DashboardTile("User Logs", Icons.Rounded.History, { onNavigate(Destinations.USER_LOGS) })
                     }
                 }
             }
 
             DashboardSection("Account") {
                 if (onSwitchToPublisher != null) {
-                    DashboardTile("Ministry Report App", Icons.Filled.SwapHoriz, onSwitchToPublisher)
+                    DashboardTile("Ministry Report App", Icons.Rounded.SwapHoriz, onSwitchToPublisher)
                 }
-                DashboardTile("Sign Out", Icons.AutoMirrored.Filled.Logout, viewModel::signOut)
+                DashboardTile("Sign Out", Icons.AutoMirrored.Rounded.Logout, viewModel::signOut)
             }
         }
     }
