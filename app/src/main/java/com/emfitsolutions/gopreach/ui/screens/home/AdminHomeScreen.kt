@@ -42,6 +42,7 @@ import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
 import com.emfitsolutions.gopreach.ui.components.DynamicAppLogo
 import com.emfitsolutions.gopreach.ui.components.SyncStatusButton
+import com.emfitsolutions.gopreach.ui.components.UpdateAvailableBanner
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 
 /** Landing point for the Admin context (spec §5.1) — an icon-grid dashboard,
@@ -87,6 +88,8 @@ fun AdminHomeScreen(
                 "Signed in as ${role?.name?.replace('_', ' ') ?: "Unknown role"}",
                 style = MaterialTheme.typography.titleMedium,
             )
+
+            UpdateAvailableBanner()
 
             if (canManagePublishersAndGroups) {
                 DashboardSection("Management") {

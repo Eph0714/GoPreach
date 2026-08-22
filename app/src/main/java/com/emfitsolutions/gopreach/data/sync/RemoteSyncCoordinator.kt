@@ -20,8 +20,10 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -70,6 +72,7 @@ class RemoteSyncCoordinator @Inject constructor(
     private val auditLogRepository: AuditLogRepository,
     private val appSettingsRepository: AppSettingsRepository,
     private val sharedLocationRepository: SharedLocationRepository,
+    private val remoteUpdateTracker: RemoteUpdateTracker,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     private var started = false
@@ -81,22 +84,33 @@ class RemoteSyncCoordinator @Inject constructor(
         awaitClose { firebaseAuth.removeAuthStateListener(listener) }
     }.distinctUntilChanged()
 
+    /** Wires one collection's listener into [appScope], and — after its first
+     * (initial-load) emission, which [Flow.drop] skips — flags [remoteUpdateTracker]
+     * on every later emission, since that means a change arrived *after* this
+     * session was already up and running, not just the normal "load what's
+     * already there" on sign-in. */
+    private fun Flow<Unit>.startTracked(uidChanged: Flow<String?>): Unit {
+        uidChanged.flatMapLatest { this.drop(1) }
+            .onEach { remoteUpdateTracker.markUpdated() }
+            .launchIn(appScope)
+    }
+
     fun startAll() {
         if (started) return
         started = true
         val uidChanged = authUidFlow()
-        uidChanged.flatMapLatest { personRepository.startRemoteSync() }.launchIn(appScope)
-        uidChanged.flatMapLatest { roleAssignmentRepository.startRemoteSync() }.launchIn(appScope)
-        uidChanged.flatMapLatest { congregationRepository.startRemoteSync() }.launchIn(appScope)
-        uidChanged.flatMapLatest { groupRepository.startRemoteSync() }.launchIn(appScope)
-        uidChanged.flatMapLatest { elderTitleRepository.startRemoteSync() }.launchIn(appScope)
-        uidChanged.flatMapLatest { territoryRepository.startRemoteSync() }.launchIn(appScope)
-        uidChanged.flatMapLatest { scheduleRepository.startRemoteSync() }.launchIn(appScope)
-        uidChanged.flatMapLatest { bibleStudyRepository.startRemoteSync() }.launchIn(appScope)
-        uidChanged.flatMapLatest { interestedPersonRepository.startRemoteSync() }.launchIn(appScope)
-        uidChanged.flatMapLatest { monthlyReportRepository.startRemoteSync() }.launchIn(appScope)
-        uidChanged.flatMapLatest { auditLogRepository.startRemoteSync() }.launchIn(appScope)
-        uidChanged.flatMapLatest { appSettingsRepository.startRemoteSync() }.launchIn(appScope)
-        uidChanged.flatMapLatest { sharedLocationRepository.startRemoteSync() }.launchIn(appScope)
+        personRepository.startRemoteSync().startTracked(uidChanged)
+        roleAssignmentRepository.startRemoteSync().startTracked(uidChanged)
+        congregationRepository.startRemoteSync().startTracked(uidChanged)
+        groupRepository.startRemoteSync().startTracked(uidChanged)
+        elderTitleRepository.startRemoteSync().startTracked(uidChanged)
+        territoryRepository.startRemoteSync().startTracked(uidChanged)
+        scheduleRepository.startRemoteSync().startTracked(uidChanged)
+        bibleStudyRepository.startRemoteSync().startTracked(uidChanged)
+        interestedPersonRepository.startRemoteSync().startTracked(uidChanged)
+        monthlyReportRepository.startRemoteSync().startTracked(uidChanged)
+        auditLogRepository.startRemoteSync().startTracked(uidChanged)
+        appSettingsRepository.startRemoteSync().startTracked(uidChanged)
+        sharedLocationRepository.startRemoteSync().startTracked(uidChanged)
     }
 }

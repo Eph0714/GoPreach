@@ -30,6 +30,7 @@ import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
 import com.emfitsolutions.gopreach.ui.components.DynamicAppLogo
 import com.emfitsolutions.gopreach.ui.components.SyncStatusButton
+import com.emfitsolutions.gopreach.ui.components.UpdateAvailableBanner
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 
 /** Landing point for the Ministry Report App / Publisher context (spec §5.2). */
@@ -61,6 +62,8 @@ fun PublisherHomeScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
+            UpdateAvailableBanner()
+
             DashboardSection("My Ministry") {
                 DashboardTile("Monthly Report", Icons.Rounded.Assignment, { onNavigate(Destinations.MONTHLY_REPORT) })
                 DashboardTile("Bible Study Record", Icons.AutoMirrored.Rounded.MenuBook, { onNavigate(Destinations.BIBLE_STUDY_RECORD) })
