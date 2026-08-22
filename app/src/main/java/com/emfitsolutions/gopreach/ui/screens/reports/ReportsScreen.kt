@@ -18,11 +18,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -45,7 +50,16 @@ fun ReportsScreen(
     onBack: () -> Unit,
     viewModel: ReportsViewModel = hiltViewModel(),
 ) {
-    val rowsFlow = remember(visibleCongregationId, visibleGroupId) { viewModel.rowsFor(visibleCongregationId, visibleGroupId) }
+    // A Regular Elder (any of the three Group roles — Overseer/Servant/Assistant)
+    // has both a group and a congregation to view: their own Group's Publisher
+    // Report, and their whole Congregation's. Anyone else scoped to just a
+    // congregation (or to everything, as Super-Admin) never sees this toggle —
+    // there's nothing narrower to switch away from.
+    var showCongregationWide by remember { mutableStateOf(false) }
+    val canToggleScope = visibleCongregationId != null && visibleGroupId != null
+    val effectiveGroupId = if (canToggleScope && showCongregationWide) null else visibleGroupId
+
+    val rowsFlow = remember(visibleCongregationId, effectiveGroupId) { viewModel.rowsFor(visibleCongregationId, effectiveGroupId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     Scaffold(
@@ -60,9 +74,24 @@ fun ReportsScreen(
             )
         },
     ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        if (canToggleScope) {
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                SegmentedButton(
+                    selected = !showCongregationWide,
+                    onClick = { showCongregationWide = false },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                ) { Text("My Group") }
+                SegmentedButton(
+                    selected = showCongregationWide,
+                    onClick = { showCongregationWide = true },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                ) { Text("My Congregation") }
+            }
+        }
         if (rows.isEmpty()) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
@@ -72,7 +101,7 @@ fun ReportsScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -111,6 +140,7 @@ fun ReportsScreen(
                     }
                 }
             }
+        }
         }
     }
 }

@@ -33,7 +33,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.ElderTitleEntity
+import com.emfitsolutions.gopreach.data.model.RegularElderRole
 import com.emfitsolutions.gopreach.ui.components.TempCredentialsResultCard
+import com.emfitsolutions.gopreach.ui.components.displayLabel
 
 /** Spec §4.4 — Regular Elder enrollment (Super-Admin, Admin, Coordinator Elder). */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -108,6 +110,11 @@ fun RegularElderEnrollmentScreen(
                         onSelected = viewModel::onElderTitleSelected,
                     )
 
+                    RegularElderRoleDropdown(
+                        selected = uiState.selectedRole,
+                        onSelected = viewModel::onRoleSelected,
+                    )
+
                     if (uiState.errorMessage != null) {
                         Text(text = uiState.errorMessage!!, color = MaterialTheme.colorScheme.error)
                     }
@@ -154,6 +161,39 @@ internal fun ElderTitleDropdown(
                     text = { Text(title.titleName) },
                     onClick = {
                         onSelected(title.id)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** Required — a Group needs exactly one Elder in each of these three roles. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun RegularElderRoleDropdown(
+    selected: RegularElderRole?,
+    onSelected: (RegularElderRole) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selected?.displayLabel() ?: "",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Group Role") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            RegularElderRole.entries.forEach { role ->
+                DropdownMenuItem(
+                    text = { Text(role.displayLabel()) },
+                    onClick = {
+                        onSelected(role)
                         expanded = false
                     },
                 )

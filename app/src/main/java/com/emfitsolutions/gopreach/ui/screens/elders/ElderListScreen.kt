@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
+import com.emfitsolutions.gopreach.ui.components.displayLabel
 
 /** Shared list UI for [ManageCoordinatorEldersScreen] and [ManageRegularEldersScreen] —
  * same card layout as Manage Admins (name/scope/contact/edit/delete(deactivate)/
@@ -98,6 +99,9 @@ fun ElderListScreen(
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(row.person.fullName, style = MaterialTheme.typography.titleMedium)
+                                if (row.regularElderRole != null) {
+                                    Text("Role: ${row.regularElderRole.displayLabel()}", style = MaterialTheme.typography.bodySmall)
+                                }
                                 Text("$scopeLabel: ${row.scopeName}", style = MaterialTheme.typography.bodySmall)
                                 Text("Contact: ${row.person.contact}", style = MaterialTheme.typography.bodySmall)
                                 Text(

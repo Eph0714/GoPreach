@@ -24,10 +24,38 @@ data class Group(
     @DocumentId val id: String = "",
     val congregationId: String = "",
     val name: String = "",
-    /** personId of the Regular Elder overseeing this group; null until assigned. */
+    /** Legacy single-elder field from before the three-role structure below —
+     * kept, unmigrated, so existing data is never silently dropped or
+     * overwritten. A Group written by the current app always leaves this null
+     * and uses the three fields instead; a Group from before this change may
+     * have only this set. See ManageGroupsScreen for how the admin carries an
+     * existing assignment over into one of the three roles. */
     val regularElderPersonId: String? = null,
+    /** A Group needs exactly one Elder in each of these three roles to be
+     * considered fully assigned (spec: "Group Assignment Incomplete —
+     * Missing: X"). Each personId here is also mirrored onto that Elder's own
+     * RoleAssignment.groupId (see ManageGroupsViewModel.save) — that mirror is
+     * what actually drives their Group/Congregation report access. */
+    val overseerPersonId: String? = null,
+    val servantPersonId: String? = null,
+    val assistantPersonId: String? = null,
     val createdAt: Long = 0L,
-)
+) {
+    /** Which of the three required roles still need an Elder — empty means fully assigned. */
+    fun missingRoles(): List<RegularElderRole> = buildList {
+        if (overseerPersonId == null) add(RegularElderRole.GROUP_OVERSEER)
+        if (servantPersonId == null) add(RegularElderRole.GROUP_SERVANT)
+        if (assistantPersonId == null) add(RegularElderRole.GROUP_ASSISTANT)
+    }
+
+    val isComplete: Boolean get() = missingRoles().isEmpty()
+
+    fun personIdFor(role: RegularElderRole): String? = when (role) {
+        RegularElderRole.GROUP_OVERSEER -> overseerPersonId
+        RegularElderRole.GROUP_SERVANT -> servantPersonId
+        RegularElderRole.GROUP_ASSISTANT -> assistantPersonId
+    }
+}
 
 /**
  * Lookup table for Regular Elder "specific title" (spec §3), fully CRUD-able by

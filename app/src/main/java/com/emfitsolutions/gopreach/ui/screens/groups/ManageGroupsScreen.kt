@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -46,10 +47,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.RegularElderRole
+import com.emfitsolutions.gopreach.ui.components.displayLabel
 
-/** Spec §3 — "CRUD Groups + assign 1 Elder". [fixedCongregationId] scopes both
- * the list and the create dialog for Admin/Coordinator Elder; null lets a
- * Super-Admin pick a congregation per group instead. */
+/** Spec: "CRUD Groups" — each Group needs exactly one Elder in each of three
+ * roles (Overseer/Servant/Assistant), not the single Elder this used to allow.
+ * [fixedCongregationId] scopes both the list and the create dialog for Admin/
+ * Coordinator Elder; null lets a Super-Admin pick a congregation per group instead. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManageGroupsScreen(
@@ -95,24 +99,59 @@ fun ManageGroupsScreen(
             ) {
                 items(rows, key = { it.group.id }) { row ->
                     Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Text(row.group.name, style = MaterialTheme.typography.titleMedium)
+                                Row {
+                                    IconButton(onClick = { pendingEdit = row.group }) {
+                                        Icon(Icons.Rounded.Edit, contentDescription = "Edit group")
+                                    }
+                                    IconButton(onClick = { pendingDelete = row.group }) {
+                                        Icon(Icons.Rounded.Delete, contentDescription = "Delete group")
+                                    }
+                                }
+                            }
+                            Text(
+                                "${RegularElderRole.GROUP_OVERSEER.displayLabel()}: ${row.overseerName ?: "Unassigned"}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text(
+                                "${RegularElderRole.GROUP_SERVANT.displayLabel()}: ${row.servantName ?: "Unassigned"}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text(
+                                "${RegularElderRole.GROUP_ASSISTANT.displayLabel()}: ${row.assistantName ?: "Unassigned"}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            if (row.group.regularElderPersonId != null && !row.group.isComplete) {
                                 Text(
-                                    "Elder: ${row.elderName ?: "Unassigned"}",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    "Existing assignment on file — open Edit to place them in a role.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.secondary,
                                 )
                             }
-                            Row {
-                                IconButton(onClick = { pendingEdit = row.group }) {
-                                    Icon(Icons.Rounded.Edit, contentDescription = "Edit group")
-                                }
-                                IconButton(onClick = { pendingDelete = row.group }) {
-                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete group")
+                            if (!row.group.isComplete) {
+                                val missing = row.group.missingRoles().joinToString(", ") { it.displayLabel() }
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Text(
+                                            "Group Assignment Incomplete",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onErrorContainer,
+                                        )
+                                        Text(
+                                            "Missing: $missing",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onErrorContainer,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -146,7 +185,7 @@ fun ManageGroupsScreen(
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("Delete ${toDelete.name}?") },
-            text = { Text("Publishers already assigned to this group keep their assignment; reassign them afterward.") },
+            text = { Text("Publishers already assigned to this group keep their assignment; reassign them afterward. The three Elders assigned here are also unassigned from it.") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(toDelete.id)
@@ -167,8 +206,6 @@ private fun GroupDialog(
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf(existingGroup?.name ?: "") }
-    var selectedElder by remember { mutableStateOf<Person?>(null) }
-    var elderPreselected by remember { mutableStateOf(existingGroup?.regularElderPersonId == null) }
     val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
     var pickedCongregation by remember(congregations) {
         mutableStateOf(congregations.firstOrNull { it.id == existingGroup?.congregationId })
@@ -176,13 +213,41 @@ private fun GroupDialog(
     // Scoped roles (Admin/Coordinator Elder) already have exactly one congregation;
     // only a Super-Admin needs to pick one here.
     val congregationId = fixedCongregationId ?: pickedCongregation?.id ?: existingGroup?.congregationId
-    val elders by remember(congregationId) {
-        if (congregationId != null) viewModel.availableEldersFor(congregationId) else kotlinx.coroutines.flow.flowOf(emptyList())
+
+    var overseer by remember { mutableStateOf<Person?>(null) }
+    var servant by remember { mutableStateOf<Person?>(null) }
+    var assistant by remember { mutableStateOf<Person?>(null) }
+    var preselected by remember { mutableStateOf(existingGroup == null) }
+
+    val overseerCandidates by remember(congregationId, servant, assistant) {
+        if (congregationId != null) {
+            viewModel.availableEldersFor(congregationId, RegularElderRole.GROUP_OVERSEER, setOfNotNull(servant?.id, assistant?.id))
+        } else kotlinx.coroutines.flow.flowOf(emptyList())
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val servantCandidates by remember(congregationId, overseer, assistant) {
+        if (congregationId != null) {
+            viewModel.availableEldersFor(congregationId, RegularElderRole.GROUP_SERVANT, setOfNotNull(overseer?.id, assistant?.id))
+        } else kotlinx.coroutines.flow.flowOf(emptyList())
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val assistantCandidates by remember(congregationId, overseer, servant) {
+        if (congregationId != null) {
+            viewModel.availableEldersFor(congregationId, RegularElderRole.GROUP_ASSISTANT, setOfNotNull(overseer?.id, servant?.id))
+        } else kotlinx.coroutines.flow.flowOf(emptyList())
     }.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    if (!elderPreselected && elders.isNotEmpty()) {
-        selectedElder = elders.firstOrNull { it.id == existingGroup?.regularElderPersonId }
-        elderPreselected = true
+    // Pre-fill from the existing Group's three role slots once their candidate
+    // lists have loaded — a legacy single-Elder Group (regularElderPersonId set,
+    // the three role fields still null) has nothing to pre-fill here, which is
+    // exactly the "assign the appropriate role" gap the admin fills in manually below.
+    if (!preselected && (overseerCandidates.isNotEmpty() || servantCandidates.isNotEmpty() || assistantCandidates.isNotEmpty())) {
+        overseer = overseerCandidates.firstOrNull { it.id == existingGroup?.overseerPersonId }
+        servant = servantCandidates.firstOrNull { it.id == existingGroup?.servantPersonId }
+        assistant = assistantCandidates.firstOrNull { it.id == existingGroup?.assistantPersonId }
+        preselected = true
+    }
+
+    val legacyElderName = existingGroup?.regularElderPersonId?.let { legacyId ->
+        (overseerCandidates + servantCandidates + assistantCandidates).firstOrNull { it.id == legacyId }?.fullName
     }
 
     AlertDialog(
@@ -190,7 +255,7 @@ private fun GroupDialog(
         title = { Text(if (existingGroup == null) "New Group" else "Edit Group") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (fixedCongregationId == null) {
@@ -208,7 +273,31 @@ private fun GroupDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                ElderDropdown(elders = elders, selected = selectedElder, onSelected = { selectedElder = it })
+                if (legacyElderName != null && existingGroup?.isComplete == false) {
+                    Text(
+                        "Existing assignment: $legacyElderName — pick which role they hold below.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                }
+                ElderRoleDropdown(
+                    label = RegularElderRole.GROUP_OVERSEER.displayLabel(),
+                    elders = overseerCandidates,
+                    selected = overseer,
+                    onSelected = { overseer = it },
+                )
+                ElderRoleDropdown(
+                    label = RegularElderRole.GROUP_SERVANT.displayLabel(),
+                    elders = servantCandidates,
+                    selected = servant,
+                    onSelected = { servant = it },
+                )
+                ElderRoleDropdown(
+                    label = RegularElderRole.GROUP_ASSISTANT.displayLabel(),
+                    elders = assistantCandidates,
+                    selected = assistant,
+                    onSelected = { assistant = it },
+                )
             }
         },
         confirmButton = {
@@ -220,7 +309,10 @@ private fun GroupDialog(
                                 id = existingGroup?.id ?: "",
                                 congregationId = congregationId,
                                 name = name.trim(),
-                                regularElderPersonId = selectedElder?.id,
+                                regularElderPersonId = existingGroup?.regularElderPersonId,
+                                overseerPersonId = overseer?.id,
+                                servantPersonId = servant?.id,
+                                assistantPersonId = assistant?.id,
                                 createdAt = existingGroup?.createdAt ?: System.currentTimeMillis(),
                             )
                         )
@@ -265,21 +357,32 @@ private fun CongregationPickerDropdown(
     }
 }
 
+/** One role's Elder picker — [elders] is already filtered to that role (plus
+ * unclassified legacy Elders) and already excludes whoever the *other two*
+ * dropdowns currently hold, so cross-role duplicate selection isn't reachable
+ * through this UI at all. A "None" option lets a role be cleared. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ElderDropdown(elders: List<Person>, selected: Person?, onSelected: (Person) -> Unit) {
+private fun ElderRoleDropdown(label: String, elders: List<Person>, selected: Person?, onSelected: (Person?) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
             value = selected?.fullName ?: "",
             onValueChange = {},
             readOnly = true,
-            label = { Text("Regular Elder") },
+            label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("None") },
+                onClick = {
+                    onSelected(null)
+                    expanded = false
+                },
+            )
             elders.forEach { elder ->
                 DropdownMenuItem(
                     text = { Text(elder.fullName) },

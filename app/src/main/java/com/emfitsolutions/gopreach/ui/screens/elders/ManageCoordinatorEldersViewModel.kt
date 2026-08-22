@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.RegularElderRole
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
@@ -21,6 +22,10 @@ data class ElderRow(
     val assignment: RoleAssignment,
     val scopeName: String,
     val isActive: Boolean,
+    /** Only meaningful for Regular Elder rows — their Group Overseer/Servant/
+     * Assistant assignment (null for Coordinator Elder rows, or a Regular
+     * Elder enrolled before this field existed and not yet placed in a Group role). */
+    val regularElderRole: RegularElderRole? = null,
 )
 
 /** Spec §3 — "CRUD Coordinator Elder", Super-Admin/Admin. Scoped by congregation

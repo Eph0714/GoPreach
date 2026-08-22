@@ -24,6 +24,13 @@ data class RoleAssignment(
 
     /** Only meaningful for AdminRole.REGULAR_ELDER — id into [ElderTitleEntity]. */
     val elderTitleId: String? = null,
+    /** Only meaningful for AdminRole.REGULAR_ELDER — which of a Group's three
+     * required Elder slots this person fills. Kept alongside [groupId], which is
+     * what actually drives this Elder's own Group/Congregation report access
+     * (see [com.emfitsolutions.gopreach.domain.PermissionChecker]) — [Group]'s
+     * overseer/servant/assistant fields are the source of truth for *who* fills a
+     * slot, and assigning them there is what sets this RoleAssignment's groupId. */
+    val regularElderRole: RegularElderRole? = null,
 
     val status: RoleAssignmentStatus = RoleAssignmentStatus.ACTIVE,
     val dateAssigned: Long = 0L,

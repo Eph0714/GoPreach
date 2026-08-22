@@ -37,7 +37,7 @@ class ManageRegularEldersViewModel @Inject constructor(
             .mapNotNull { assignment ->
                 val person = people.firstOrNull { it.id == assignment.personId } ?: return@mapNotNull null
                 val scopeName = groups.firstOrNull { it.id == assignment.groupId }?.name ?: "Unassigned group"
-                ElderRow(person, assignment, scopeName, assignment.status == RoleAssignmentStatus.ACTIVE)
+                ElderRow(person, assignment, scopeName, assignment.status == RoleAssignmentStatus.ACTIVE, assignment.regularElderRole)
             }
             .sortedBy { it.person.fullName }
     }

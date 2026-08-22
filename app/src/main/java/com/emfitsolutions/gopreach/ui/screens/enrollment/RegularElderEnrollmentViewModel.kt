@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.ElderTitleEntity
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.RegularElderRole
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
@@ -30,6 +31,7 @@ data class RegularElderEnrollmentUiState(
     val email: String = "",
     val contact: String = "",
     val selectedElderTitleId: String? = null,
+    val selectedRole: RegularElderRole? = null,
     val isSaving: Boolean = false,
     val errorMessage: String? = null,
     val result: TempCredentials? = null,
@@ -59,11 +61,12 @@ class RegularElderEnrollmentViewModel @Inject constructor(
     fun onEmailChange(value: String) = _uiState.update { it.copy(email = value, errorMessage = null) }
     fun onContactChange(value: String) = _uiState.update { it.copy(contact = value.uppercase(), errorMessage = null) }
     fun onElderTitleSelected(id: String) = _uiState.update { it.copy(selectedElderTitleId = id, errorMessage = null) }
+    fun onRoleSelected(role: RegularElderRole) = _uiState.update { it.copy(selectedRole = role, errorMessage = null) }
 
     fun save(enrollingPersonId: String) {
         val state = _uiState.value
-        if (state.name.isBlank() || state.address.isBlank() || state.contact.isBlank() || state.selectedElderTitleId == null) {
-            _uiState.update { it.copy(errorMessage = "Name, address, contact, and specific role are required.") }
+        if (state.name.isBlank() || state.address.isBlank() || state.contact.isBlank() || state.selectedElderTitleId == null || state.selectedRole == null) {
+            _uiState.update { it.copy(errorMessage = "Name, address, contact, specific role, and Group role are all required.") }
             return
         }
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
@@ -94,6 +97,7 @@ class RegularElderEnrollmentViewModel @Inject constructor(
                         roleType = RoleType.serialize(RoleType.Admin(AdminRole.REGULAR_ELDER)),
                         congregationId = congregationId,
                         elderTitleId = state.selectedElderTitleId,
+                        regularElderRole = state.selectedRole,
                         status = RoleAssignmentStatus.ACTIVE,
                         dateAssigned = System.currentTimeMillis(),
                         assignedByPersonId = enrollingPersonId,

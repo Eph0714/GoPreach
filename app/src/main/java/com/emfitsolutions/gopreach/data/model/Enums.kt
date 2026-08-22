@@ -47,6 +47,13 @@ sealed class RoleType {
 
 enum class RoleAssignmentStatus { ACTIVE, INACTIVE }
 
+/** A Regular Elder's structural role within their assigned Group — distinct from
+ * [ElderTitleEntity] (a free-form, admin-editable "specific title" label): this is
+ * a fixed 3-way split that drives Group-completeness validation and which of a
+ * Group's three Regular Elder slots this person fills. Every Group needs exactly
+ * one of each to be considered fully assigned. */
+enum class RegularElderRole { GROUP_OVERSEER, GROUP_SERVANT, GROUP_ASSISTANT }
+
 enum class Gender { MALE, FEMALE }
 
 /** Status of a householder at a preaching visit (spec §6.3). Congregations may need to
