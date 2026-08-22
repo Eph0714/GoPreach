@@ -32,7 +32,7 @@ data class AdminRow(
  */
 @HiltViewModel
 class ManageAdminsViewModel @Inject constructor(
-    personRepository: PersonRepository,
+    private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
@@ -50,6 +50,10 @@ class ManageAdminsViewModel @Inject constructor(
                 AdminRow(person, assignment, congregationName, assignment.status == RoleAssignmentStatus.ACTIVE)
             }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun updatePerson(person: Person) {
+        viewModelScope.launch { personRepository.save(person) }
+    }
 
     /** "Delete" here means deactivate, same pattern as Publishers' recategorize —
      * the RoleAssignment record (and its audit trail) is kept, not erased. */

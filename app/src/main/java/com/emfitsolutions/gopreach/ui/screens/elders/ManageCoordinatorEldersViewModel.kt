@@ -56,4 +56,8 @@ class ManageCoordinatorEldersViewModel @Inject constructor(
             )
         }
     }
+
+    fun updatePerson(person: Person) {
+        viewModelScope.launch { personRepository.save(person) }
+    }
 }

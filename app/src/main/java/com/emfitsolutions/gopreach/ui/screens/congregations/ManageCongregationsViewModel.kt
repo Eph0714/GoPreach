@@ -22,6 +22,19 @@ class ManageCongregationsViewModel @Inject constructor(
     val congregations: StateFlow<List<Congregation>> = congregationRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    fun update(congregation: Congregation, updatedByPersonId: String) {
+        viewModelScope.launch {
+            congregationRepository.save(congregation)
+            auditLogRepository.log(
+                actorPersonId = updatedByPersonId,
+                action = "UPDATE_CONGREGATION",
+                targetType = "Congregation",
+                targetId = congregation.id,
+                congregationId = congregation.id,
+            )
+        }
+    }
+
     fun delete(congregationId: String, deletedByPersonId: String) {
         viewModelScope.launch {
             congregationRepository.delete(congregationId)

@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,6 +64,7 @@ fun CalendarScreen(
     val eventsFlow = remember(scope) { viewModel.eventsFor(scope, currentPersonId) }
     val events by eventsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showCreateDialog by remember { mutableStateOf(false) }
+    var pendingEdit by remember { mutableStateOf<Schedule?>(null) }
     var pendingDelete by remember { mutableStateOf<Schedule?>(null) }
     val dateFormat = remember { SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()) }
     val isPublisherScope = scope is CalendarScope.Publisher
@@ -119,8 +121,13 @@ fun CalendarScreen(
                                 }
                             }
                             if (editable) {
-                                IconButton(onClick = { pendingDelete = event }) {
-                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                Row {
+                                    IconButton(onClick = { pendingEdit = event }) {
+                                        Icon(Icons.Rounded.Edit, contentDescription = "Edit")
+                                    }
+                                    IconButton(onClick = { pendingDelete = event }) {
+                                        Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                    }
                                 }
                             }
                         }
@@ -131,11 +138,23 @@ fun CalendarScreen(
     }
 
     if (showCreateDialog) {
-        CreateEventDialog(
+        EventDialog(
             currentPersonId = currentPersonId,
             scope = scope,
+            existingEvent = null,
             onSave = { viewModel.save(it) },
             onDismiss = { showCreateDialog = false },
+        )
+    }
+
+    val toEditEvent = pendingEdit
+    if (toEditEvent != null) {
+        EventDialog(
+            currentPersonId = currentPersonId,
+            scope = scope,
+            existingEvent = toEditEvent,
+            onSave = { viewModel.save(it) },
+            onDismiss = { pendingEdit = null },
         )
     }
 
@@ -157,20 +176,30 @@ fun CalendarScreen(
 }
 
 @Composable
-private fun CreateEventDialog(
+private fun EventDialog(
     currentPersonId: String,
     scope: CalendarScope,
+    existingEvent: Schedule?,
     onSave: (Schedule) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var startTime by remember { mutableStateOf<Long?>(null) }
-    var endTime by remember { mutableStateOf<Long?>(null) }
+    var title by remember { mutableStateOf(existingEvent?.title ?: "") }
+    var description by remember { mutableStateOf(existingEvent?.description ?: "") }
+    var startTime by remember { mutableStateOf(existingEvent?.startTime) }
+    var endTime by remember { mutableStateOf(existingEvent?.endTime) }
+    val isNew = existingEvent == null
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (scope is CalendarScope.Publisher) "New Personal Note" else "New Calendar Event") },
+        title = {
+            Text(
+                when {
+                    !isNew -> "Edit ${if (scope is CalendarScope.Publisher) "Note" else "Event"}"
+                    scope is CalendarScope.Publisher -> "New Personal Note"
+                    else -> "New Calendar Event"
+                }
+            )
+        },
         text = {
             Column(
                 modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
@@ -204,25 +233,27 @@ private fun CreateEventDialog(
                         onSave(
                             when (scope) {
                                 is CalendarScope.Publisher -> Schedule(
+                                    id = existingEvent?.id ?: "",
                                     kind = ScheduleKind.PERSONAL_NOTE,
                                     title = title.trim(),
                                     description = description.trim().ifBlank { null },
                                     startTime = start,
                                     endTime = end,
                                     ownerPersonId = currentPersonId,
-                                    createdByPersonId = currentPersonId,
-                                    createdAt = System.currentTimeMillis(),
+                                    createdByPersonId = existingEvent?.createdByPersonId ?: currentPersonId,
+                                    createdAt = existingEvent?.createdAt ?: System.currentTimeMillis(),
                                 )
                                 is CalendarScope.AdminTrack -> Schedule(
+                                    id = existingEvent?.id ?: "",
                                     kind = ScheduleKind.CALENDAR_EVENT,
                                     title = title.trim(),
                                     description = description.trim().ifBlank { null },
                                     startTime = start,
                                     endTime = end,
-                                    congregationId = scope.congregationId,
-                                    groupId = if (!scope.canEditAll) scope.editableGroupId else null,
-                                    createdByPersonId = currentPersonId,
-                                    createdAt = System.currentTimeMillis(),
+                                    congregationId = existingEvent?.congregationId ?: scope.congregationId,
+                                    groupId = existingEvent?.groupId ?: (if (!scope.canEditAll) scope.editableGroupId else null),
+                                    createdByPersonId = existingEvent?.createdByPersonId ?: currentPersonId,
+                                    createdAt = existingEvent?.createdAt ?: System.currentTimeMillis(),
                                 )
                             }
                         )

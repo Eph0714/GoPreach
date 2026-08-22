@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
@@ -58,6 +59,7 @@ fun ManageTerritoriesScreen(
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val groups by viewModel.groups.collectAsStateWithLifecycle(initialValue = emptyList())
     var showCreateDialog by remember { mutableStateOf(false) }
+    var pendingEdit by remember { mutableStateOf<Territory?>(null) }
     var pendingDelete by remember { mutableStateOf<Territory?>(null) }
 
     Scaffold(
@@ -107,8 +109,13 @@ fun ManageTerritoriesScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                             }
-                            IconButton(onClick = { pendingDelete = row.territory }) {
-                                Icon(Icons.Rounded.Delete, contentDescription = "Delete territory")
+                            Row {
+                                IconButton(onClick = { pendingEdit = row.territory }) {
+                                    Icon(Icons.Rounded.Edit, contentDescription = "Edit territory")
+                                }
+                                IconButton(onClick = { pendingDelete = row.territory }) {
+                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete territory")
+                                }
                             }
                         }
                     }
@@ -117,14 +124,28 @@ fun ManageTerritoriesScreen(
         }
     }
 
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
+
     if (showCreateDialog) {
-        val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
-        CreateTerritoryDialog(
+        TerritoryDialog(
             fixedCongregationId = fixedCongregationId,
+            existingTerritory = null,
             congregations = congregations,
             allGroups = groups,
             onSave = { viewModel.save(it) },
             onDismiss = { showCreateDialog = false },
+        )
+    }
+
+    val toEditTerritory = pendingEdit
+    if (toEditTerritory != null) {
+        TerritoryDialog(
+            fixedCongregationId = fixedCongregationId,
+            existingTerritory = toEditTerritory,
+            congregations = congregations,
+            allGroups = groups,
+            onSave = { viewModel.save(it) },
+            onDismiss = { pendingEdit = null },
         )
     }
 
@@ -147,23 +168,28 @@ fun ManageTerritoriesScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CreateTerritoryDialog(
+private fun TerritoryDialog(
     fixedCongregationId: String?,
+    existingTerritory: Territory?,
     congregations: List<Congregation>,
     allGroups: List<Group>,
     onSave: (Territory) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var selectedGroup by remember { mutableStateOf<Group?>(null) }
-    var pickedCongregation by remember { mutableStateOf<Congregation?>(null) }
-    val congregationId = fixedCongregationId ?: pickedCongregation?.id
+    var name by remember { mutableStateOf(existingTerritory?.name ?: "") }
+    var description by remember { mutableStateOf(existingTerritory?.description ?: "") }
+    var pickedCongregation by remember(congregations) {
+        mutableStateOf(congregations.firstOrNull { it.id == existingTerritory?.congregationId })
+    }
+    val congregationId = fixedCongregationId ?: pickedCongregation?.id ?: existingTerritory?.congregationId
     val groups = allGroups.filter { it.congregationId == congregationId }
+    var selectedGroup by remember(groups) {
+        mutableStateOf(groups.firstOrNull { it.id == existingTerritory?.assignedGroupId })
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New Territory") },
+        title = { Text(if (existingTerritory == null) "New Territory" else "Edit Territory") },
         text = {
             Column(
                 modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
@@ -200,17 +226,18 @@ private fun CreateTerritoryDialog(
                     if (name.isNotBlank() && congregationId != null) {
                         onSave(
                             Territory(
+                                id = existingTerritory?.id ?: "",
                                 congregationId = congregationId,
                                 name = name.trim(),
                                 description = description.trim().ifBlank { null },
                                 assignedGroupId = selectedGroup?.id,
-                                createdAt = System.currentTimeMillis(),
+                                createdAt = existingTerritory?.createdAt ?: System.currentTimeMillis(),
                             )
                         )
                         onDismiss()
                     }
                 },
-            ) { Text("Create") }
+            ) { Text(if (existingTerritory == null) "Create" else "Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

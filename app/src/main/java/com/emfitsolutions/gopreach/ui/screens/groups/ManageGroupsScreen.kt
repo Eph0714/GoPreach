@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
@@ -59,6 +60,7 @@ fun ManageGroupsScreen(
     val rowsFlow = remember(fixedCongregationId) { viewModel.rowsFor(fixedCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showCreateDialog by remember { mutableStateOf(false) }
+    var pendingEdit by remember { mutableStateOf<Group?>(null) }
     var pendingDelete by remember { mutableStateOf<Group?>(null) }
 
     Scaffold(
@@ -105,8 +107,13 @@ fun ManageGroupsScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                             }
-                            IconButton(onClick = { pendingDelete = row.group }) {
-                                Icon(Icons.Rounded.Delete, contentDescription = "Delete group")
+                            Row {
+                                IconButton(onClick = { pendingEdit = row.group }) {
+                                    Icon(Icons.Rounded.Edit, contentDescription = "Edit group")
+                                }
+                                IconButton(onClick = { pendingDelete = row.group }) {
+                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete group")
+                                }
                             }
                         }
                     }
@@ -116,10 +123,21 @@ fun ManageGroupsScreen(
     }
 
     if (showCreateDialog) {
-        CreateGroupDialog(
+        GroupDialog(
             fixedCongregationId = fixedCongregationId,
+            existingGroup = null,
             viewModel = viewModel,
             onDismiss = { showCreateDialog = false },
+        )
+    }
+
+    val toEditGroup = pendingEdit
+    if (toEditGroup != null) {
+        GroupDialog(
+            fixedCongregationId = fixedCongregationId,
+            existingGroup = toEditGroup,
+            viewModel = viewModel,
+            onDismiss = { pendingEdit = null },
         )
     }
 
@@ -142,25 +160,34 @@ fun ManageGroupsScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CreateGroupDialog(
+private fun GroupDialog(
     fixedCongregationId: String?,
+    existingGroup: Group?,
     viewModel: ManageGroupsViewModel,
     onDismiss: () -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(existingGroup?.name ?: "") }
     var selectedElder by remember { mutableStateOf<Person?>(null) }
-    var pickedCongregation by remember { mutableStateOf<Congregation?>(null) }
+    var elderPreselected by remember { mutableStateOf(existingGroup?.regularElderPersonId == null) }
     val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
+    var pickedCongregation by remember(congregations) {
+        mutableStateOf(congregations.firstOrNull { it.id == existingGroup?.congregationId })
+    }
     // Scoped roles (Admin/Coordinator Elder) already have exactly one congregation;
     // only a Super-Admin needs to pick one here.
-    val congregationId = fixedCongregationId ?: pickedCongregation?.id
+    val congregationId = fixedCongregationId ?: pickedCongregation?.id ?: existingGroup?.congregationId
     val elders by remember(congregationId) {
         if (congregationId != null) viewModel.availableEldersFor(congregationId) else kotlinx.coroutines.flow.flowOf(emptyList())
     }.collectAsStateWithLifecycle(initialValue = emptyList())
 
+    if (!elderPreselected && elders.isNotEmpty()) {
+        selectedElder = elders.firstOrNull { it.id == existingGroup?.regularElderPersonId }
+        elderPreselected = true
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New Group") },
+        title = { Text(if (existingGroup == null) "New Group" else "Edit Group") },
         text = {
             Column(
                 modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
@@ -190,16 +217,17 @@ private fun CreateGroupDialog(
                     if (name.isNotBlank() && congregationId != null) {
                         viewModel.save(
                             Group(
+                                id = existingGroup?.id ?: "",
                                 congregationId = congregationId,
                                 name = name.trim(),
                                 regularElderPersonId = selectedElder?.id,
-                                createdAt = System.currentTimeMillis(),
+                                createdAt = existingGroup?.createdAt ?: System.currentTimeMillis(),
                             )
                         )
                         onDismiss()
                     }
                 },
-            ) { Text("Create") }
+            ) { Text(if (existingGroup == null) "Create" else "Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

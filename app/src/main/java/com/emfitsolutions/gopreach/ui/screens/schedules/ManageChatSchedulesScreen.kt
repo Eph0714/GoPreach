@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,6 +64,7 @@ fun ManageChatSchedulesScreen(
     }
     val schedules by schedulesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showCreateDialog by remember { mutableStateOf(false) }
+    var pendingEdit by remember { mutableStateOf<Schedule?>(null) }
     var pendingDelete by remember { mutableStateOf<Schedule?>(null) }
     val dateFormat = remember { SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()) }
 
@@ -116,8 +118,13 @@ fun ManageChatSchedulesScreen(
                                 }
                             }
                             if (canEdit) {
-                                IconButton(onClick = { pendingDelete = schedule }) {
-                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                Row {
+                                    IconButton(onClick = { pendingEdit = schedule }) {
+                                        Icon(Icons.Rounded.Edit, contentDescription = "Edit")
+                                    }
+                                    IconButton(onClick = { pendingDelete = schedule }) {
+                                        Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                    }
                                 }
                             }
                         }
@@ -128,12 +135,25 @@ fun ManageChatSchedulesScreen(
     }
 
     if (showCreateDialog) {
-        CreateChatScheduleDialog(
+        ChatScheduleDialog(
             currentPersonId = currentPersonId,
             congregationId = visibleCongregationId,
             groupId = visibleGroupId,
+            existingSchedule = null,
             onSave = { viewModel.save(it) },
             onDismiss = { showCreateDialog = false },
+        )
+    }
+
+    val toEditSchedule = pendingEdit
+    if (toEditSchedule != null) {
+        ChatScheduleDialog(
+            currentPersonId = currentPersonId,
+            congregationId = visibleCongregationId,
+            groupId = visibleGroupId,
+            existingSchedule = toEditSchedule,
+            onSave = { viewModel.save(it) },
+            onDismiss = { pendingEdit = null },
         )
     }
 
@@ -155,21 +175,22 @@ fun ManageChatSchedulesScreen(
 }
 
 @Composable
-private fun CreateChatScheduleDialog(
+private fun ChatScheduleDialog(
     currentPersonId: String,
     congregationId: String?,
     groupId: String?,
+    existingSchedule: Schedule?,
     onSave: (Schedule) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var startTime by remember { mutableStateOf<Long?>(null) }
-    var endTime by remember { mutableStateOf<Long?>(null) }
+    var title by remember { mutableStateOf(existingSchedule?.title ?: "") }
+    var description by remember { mutableStateOf(existingSchedule?.description ?: "") }
+    var startTime by remember { mutableStateOf(existingSchedule?.startTime) }
+    var endTime by remember { mutableStateOf(existingSchedule?.endTime) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New Chat Schedule") },
+        title = { Text(if (existingSchedule == null) "New Chat Schedule" else "Edit Chat Schedule") },
         text = {
             Column(
                 modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
@@ -202,6 +223,7 @@ private fun CreateChatScheduleDialog(
                     if (title.isNotBlank() && start != null && end != null) {
                         onSave(
                             Schedule(
+                                id = existingSchedule?.id ?: "",
                                 kind = ScheduleKind.CHAT_SCHEDULE,
                                 title = title.trim(),
                                 description = description.trim().ifBlank { null },
@@ -209,14 +231,14 @@ private fun CreateChatScheduleDialog(
                                 endTime = end,
                                 congregationId = congregationId,
                                 groupId = groupId,
-                                createdByPersonId = currentPersonId,
-                                createdAt = System.currentTimeMillis(),
+                                createdByPersonId = existingSchedule?.createdByPersonId ?: currentPersonId,
+                                createdAt = existingSchedule?.createdAt ?: System.currentTimeMillis(),
                             )
                         )
                         onDismiss()
                     }
                 },
-            ) { Text("Create") }
+            ) { Text(if (existingSchedule == null) "Create" else "Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

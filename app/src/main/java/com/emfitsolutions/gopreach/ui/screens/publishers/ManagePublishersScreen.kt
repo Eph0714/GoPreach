@@ -12,7 +12,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -54,6 +58,8 @@ fun ManagePublishersScreen(
     val rowsFlow = remember(visibleCongregationId) { viewModel.rowsFor(visibleCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var lookupTarget by remember { mutableStateOf<Person?>(null) }
+    var pendingEdit by remember { mutableStateOf<PublisherRow?>(null) }
+    var pendingDelete by remember { mutableStateOf<PublisherRow?>(null) }
 
     Scaffold(
         topBar = {
@@ -94,13 +100,23 @@ fun ManagePublishersScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(row.person.fullName, style = MaterialTheme.typography.titleMedium)
-                                if (row.person.isTemporaryCredential) {
-                                    IconButton(onClick = { lookupTarget = row.person }) {
-                                        Icon(
-                                            Icons.Rounded.Key,
-                                            contentDescription = "View temporary sign-in",
-                                            tint = MaterialTheme.colorScheme.secondary,
-                                        )
+                                Row {
+                                    if (row.person.isTemporaryCredential) {
+                                        IconButton(onClick = { lookupTarget = row.person }) {
+                                            Icon(
+                                                Icons.Rounded.Key,
+                                                contentDescription = "View temporary sign-in",
+                                                tint = MaterialTheme.colorScheme.secondary,
+                                            )
+                                        }
+                                    }
+                                    IconButton(onClick = { pendingEdit = row }) {
+                                        Icon(Icons.Rounded.Edit, contentDescription = "Edit")
+                                    }
+                                    if (row.category != PublisherCategory.REMOVED_PUBLISHER) {
+                                        IconButton(onClick = { pendingDelete = row }) {
+                                            Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                        }
                                     }
                                 }
                             }
@@ -120,6 +136,72 @@ fun ManagePublishersScreen(
     lookupTarget?.let { person ->
         TempCredentialLookupDialog(person = person, onDismiss = { lookupTarget = null })
     }
+
+    val toEdit = pendingEdit
+    if (toEdit != null) {
+        EditPublisherDialog(
+            row = toEdit,
+            onSave = { updated ->
+                viewModel.updatePerson(updated)
+                pendingEdit = null
+            },
+            onDismiss = { pendingEdit = null },
+        )
+    }
+
+    val toDelete = pendingDelete
+    if (toDelete != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete ${toDelete.person.fullName}?") },
+            text = { Text("This recategorizes them as Removed. Their record and history stay intact and this can be undone by changing their category back.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.changeCategory(toDelete, PublisherCategory.REMOVED_PUBLISHER, currentPersonId)
+                    pendingDelete = null
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun EditPublisherDialog(
+    row: PublisherRow,
+    onSave: (Person) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var address by remember { mutableStateOf(row.person.address) }
+    var contact by remember { mutableStateOf(row.person.contact) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit ${row.person.fullName}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it.uppercase() },
+                    label = { Text("Address") },
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = contact,
+                    onValueChange = { contact = it.uppercase() },
+                    label = { Text("Contact") },
+                    singleLine = true,
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(row.person.copy(address = address.trim(), contact = contact.trim())) }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

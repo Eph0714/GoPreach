@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.ui.screens.elders
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.AdminRole
+import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
@@ -47,5 +48,9 @@ class ManageRegularEldersViewModel @Inject constructor(
                 assignment.copy(status = if (active) RoleAssignmentStatus.ACTIVE else RoleAssignmentStatus.INACTIVE),
             )
         }
+    }
+
+    fun updatePerson(person: Person) {
+        viewModelScope.launch { personRepository.save(person) }
     }
 }

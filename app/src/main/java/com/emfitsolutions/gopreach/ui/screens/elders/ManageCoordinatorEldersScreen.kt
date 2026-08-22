@@ -23,5 +23,6 @@ fun ManageCoordinatorEldersScreen(
         onBack = onBack,
         onAddNew = onAddNew,
         onSetActive = { row, active -> viewModel.setActive(row.assignment, active) },
+        onEdit = { _, updated -> viewModel.updatePerson(updated) },
     )
 }

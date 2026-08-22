@@ -75,4 +75,8 @@ class ManagePublishersViewModel @Inject constructor(
             )
         }
     }
+
+    fun updatePerson(person: Person) {
+        viewModelScope.launch { personRepository.save(person) }
+    }
 }
