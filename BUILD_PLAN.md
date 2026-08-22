@@ -106,6 +106,21 @@ deployed — see SETUP.md on the Blaze-plan requirement).
 - **Login screen redesign** — matched to the requested reference mockup: a rounded-bottom gradient hero panel (`GradientHero`) with soft translucent blobs + diagonal streak texture, app logo + "GoPreach"/"Ministry Activity Tracking" on the hero, restyled Username/Password fields (leading icons, 16dp rounded corners) below on a plain surface, and a raised pill-shaped "Log In" button. No fields/buttons were added beyond what the app actually does (no email/sign-up/social login, since there's no self-registration or social auth in the spec).
 - **Real app icon** — replaced the placeholder book glyph with the client-supplied "GP" monogram badge (`751cb5fc-8c1a-402e-871a-fe927b92ef91.jpeg`): generated legacy launcher PNGs at all 5 densities plus an adaptive-icon foreground (badge inset in the safe zone over a matching black background layer) via a one-off `sharp` script. Verified on-device on the home screen (renders as a clean circular badge, no clipping) and confirmed the login screen redesign side-by-side in the same pass.
 
+## Post-launch fix — role sync silently dying after login
+Found via a live repro (Super-Admin login showing "Signed in as Unknown
+role" despite a correct `roleAssignments` doc server-side): Firestore
+snapshot listeners registered before sign-in against any rule-gated
+collection die permanently on their first `PERMISSION_DENIED` and never
+emit again, even after the user later authenticates. `RemoteSyncCoordinator`
+started every listener once at process boot — before any auth existed — so
+only the one publicly-readable collection (`people`) ever actually stayed
+synced; everything else (`roleAssignments` included) silently never
+recovered. Fixed by re-subscribing every listener on every Firebase Auth
+state change instead of once ([`RemoteSyncCoordinator`](app/src/main/java/com/emfitsolutions/gopreach/data/sync/RemoteSyncCoordinator.kt));
+[`FirestoreMirror`](app/src/main/java/com/emfitsolutions/gopreach/data/sync/FirestoreMirror.kt)
+now also logs listener errors instead of swallowing them. Verified live:
+Super-Admin login now correctly shows the full role-gated dashboard.
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking
