@@ -33,6 +33,12 @@ data class Person(
     // pins the actual Firestore field name rather than relying on inference.
     @get:PropertyName("isTemporaryCredential")
     val isTemporaryCredential: Boolean = false,
+    /** The plaintext temp password, kept only while [isTemporaryCredential] is
+     * true so an admin can look it up again (e.g. the enrollment share link
+     * got lost) — cleared the moment the person completes their forced
+     * password change. Firebase Auth itself never stores this; it only ever
+     * lives here, transiently, for that lookup window. */
+    val temporaryPassword: String? = null,
 
     val createdAt: Long = 0L,
     val createdByPersonId: String? = null,

@@ -117,9 +117,9 @@ fun LoginScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        GradientHero(height = 220.dp) {
+        GradientHero(height = 200.dp) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     DynamicAppLogo()

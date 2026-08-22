@@ -1,5 +1,6 @@
 package com.emfitsolutions.gopreach.ui.screens.admins
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,11 +23,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 
 /** Spec §3/§5.1 — Manage Admins, Super-Admin only. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,6 +43,7 @@ fun ManageAdminsScreen(
     viewModel: ManageAdminsViewModel = hiltViewModel(),
 ) {
     val admins by viewModel.admins.collectAsStateWithLifecycle()
+    var lookupTarget by remember { mutableStateOf<Person?>(null) }
 
     Scaffold(
         topBar = {
@@ -69,7 +76,11 @@ fun ManageAdminsScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(admins, key = { it.person.id }) { row ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = row.person.isTemporaryCredential) { lookupTarget = row.person },
+                    ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(row.person.fullName, style = MaterialTheme.typography.titleMedium)
                             Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
@@ -79,10 +90,21 @@ fun ManageAdminsScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (row.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                             )
+                            if (row.person.isTemporaryCredential) {
+                                Text(
+                                    "Tap to view temporary sign-in",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                )
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    lookupTarget?.let { person ->
+        TempCredentialLookupDialog(person = person, onDismiss = { lookupTarget = null })
     }
 }

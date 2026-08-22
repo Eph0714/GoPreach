@@ -2,6 +2,7 @@ package com.emfitsolutions.gopreach.ui.screens.home
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -28,6 +29,7 @@ import com.emfitsolutions.gopreach.ui.components.AppBanner
 import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
 import com.emfitsolutions.gopreach.ui.components.DynamicAppLogo
+import com.emfitsolutions.gopreach.ui.components.SyncStatusButton
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 
 /** Landing point for the Ministry Report App / Publisher context (spec §5.2). */
@@ -45,8 +47,11 @@ fun PublisherHomeScreen(
             subtitle = session.person?.fullName,
             logoContent = { DynamicAppLogo() },
             topEndAction = {
-                IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
-                    Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
+                Row {
+                    SyncStatusButton()
+                    IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
+                        Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
+                    }
                 }
             },
         )

@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.ui.screens.publishers
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,7 +37,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
+import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 
 /** Spec §3/§5.1 — Manage Publishers (all categories). */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,6 +53,7 @@ fun ManagePublishersScreen(
 ) {
     val rowsFlow = remember(visibleCongregationId) { viewModel.rowsFor(visibleCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var lookupTarget by remember { mutableStateOf<Person?>(null) }
 
     Scaffold(
         topBar = {
@@ -83,7 +88,22 @@ fun ManagePublishersScreen(
                 items(rows, key = { it.person.id }) { row ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(row.person.fullName, style = MaterialTheme.typography.titleMedium)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(row.person.fullName, style = MaterialTheme.typography.titleMedium)
+                                if (row.person.isTemporaryCredential) {
+                                    IconButton(onClick = { lookupTarget = row.person }) {
+                                        Icon(
+                                            Icons.Rounded.Key,
+                                            contentDescription = "View temporary sign-in",
+                                            tint = MaterialTheme.colorScheme.secondary,
+                                        )
+                                    }
+                                }
+                            }
                             Text("Group: ${row.groupName}", style = MaterialTheme.typography.bodySmall)
                             Text("Contact: ${row.person.contact}", style = MaterialTheme.typography.bodySmall)
                             CategoryDropdown(
@@ -95,6 +115,10 @@ fun ManagePublishersScreen(
                 }
             }
         }
+    }
+
+    lookupTarget?.let { person ->
+        TempCredentialLookupDialog(person = person, onDismiss = { lookupTarget = null })
     }
 }
 

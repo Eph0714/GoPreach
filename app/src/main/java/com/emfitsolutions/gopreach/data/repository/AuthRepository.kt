@@ -90,6 +90,7 @@ class AuthRepository @Inject constructor(
             id = personId,
             username = username,
             isTemporaryCredential = true,
+            temporaryPassword = tempPassword,
             createdAt = System.currentTimeMillis(),
             createdByPersonId = enrollingPersonId,
         )
@@ -150,7 +151,7 @@ class AuthRepository @Inject constructor(
             ?: return AuthResult.Error("Account record not found.")
         return try {
             user.updatePassword(newPassword).await()
-            val updated = person.copy(username = newUsername, isTemporaryCredential = false)
+            val updated = person.copy(username = newUsername, isTemporaryCredential = false, temporaryPassword = null)
             personRepository.save(updated) // local cache + offline queue, for consistency with the rest of the app
             // The queued write above happens asynchronously in the background — if it
             // hasn't landed by the time we sign out below, the write loses its
