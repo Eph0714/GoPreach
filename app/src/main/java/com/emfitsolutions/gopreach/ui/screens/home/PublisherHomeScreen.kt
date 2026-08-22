@@ -25,10 +25,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.emfitsolutions.gopreach.ui.components.AppBanner
+import com.emfitsolutions.gopreach.ui.components.DashboardHero
 import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
 import com.emfitsolutions.gopreach.ui.components.DynamicAppLogo
+import com.emfitsolutions.gopreach.ui.components.QuickAction
 import com.emfitsolutions.gopreach.ui.components.SyncStatusButton
 import com.emfitsolutions.gopreach.ui.components.UpdateAvailableBanner
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
@@ -41,11 +42,15 @@ fun PublisherHomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val session by viewModel.state.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val pendingSyncCount by viewModel.pendingSyncCount.collectAsStateWithLifecycle()
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        AppBanner(
-            title = "Ministry Report",
-            subtitle = session.person?.fullName,
+        DashboardHero(
+            greetingName = session.person?.firstName?.takeIf { it.isNotBlank() } ?: "there",
+            roleLabel = "Ministry Report",
+            isOnline = isOnline,
+            pendingSyncCount = pendingSyncCount,
             logoContent = { DynamicAppLogo() },
             topEndAction = {
                 Row {
@@ -55,6 +60,12 @@ fun PublisherHomeScreen(
                     }
                 }
             },
+            quickActions = listOf(
+                QuickAction("Report", Icons.Rounded.Assignment) { onNavigate(Destinations.MONTHLY_REPORT) },
+                QuickAction("Bible Study", Icons.AutoMirrored.Rounded.MenuBook) { onNavigate(Destinations.BIBLE_STUDY_RECORD) },
+                QuickAction("Interested", Icons.Rounded.PeopleAlt) { onNavigate(Destinations.INTERESTED_PEOPLE) },
+                QuickAction("Calendar", Icons.Rounded.CalendarMonth) { onNavigate(Destinations.CALENDAR) },
+            ),
         )
         Column(
             modifier = Modifier

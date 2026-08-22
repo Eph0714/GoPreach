@@ -26,8 +26,6 @@ import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -37,15 +35,17 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.domain.PermissionChecker
-import com.emfitsolutions.gopreach.ui.components.AppBanner
+import com.emfitsolutions.gopreach.ui.components.DashboardHero
 import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
 import com.emfitsolutions.gopreach.ui.components.DynamicAppLogo
+import com.emfitsolutions.gopreach.ui.components.QuickAction
 import com.emfitsolutions.gopreach.ui.components.SyncStatusButton
 import com.emfitsolutions.gopreach.ui.components.UpdateAvailableBanner
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 
-/** Landing point for the Admin context (spec §5.1) — an icon-grid dashboard,
+/** Landing point for the Admin context (spec §5.1) — a hero (greeting + live
+ * sync/connectivity status + quick actions) over an icon-grid dashboard,
  * every tile role-gated per the spec §3 permission matrix. */
 @Composable
 fun AdminHomeScreen(
@@ -54,6 +54,8 @@ fun AdminHomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val session by viewModel.state.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val pendingSyncCount by viewModel.pendingSyncCount.collectAsStateWithLifecycle()
     val role = PermissionChecker.highestAdminRole(session.roleAssignments)
 
     val isSuperAdmin = role == AdminRole.SUPER_ADMIN
@@ -67,9 +69,11 @@ fun AdminHomeScreen(
     val canManagePublishersAndGroups = canViewUserLogs
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        AppBanner(
-            title = "GoPreach Admin",
-            subtitle = session.person?.fullName,
+        DashboardHero(
+            greetingName = session.person?.firstName?.takeIf { it.isNotBlank() } ?: "there",
+            roleLabel = role?.name?.replace('_', ' ') ?: "GoPreach Admin",
+            isOnline = isOnline,
+            pendingSyncCount = pendingSyncCount,
             logoContent = { DynamicAppLogo() },
             topEndAction = {
                 Row {
@@ -79,16 +83,17 @@ fun AdminHomeScreen(
                     }
                 }
             },
+            quickActions = buildList {
+                if (canManagePublishersAndGroups) add(QuickAction("Publishers", Icons.Rounded.People) { onNavigate(Destinations.MANAGE_PUBLISHERS) })
+                if (canManagePublishersAndGroups) add(QuickAction("Groups", Icons.Rounded.Groups) { onNavigate(Destinations.MANAGE_GROUPS) })
+                if (role != null) add(QuickAction("Chat", Icons.Rounded.Chat) { onNavigate(Destinations.MANAGE_CHAT_SCHEDULES) })
+                if (role != null) add(QuickAction("Calendar", Icons.Rounded.CalendarMonth) { onNavigate(Destinations.CALENDAR) })
+            },
         )
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            Text(
-                "Signed in as ${role?.name?.replace('_', ' ') ?: "Unknown role"}",
-                style = MaterialTheme.typography.titleMedium,
-            )
-
             UpdateAvailableBanner()
 
             if (canManagePublishersAndGroups) {
