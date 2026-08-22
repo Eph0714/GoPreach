@@ -1,0 +1,15 @@
+rules_version = '2';
+
+// GoPreach Storage rules. Same authenticated-only baseline as
+// firestore.rules (see that file for the fine-grained-authorization trade-off
+// note) — the app-settings/logo path is meant to be Super-Admin-only in
+// practice, enforced today by the Control Panel screen's visibility, not by
+// these rules yet.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

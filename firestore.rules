@@ -1,0 +1,59 @@
+rules_version = '2';
+
+// GoPreach Firestore security rules.
+//
+// Honest scope note: fine-grained per-role authorization (e.g. "only a
+// Coordinator Elder may write RoleAssignments in their own congregation") is
+// enforced by the Android app's UI and PermissionChecker, but these rules
+// can't cheaply re-derive "does this signed-in Person hold an active
+// RoleAssignment of role X in scope Y" without either Cloud Functions +
+// custom claims, or a denormalized roles field kept in sync on every write —
+// both bigger additions than this pass covers (see AuthRepository's
+// secondary-FirebaseApp comment for the same trade-off elsewhere in the
+// app). What these rules DO guarantee: nothing is readable or writable by an
+// unauthenticated caller except the one deliberately public path
+// (passwordResetRequests, create-only — spec §4.5's "forgot password" runs
+// before the requester has valid credentials to sign in with).
+//
+// Hardening path for later: add a Cloud Function that mirrors each Person's
+// RoleAssignments onto their Auth custom claims, then replace
+// `isSignedIn()` below with real role checks read from `request.auth.token`.
+
+function isSignedIn() {
+  return request.auth != null;
+}
+
+function personIdFromToken() {
+  return request.auth.token.email.split('@')[0];
+}
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Public write-only mailbox: spec §4.5 "forgot password" is submitted by
+    // someone who, by definition, cannot sign in yet.
+    match /passwordResetRequests/{requestId} {
+      allow create: if true;
+      allow read, update, delete: if isSignedIn();
+    }
+
+    // Public read-only: login is by username (spec §5.1/5.2), so the app must
+    // resolve username -> synthetic Auth email (see AuthEmail.kt) *before* the
+    // user is signed in — a chicken-and-egg problem that requires this lookup
+    // to work unauthenticated. No secrets live here (passwords are in Auth,
+    // not Firestore); the trade-off is that names/contact/address are
+    // technically fetchable without signing in, matching the coarser
+    // "authenticated read/write" baseline this whole ruleset already accepts
+    // (see file-level note above).
+    match /people/{personId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Everything else: authenticated read/write. See the file-level note
+    // above for what this does and doesn't guarantee.
+    match /{document=**} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

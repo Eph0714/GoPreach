@@ -1,0 +1,47 @@
+package com.emfitsolutions.gopreach.data.repository
+
+import com.emfitsolutions.gopreach.data.model.AuditLogEntry
+import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
+import com.emfitsolutions.gopreach.data.sync.mirrorFirestoreCollection
+import com.emfitsolutions.gopreach.di.ApplicationScope
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import javax.inject.Inject
+import javax.inject.Singleton
+
+private const val COLLECTION = "auditLog"
+
+/** Spec §3 — "user logs": view/export for Super-Admin (all) and Admin/Coordinator
+ * Elder (own congregation, via [AuditLogEntry.congregationId]); delete is
+ * Super-Admin only, enforced by the calling screen's visibility. */
+@Singleton
+class AuditLogRepository @Inject constructor(
+    private val offline: OfflineFirestoreRepository,
+    private val firestore: FirebaseFirestore,
+    @ApplicationScope private val appScope: CoroutineScope,
+) {
+    fun observeAll(): Flow<List<AuditLogEntry>> = offline.observeCollection(COLLECTION)
+
+    suspend fun log(actorPersonId: String, action: String, targetType: String? = null, targetId: String? = null, congregationId: String? = null) {
+        val id = firestore.collection(COLLECTION).document().id
+        offline.save(
+            COLLECTION,
+            id,
+            AuditLogEntry(
+                id = id,
+                actorPersonId = actorPersonId,
+                action = action,
+                targetType = targetType,
+                targetId = targetId,
+                congregationId = congregationId,
+                timestamp = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    suspend fun delete(entryId: String) = offline.delete(COLLECTION, entryId)
+
+    fun startRemoteSync(): Flow<Unit> =
+        mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, AuditLogEntry::class.java) { it.id }
+}

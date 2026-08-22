@@ -1,0 +1,116 @@
+package com.emfitsolutions.gopreach.ui.screens.reports
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+/** Spec §5.1 — Total Bible Studies / Interested People / preaching hours, per
+ * publisher, with an "All Publishers" summary at the top. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ReportsScreen(
+    visibleCongregationId: String?,
+    visibleGroupId: String? = null,
+    /** Spec §5.2: only a Coordinator/Regular Elder may edit a publisher's
+     * *submitted* monthly report; false hides the per-row edit affordance
+     * entirely (e.g. for Super-Admin/Admin, who only view/export/print, spec §3). */
+    canEditReports: Boolean = false,
+    onEditPublisher: (personId: String) -> Unit = {},
+    onBack: () -> Unit,
+    viewModel: ReportsViewModel = hiltViewModel(),
+) {
+    val rowsFlow = remember(visibleCongregationId, visibleGroupId) { viewModel.rowsFor(visibleCongregationId, visibleGroupId) }
+    val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Reports") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        if (rows.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    "No submitted reports yet. Totals appear here once publishers start submitting monthly reports.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("All Publishers", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("Bible Studies: ${rows.sumOf { it.totalBibleStudies }}", style = MaterialTheme.typography.bodyMedium)
+                            Text("Hours: ${"%.1f".format(rows.sumOf { it.totalHours })}", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Interested People: ${rows.sumOf { it.totalInterestedPeople }}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                }
+                items(rows, key = { it.person.id }) { row ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column {
+                                Text(row.person.fullName, style = MaterialTheme.typography.titleMedium)
+                                Text("Bible Studies: ${row.totalBibleStudies}", style = MaterialTheme.typography.bodySmall)
+                                Text("Hours: ${"%.1f".format(row.totalHours)}", style = MaterialTheme.typography.bodySmall)
+                                Text("Interested People: ${row.totalInterestedPeople}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (canEditReports) {
+                                IconButton(onClick = { onEditPublisher(row.person.id) }) {
+                                    Icon(Icons.Filled.Edit, contentDescription = "Edit this month's report")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
