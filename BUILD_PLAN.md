@@ -586,6 +586,33 @@ and are deferred rather than half-built:
   a crash. Not verified on a screen that actually renders a `DashboardTile`
   (same recurring credential gap as prior phases).
 
+## Phase 22 — Icons/color coding also removed from the Reports Dashboard's stat cards ✅ done
+
+- **Root cause of "the icons are not removed"**: Phase 21 only touched
+  `DashboardTile` — but Super-Admin/Admin's main form doesn't render
+  `DashboardTile` at all (hidden per an earlier request); what they were
+  actually looking at was the **`StatCard` grid** in the embedded graphical
+  Summary (Total Publishers, Total Elders, Regular/Auxiliary Pioneers,
+  etc.), which still had its icon badge and per-item color from the "add a
+  color code" phase. That's now confirmed to be in scope too.
+- **`StatCard` simplified**: dropped the `icon`/`color` parameters entirely
+  (only one call site existed) — every card is now the same neutral
+  surface with just a label and a bold value, no glyph, no tint.
+- **Total Publishers and Total Elders separated**: per a follow-up request,
+  these were pulled out of the old combined `ComparisonCard` (two numbers
+  sharing one proportion bar) and are now their own individual `StatCard`
+  entries, first in the Overview grid — consistent with every other figure
+  there instead of specially paired together. `ComparisonCard` had no
+  remaining callers after this and was removed.
+- The donut chart, preaching-hours bar chart, and per-congregation
+  comparison chart still use their own per-slice colors — charts
+  inherently need that to be readable at all (a single-color pie chart
+  shows nothing), so that's a different case from a list of otherwise-
+  identical stat cards and was left alone.
+- Verified: clean compile, app installs and still launches to Login without
+  a crash. Not verified on a screen that actually renders `DashboardStatsContent`
+  (same recurring credential gap as prior phases).
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking
