@@ -295,6 +295,70 @@ Recommended before relying on this in the field: sign in as a Publisher, add
 an Interested Person, capture an image, back out and reopen the record to
 confirm it persisted, then exercise Change Image and Clear Image the same way.
 
+## Phase 13 — Green rebrand + Side Panel & Graphical Reports Dashboard ⚠️ partial, honestly scoped
+
+- **Logo & theme**: the app's launcher icon (every mipmap density, legacy +
+  adaptive), the in-app `DynamicAppLogo` fallback, and the light/dark color
+  palettes (`ui/theme/Color.kt`/`Theme.kt`) all switched from navy blue/purple
+  to a green brand palette sampled from the new circular "GO Preach" logo the
+  user supplied. Verified on-device (login screen + launcher icon).
+- **Side Panel** (spec §1-§2): `AdminHomeScreen` is now wrapped in a
+  `ModalNavigationDrawer`, opened via a new hamburger icon in the dashboard
+  header, with a collapsible-section treeview (`GoPreachSidePanelContent`) —
+  Enrollment / Control Panel / Other — built from the **exact same** role-
+  gating booleans that already gate the tile grid, so the drawer can never
+  offer a route the grid wouldn't (one source of truth, not two that could
+  drift). Highlights the active route.
+- **Graphical Reports Dashboard** (spec §3-§5,§7,§8,§15): a new "Reports
+  Dashboard" screen with KPI cards (Total Publishers, Total Elders, Regular/
+  Auxiliary Pioneers, Unbaptized/Inactive/Removed Publishers, Bible Studies,
+  Total Preaching Hours), a publisher-status donut chart, a preaching-hours
+  bar chart, and — for Super-Admin only, since anyone else's scope is a
+  single congregation — a tappable "Publishers per Congregation" comparison
+  bar chart that drills into that congregation's own KPIs/charts (spec §8).
+  Built on plain Compose `Canvas` (`SimpleBarChart`/`DonutChart`) rather than
+  a new charting-library dependency. All numbers are computed live, on every
+  emission, straight from current RoleAssignment/MonthlyReport records — spec
+  §15's "no stale summary field" requirement — via `CongregationStats.compute()`.
+- **Scope enforcement, not just UI** (spec §6): `DashboardStatsViewModel` has
+  no congregationId parameter on its public API at all — `restrictTo()` is
+  called once from the nav graph with whatever congregation id(s) the signed-
+  in session's own role/scope authorizes (null only for Super-Admin), so
+  there is no request parameter for a restricted user to tamper with to see
+  another congregation's numbers.
+
+**Honestly out of scope this pass** — this single request's spec (16
+sections) describes a full BI-style reporting product; the following were
+judged too large to responsibly build, test, and ship correctly in one pass,
+and are deferred rather than half-built:
+- **Export / print** for any report or chart (spec §3,§9,§12) — not
+  implemented anywhere yet, including the pre-existing Reports Summary screen.
+- **Reports Summary** (spec §9) as its own dedicated module with daily/
+  monthly/yearly/custom date-range filtering — the pre-existing `ReportsScreen`
+  (publisher-level Bible-studies/hours/interested-people rows) is what's
+  linked from the Side Panel's "Reports Summary" item today; it doesn't yet
+  have the date-range/search/filter UI this phase's spec describes.
+- **Control Panel → Appearance** color/background customization UI (spec
+  §12) — the existing Control Panel still only offers light/dark/system, not
+  a primary/secondary color picker.
+- **Share Location Settings** as its own configurable screen (spec §11) — the
+  existing Share Location feature has no dedicated settings UI yet beyond the
+  OS permission prompt itself.
+- Calendar enhancements beyond what already existed (visual event-type
+  indicators, territory-activity records) — spec §10.
+- Admin/Coordinator Elder dashboards reuse the same `DashboardReportsScreen`
+  as Super-Admin (correctly scoped to their one congregation), rather than a
+  visually distinct layout per role.
+- **Not verified on-device past the login screen** — no test account
+  credentials were available in this session to actually sign in and walk
+  through the Side Panel, Dashboard, and drill-down; only confirmed the app
+  builds, installs, and reaches Login without crashing. Recommended before
+  relying on this: sign in as Super-Admin, open the Side Panel from the
+  hamburger icon, confirm only authorized sections show, open Reports
+  Dashboard, confirm the KPI numbers match what you'd expect, and tap a bar
+  in "Publishers per Congregation" to confirm the drill-down selects that
+  congregation.
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking
@@ -305,3 +369,8 @@ confirm it persisted, then exercise Change Image and Clear Image the same way.
 - A dedicated "My Group / My Congregation" summary card on the Elder's dashboard home screen (the underlying access already works via Reports, per the Elder Roles work — just not its own dashboard widget yet)
 - Read-only variants of the Congregations/Elders/Groups/Publishers management screens, so a restricted user's "View X" permission (without the matching "Manage X") has somewhere in the nav to actually go
 - Expose `ScopeType.SELECTED_GROUPS` in the Add/Edit User scope picker
+- Export/print for reports and charts (PDF or CSV)
+- A real date-range-filterable "Reports Summary" module (daily/monthly/yearly/custom), replacing the current all-time `ReportsScreen`
+- Control Panel → Appearance: primary/secondary color and background customization (currently light/dark/system only)
+- A dedicated Share Location Settings screen (enable/disable, visibility, privacy preferences)
+- Side Panel + Dashboard: verify on-device with a real Super-Admin/Admin/Coordinator Elder login (see Phase 13's disclosed gap)

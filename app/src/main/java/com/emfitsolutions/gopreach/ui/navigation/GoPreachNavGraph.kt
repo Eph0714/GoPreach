@@ -26,6 +26,7 @@ import com.emfitsolutions.gopreach.ui.screens.calendar.CalendarScope
 import com.emfitsolutions.gopreach.ui.screens.calendar.CalendarScreen
 import com.emfitsolutions.gopreach.ui.screens.congregations.ManageCongregationsScreen
 import com.emfitsolutions.gopreach.ui.screens.controlpanel.ControlPanelScreen
+import com.emfitsolutions.gopreach.ui.screens.dashboard.DashboardReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.elders.ManageCoordinatorEldersScreen
 import com.emfitsolutions.gopreach.ui.screens.elders.ManageRegularEldersScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.AdminEnrollmentScreen
@@ -49,6 +50,7 @@ import com.emfitsolutions.gopreach.ui.screens.userlogs.UserLogsScreen
 import com.emfitsolutions.gopreach.ui.screens.users.AddEditUserScreen
 import com.emfitsolutions.gopreach.ui.screens.users.ManageUsersScreen
 import com.emfitsolutions.gopreach.data.model.Permission
+import com.emfitsolutions.gopreach.data.model.ScopeType
 
 /**
  * Root navigation graph. Routing between Login / forced-password-change / the
@@ -254,6 +256,21 @@ fun GoPreachNavGraph(
                 visibleGroupId = ownGroupAssignment?.groupId,
                 canEditReports = canEditReports,
                 onEditPublisher = { personId -> navController.navigate(Destinations.editMonthlyReport(personId)) },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.DASHBOARD_REPORTS) {
+            // Spec §6: this is the actual security boundary, not the screen —
+            // Super-Admin sees every congregation (null); everyone else gets a
+            // fixed set they cannot escape by any parameter this screen exposes.
+            val visibleCongregationIds: Set<String>? = when {
+                currentRole == AdminRole.SUPER_ADMIN -> null
+                currentRole == AdminRole.CIRCUIT_OVERSEER ->
+                    if (grant?.resolvedScopeType == ScopeType.ALL_CONGREGATIONS) null else grant?.scopeCongregationIds?.toSet().orEmpty()
+                else -> setOfNotNull(ownCongregationId ?: ownGroupAssignment?.congregationId ?: ownPublisherAssignment?.congregationId)
+            }
+            DashboardReportsScreen(
+                visibleCongregationIds = visibleCongregationIds,
                 onBack = { navController.popBackStack() },
             )
         }

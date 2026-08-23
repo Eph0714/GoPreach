@@ -60,4 +60,7 @@ object Destinations {
     const val ADD_USER = "add_user"
     const val EDIT_USER = "edit_user/{targetPersonId}"
     fun editUser(targetPersonId: String) = "edit_user/$targetPersonId"
+
+    // Role-Based Dashboard, Side Panel & Graphical Reports
+    const val DASHBOARD_REPORTS = "dashboard_reports"
 }
