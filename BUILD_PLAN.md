@@ -750,7 +750,91 @@ and are deferred rather than half-built:
   confirming the headers read cleanly without the logo. Verified by a clean
   `:app:compileDebugKotlin`/`:app:assembleDebug` only.
 
+## Phase 26 — Manual "Sync to Server", account-settings password bug, and small UI fixes ✅ done
+
+- **"Current password is incorrect" false negative fixed**: `AuthRepository
+  .reauthenticate()` (used by both Change Username and Change Password in
+  Account Settings) used to catch *every* exception from Firebase's
+  `reauthenticate()` call and report it as "Current password is incorrect"
+  — including a dropped network connection or Firebase's own too-many-
+  attempts throttling, neither of which means the password was wrong. That
+  produced exactly the reported symptom (typing the correct password and
+  still being told it's wrong). Now only a genuine
+  `FirebaseAuthInvalidCredentialsException` reports "incorrect password";
+  a network failure, rate-limit, or anything else surfaces its real cause
+  instead.
+- **Manual "SYNC TO SERVER" button** (spec: offline-first architecture,
+  §6-§10, §16-§17) added to the Main Form (both Admin and Publisher
+  dashboards), per the user's explicit choice to **keep the existing
+  automatic background sync exactly as-is** (WorkManager already flushes
+  every local write, and Firestore listeners already deliver other users'
+  changes live) and add this as an *additional*, user-visible, explicit
+  trigger on top — not a replacement.
+  - Tapping it checks connectivity first (`ConnectivityObserver.isOnline()`);
+    if offline, shows the spec's exact "No Network Connection" copy and
+    leaves all pending local changes untouched.
+  - If online, it calls the same `SyncScheduler.requestSyncNow()` the
+    auto-sync path already uses (so behavior is identical, just visible),
+    then follows that specific run's `WorkInfo.progress` to show "Syncing
+    to Server... Uploading records: N / M", and a final "Sync Complete" /
+    "Sync Completed with Errors" summary with uploaded/failed counts and a
+    Retry action.
+  - `SyncWorker` now publishes progress (`done`/`total`) and a final
+    uploaded/failed count via `setProgress` before returning — its actual
+    `Result` (`retry()` on partial failure, unchanged) still drives
+    automatic background retry exactly as before; the manual UI reads its
+    summary from the progress update instead of waiting on that terminal
+    `Result`, since a `retry()` never reaches one for this attempt.
+  - **Not implemented**: real per-field conflict detection/resolution
+    (spec §11) — `SyncWorker` still does a last-write-wins `docRef.set()`
+    with no version/timestamp comparison, same as before this phase. A
+    genuine conflict-resolution UI ("Keep Local / Keep Server / Review
+    Changes") needs a versioning scheme added to every synced document
+    first and is a substantial separate piece of work, not attempted here.
+    Explicit "download changes" and "images synced" summary line items
+    (spec §8 steps 8-9, §13) are also not separately reported — downloads
+    already happen continuously via the existing Firestore listeners
+    rather than as a discrete step of this button's run, and images ride
+    the same per-document sync path as every other field since they're
+    embedded Base64 fields, not separate uploads.
+- **Offline login investigated, no code change needed**: the spec's
+  "log in even with no network" requirement is already satisfied by the
+  existing architecture — `UserSession` rebuilds its state from Firebase
+  Auth's own persisted sign-in (survives app restart with no network
+  needed) plus Room-cached Person/RoleAssignment/UserAccessGrant data, and
+  `GoPreachNavGraph` routes reactively off that state, skipping the Login
+  screen entirely whenever a session is already persisted — regardless of
+  connectivity. `AuthRepository.signIn()` (the network-only, username→
+  Firestore-lookup path) is only ever reached when there is *no* persisted
+  session at all, which correctly requires the spec's "First Online Login"
+  regardless. Not independently re-verified live this pass (same
+  credential-gap limitation as every phase since Purple Brand Logo).
+- **Regular Elder Enrollment**: removed the "Specific Role" dropdown
+  (the `ElderTitleEntity` lookup-table field) per user request — enrollment
+  now only asks for the required Group Role (Overseer/Servant/Assistant).
+  The underlying `RoleAssignment.elderTitleId` field is left in the data
+  model (now always null for newly-enrolled Regular Elders) rather than
+  removed, since existing records/other screens may still reference it.
+- **`DeleteChoiceDialog`'s permanent-delete step**: Cancel/Close and Delete
+  Permanently now render together as one centered button group instead of
+  the default confirm-right/dismiss-left split — Cancel reads as the safer
+  action here, so it's no longer pushed off to a corner.
+- Verified via `./gradlew :app:compileDebugKotlin` after each change and a
+  final clean `:app:assembleDebug`. The Sync-to-Server flow's actual
+  network/no-network/progress/summary states were not exercised live (same
+  recurring credential gap).
+
 ## What's next (not blocking, tracked for a future pass)
+- **NOT STARTED — "Show Complete Record Information When Editing"**: a full
+  pass across every Edit screen (Congregations, Groups, Publishers, Elders,
+  Interested Persons, Users, and others) to show the complete stored record
+  — organized into sections (Personal/Assignment/Status/Supporting Info),
+  read-only vs. editable fields distinguished, images/attachments visible
+  inline, offline-safe (load from Room cache, save as Pending Sync) — this
+  is a large, multi-screen redesign task requested but not yet begun.
+- Real per-field sync conflict detection/resolution (needs a version/
+  timestamp field added to synced documents first) and a discrete
+  downloaded-changes count in the Sync to Server summary — see Phase 26.
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking
 - Calendar: upgrade the chronological list to a month/week grid

@@ -8,8 +8,11 @@ import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.domain.CredentialGenerator
 import com.emfitsolutions.gopreach.domain.PermissionChecker
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseNetworkException
+import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.firestore.FirebaseFirestore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.tasks.await
@@ -183,15 +186,29 @@ class AuthRepository @Inject constructor(
      * ("Require the current password before changing the username" / entering
      * current password to change it). Firebase's own reauthenticate() is what
      * actually verifies it against the securely-hashed credential; nothing here
-     * ever sees or compares a stored password itself. */
+     * ever sees or compares a stored password itself.
+     *
+     * Bug fix: this used to blanket-catch every exception here as "Current
+     * password is incorrect" — including a dropped network connection or
+     * Firebase's own too-many-attempts throttling, neither of which means the
+     * password was wrong. That produced exactly the confusing "incorrect
+     * password" report even when the user typed it correctly. Only an actual
+     * [FirebaseAuthInvalidCredentialsException] means the credential itself was
+     * rejected; every other failure now surfaces its real cause instead. */
     private suspend fun reauthenticate(currentPassword: String): Result<Unit> {
         val user = firebaseAuth.currentUser ?: return Result.failure(IllegalStateException("Session expired — please log in again."))
         val email = user.email ?: return Result.failure(IllegalStateException("Session expired — please log in again."))
         return try {
             user.reauthenticate(EmailAuthProvider.getCredential(email, currentPassword)).await()
             Result.success(Unit)
-        } catch (e: Exception) {
+        } catch (e: FirebaseAuthInvalidCredentialsException) {
             Result.failure(IllegalStateException("Current password is incorrect."))
+        } catch (e: FirebaseNetworkException) {
+            Result.failure(IllegalStateException("No internet connection. Check your network and try again."))
+        } catch (e: FirebaseTooManyRequestsException) {
+            Result.failure(IllegalStateException("Too many attempts. Please wait a moment and try again."))
+        } catch (e: Exception) {
+            Result.failure(IllegalStateException(e.localizedMessage ?: "Couldn't verify your current password. Please try again."))
         }
     }
 

@@ -32,7 +32,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.emfitsolutions.gopreach.data.model.ElderTitleEntity
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
 import com.emfitsolutions.gopreach.ui.components.TempCredentialsResultCard
 import com.emfitsolutions.gopreach.ui.components.displayLabel
@@ -47,7 +46,6 @@ fun RegularElderEnrollmentScreen(
     viewModel: RegularElderEnrollmentViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val elderTitles by viewModel.elderTitles.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -104,12 +102,6 @@ fun RegularElderEnrollmentScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
 
-                    ElderTitleDropdown(
-                        titles = elderTitles,
-                        selectedId = uiState.selectedElderTitleId,
-                        onSelected = viewModel::onElderTitleSelected,
-                    )
-
                     RegularElderRoleDropdown(
                         selected = uiState.selectedRole,
                         onSelected = viewModel::onRoleSelected,
@@ -130,40 +122,6 @@ fun RegularElderEnrollmentScreen(
                         Text("Create Regular Elder Account")
                     }
                 }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun ElderTitleDropdown(
-    titles: List<ElderTitleEntity>,
-    selectedId: String?,
-    onSelected: (String) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val selectedName = titles.firstOrNull { it.id == selectedId }?.titleName ?: ""
-
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-        OutlinedTextField(
-            value = selectedName,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text("Specific Role") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth().menuAnchor(),
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            titles.forEach { title ->
-                DropdownMenuItem(
-                    text = { Text(title.titleName) },
-                    onClick = {
-                        onSelected(title.id)
-                        expanded = false
-                    },
-                )
             }
         }
     }

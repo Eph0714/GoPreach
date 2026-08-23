@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.emfitsolutions.gopreach.data.local.PendingSyncOperationEntity
 import com.emfitsolutions.gopreach.data.local.dao.CacheDao
 import com.emfitsolutions.gopreach.data.local.dao.SyncQueueDao
@@ -21,6 +22,12 @@ import kotlinx.coroutines.tasks.await
  * created, whenever a network connection is available (see [SyncScheduler]). This
  * is the other half of spec §6.5's offline-first requirement: local writes always
  * succeed instantly; this worker is what eventually makes them durable server-side.
+ *
+ * Also drives the "SYNC TO SERVER" button's progress/summary UI ([SyncStatusButton]/
+ * `SyncToServerButton`): [setProgress] is published as each record finishes, and the
+ * final uploaded/failed counts are returned in [Result]'s output data so a caller
+ * observing this unique work's [androidx.work.WorkInfo] can show a real "Sync
+ * Complete — N uploaded, N failed" summary instead of a bare success/failure flag.
  */
 @HiltWorker
 class SyncWorker @AssistedInject constructor(
@@ -32,23 +39,45 @@ class SyncWorker @AssistedInject constructor(
     private val gson: Gson,
 ) : CoroutineWorker(context, params) {
 
+    companion object {
+        const val KEY_UPLOADED = "uploaded"
+        const val KEY_FAILED = "failed"
+        const val KEY_TOTAL = "total"
+        const val KEY_FINISHED = "finished"
+    }
+
     override suspend fun doWork(): Result {
         val pending = syncQueueDao.getAllPending()
-        if (pending.isEmpty()) return Result.success()
+        if (pending.isEmpty()) {
+            setProgress(workDataOf(KEY_UPLOADED to 0, KEY_FAILED to 0, KEY_TOTAL to 0, KEY_FINISHED to true))
+            return Result.success()
+        }
 
-        var anyFailed = false
-        for (op in pending) {
+        var uploaded = 0
+        var failed = 0
+        for ((index, op) in pending.withIndex()) {
+            setProgress(workDataOf("done" to index, KEY_TOTAL to pending.size))
             val ok = runCatching { applyOperation(op) }
             if (ok.isSuccess) {
                 syncQueueDao.remove(op)
                 cacheDao.updateSyncState(op.collectionPath, op.documentId, SyncState.SYNCED.name)
+                uploaded++
             } else {
-                anyFailed = true
+                failed++
                 syncQueueDao.recordFailure(op.id, ok.exceptionOrNull()?.message ?: "Unknown error")
                 cacheDao.updateSyncState(op.collectionPath, op.documentId, SyncState.FAILED.name)
             }
         }
-        return if (anyFailed) Result.retry() else Result.success()
+        // Published via setProgress (not the terminal Result's output data) so the
+        // manual "Sync to Server" UI gets an immediate summary of *this* attempt even
+        // when the worker's own Result is retry() below — WorkInfo.outputData is only
+        // populated for a truly terminal SUCCEEDED/FAILED state, which a retrying
+        // worker on a partial failure never reaches for this attempt.
+        setProgress(workDataOf(KEY_UPLOADED to uploaded, KEY_FAILED to failed, KEY_TOTAL to pending.size, KEY_FINISHED to true))
+        // Partial failure still asks WorkManager to retry later (unchanged background
+        // reliability behavior) — the manual UI already has its summary from the
+        // progress update above and doesn't need to wait for that retry to resolve.
+        return if (failed > 0) Result.retry() else Result.success()
     }
 
     private suspend fun applyOperation(op: PendingSyncOperationEntity) {

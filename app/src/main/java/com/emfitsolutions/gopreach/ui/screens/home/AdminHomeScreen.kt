@@ -58,6 +58,7 @@ import com.emfitsolutions.gopreach.ui.components.DashboardTile
 import com.emfitsolutions.gopreach.ui.components.GoPreachSidePanelContent
 import com.emfitsolutions.gopreach.ui.components.QuickAction
 import com.emfitsolutions.gopreach.ui.components.SyncStatusButton
+import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
 import com.emfitsolutions.gopreach.ui.components.UpdateAvailableBanner
 import com.emfitsolutions.gopreach.ui.components.update.UpdateCheckState
 import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
@@ -195,6 +196,7 @@ fun AdminHomeScreen(
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     UpdateAvailableBanner()
+                    SyncToServerButton()
 
                     // Super-Admin/Admin: the graphical Summary (KPI cards + charts)
                     // shows directly on the main form instead of a tile grid — every

@@ -1,6 +1,8 @@
 package com.emfitsolutions.gopreach.ui.components
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
@@ -87,14 +89,24 @@ fun DeleteChoiceDialog(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             },
+            // Both buttons live in this one slot, centered as a group, rather than
+            // the default confirm/dismiss split (confirm right, dismiss left) —
+            // Cancel reads as the safer of the two actions here, so it's centered
+            // rather than pushed off to the corner.
             confirmButton = {
-                if (permanentDeleteBlockedReason == null) {
-                    Button(onClick = { onDeletePermanently(); onDismiss() }) { Text("Delete Permanently") }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { if (permanentDeleteBlockedReason != null) onDismiss() else showPermanentConfirm = false }) {
-                    Text(if (permanentDeleteBlockedReason != null) "Close" else "Cancel")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    TextButton(onClick = { if (permanentDeleteBlockedReason != null) onDismiss() else showPermanentConfirm = false }) {
+                        Text(if (permanentDeleteBlockedReason != null) "Close" else "Cancel")
+                    }
+                    if (permanentDeleteBlockedReason == null) {
+                        Button(
+                            onClick = { onDeletePermanently(); onDismiss() },
+                            modifier = Modifier.padding(start = 8.dp),
+                        ) { Text("Delete Permanently") }
+                    }
                 }
             },
         )
