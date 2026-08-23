@@ -9,20 +9,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CloudDone
-import androidx.compose.material.icons.rounded.CloudOff
-import androidx.compose.material.icons.rounded.CloudQueue
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -31,14 +22,14 @@ import androidx.compose.ui.unit.dp
 data class QuickAction(val label: String, val icon: ImageVector, val onClick: () -> Unit)
 
 /**
- * The dashboard's hero panel — a greeting, live sync/connectivity status, and
- * a row of one-tap shortcuts into the screen's most-used destinations, all on
- * a rounded-bottom gradient panel. Inspired by a mobile finance app's
- * "Welcome, name! / balance / quick actions" dashboard pattern, adapted to
- * what GoPreach actually shows: no single numeric balance makes sense across
- * every role, so the equivalent "at a glance" facts here are sync status and
- * connectivity — the two things this offline-first app most wants a user to
- * trust at open, everywhere else content already flows from [AppBanner].
+ * The dashboard's header — a flat, solid-color bar with a greeting and a
+ * one-line status caption, redesigned to match a "simple, organized,
+ * professional" reference (a plain welcome banner, no gradient, no big
+ * pill badges) rather than the earlier finance-app-style gradient hero.
+ * Sync/connectivity is still shown — this is an offline-first app and that
+ * status still matters — just as a quiet caption line under the greeting,
+ * the same way the reference shows a plain "August 2026 · Since Aug 20,
+ * 2026" line under its own welcome text, instead of two large status pills.
  */
 @Composable
 fun DashboardHero(
@@ -59,13 +50,8 @@ fun DashboardHero(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp))
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary),
-                )
-            )
-            .padding(bottom = 20.dp),
+            .background(MaterialTheme.colorScheme.primary)
+            .padding(bottom = 16.dp),
     ) {
         Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
             Row(
@@ -87,30 +73,25 @@ fun DashboardHero(
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
-                if (roleLabel != null) {
-                    Text(roleLabel, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodyMedium)
+                val statusCaption = buildString {
+                    if (roleLabel != null) {
+                        append(roleLabel)
+                        append(" · ")
+                    }
+                    append(if (isOnline) "Online" else "Offline")
+                    append(" · ")
+                    append(if (pendingSyncCount > 0) "$pendingSyncCount pending sync" else "All synced")
                 }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                StatusPill(
-                    icon = if (isOnline) Icons.Rounded.CloudDone else Icons.Rounded.CloudOff,
-                    label = if (isOnline) "Online" else "Offline",
-                    modifier = Modifier.weight(1f),
-                )
-                StatusPill(
-                    icon = if (pendingSyncCount > 0) Icons.Rounded.CloudQueue else Icons.Rounded.CloudDone,
-                    label = if (pendingSyncCount > 0) "$pendingSyncCount Pending" else "All Synced",
-                    modifier = Modifier.weight(1f),
+                Text(
+                    statusCaption,
+                    color = Color.White.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             }
 
             if (quickActions.isNotEmpty()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 16.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
                     quickActions.forEach { action ->
@@ -119,25 +100,5 @@ fun DashboardHero(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun StatusPill(icon: ImageVector, label: String, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color.White.copy(alpha = 0.14f))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box(
-            modifier = Modifier.size(28.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-        }
-        Text(label, color = Color.White, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
     }
 }

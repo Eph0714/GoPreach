@@ -498,6 +498,34 @@ and are deferred rather than half-built:
   shows one at all, per an earlier request) were available this session;
   confirmed only clean compilation and that the app still launches to Login.
 
+## Phase 19 — Main Form restyled after a finance-app reference screenshot ✅ done
+
+- **Flat header, no gradient**: `DashboardHero` changed from a rounded-corner
+  vertical-gradient banner with two large status pills to a plain flat-color
+  bar with a single muted caption line under the greeting (e.g. "Super Admin
+  · Online · All synced") — matching the reference's plain "Welcome, name!"
+  + subtitle-line header exactly, still surfacing the same offline-sync
+  status this app needs, just less visually loud about it.
+- **New `ComparisonCard`**: the reference's "Income vs Expense" two-number-
+  plus-proportion-bar card has a direct GoPreach equivalent now — Total
+  Publishers vs Total Elders, in the same colors used elsewhere on this
+  dashboard, right below the congregation name/month caption.
+- **New `StatCard` in a fixed 2-column grid**: replaces the compact
+  KPI-strip look with cards styled like the reference's "Accounts" grid — a
+  circular icon badge, a label, and a bold value — laid out two-per-row
+  (manually chunked `Row`s, not a wrapping `FlowRow`) to match the
+  reference's exact grid shape. Covers Regular/Auxiliary Pioneers,
+  Unbaptized/Inactive/Removed Publishers, Bible Studies, and Total Preaching
+  Hours; Publishers/Elders moved into the `ComparisonCard` above instead of
+  duplicating them in the grid.
+- The existing donut chart, preaching-hours bar chart, and (Super-Admin)
+  per-congregation drill-down chart are unchanged underneath the new
+  cards — this was a restyle of the summary/KPI area, not a removal of the
+  more detailed charts already there.
+- Not verified on-device past the Login screen — same disclosed gap as
+  Phase 13-18 (no Super-Admin/Admin/Coordinator Elder test credentials
+  available this session).
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking

@@ -1,9 +1,11 @@
 package com.emfitsolutions.gopreach.ui.screens.dashboard
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -33,14 +35,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.StarHalf
+import androidx.compose.material.icons.rounded.PersonAddAlt
+import androidx.compose.material.icons.rounded.PersonOff
+import androidx.compose.material.icons.rounded.PersonRemove
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.ui.components.charts.BarSlice
+import com.emfitsolutions.gopreach.ui.components.charts.ComparisonCard
 import com.emfitsolutions.gopreach.ui.components.charts.DonutChart
-import com.emfitsolutions.gopreach.ui.components.charts.KpiCard
 import com.emfitsolutions.gopreach.ui.components.charts.SimpleBarChart
+import com.emfitsolutions.gopreach.ui.components.charts.StatCard
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 // A fixed color code shared between the KPI cards and the donut chart, so
 // "Regular Pioneers" (say) always reads as the same color everywhere on this
@@ -134,21 +147,52 @@ fun DashboardStatsContent(
             return@Column
         }
 
-        Text(displayed.congregationName, style = MaterialTheme.typography.titleLarge)
+        Column {
+            Text(displayed.congregationName, style = MaterialTheme.typography.titleLarge)
+            Text(
+                remember { SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date()) },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            KpiCard("Total Publishers", displayed.totalPublishers.toString(), COLOR_PUBLISHERS)
-            KpiCard("Total Elders", displayed.totalElders.toString(), COLOR_ELDERS)
-            KpiCard("Regular Pioneers", displayed.regularPioneers.toString(), COLOR_REGULAR_PIONEER)
-            KpiCard("Auxiliary Pioneers", displayed.auxiliaryPioneers.toString(), COLOR_AUXILIARY_PIONEER)
-            KpiCard("Unbaptized Publishers", displayed.unbaptizedPublishers.toString(), COLOR_UNBAPTIZED)
-            KpiCard("Inactive Publishers", displayed.inactivePublishers.toString(), COLOR_INACTIVE)
-            KpiCard("Removed Publishers", displayed.removedPublishers.toString(), COLOR_REMOVED)
-            KpiCard("Bible Studies", displayed.totalBibleStudies.toString(), COLOR_BIBLE_STUDIES)
-            KpiCard("Total Preaching Hours", "%.1f".format(displayed.regularPioneerHours + displayed.auxiliaryPioneerHours), COLOR_HOURS)
+        // The "Income vs Expense"-style headline comparison — Publishers vs
+        // Elders is this dashboard's own equivalent "two most important
+        // numbers, compared at a glance" (spec: match the reference's simple,
+        // organized card-plus-proportion-bar layout).
+        val publisherElderTotal = (displayed.totalPublishers + displayed.totalElders).coerceAtLeast(1)
+        ComparisonCard(
+            leftLabel = "Total Publishers",
+            leftValue = displayed.totalPublishers.toString(),
+            leftFraction = displayed.totalPublishers.toFloat() / publisherElderTotal,
+            leftColor = COLOR_PUBLISHERS,
+            rightLabel = "Total Elders",
+            rightValue = displayed.totalElders.toString(),
+            rightColor = COLOR_ELDERS,
+        )
+
+        Text("Overview", style = MaterialTheme.typography.titleMedium)
+        val statCards = listOf(
+            Triple("Regular Pioneers", displayed.regularPioneers.toString(), Icons.Rounded.Star to COLOR_REGULAR_PIONEER),
+            Triple("Auxiliary Pioneers", displayed.auxiliaryPioneers.toString(), Icons.AutoMirrored.Rounded.StarHalf to COLOR_AUXILIARY_PIONEER),
+            Triple("Unbaptized Publishers", displayed.unbaptizedPublishers.toString(), Icons.Rounded.PersonAddAlt to COLOR_UNBAPTIZED),
+            Triple("Inactive Publishers", displayed.inactivePublishers.toString(), Icons.Rounded.PersonOff to COLOR_INACTIVE),
+            Triple("Removed Publishers", displayed.removedPublishers.toString(), Icons.Rounded.PersonRemove to COLOR_REMOVED),
+            Triple("Bible Studies", displayed.totalBibleStudies.toString(), Icons.AutoMirrored.Rounded.MenuBook to COLOR_BIBLE_STUDIES),
+            Triple("Total Preaching Hours", "%.1f".format(displayed.regularPioneerHours + displayed.auxiliaryPioneerHours), Icons.Rounded.Schedule to COLOR_HOURS),
+        )
+        // A fixed 2-column grid (not a wrapping FlowRow) — matches the
+        // reference's "Accounts" section exactly: two equal-width cards per
+        // row, regardless of screen width, rather than reflowing to 3+ on a
+        // wider phone/tablet. Chunked manually (7 cards is small enough that
+        // a LazyVerticalGrid would be more machinery than this needs).
+        statCards.chunked(2).forEach { rowItems ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                rowItems.forEach { (label, value, iconAndColor) ->
+                    StatCard(label, value, iconAndColor.first, iconAndColor.second, modifier = Modifier.weight(1f))
+                }
+                if (rowItems.size == 1) Box(modifier = Modifier.weight(1f))
+            }
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {
