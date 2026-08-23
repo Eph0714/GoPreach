@@ -1035,6 +1035,34 @@ and are deferred rather than half-built:
   stays at 0 after a fresh sign-in with no local edits (needs a signed-in
   session this environment doesn't have credentials for).
 
+## Phase 31 — Critical fix: Sync to Server getting stuck on "Checking for pending changes..." ✅ done
+
+- **Root cause**: `SyncScheduler.requestSyncNow()` enqueued every sync run
+  with `ExistingWorkPolicy.APPEND_OR_REPLACE`, which chains each new run
+  onto the same unique work name rather than replacing it — so
+  `getWorkInfosForUniqueWorkFlow` could keep returning **more than one**
+  `WorkInfo` (old, already-completed runs sitting alongside the new one).
+  `ManualSyncViewModel` picked `.firstOrNull()` from that list with no
+  guarantee it was the run just triggered — if a stale, already-`SUCCEEDED`
+  entry from a past sync came back first, it never carries this attempt's
+  `SyncWorker.KEY_FINISHED` progress flag, so the button's state machine
+  never left `Syncing(0, 0)`, permanently showing "Checking for pending
+  changes...".
+- **Fix**: switched to `ExistingWorkPolicy.REPLACE` — a new sync tap now
+  cancels/discards whatever was there and enqueues a single fresh request,
+  so there's only ever one entry to read. `observeWorkInfo()` also now
+  picks the highest-`generation` entry defensively rather than trusting
+  list order. Added a fallback in `ManualSyncViewModel` too: a `SUCCEEDED`
+  state reached without a `KEY_FINISHED` progress flag now still resolves
+  the UI out of `Syncing` (treated as a completed run with unknown counts)
+  instead of ever being able to hang indefinitely again, even in an
+  unforeseen edge case.
+- Verified via `./gradlew :app:compileDebugKotlin`, a full
+  `:app:assembleDebug`, and an on-device screenshot of the Login screen
+  (v1.15.2, no crash). Not verified live: an actual sync run completing
+  end-to-end and the button correctly returning to "SYNC TO SERVER" — needs
+  a signed-in session this environment doesn't have credentials for.
+
 ## What's next (not blocking, tracked for a future pass)
 - Real per-field sync conflict detection/resolution (needs a version/
   timestamp field added to synced documents first) and a discrete

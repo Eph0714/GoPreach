@@ -102,7 +102,16 @@ class ManualSyncViewModel @Inject constructor(
                         done = progress.getInt("done", 0),
                         total = progress.getInt(SyncWorker.KEY_TOTAL, 0),
                     )
-                    WorkInfo.State.CANCELLED -> _uiState.value = ManualSyncState.Failed
+                    WorkInfo.State.CANCELLED, WorkInfo.State.FAILED -> _uiState.value = ManualSyncState.Failed
+                    // A defensive fallback, not the normal path: SUCCEEDED should
+                    // already have been caught by the KEY_FINISHED progress check
+                    // above. If it's ever reached here anyway (progress data missing
+                    // for some reason), still resolve the UI out of Syncing rather
+                    // than leaving the button stuck forever on "Checking for pending
+                    // changes..." — this was a real bug (a stale WorkInfo from a past
+                    // run, before requestSyncNow() switched to ExistingWorkPolicy
+                    // .REPLACE, could report SUCCEEDED with none of this run's data).
+                    WorkInfo.State.SUCCEEDED -> _uiState.value = ManualSyncState.Summary(uploaded = 0, failed = 0)
                     else -> Unit
                 }
             }
