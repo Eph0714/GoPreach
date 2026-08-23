@@ -453,6 +453,51 @@ and are deferred rather than half-built:
   confirmed only that the app builds, installs, and the login screen still
   renders without a crash after this change.
 
+## Phase 18 — Professional green icon-based Main Form redesign ✅ done
+
+- **`DashboardTile` redesigned**: was a small `Card` (a shrunk button with a
+  default-size ~24dp icon inside it); now a flat, borderless icon+label
+  control with a 64dp circular badge (a fixed, consistent shape/size across
+  every tile — spec §8) tinted with a new fixed `IconAccentGreen` (`#2E7D32`)
+  and a 30dp icon glyph, with the label below in normal (non-tinted) text.
+  This is the single shared component both `AdminHomeScreen`'s remaining
+  tile grid (Coordinator Elder/Regular Elder/Circuit Overseer) and
+  `PublisherHomeScreen`'s "My Ministry"/"Account" sections already used, so
+  the redesign applies everywhere those grids appear without touching either
+  screen's navigation/permission logic (spec §13: nothing about *what* a
+  tile does changed, only how it looks).
+- **Consistent green, independent of the app's overall theme color**:
+  `IconAccentGreen` is a fixed constant, not `MaterialTheme.colorScheme.primary`
+  — the app's primary color is Dark Green in light mode but Gray Purple in
+  dark mode (an earlier, separate request about overall theme color), and
+  spec §2 here explicitly asks for icons that "remain consistently green"
+  regardless. Chosen to have workable contrast on both this app's light and
+  Graphite Black dark surfaces.
+- **Touch target**: the entire tile (badge + label + padding) is the
+  clickable region, comfortably exceeding Android's 48dp minimum in both
+  dimensions — not just the visible icon circle (spec §7).
+- **Grouping/hierarchy preserved, not reinvented**: `DashboardSection`'s
+  existing groupings (Management, Ministry, Enrollment, System, Account,
+  "My Ministry") already match spec §4's "group related functions
+  logically" intent for this app's actual roles — section titles were
+  bumped to `titleMedium`/semibold and given more breathing room (spec §5:
+  clearer visual hierarchy between a group header and its tiles) rather
+  than renamed to the spec's illustrative example labels, since "the actual
+  grouping should follow the existing GoPreach functionality" per the spec
+  itself.
+- **Deliberately not added**: a "Notifications" icon — spec §1 lists it as
+  an example of a *possible* function, but GoPreach has no notification
+  center anywhere in the app to link one to; adding a dead icon would
+  violate spec §13's "do not break existing functions" in spirit (a button
+  that does nothing is its own kind of broken). Search/Add/Edit/Delete/
+  Refresh already exist as their own contextual affordances on the relevant
+  CRUD screens rather than as Main Form-level icons — this pass didn't
+  invent new global versions of them.
+- Not verified on-device — no test credentials for a role that actually
+  reaches a `DashboardTile` grid (Super-Admin/Admin's main form no longer
+  shows one at all, per an earlier request) were available this session;
+  confirmed only clean compilation and that the app still launches to Login.
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking

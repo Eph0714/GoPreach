@@ -31,3 +31,15 @@ val OnSurfaceDark = Color(0xFFFFFFFF) // white text on dark theme, per explicit 
 val StatusPending = Color(0xFFE0A526) // "pending sync" indicator
 val StatusSynced = Color(0xFF2E9E5B)
 val StatusError = Color(0xFFC63737)
+
+/**
+ * The Main Form's "Professional Green Icon-Based Redesign" spec: every
+ * navigation/action icon in the dashboard grid ([DashboardTile]) stays this
+ * exact green regardless of light/dark mode or dynamic color — a deliberate,
+ * fixed constant, not `MaterialTheme.colorScheme.primary` (which is Dark
+ * Green in light mode but Gray Purple in dark mode, per an earlier, separate
+ * request about the app's *overall* theme color). Chosen for contrast on
+ * both this app's light (near-white) and dark (Graphite Black) surfaces
+ * alike, since one fixed value has to work on both.
+ */
+val IconAccentGreen = Color(0xFF2E7D32)
