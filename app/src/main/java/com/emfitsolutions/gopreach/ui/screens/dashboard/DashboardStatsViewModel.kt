@@ -1,5 +1,6 @@
 package com.emfitsolutions.gopreach.ui.screens.dashboard
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
@@ -16,6 +17,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import javax.inject.Inject
+
+private const val TAG = "DashboardStatsViewModel"
 
 data class DashboardStatsUiState(
     val all: List<CongregationStats> = emptyList(),
@@ -40,6 +43,17 @@ data class DashboardStatsUiState(
      * screen's own caption, not silently glossed over). */
     val dateRange: DateRange = DateRange.thisMonth(),
     val isLoading: Boolean = true,
+    /** Set when the aggregation below throws for any reason (e.g. a
+     * malformed [com.emfitsolutions.gopreach.data.model.RoleAssignment
+     * .roleType] value that [com.emfitsolutions.gopreach.data.model
+     * .RoleType.deserialize] can't parse — that function throws rather than
+     * returning a safe fallback). Reported: the app closing entirely right
+     * when the Main Form should appear — an uncaught exception inside this
+     * ViewModel's `combine` block propagates out of the Flow with nothing
+     * downstream to catch it, killing the process. This field is the
+     * containment: the screen shows a plain error message instead of
+     * crashing, and every other screen keeps working normally. */
+    val error: String? = null,
 )
 
 /**
@@ -89,20 +103,31 @@ class DashboardStatsViewModel @Inject constructor(
         personRepository.observeAll(),
         _filters,
     ) { congregations, assignments, reports, people, filters ->
-        val scoped = scopeFilter?.let { allowed -> congregations.filter { it.id in allowed } } ?: congregations
-        // Reports are the only source here with an actual point-in-time
-        // dimension (MonthlyReport.periodMonth) — see DashboardStatsUiState
-        // .dateRange's doc comment for why elder/publisher *counts* are
-        // deliberately left out of this filter.
-        val reportsInRange = reports.filter { filters.dateRange.overlapsMonth(it.periodMonth) }
-        DashboardStatsUiState(
-            all = CongregationStats.compute(scoped, assignments, reportsInRange).sortedBy { it.congregationName },
-            overallTotal = if (scoped.size > 1) CongregationStats.total(scoped, assignments, reportsInRange) else null,
-            members = computeStatMembers(scoped, assignments, people),
-            selectedCongregationId = filters.selectedCongregationId,
-            dateRange = filters.dateRange,
-            isLoading = false,
-        )
+        try {
+            val scoped = scopeFilter?.let { allowed -> congregations.filter { it.id in allowed } } ?: congregations
+            // Reports are the only source here with an actual point-in-time
+            // dimension (MonthlyReport.periodMonth) — see DashboardStatsUiState
+            // .dateRange's doc comment for why elder/publisher *counts* are
+            // deliberately left out of this filter.
+            val reportsInRange = reports.filter { filters.dateRange.overlapsMonth(it.periodMonth) }
+            DashboardStatsUiState(
+                all = CongregationStats.compute(scoped, assignments, reportsInRange).sortedBy { it.congregationName },
+                overallTotal = if (scoped.size > 1) CongregationStats.total(scoped, assignments, reportsInRange) else null,
+                members = computeStatMembers(scoped, assignments, people),
+                selectedCongregationId = filters.selectedCongregationId,
+                dateRange = filters.dateRange,
+                isLoading = false,
+            )
+        } catch (e: Exception) {
+            // Never let a data anomaly here (e.g. one malformed RoleAssignment
+            // among thousands) take down the whole app — see the doc comment
+            // on DashboardStatsUiState.error for what this was protecting
+            // against and why it matters here specifically (an uncaught
+            // exception in this combine block has nothing downstream to catch
+            // it, so it crashes the process rather than just this screen).
+            Log.e(TAG, "Dashboard stats computation failed", e)
+            DashboardStatsUiState(isLoading = false, error = e.message ?: "Could not load dashboard statistics.")
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardStatsUiState())
 
     fun selectCongregation(congregationId: String?) = _filters.update { it.copy(selectedCongregationId = congregationId) }

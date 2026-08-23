@@ -27,7 +27,7 @@ object PermissionChecker {
         groupId: String? = null,
     ): Boolean = assignments.any { a ->
         a.status == RoleAssignmentStatus.ACTIVE &&
-            (a.resolvedRoleType() as? RoleType.Admin)?.role == role &&
+            (a.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == role &&
             (role == AdminRole.SUPER_ADMIN || a.congregationId == congregationId) &&
             (role != AdminRole.REGULAR_ELDER || a.groupId == groupId)
     }
@@ -36,15 +36,20 @@ object PermissionChecker {
      * is intentionally not part of most checks — most publisher-facing capabilities
      * (submit a report, log a visit) apply to any active publisher category. */
     fun isActivePublisher(assignments: List<RoleAssignment>): Boolean = assignments.any { a ->
-        a.status == RoleAssignmentStatus.ACTIVE && a.resolvedRoleType() is RoleType.Publisher
+        a.status == RoleAssignmentStatus.ACTIVE && a.resolvedRoleTypeOrNull() is RoleType.Publisher
     }
 
     /** The most senior Admin-track role among [assignments], if any — for deciding
-     * which Control Panel / management screens to surface after login. */
+     * which Control Panel / management screens to surface after login.
+     *
+     * Uses [RoleAssignment.resolvedRoleTypeOrNull] (never throws): this runs on
+     * *every* login before the Main Form renders, so one corrupt/unparseable
+     * RoleAssignment here used to crash the app immediately after a correct
+     * login instead of just being ignored like it holds no admin role. */
     fun highestAdminRole(assignments: List<RoleAssignment>): AdminRole? {
         val activeAdminRoles = assignments
             .filter { it.status == RoleAssignmentStatus.ACTIVE }
-            .mapNotNull { (it.resolvedRoleType() as? RoleType.Admin)?.role }
+            .mapNotNull { (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role }
             .toSet()
         return listOf(
             AdminRole.SUPER_ADMIN,

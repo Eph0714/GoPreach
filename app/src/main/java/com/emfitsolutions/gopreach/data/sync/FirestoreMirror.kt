@@ -38,16 +38,30 @@ fun <T : Any> mirrorFirestoreCollection(
         }
         appScope.launch {
             for (change in snapshot.documentChanges) {
-                val model = change.document.toObject(clazz)
-                when (change.type) {
-                    // Cache-only — never offline.save()/delete() here. Those enqueue a
-                    // pending *upload*, which is wrong for a document that just came
-                    // *from* the server: it was silently re-queuing every document a
-                    // listener had ever seen (including its entire initial snapshot)
-                    // as if the user had edited it, inflating "pending changes" by
-                    // hundreds for data nobody touched.
-                    DocumentChange.Type.REMOVED -> offline.deleteFromServer(collectionPath, idOf(model))
-                    else -> offline.cacheFromServer(collectionPath, idOf(model), model)
+                try {
+                    val model = change.document.toObject(clazz)
+                    when (change.type) {
+                        // Cache-only — never offline.save()/delete() here. Those enqueue a
+                        // pending *upload*, which is wrong for a document that just came
+                        // *from* the server: it was silently re-queuing every document a
+                        // listener had ever seen (including its entire initial snapshot)
+                        // as if the user had edited it, inflating "pending changes" by
+                        // hundreds for data nobody touched.
+                        DocumentChange.Type.REMOVED -> offline.deleteFromServer(collectionPath, idOf(model))
+                        else -> offline.cacheFromServer(collectionPath, idOf(model), model)
+                    }
+                } catch (e: Exception) {
+                    // Reproduced, confirmed root cause of "the app closes right after a
+                    // correct login, right when the Main Form should appear": this
+                    // `appScope.launch` had no try/catch, so a single malformed document
+                    // (e.g. a stale sharedLocations doc whose body contained a real
+                    // 'publisherPersonId' field colliding with that property's
+                    // @DocumentId annotation) threw here on an uncaught background
+                    // coroutine and killed the whole process — for every session, since
+                    // every collection is mirrored immediately after sign-in. One bad
+                    // document is now skipped instead, and every other document (and
+                    // every other collection) keeps syncing normally.
+                    Log.e(TAG, "Skipping malformed document ${change.document.id} in '$collectionPath'", e)
                 }
             }
         }

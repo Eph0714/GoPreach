@@ -7,11 +7,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AccountBalance
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.Assessment
 import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -101,6 +103,17 @@ fun GoPreachSidePanelContent(
         if (controlPanelItems.isNotEmpty()) add(SideSection("Control Panel", controlPanelItems))
 
         val otherItems = buildList {
+            // "Elder Dashboard Consistent with Admin/Super-Admin Dashboard"
+            // spec — these two used to be reachable only via the old tile-grid
+            // Main Form body, which is now hidden for every admin-track role
+            // (Super-Admin/Admin already, Coordinator/Regular Elder as of this
+            // change too, see AdminHomeScreen). Every session reaching this
+            // drawer already has an admin-track role, so no extra gating
+            // boolean is needed here — this restores the same reach the tile
+            // grid used to give everyone, rather than stranding whoever's
+            // tile grid gets hidden next.
+            add(SideItem("Dashboard", Icons.Rounded.BarChart, Destinations.DASHBOARD_REPORTS))
+            add(SideItem("Chat Schedule", Icons.AutoMirrored.Rounded.Chat, Destinations.MANAGE_CHAT_SCHEDULES))
             add(SideItem("Reports Summary", Icons.Rounded.Assessment, Destinations.REPORTS))
             add(SideItem("Calendar", Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
             add(SideItem("Share Location Settings", Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))

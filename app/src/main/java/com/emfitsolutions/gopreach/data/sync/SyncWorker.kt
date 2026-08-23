@@ -86,11 +86,21 @@ class SyncWorker @AssistedInject constructor(
             SyncOperationType.CREATE, SyncOperationType.UPDATE -> {
                 val mapType = object : TypeToken<Map<String, Any?>>() {}.type
                 val fields: Map<String, Any?> = gson.fromJson(op.payloadJson, mapType)
-                // Every model's "id" is @DocumentId — Firestore throws on toObject()
-                // if that property's name also exists as a literal stored field, so
-                // it must never be written; @DocumentId repopulates it from the
-                // document reference on every read instead.
-                docRef.set(fields - "id").await()
+                // Every model's @DocumentId property — "id" for nearly all of them,
+                // but SharedLocation's is "publisherPersonId" (see that class's doc
+                // comment) — must never be written as a literal stored field:
+                // Firestore's toObject() throws on read if it finds one, since
+                // @DocumentId is supposed to repopulate that property from the
+                // document reference alone. This raw Gson-map upload path doesn't go
+                // through Firestore's POJO mapper (which strips these automatically),
+                // so it has to know each collection's @DocumentId key explicitly.
+                // Confirmed root cause of a real production crash: this write path
+                // was uploading a real "publisherPersonId" field for sharedLocations
+                // (only "id" was ever stripped), and every session's post-login
+                // mirror of that collection crashed the whole app the instant it
+                // downloaded that corrupt document back — see FirestoreMirror.kt.
+                val documentIdKey = if (op.collectionPath == "sharedLocations") "publisherPersonId" else "id"
+                docRef.set(fields - documentIdKey).await()
             }
             SyncOperationType.DELETE -> docRef.delete().await()
         }

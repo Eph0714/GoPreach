@@ -1279,7 +1279,113 @@ and are deferred rather than half-built:
   Total-count cards — all need a signed-in session with real enrolled
   data and reports, which this environment doesn't have credentials for.
 
+## Phase 36 — Critical fix: app closed right after a correct login; Elder Dashboard made consistent with Admin/Super-Admin ✅ done
+
+- **Critical, reported live: "the app closes right when the Main Form
+  should appear, right after a correct login."** Reproduced on-device
+  this time (a persisted session let this environment actually reach the
+  Main Form for the first time all session) and root-caused from the
+  crash-buffer stack trace — **not** the `RoleType`/`resolvedRoleType()`
+  theory investigated first (see below), but a real Firestore mapping
+  conflict:
+  `SharedLocation.publisherPersonId` is annotated `@DocumentId`, but at
+  least one `sharedLocations` document in the live database had an actual
+  stored field also named `publisherPersonId` — Firestore's POJO mapper
+  throws a `RuntimeException` on read whenever that collision exists,
+  since `@DocumentId` is supposed to be repopulated from the document
+  reference alone, never a real field. That throw happened inside
+  `mirrorFirestoreCollection`'s `appScope.launch { for (change in
+  snapshot.documentChanges) { change.document.toObject(clazz) ... } }`
+  (`FirestoreMirror.kt`) — unguarded, on a background coroutine with
+  nothing to catch it — and every collection is mirrored immediately after
+  sign-in, so it crashed the whole process for every session, precisely
+  matching "right when the Main Form should appear."
+  - **Where the bad field came from**: `SyncWorker.applyOperation()`'s
+    manual-sync upload path re-serializes each queued document from its
+    cached JSON into a raw `Map<String, Any?>` and does
+    `docRef.set(fields - "id")` — correct for every model except
+    `SharedLocation`, whose `@DocumentId` property isn't named `"id"`, so
+    its real value was being uploaded as a literal field on every edit,
+    recreating the exact collision `@DocumentId` forbids.
+  - **Fix, two parts**: (1) `FirestoreMirror.kt` now wraps each
+    document's `toObject(clazz)`/cache-write in try/catch — one malformed
+    document is logged and skipped, never taking down the mirror or the
+    app, for any collection, not just this one. (2) `SyncWorker.kt` now
+    strips the correct per-collection `@DocumentId` key
+    (`"publisherPersonId"` for `sharedLocations`, `"id"` for everything
+    else) before every upload, so this specific collision can't recur.
+  - **Verified live, not just by static analysis**: rebuilt, reinstalled
+    on the emulator, relaunched — previously reproduced "GoPreach keeps
+    stopping" on launch; after the fix, the exact same persisted session
+    reached the Main Form and rendered real dashboard data (Total
+    Publishers, Total Elders, Date Range filter, Sync banner) with zero
+    crash-buffer entries. This is the first time this session could
+    actually confirm a Main-Form-reaching fix on-device rather than by
+    code review alone.
+  - **Also hardened, defensively, while investigating** (not the
+    confirmed root cause, but a real gap found along the way and left in
+    place as protection against the *next* corrupt-data crash of this
+    general shape): `RoleAssignment.resolvedRoleTypeOrNull()` — a
+    non-throwing sibling of `resolvedRoleType()` — now used by
+    `PermissionChecker.hasAdminRole()`/`isActivePublisher()`/
+    `highestAdminRole()` and by the `ownCongregationId`/
+    `ownGroupAssignment`/`ownPublisherAssignment` resolution in
+    `GoPreachNavGraph.kt` and `AdminHomeScreen.kt` — all of which run
+    unconditionally on every login/every Main Form composition from the
+    signed-in session's *own* `RoleAssignment` list. A malformed
+    `RoleAssignment.roleType` string there is now skipped like it holds no
+    such role, instead of crashing composition. `DashboardStatsViewModel`
+    also got a `try`/`catch` around its stats-aggregation `combine` block
+    (surfaced via a new `error` field, shown gracefully by
+    `DashboardReportsScreen` instead of taking down the app) for the same
+    reason.
+- **Elder Dashboard Consistent with Admin/Super-Admin Dashboard** (full
+  12-section spec) — two real, previously-undiscovered bugs plus one
+  self-caused regression, all fixed together:
+  - `AdminHomeScreen`'s `hideMainFormButtons` previously covered only
+    Super-Admin/`ADMIN_PER_CONGREGATION`, leaving Coordinator Elder and
+    Regular Elder stuck on the old tile-grid Main Form body while
+    Super-Admin/Admin already had the clean drawer+stats layout — the
+    actual "not consistent" bug. Now includes `COORDINATOR_ELDER`/
+    `REGULAR_ELDER` too, so every admin-track role shares one Main Form.
+  - `visibleCongregationIds` silently resolved to `emptySet()` for Regular
+    Elder — their own `RoleAssignment.congregationId` is only ever
+    reachable via the `REGULAR_ELDER` branch, which the old filter didn't
+    check — so a Regular Elder's embedded dashboard summary showed zero
+    congregations' worth of data. Fixed by resolving
+    `ownCongregationId ?: ownGroupCongregationId` (spec §2/§3: Elders
+    still only ever see their own assigned scope, never every
+    congregation — `isSuperAdmin` remains the only `null` case).
+  - Self-discovered regression the `hideMainFormButtons` fix above would
+    otherwise have caused: the old tile grid (now hidden for Elders too)
+    was the *only* place "Reports Dashboard" and "Chat Schedule" were
+    reachable for Coordinator/Regular Elder — the drawer had no
+    equivalents. Added both to `SidePanel.kt`'s "Other" section
+    unconditionally (every session reaching this drawer already has an
+    admin-track role, so no extra gating boolean was needed), restoring
+    the reach the tile grid used to give everyone instead of stranding
+    Elders once their tile grid disappears.
+  - Spec §10/§11 (Elder must not gain Admin/Super-Admin privileges;
+    server must reject out-of-scope requests): unchanged by this phase —
+    these fixes only affect what an Elder's *own* session can see/render,
+    never what any `PermissionChecker`/`hasPermission()` check allows them
+    to do, and this app's authorization architecture remains
+    Firestore-rules + client-resolved scope rather than a custom backend
+    (an acknowledged, pre-existing gap tracked below, not newly
+    introduced).
+- Verified via `./gradlew :app:compileDebugKotlin`, a full
+  `:app:assembleDebug`, and this phase's own on-device Main Form
+  screenshot above (a real Super-Admin session, not just the Login
+  screen) — the strongest on-device confirmation available this session
+  so far. Not verified live: the Elder Dashboard specifically (still no
+  Coordinator/Regular Elder credentials in this environment), so its two
+  fixes are confirmed by code review and compilation, not by an actual
+  Elder login.
+
 ## What's next (not blocking, tracked for a future pass)
+- Verify the Elder Dashboard consistency fixes (Phase 36) with a real
+  Coordinator Elder / Regular Elder login — this environment still has no
+  credentials for either role.
 - Date-range filtering extended to Congregation/Group/Interested Person/
   Activity/Statistics/Summary reports, and remembering the selected range
   across navigation between reports — see Phase 35's scope note.
@@ -1302,4 +1408,4 @@ and are deferred rather than half-built:
 - A real date-range-filterable "Reports Summary" module (daily/monthly/yearly/custom), replacing the current all-time `ReportsScreen`
 - Control Panel → Appearance: primary/secondary color and background customization (currently light/dark/system only)
 - A dedicated Share Location Settings screen (enable/disable, visibility, privacy preferences)
-- Side Panel + Dashboard: verify on-device with a real Super-Admin/Admin/Coordinator Elder login (see Phase 13's disclosed gap)
+- Side Panel + Dashboard: verified on-device with a real Super-Admin login as of Phase 36; still needs an Admin/Coordinator Elder/Regular Elder login to confirm those roles specifically (see Phase 13's original gap, narrowed)

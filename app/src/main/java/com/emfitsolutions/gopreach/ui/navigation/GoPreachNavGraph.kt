@@ -72,15 +72,20 @@ fun GoPreachNavGraph(
     val currentRole = PermissionChecker.highestAdminRole(session.roleAssignments)
     // The congregation an Admin or Coordinator Elder is scoped to (spec §3 permission
     // matrix: "Own congregation" everywhere except Super-Admin's "All").
+    // Uses resolvedRoleTypeOrNull() (never throws) — this composable runs
+    // unconditionally on every login, so a single corrupt/unparseable
+    // RoleAssignment on this session's own list used to crash the app the
+    // instant Compose evaluated this line, right when the Main Form should
+    // appear. A malformed assignment is now just skipped instead.
     val ownCongregationId = session.roleAssignments.firstOrNull {
-        (it.resolvedRoleType() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER)
+        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER)
     }?.congregationId
     // A Regular Elder's own group (spec §3: their CRUD/view scope is "own group", not congregation-wide).
     val ownGroupAssignment = session.roleAssignments.firstOrNull {
-        (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
+        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
     }
     // A Publisher's own group/congregation (spec §6.1: publishers share within, and only see, their own group).
-    val ownPublisherAssignment = session.roleAssignments.firstOrNull { it.resolvedRoleType() is RoleType.Publisher }
+    val ownPublisherAssignment = session.roleAssignments.firstOrNull { it.resolvedRoleTypeOrNull() is RoleType.Publisher }
 
     val targetRoute = when {
         session.isLoading -> null

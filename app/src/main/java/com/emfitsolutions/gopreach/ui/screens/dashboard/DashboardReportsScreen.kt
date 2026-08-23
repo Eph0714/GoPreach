@@ -115,6 +115,18 @@ fun DashboardStatsContent(
         return
     }
 
+    if (uiState.error != null) {
+        Column(modifier = modifier.fillMaxWidth().padding(24.dp)) {
+            Text("Dashboard statistics are temporarily unavailable.", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Other GoPreach features are unaffected. (${uiState.error})",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+
     val displayed = uiState.selectedCongregationId?.let { id -> uiState.all.firstOrNull { it.congregationId == id } }
         ?: uiState.overallTotal ?: uiState.all.firstOrNull()
 

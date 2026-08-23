@@ -98,18 +98,39 @@ fun AdminHomeScreen(
     val canViewUserLogs = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION || role == AdminRole.COORDINATOR_ELDER
     // Publishers/Groups: Super-Admin/Admin/Coordinator Elder only (spec §3 permission matrix — Regular Elder ❌).
     val canManagePublishersAndGroups = canViewUserLogs
-    // Per explicit request: Super-Admin and Admin now navigate entirely through
-    // the Side Panel — the main dashboard body (tile grid, hero quick actions,
-    // and the old "Sign Out" tile) is hidden for them; everything it used to
-    // offer is still reachable from the drawer instead (see GoPreachSidePanelContent).
-    val hideMainFormButtons = isSuperAdmin || role == AdminRole.ADMIN_PER_CONGREGATION
-    // Same scoping GoPreachNavGraph uses for the standalone Dashboard Reports
-    // route — reproduced here so the graphical Summary embedded below (for
-    // Super-Admin/Admin) is scoped identically wherever it's shown.
+    // "Elder Dashboard Consistent with Admin/Super-Admin Dashboard" spec §1 —
+    // every admin-track role (including both Elder roles) now navigates
+    // through the same Side Panel-driven Main Form; the old tile-grid body
+    // (quick actions, DashboardTile grid, "Sign Out" tile) is hidden for all
+    // of them, not just Super-Admin/Admin. This used to leave Coordinator/
+    // Regular Elder on the old tile-grid layout — a real, visible
+    // inconsistency, not a deliberate role distinction — while
+    // Super-Admin/Admin already had the clean drawer+stats Main Form.
+    // Elder-appropriate destinations are still reachable, just through the
+    // drawer (see GoPreachSidePanelContent, already gated by the same
+    // canManagePublishersAndGroups/canEnrollRegularElderOrPublisher/etc.
+    // booleans below, which are already Elder-aware).
+    val hideMainFormButtons = isSuperAdmin || role == AdminRole.ADMIN_PER_CONGREGATION ||
+        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.REGULAR_ELDER
+    // Same scoping GoPreachNavGraph's standalone Dashboard Reports route uses
+    // (see its `ownCongregationId ?: ownGroupAssignment?.congregationId`) —
+    // reproduced here so the graphical Summary embedded below is scoped
+    // identically wherever it's shown. This was missing the Regular Elder
+    // fallback (their own RoleAssignment has a groupId, not a congregationId
+    // set directly), which meant a Regular Elder's embedded Main Form summary
+    // silently showed zero congregations' worth of data — a real scope bug,
+    // not just a missing UI to reach the (correctly-scoped) standalone route.
+    // resolvedRoleTypeOrNull() (never throws), not resolvedRoleType() — this
+    // runs unconditionally on every Main Form composition, so one corrupt/
+    // unparseable RoleAssignment used to crash the app immediately after a
+    // correct login instead of just being skipped like it holds no such role.
     val ownCongregationId = session.roleAssignments.firstOrNull {
-        (it.resolvedRoleType() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER)
+        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER)
     }?.congregationId
-    val visibleCongregationIds: Set<String>? = if (isSuperAdmin) null else setOfNotNull(ownCongregationId)
+    val ownGroupCongregationId = session.roleAssignments.firstOrNull {
+        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
+    }?.congregationId
+    val visibleCongregationIds: Set<String>? = if (isSuperAdmin) null else setOfNotNull(ownCongregationId ?: ownGroupCongregationId)
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()

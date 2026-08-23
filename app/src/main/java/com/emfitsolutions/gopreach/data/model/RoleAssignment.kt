@@ -41,4 +41,16 @@ data class RoleAssignment(
     val lastEditedAt: Long? = null,
 ) {
     fun resolvedRoleType(): RoleType = RoleType.deserialize(roleType)
+
+    /** Same as [resolvedRoleType] but never throws — returns null for any
+     * [roleType] string [RoleType.deserialize] can't parse (a blank/default
+     * value, an old enum name from before a rename, or any other corrupt
+     * data). Use this instead of [resolvedRoleType] anywhere that runs
+     * unconditionally on *every* signed-in session's own assignments —
+     * e.g. [com.emfitsolutions.gopreach.domain.PermissionChecker]'s
+     * role-resolution functions, which fire immediately after every login,
+     * before the Main Form even renders. One malformed RoleAssignment used
+     * to crash the whole app the instant those functions ran; this lets it
+     * be silently skipped instead, exactly like it holds no such role. */
+    fun resolvedRoleTypeOrNull(): RoleType? = runCatching { RoleType.deserialize(roleType) }.getOrNull()
 }
