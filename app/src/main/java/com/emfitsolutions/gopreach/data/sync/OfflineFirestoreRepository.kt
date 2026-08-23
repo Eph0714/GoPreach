@@ -47,6 +47,14 @@ class OfflineFirestoreRepository @Inject constructor(
             rows.map { gson.fromJson(it.payloadJson, T::class.java) }
         }
 
+    /** See [CacheDao.observeCollectionsMatching] — for a variable-parent
+     * subcollection (e.g. Visits across every Interested Person) rather than
+     * one fixed [collectionPath]. */
+    inline fun <reified T> observeCollectionsMatching(pathPattern: String): Flow<List<T>> =
+        cacheDao.observeCollectionsMatching(pathPattern).map { rows ->
+            rows.map { gson.fromJson(it.payloadJson, T::class.java) }
+        }
+
     suspend inline fun <reified T> get(collectionPath: String, documentId: String): T? =
         cacheDao.get(collectionPath, documentId)?.let { gson.fromJson(it.payloadJson, T::class.java) }
 

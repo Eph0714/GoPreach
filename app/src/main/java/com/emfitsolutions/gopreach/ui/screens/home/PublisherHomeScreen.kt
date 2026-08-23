@@ -3,9 +3,11 @@ package com.emfitsolutions.gopreach.ui.screens.home
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -21,9 +23,11 @@ import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,23 +38,45 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.model.PublisherCategory
+import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.ui.components.DashboardHero
 import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
+import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.QuickAction
+import com.emfitsolutions.gopreach.ui.components.SquareStatCard
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 
-/** Landing point for the Ministry Report App / Publisher context (spec §5.2). */
+/** Landing point for the Ministry Report App / Publisher context (spec §5.2).
+ *
+ * "Role-Based Publisher Dashboard" spec §1/§21 — the square statistic cards
+ * differ by [PublisherCategory]: Pioneer gets My Bible Studies/My Return
+ * Visits/Preaching Hours; Regular/Unbaptized get My Bible Studies/Attended
+ * Preaching only, never Preaching Hours or Preaching Time Record access
+ * (spec §17/§20). Every value comes from [PublisherDashboardViewModel]'s
+ * real database queries — never hard-coded (spec §1/§24's explicit
+ * requirement, restated across nearly every numbered section of that spec).
+ */
 @Composable
 fun PublisherHomeScreen(
     onSwitchToAdmin: (() -> Unit)?,
     onNavigate: (String) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
+    dashboardViewModel: PublisherDashboardViewModel = hiltViewModel(),
 ) {
     val session by viewModel.state.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val pendingSyncCount by viewModel.pendingSyncCount.collectAsStateWithLifecycle()
+    val currentPersonId = session.person?.id.orEmpty()
+    // resolvedRoleTypeOrNull() (never throws) — this runs unconditionally on
+    // every Main Form composition, same reasoning as AdminHomeScreen/
+    // GoPreachNavGraph's own role resolution.
+    val category = remember(session.roleAssignments) {
+        session.roleAssignments.firstNotNullOfOrNull { (it.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category }
+    }
+    val isPioneer = isPioneerCategory(category)
 
     // "Back Button and Page Navigation" spec §7 — this is the Main Form for the
     // Publisher context; there's nothing left in the nav stack to pop to here,
@@ -104,6 +130,15 @@ fun PublisherHomeScreen(
         ) {
             SyncToServerButton()
 
+            if (currentPersonId.isNotBlank()) {
+                PublisherStatsSection(
+                    publisherPersonId = currentPersonId,
+                    isPioneer = isPioneer,
+                    onNavigate = onNavigate,
+                    viewModel = dashboardViewModel,
+                )
+            }
+
             DashboardSection("My Ministry") {
                 DashboardTile("Monthly Report", Icons.Rounded.Assignment, { onNavigate(Destinations.MONTHLY_REPORT) })
                 DashboardTile("Bible Study Record", Icons.AutoMirrored.Rounded.MenuBook, { onNavigate(Destinations.BIBLE_STUDY_RECORD) })
@@ -119,6 +154,87 @@ fun PublisherHomeScreen(
                 DashboardSection("Account") {
                     DashboardTile("Admin App", Icons.Rounded.SwapHoriz, onSwitchToAdmin)
                 }
+            }
+        }
+    }
+}
+
+/**
+ * "Role-Based Publisher Dashboard" spec §2/§17/§20-§22 — the date range
+ * picker plus the category-appropriate square stat cards. Pioneer gets three
+ * (My Bible Studies / My Return Visits / Preaching Hours); Regular and
+ * Unbaptized both get exactly two (My Bible Studies / Attended Preaching) —
+ * same layout, same underlying "unique person" logic (spec §25: identical
+ * counting used everywhere), just a different subset of cards.
+ *
+ * Each card's `onClick` reuses an existing Main Form destination
+ * (Bible Study Record / Interested People / Monthly Report) or the new
+ * Preaching Time Record screen — never a bare duplicate of a Main Form nav
+ * button with no added value (spec §4/§23): every card here also carries a
+ * live, current statistic the plain nav button doesn't.
+ */
+@Composable
+private fun PublisherStatsSection(
+    publisherPersonId: String,
+    isPioneer: Boolean,
+    onNavigate: (String) -> Unit,
+    viewModel: PublisherDashboardViewModel,
+) {
+    LaunchedEffect(publisherPersonId) {
+        // Only Pioneers' "My Return Visits" card needs the cross-Interested-
+        // Person collection-group listener; starting it for every Publisher
+        // would just be wasted reads for Regular/Unbaptized publishers, who
+        // never see that card at all.
+        if (isPioneer) viewModel.startVisitSync(publisherPersonId)
+    }
+    val statsFlow = remember(publisherPersonId) { viewModel.statsFor(publisherPersonId) }
+    val stats by statsFlow.collectAsStateWithLifecycle()
+    val dateRange by viewModel.dateRange.collectAsStateWithLifecycle()
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("My Dashboard", style = MaterialTheme.typography.titleMedium)
+        DateRangeFilterBar(range = dateRange, onRangeChange = viewModel::setDateRange)
+
+        val bibleStudiesCard: @Composable (Modifier) -> Unit = { modifier ->
+            SquareStatCard(
+                title = "MY BIBLE STUDIES",
+                value = stats.bibleStudiesCount.toString(),
+                onClick = { onNavigate(Destinations.BIBLE_STUDY_RECORD) },
+                modifier = modifier,
+            )
+        }
+
+        if (isPioneer) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                bibleStudiesCard(Modifier.weight(1f))
+                SquareStatCard(
+                    title = "MY RETURN VISITS",
+                    value = stats.returnVisitsCount.toString(),
+                    onClick = { onNavigate(Destinations.INTERESTED_PEOPLE) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SquareStatCard(
+                    title = "PREACHING HOURS",
+                    value = "%.1f".format(stats.preachingHours),
+                    onClick = { onNavigate(Destinations.PREACHING_TIME_RECORD) },
+                    modifier = Modifier.weight(1f),
+                )
+                // Balances the row so "Preaching Hours" stays the same
+                // square size as every other card instead of stretching to
+                // fill the row alone (spec §5: "consistent dimensions").
+                Box(modifier = Modifier.weight(1f))
+            }
+        } else {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                bibleStudiesCard(Modifier.weight(1f))
+                SquareStatCard(
+                    title = "ATTENDED PREACHING",
+                    value = if (stats.attendedPreaching) "YES" else "NO",
+                    onClick = { onNavigate(Destinations.MONTHLY_REPORT) },
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }

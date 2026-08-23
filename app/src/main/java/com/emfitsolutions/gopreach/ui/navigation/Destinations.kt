@@ -44,6 +44,8 @@ object Destinations {
     // Phase 5 — Ministry Report App (Publisher context)
     const val BIBLE_STUDY_RECORD = "bible_study_record"
     const val INTERESTED_PEOPLE = "interested_people"
+    // "Preaching Time Record Module" spec §12 — Pioneer-only.
+    const val PREACHING_TIME_RECORD = "preaching_time_record"
     const val MONTHLY_REPORT = "monthly_report"
     const val EDIT_MONTHLY_REPORT = "edit_monthly_report/{targetPersonId}"
     fun editMonthlyReport(targetPersonId: String) = "edit_monthly_report/$targetPersonId"

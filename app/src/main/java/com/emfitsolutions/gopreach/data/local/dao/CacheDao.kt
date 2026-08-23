@@ -16,6 +16,15 @@ interface CacheDao {
     @Query("SELECT * FROM cached_documents WHERE collectionPath = :collectionPath ORDER BY updatedAt DESC")
     fun observeCollection(collectionPath: String): Flow<List<CachedDocumentEntity>>
 
+    /** Same as [observeCollection], but for cross-cutting subcollections keyed
+     * by a variable parent id — e.g. every "visits" row under every
+     * Interested Person, not just one. [pathPattern] is a plain
+     * SQL LIKE pattern (e.g. `"interestedPeople/%/visits"`); the caller is
+     * responsible for filtering the results down further (e.g. by
+     * publisherPersonId) since this only narrows by path shape. */
+    @Query("SELECT * FROM cached_documents WHERE collectionPath LIKE :pathPattern ORDER BY updatedAt DESC")
+    fun observeCollectionsMatching(pathPattern: String): Flow<List<CachedDocumentEntity>>
+
     /** Every cached document, any collection — the source for a full backup export
      * (spec §5.1 Backup & Restore, Super-Admin only). */
     @Query("SELECT * FROM cached_documents")

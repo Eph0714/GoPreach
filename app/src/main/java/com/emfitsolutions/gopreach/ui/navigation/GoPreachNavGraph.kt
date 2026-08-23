@@ -38,6 +38,7 @@ import com.emfitsolutions.gopreach.ui.screens.groups.ManageGroupsScreen
 import com.emfitsolutions.gopreach.ui.screens.home.AdminHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.interestedpeople.InterestedPeopleScreen
+import com.emfitsolutions.gopreach.ui.screens.preachingtime.PreachingTimeRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MonthlyReportScreen
 import com.emfitsolutions.gopreach.ui.screens.login.LoginScreen
 import com.emfitsolutions.gopreach.ui.screens.publishers.ManagePublishersScreen
@@ -311,6 +312,14 @@ fun GoPreachNavGraph(
             InterestedPeopleScreen(
                 publisherPersonId = currentPersonId,
                 currentPersonId = currentPersonId,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.PREACHING_TIME_RECORD) {
+            PreachingTimeRecordScreen(
+                publisherPersonId = currentPersonId,
+                congregationId = ownPublisherAssignment?.congregationId,
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
             )
