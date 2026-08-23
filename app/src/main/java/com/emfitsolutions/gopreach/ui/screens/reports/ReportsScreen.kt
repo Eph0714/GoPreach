@@ -34,7 +34,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.emfitsolutions.gopreach.ui.components.DateRange
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 
 /** Spec §5.1 — Total Bible Studies / Interested People / preaching hours, per
@@ -61,9 +60,11 @@ fun ReportsScreen(
     val canToggleScope = visibleCongregationId != null && visibleGroupId != null
     val effectiveGroupId = if (canToggleScope && showCongregationWide) null else visibleGroupId
 
-    // "Main Form Date Range Filtering" spec §7/§4 — This Month selected by
-    // default, calculated live from the current date.
-    var dateRange by remember { mutableStateOf(DateRange.thisMonth()) }
+    // "Main Form Date Range Filtering" spec §7/§4/§8 — This Month by default
+    // (calculated live from the current date), shared with the Dashboard's
+    // own Reports screen via DateRangeStore rather than screen-local state,
+    // so navigating between the two never resets the selection.
+    val dateRange by viewModel.dateRange.collectAsStateWithLifecycle()
 
     val rowsFlow = remember(visibleCongregationId, effectiveGroupId, dateRange) {
         viewModel.rowsFor(visibleCongregationId, effectiveGroupId, dateRange)
@@ -99,7 +100,7 @@ fun ReportsScreen(
         }
         DateRangeFilterBar(
             range = dateRange,
-            onRangeChange = { dateRange = it },
+            onRangeChange = viewModel::setDateRange,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
         if (rows.isEmpty()) {

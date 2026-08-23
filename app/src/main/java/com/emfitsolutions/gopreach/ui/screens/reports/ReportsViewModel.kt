@@ -7,9 +7,11 @@ import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
+import com.emfitsolutions.gopreach.domain.DateRangeStore
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import javax.inject.Inject
 
@@ -39,7 +41,14 @@ class ReportsViewModel @Inject constructor(
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val monthlyReportRepository: MonthlyReportRepository,
     private val interestedPersonRepository: InterestedPersonRepository,
+    private val dateRangeStore: DateRangeStore,
 ) : ViewModel() {
+
+    /** Spec §8 — the same selected [DateRange] the Dashboard's Reports screen
+     * reads/writes (see [DateRangeStore]), so switching between the two never
+     * silently resets back to a default the user didn't choose. */
+    val dateRange: StateFlow<DateRange> = dateRangeStore.range
+    fun setDateRange(range: DateRange) = dateRangeStore.set(range)
 
     /** [visibleGroupId] narrows further for a Regular Elder (own group only, spec
      * §3 permission matrix); leave null for congregation-wide or all-congregations roles. */

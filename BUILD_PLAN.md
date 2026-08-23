@@ -1382,13 +1382,49 @@ and are deferred rather than half-built:
   fixes are confirmed by code review and compilation, not by an actual
   Elder login.
 
+## Phase 37 — Date range remembered across navigation between reports (spec §8) ✅ done
+
+- **Closed one half of Phase 35's disclosed gap**: "remembering the
+  selected range across navigation" (spec §8). The other half of that
+  gap — Congregation/Group/Activity/Statistics/Summary as separate report
+  *screens* — doesn't actually exist as distinct destinations in this
+  app; there are only two report surfaces, the Main Form's own Dashboard
+  summary (`DashboardReportsScreen`, whose own per-congregation breakdown
+  already *is* the "Congregation Reports" view) and the standalone
+  "Reports Summary" (`ReportsScreen`, whose per-publisher rows already
+  fold in Interested People) — both were already individually date-range
+  filterable since Phase 35, just not sharing one selection.
+- New `domain/DateRangeStore.kt` — a `@Singleton`, in-memory-only
+  `MutableStateFlow<DateRange>` (deliberately not persisted across a full
+  process restart: every report already defaults live to This Month on
+  cold start per spec §4, so a disk-backed store would add nothing beyond
+  that for a "remembered *across navigation*" requirement, which is about
+  moving between screens in one session, not surviving an app kill).
+- `DashboardStatsViewModel` and `ReportsViewModel` both now read/write
+  this same store instead of owning their own `DateRange` state
+  (`DashboardStatsViewModel`'s local `_filters` StateFlow now holds only
+  `selectedCongregationId`, combined with the store's `range` to stay
+  within `combine()`'s 5-flow overload; `ReportsScreen`'s local
+  `remember { mutableStateOf(DateRange.thisMonth()) }` was removed
+  entirely in favor of collecting `viewModel.dateRange`). Picking a range
+  on either screen is now immediately reflected on the other the next
+  time it's visited — no more independent defaults.
+- Verified via `./gradlew :app:compileDebugKotlin`, a full
+  `:app:assembleDebug`, and reinstall+relaunch on-device (no crash-buffer
+  entries). **Not verified live**: actually watching a custom range
+  survive Dashboard → Reports Summary navigation on-screen — the
+  persisted Super-Admin session from Phase 36 had signed itself out by
+  the time this phase's build was reinstalled, and this environment has
+  no credentials to sign back in. The fix is confirmed correct by
+  compilation and by code review of the shared single-source-of-truth
+  wiring, not by an on-screen before/after of the actual navigation.
+
 ## What's next (not blocking, tracked for a future pass)
-- Verify the Elder Dashboard consistency fixes (Phase 36) with a real
-  Coordinator Elder / Regular Elder login — this environment still has no
-  credentials for either role.
-- Date-range filtering extended to Congregation/Group/Interested Person/
-  Activity/Statistics/Summary reports, and remembering the selected range
-  across navigation between reports — see Phase 35's scope note.
+- Verify Phase 37's date-range-remembered-across-navigation fix, and the
+  Elder Dashboard consistency fixes (Phase 36), with a real login —
+  this environment still has no Admin/Coordinator Elder/Regular Elder
+  credentials, and its one persisted Super-Admin session has since
+  signed itself out.
 - Unsaved-changes dirty-tracking for the ~12 `AlertDialog`-based Edit forms
   across the Manage screens (Publishers/Admins/Elders/Congregations/
   Groups/Interested Persons/Users) — see Phase 32's scope note.

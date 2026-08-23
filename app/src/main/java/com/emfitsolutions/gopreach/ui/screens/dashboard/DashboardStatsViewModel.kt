@@ -7,15 +7,14 @@ import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
+import com.emfitsolutions.gopreach.domain.DateRangeStore
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 
 private const val TAG = "DashboardStatsViewModel"
@@ -68,10 +67,12 @@ data class DashboardStatsUiState(
  * class's public API for a caller to tamper with in the first place.
  */
 /** Bundles the two independent "which slice of the data am I looking at"
- * choices into one [MutableStateFlow] so [combine] below stays within
- * Kotlin's 5-flow direct overload — the alternative (a 6th separate flow)
- * needs the array-based `combine(vararg)` overload instead, which is a
- * meaningfully worse call-site for two fields this small and this related. */
+ * choices into one value so [combine] below stays within Kotlin's 5-flow
+ * direct overload — the alternative (a 6th separate flow) needs the
+ * array-based `combine(vararg)` overload instead, which is a meaningfully
+ * worse call-site for two fields this small and this related.
+ * [dateRange] is sourced from [DateRangeStore], not owned here — see that
+ * class's doc comment for why (spec §8: remembered across navigation). */
 private data class DashboardFilters(
     val selectedCongregationId: String? = null,
     val dateRange: DateRange = DateRange.thisMonth(),
@@ -83,9 +84,13 @@ class DashboardStatsViewModel @Inject constructor(
     roleAssignmentRepository: RoleAssignmentRepository,
     monthlyReportRepository: MonthlyReportRepository,
     personRepository: PersonRepository,
+    private val dateRangeStore: DateRangeStore,
 ) : ViewModel() {
 
-    private val _filters = MutableStateFlow(DashboardFilters())
+    private val _selectedCongregationId = MutableStateFlow<String?>(null)
+    private val _filters = combine(_selectedCongregationId, dateRangeStore.range) { congregationId, dateRange ->
+        DashboardFilters(congregationId, dateRange)
+    }
 
     private var scopeFilter: Set<String>? = null
 
@@ -130,6 +135,12 @@ class DashboardStatsViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardStatsUiState())
 
-    fun selectCongregation(congregationId: String?) = _filters.update { it.copy(selectedCongregationId = congregationId) }
-    fun setDateRange(range: DateRange) = _filters.update { it.copy(dateRange = range) }
+    fun selectCongregation(congregationId: String?) {
+        _selectedCongregationId.value = congregationId
+    }
+
+    // Writes through to the shared store, not local state — see DateRangeStore's
+    // doc comment: this is what makes the Reports Summary screen pick up the
+    // same range instead of each screen keeping an independent default.
+    fun setDateRange(range: DateRange) = dateRangeStore.set(range)
 }
