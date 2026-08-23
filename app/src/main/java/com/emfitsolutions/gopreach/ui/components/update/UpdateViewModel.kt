@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.BuildConfig
+import com.emfitsolutions.gopreach.data.sync.ConnectivityObserver
 import com.emfitsolutions.gopreach.data.update.ApkDownloader
 import com.emfitsolutions.gopreach.data.update.DownloadEvent
 import com.emfitsolutions.gopreach.data.update.UpdateInfo
@@ -17,6 +18,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -40,6 +43,7 @@ class UpdateViewModel @Inject constructor(
     private val manifestRepository: UpdateManifestRepository,
     private val downloader: ApkDownloader,
     private val installer: UpdateInstaller,
+    connectivityObserver: ConnectivityObserver,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<UpdateCheckState>(UpdateCheckState.Idle)
@@ -47,6 +51,24 @@ class UpdateViewModel @Inject constructor(
 
     private var hasAutoChecked = false
     private val currentVersion: String get() = BuildConfig.VERSION_NAME
+
+    init {
+        // "Refresh, Automatic Updates, Offline Sync" spec §12: "When the device
+        // becomes online: Automatically check for application updates" — entirely
+        // separate from [checkOnAppStart] (the once-per-process check) and never
+        // triggered by Refresh or Sync to Server. Only fires on an actual
+        // offline→online *transition*, not on the initial subscribe (which would
+        // otherwise double up with checkOnAppStart for a launch that's already
+        // online) and not repeatedly while already online.
+        var wasOnline: Boolean? = null
+        connectivityObserver.observe()
+            .onEach { online ->
+                val previouslyOffline = wasOnline == false
+                wasOnline = online
+                if (online && previouslyOffline) check(silent = true)
+            }
+            .launchIn(viewModelScope)
+    }
 
     /** Called once from the app's root composable — checks silently and only
      * surfaces anything when an update genuinely exists, so a fresh launch

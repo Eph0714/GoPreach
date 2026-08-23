@@ -940,6 +940,53 @@ and are deferred rather than half-built:
   field's save behavior (Settings/Account Settings both require being
   signed in — same recurring credential gap).
 
+## Phase 29 — Refresh/Update/Sync fully decoupled; real percentage in the Sync button ✅ done
+
+- **Refresh no longer checks for app updates or uploads pending changes** —
+  this was a real, direct bug: `AdminHomeScreen`'s pull-to-refresh called
+  *both* `syncScheduler.requestSyncNow()` **and**
+  `updateViewModel.checkManually()`, exactly the cross-triggering this
+  spec's §18 explicitly forbids. `HomeViewModel.refreshData()` now just
+  reports current connectivity (for a possible "Refreshed"/"Showing
+  offline data" moment) and does nothing else — every screen already
+  renders off a Room cache kept continuously live by Firestore listeners
+  while online, so there's no separate "fetch" step Refresh needs to
+  trigger. The spinner now resets on its own short delay instead of
+  waiting on the update-check state.
+- **Automatic update checking now also fires on reconnect**, not just once
+  at app start: `UpdateViewModel` observes `ConnectivityObserver` and
+  triggers a silent check on an actual offline→online *transition* (not on
+  the initial subscribe, to avoid double-checking a launch that's already
+  online) — spec §12's "When the device becomes online: Automatically
+  check for application updates."
+- **`SyncToServerButton` now shows real progress inside the button itself**
+  (spec §6): the label becomes `SYNCING 47%` — an actual
+  `done * 100 / total` computed from `SyncWorker`'s real per-record
+  progress, never a fake animation — and the button is disabled for the
+  duration so a second tap can't start an overlapping run (spec §8). A
+  status line under the button shows `Uploading changes: 13 / 20` while
+  running, or the spec's exact dynamic singular/plural pending-count
+  wording when idle (`"There is 1 change..."` / `"There are 5 changes..."`),
+  or `"✓ All changes synced"` when there's nothing pending, or
+  `"Sync Failed – Try Again"` if the run couldn't complete at all.
+  Wording elsewhere updated to match the spec exactly too: "No Network
+  Connection" now names the actual pending count; the completion dialog is
+  "Sync Complete" and "All changes have been successfully synchronized
+  with the server." verbatim on full success, or "Sync Partially Complete
+  / N changes synchronized. / M changes still need synchronization." when
+  some fail (never "Sync Failed" unless *zero* succeeded).
+- **`SyncStatusButton`** (header icon) now shares `ManualSyncViewModel`
+  with `SyncToServerButton` instead of its own separate ViewModel/sync
+  path — tapping it gets the same connectivity check and progress/summary
+  handling, rather than a second, divergent "sync" behavior that could
+  silently queue a run while offline.
+- Verified via `./gradlew :app:compileDebugKotlin`, a full
+  `:app:assembleDebug`, and an on-device screenshot of the Login screen
+  (v1.15.0, no crash). Not verified live: the actual percentage/status-line
+  behavior during a real sync run, and the reconnect-triggered update
+  check — both need a signed-in session and a real connectivity toggle,
+  which this session doesn't have credentials/hardware access to exercise.
+
 ## What's next (not blocking, tracked for a future pass)
 - Real per-field sync conflict detection/resolution (needs a version/
   timestamp field added to synced documents first) and a discrete

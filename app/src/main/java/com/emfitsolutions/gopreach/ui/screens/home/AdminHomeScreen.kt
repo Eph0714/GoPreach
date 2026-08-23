@@ -1,6 +1,5 @@
 package com.emfitsolutions.gopreach.ui.screens.home
 
-import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,7 +44,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -60,10 +58,9 @@ import com.emfitsolutions.gopreach.ui.components.QuickAction
 import com.emfitsolutions.gopreach.ui.components.SyncStatusButton
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
 import com.emfitsolutions.gopreach.ui.components.UpdateAvailableBanner
-import com.emfitsolutions.gopreach.ui.components.update.UpdateCheckState
-import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 import com.emfitsolutions.gopreach.ui.screens.dashboard.DashboardStatsContent
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Landing point for the Admin context (spec §5.1) — a Side Panel (spec's
@@ -113,17 +110,14 @@ fun AdminHomeScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
-    // Activity-scoped — the exact same instance MainActivity's UpdateHost
-    // observes (see SettingsScreen for the same pattern), so a check
-    // triggered by pulling to refresh here shows its "Update Available" /
-    // "GoPreach is up to date" result through that shared dialog, not a
-    // second, disconnected one.
-    val updateViewModel: UpdateViewModel = hiltViewModel(LocalContext.current as ComponentActivity)
-    val updateState by updateViewModel.state.collectAsStateWithLifecycle()
+    // Pull-to-refresh here is deliberately decoupled from both app-update
+    // checking and from uploading pending changes (spec: "Refresh, Automatic
+    // Updates, Offline Sync" — the three must stay completely independent;
+    // this used to call both syncScheduler.requestSyncNow() *and*
+    // updateViewModel.checkManually(), which was exactly the bug that spec
+    // called out). See HomeViewModel.refreshData()'s doc comment for what
+    // Refresh actually still does.
     var isRefreshing by remember { mutableStateOf(false) }
-    LaunchedEffect(updateState) {
-        if (isRefreshing && updateState !is UpdateCheckState.Checking) isRefreshing = false
-    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -157,8 +151,15 @@ fun AdminHomeScreen(
             isRefreshing = isRefreshing,
             onRefresh = {
                 isRefreshing = true
-                viewModel.refreshData()
-                updateViewModel.checkManually()
+                coroutineScope.launch {
+                    viewModel.refreshData()
+                    // Every screen already renders off a continuously-live Room
+                    // cache (see HomeViewModel.refreshData()) — this brief delay is
+                    // purely so the pull gesture gives visible feedback rather than
+                    // resolving instantly, not a real network wait.
+                    delay(400)
+                    isRefreshing = false
+                }
             },
         ) {
             Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {

@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.repository.AuthRepository
 import com.emfitsolutions.gopreach.data.sync.ConnectivityObserver
 import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
-import com.emfitsolutions.gopreach.data.sync.SyncScheduler
 import com.emfitsolutions.gopreach.domain.SessionState
 import com.emfitsolutions.gopreach.domain.UserSession
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,9 +17,8 @@ import javax.inject.Inject
 class HomeViewModel @Inject constructor(
     userSession: UserSession,
     private val authRepository: AuthRepository,
-    connectivityObserver: ConnectivityObserver,
+    private val connectivityObserver: ConnectivityObserver,
     offlineFirestoreRepository: OfflineFirestoreRepository,
-    private val syncScheduler: SyncScheduler,
 ) : ViewModel() {
     val state: StateFlow<SessionState> = userSession.state
 
@@ -32,14 +30,20 @@ class HomeViewModel @Inject constructor(
 
     fun signOut() = authRepository.signOut()
 
-    /** Pull-to-refresh on the main dashboard (spec: "show the update when the
-     * user refreshes the main form") — flushes any queued offline writes and
-     * (via the Activity-scoped [com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel]
-     * the screen also calls) re-checks for an app update, surfacing the same
-     * "Update Available"/"GoPreach is up to date" result Settings' manual
-     * check shows. Every other data flow on this screen already updates live
-     * off its own Firestore listener, so there's no separate "reload" step
-     * needed for the numbers themselves — this is what a "refresh" gesture
-     * can actually still *do* in an offline-first, always-live app. */
-    fun refreshData() = syncScheduler.requestSyncNow()
+    /** Pull-to-refresh on the Main Form — per the "Refresh, Automatic Updates,
+     * Offline Sync" spec's explicit separation requirement (§1/§18), Refresh
+     * must **never** check for an app update and must **never** upload pending
+     * local changes (that's [com.emfitsolutions.gopreach.ui.components.update
+     * .UpdateViewModel] and [com.emfitsolutions.gopreach.ui.components
+     * .SyncToServerButton]'s job respectively — this function used to call
+     * both, which was exactly the bug this spec called out).
+     *
+     * What Refresh actually has left to *do*: every screen already renders off
+     * a Room cache kept continuously current by live Firestore listeners while
+     * online (or the last-synced snapshot while offline) — there's no separate
+     * "fetch" step to trigger for the data itself. Returns whether the device
+     * was online at the moment of refresh purely so the UI can show a distinct
+     * "Refreshed"/"Showing offline data" moment; it doesn't affect what data is
+     * shown, since that's already live either way. */
+    fun refreshData(): Boolean = connectivityObserver.isOnline()
 }

@@ -17,45 +17,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewModelScope
-import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
-import com.emfitsolutions.gopreach.data.sync.SyncScheduler
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
-import javax.inject.Inject
-
-@HiltViewModel
-class SyncStatusViewModel @Inject constructor(
-    offlineFirestoreRepository: OfflineFirestoreRepository,
-    private val syncScheduler: SyncScheduler,
-) : ViewModel() {
-    // The pending-operations queue is one shared table underneath every domain
-    // repository (see OfflineFirestoreRepository), so this count is global —
-    // it doesn't matter that this ViewModel isn't tied to any one collection.
-    val pendingCount: StateFlow<Int> = offlineFirestoreRepository.observePendingSyncCount()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    fun syncNow() = syncScheduler.requestSyncNow()
-}
 
 /**
  * The app works fully offline (spec: local writes always succeed instantly,
  * queued for later, never uploaded automatically — see spec §17 "Manual Sync
  * Requirement"). This is the small header-level "you have N changes waiting to
- * go up" status indicator (spec §16) plus a quick manual trigger — the main,
- * full-featured way to sync is [SyncToServerButton] on the Main Form, which
- * checks connectivity and shows progress/a summary; this is a lighter-weight
- * shortcut for the same explicit, user-initiated flush.
+ * go up" status indicator (spec §16) plus a quick manual trigger.
+ *
+ * Shares [ManualSyncViewModel] with [SyncToServerButton] (both are `hiltViewModel()`-
+ * scoped to the same screen, so Compose resolves them to the same instance) rather
+ * than keeping a separate ViewModel/sync path — that way tapping this icon gets
+ * the exact same connectivity check (spec §11: reject immediately if offline,
+ * never silently queue) and progress/summary handling `SyncToServerButton`
+ * already renders, instead of a second, divergent "sync" behavior.
  */
 @Composable
-fun SyncStatusButton(viewModel: SyncStatusViewModel = hiltViewModel()) {
+fun SyncStatusButton(viewModel: ManualSyncViewModel = hiltViewModel()) {
     val pendingCount by viewModel.pendingCount.collectAsStateWithLifecycle()
     Box {
-        IconButton(onClick = viewModel::syncNow) {
+        IconButton(onClick = viewModel::syncToServer) {
             Icon(
                 imageVector = if (pendingCount > 0) Icons.Rounded.CloudSync else Icons.Rounded.CloudDone,
                 contentDescription = if (pendingCount > 0) "Sync now ($pendingCount pending)" else "All changes synced",
