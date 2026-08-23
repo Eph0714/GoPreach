@@ -40,8 +40,14 @@ fun <T : Any> mirrorFirestoreCollection(
             for (change in snapshot.documentChanges) {
                 val model = change.document.toObject(clazz)
                 when (change.type) {
-                    DocumentChange.Type.REMOVED -> offline.delete(collectionPath, idOf(model))
-                    else -> offline.save(collectionPath, idOf(model), model)
+                    // Cache-only — never offline.save()/delete() here. Those enqueue a
+                    // pending *upload*, which is wrong for a document that just came
+                    // *from* the server: it was silently re-queuing every document a
+                    // listener had ever seen (including its entire initial snapshot)
+                    // as if the user had edited it, inflating "pending changes" by
+                    // hundreds for data nobody touched.
+                    DocumentChange.Type.REMOVED -> offline.deleteFromServer(collectionPath, idOf(model))
+                    else -> offline.cacheFromServer(collectionPath, idOf(model), model)
                 }
             }
         }

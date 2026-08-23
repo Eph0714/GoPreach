@@ -987,6 +987,54 @@ and are deferred rather than half-built:
   check — both need a signed-in session and a real connectivity toggle,
   which this session doesn't have credentials/hardware access to exercise.
 
+## Phase 30 — Critical fix: phantom "pending sync" entries from downloaded data ✅ done
+
+- **Root cause of the "609 changes need to sync" report (real bug, not user
+  error)**: `mirrorFirestoreCollection` — the live listener that downloads
+  *other* users'/the server's data into the local cache — called
+  `OfflineFirestoreRepository.save()`/`delete()` for every document it
+  received. Those methods always enqueue a pending **upload** operation,
+  regardless of whether the write came from the user editing something
+  locally or from the server just telling this device about a document
+  that already exists there. The result: every single document in every
+  one of the app's 14 synced collections got queued right back up as a
+  "change that needs to sync" the moment it was *downloaded* — including
+  the *entire* initial snapshot the first time each collection's listener
+  ever attached, and again on every sign-in/sign-out (listeners
+  re-subscribe fresh each time per `RemoteSyncCoordinator`). With no
+  duplicate-guard on the queue table, repeated attach cycles could pile up
+  further still — easily reaching hundreds of phantom entries for a device
+  that never made a single real edit.
+- **Fix**: `OfflineFirestoreRepository` now has separate `cacheFromServer()`/
+  `deleteFromServer()` methods — cache-only, never touch the sync queue —
+  used **exclusively** by `mirrorFirestoreCollection`. The existing
+  `save()`/`delete()` (for genuine local edits) are unchanged in behavior,
+  except they now also call the new `SyncQueueDao.removeForDocument()`
+  before enqueueing, so a document can never have more than one pending
+  operation queued at a time (a newer local edit supersedes an older
+  unsynced one, rather than both piling up).
+- **Recovery for anyone already showing an inflated pending count**:
+  no destructive queue purge was added, since safely distinguishing
+  already-queued phantom entries from genuine unsynced edits isn't
+  possible after the fact. Instead: the fix makes this safe to resolve
+  simply by tapping **SYNC TO SERVER** once after updating — every phantom
+  entry re-uploads data that's already identical on the server (a harmless
+  no-op `set()`), and the count correctly drops to 0 (or to the true
+  number of genuine pending edits, if any) afterward. No data is at risk
+  either way.
+- This bug almost certainly predates this session's "manual sync only"
+  change (Phase 28) — it was likely always inflating the pending count,
+  just invisibly, because the old automatic-sync-on-every-write behavior
+  silently flushed the queue (phantom entries included) before anyone
+  would notice it climbing. Removing automatic sync made a pre-existing
+  bug's effects visible and persistent for the first time, rather than
+  introducing a new one.
+- Verified via `./gradlew :app:compileDebugKotlin`, a full
+  `:app:assembleDebug`, and an on-device screenshot of the Login screen
+  (v1.15.1, no crash). Not verified live: that the pending count actually
+  stays at 0 after a fresh sign-in with no local edits (needs a signed-in
+  session this environment doesn't have credentials for).
+
 ## What's next (not blocking, tracked for a future pass)
 - Real per-field sync conflict detection/resolution (needs a version/
   timestamp field added to synced documents first) and a discrete

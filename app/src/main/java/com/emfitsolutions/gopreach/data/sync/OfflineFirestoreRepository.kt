@@ -69,6 +69,10 @@ class OfflineFirestoreRepository @Inject constructor(
                 updatedAt = now,
             )
         )
+        // A newer edit to the same document supersedes any earlier one still
+        // sitting unsynced — never let two queued operations for the same
+        // document pile up (see removeForDocument's doc comment).
+        syncQueueDao.removeForDocument(collectionPath, documentId)
         syncQueueDao.enqueue(
             // CREATE and UPDATE both resolve to a Firestore set(), so the queue
             // doesn't need to distinguish them once enqueued.
@@ -84,6 +88,7 @@ class OfflineFirestoreRepository @Inject constructor(
 
     suspend fun delete(collectionPath: String, documentId: String) {
         cacheDao.delete(collectionPath, documentId)
+        syncQueueDao.removeForDocument(collectionPath, documentId)
         syncQueueDao.enqueue(
             PendingSyncOperationEntity(
                 collectionPath = collectionPath,
@@ -93,6 +98,34 @@ class OfflineFirestoreRepository @Inject constructor(
                 createdAt = System.currentTimeMillis(),
             )
         )
+    }
+
+    /** Cache-only write — used **exclusively** by [mirrorFirestoreCollection] to
+     * reflect a document that just arrived *from* the server. This must never
+     * enqueue a pending upload: doing so was a real, serious bug (every document
+     * downloaded by a collection's live listener — including the *entire*
+     * initial snapshot the very first time it attaches — was being queued right
+     * back up as if the user had just edited it, inflating "pending changes" by
+     * hundreds for data nobody ever touched). Marked SYNCED, not PENDING, since
+     * it's already exactly what the server has. */
+    suspend fun <T> cacheFromServer(collectionPath: String, documentId: String, data: T) {
+        cacheDao.upsert(
+            CachedDocumentEntity(
+                collectionPath = collectionPath,
+                documentId = documentId,
+                payloadJson = gson.toJson(data),
+                syncState = SyncState.SYNCED.name,
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    /** Cache-only delete — the [mirrorFirestoreCollection] counterpart to
+     * [cacheFromServer] for a document removed on the server. Never enqueues a
+     * pending delete for the same reason [cacheFromServer] never enqueues a
+     * pending upload. */
+    suspend fun deleteFromServer(collectionPath: String, documentId: String) {
+        cacheDao.delete(collectionPath, documentId)
     }
 
     fun observePendingSyncCount(): Flow<Int> = syncQueueDao.observePendingCount()
