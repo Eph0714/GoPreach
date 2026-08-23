@@ -127,9 +127,10 @@ fun AdminHomeScreen(
     val ownCongregationId = session.roleAssignments.firstOrNull {
         (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER)
     }?.congregationId
-    val ownGroupCongregationId = session.roleAssignments.firstOrNull {
+    val ownGroupAssignment = session.roleAssignments.firstOrNull {
         (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
-    }?.congregationId
+    }
+    val ownGroupCongregationId = ownGroupAssignment?.congregationId
     val visibleCongregationIds: Set<String>? = if (isSuperAdmin) null else setOfNotNull(ownCongregationId ?: ownGroupCongregationId)
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -245,6 +246,16 @@ fun AdminHomeScreen(
                 ) {
                     UpdateAvailableBanner()
                     SyncToServerButton()
+
+                    // "My Group / My Congregation" summary card — an Elder's own
+                    // scope (already enforced everywhere via visibleCongregationIds)
+                    // labeled with its actual name, so the numbers below aren't the
+                    // only way to tell which congregation/group they refer to.
+                    if (role == AdminRole.COORDINATOR_ELDER) {
+                        MyScopeSummaryCard(congregationId = ownCongregationId, groupId = null)
+                    } else if (role == AdminRole.REGULAR_ELDER) {
+                        MyScopeSummaryCard(congregationId = ownGroupCongregationId, groupId = ownGroupAssignment?.groupId)
+                    }
 
                     // Super-Admin/Admin: the graphical Summary (KPI cards + charts)
                     // shows directly on the main form instead of a tile grid — every

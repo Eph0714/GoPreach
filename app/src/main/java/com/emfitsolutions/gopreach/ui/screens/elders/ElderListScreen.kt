@@ -61,6 +61,9 @@ fun ElderListScreen(
     scopeLabel: String,
     rows: List<ElderRow>,
     canPermanentlyDelete: Boolean,
+    /** A restricted user with `VIEW_ELDERS` but not `MANAGE_ELDERS` — hides
+     * Add/Edit/Delete/Restore. */
+    readOnly: Boolean = false,
     onBack: () -> Unit,
     onAddNew: () -> Unit,
     onSetActive: (ElderRow, Boolean) -> Unit,
@@ -85,8 +88,10 @@ fun ElderListScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAddNew) {
-                Icon(Icons.Rounded.Add, contentDescription = "Enroll $title")
+            if (!readOnly) {
+                FloatingActionButton(onClick = onAddNew) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Enroll $title")
+                }
             }
         },
     ) { padding ->
@@ -138,16 +143,18 @@ fun ElderListScreen(
                                     )
                                 }
                             }
-                            IconButton(onClick = { pendingEdit = row }) {
-                                Icon(Icons.Rounded.Edit, contentDescription = "Edit")
-                            }
-                            if (row.isActive) {
-                                IconButton(onClick = { pendingDeactivate = row }) {
-                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                            if (!readOnly) {
+                                IconButton(onClick = { pendingEdit = row }) {
+                                    Icon(Icons.Rounded.Edit, contentDescription = "Edit")
                                 }
-                            } else {
-                                IconButton(onClick = { onSetActive(row, true) }) {
-                                    Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Restore")
+                                if (row.isActive) {
+                                    IconButton(onClick = { pendingDeactivate = row }) {
+                                        Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                    }
+                                } else {
+                                    IconButton(onClick = { onSetActive(row, true) }) {
+                                        Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Restore")
+                                    }
                                 }
                             }
                         }

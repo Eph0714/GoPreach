@@ -1,5 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.reports
 
+import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -30,11 +34,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.ui.components.DateRange
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** Spec §5.1 — Total Bible Studies / Interested People / preaching hours, per
  * publisher, with an "All Publishers" summary at the top. */
@@ -71,6 +80,17 @@ fun ReportsScreen(
     }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
+    // Export/print backlog item — CSV covers "export" with no new dependency
+    // (android.graphics.pdf could add a print-formatted PDF later; not done
+    // here). Safe to always offer: it's the exact same rows already visible
+    // on screen, not a new data exposure, so there's no separate Permission
+    // gate the way Add/Edit/Delete have via [readOnly] elsewhere.
+    val context = LocalContext.current
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) writeReportsCsv(context, uri, rows, dateRange)
+    }
+    val exportFileName = "gopreach-reports-${SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())}.csv"
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -78,6 +98,11 @@ fun ReportsScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { exportLauncher.launch(exportFileName) }, enabled = rows.isNotEmpty()) {
+                        Icon(Icons.Rounded.Share, contentDescription = "Export as CSV")
                     }
                 },
             )
@@ -157,4 +182,25 @@ fun ReportsScreen(
         }
         }
     }
+}
+
+/** Plain CSV — opens in any spreadsheet app, and needs no new dependency
+ * (unlike a real PDF, which would need android.graphics.pdf layout code not
+ * written yet — see the backlog note this closes half of). */
+private fun writeReportsCsv(context: Context, uri: android.net.Uri, rows: List<PublisherReportRow>, dateRange: DateRange) {
+    val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
+    val periodLabel = "${dateFormat.format(Date(dateRange.startMillis))} - ${dateFormat.format(Date(dateRange.endMillis))}"
+    val csv = buildString {
+        append("GoPreach Publisher Reports\n")
+        append("Period,$periodLabel\n\n")
+        append("Publisher,Bible Studies,Hours,Interested People\n")
+        rows.forEach { row ->
+            append("\"${row.person.fullName.replace("\"", "\"\"")}\",")
+            append("${row.totalBibleStudies},")
+            append("${row.totalHours},")
+            append("${row.totalInterestedPeople}\n")
+        }
+        append("\nAll Publishers,${rows.sumOf { it.totalBibleStudies }},${rows.sumOf { it.totalHours }},${rows.sumOf { it.totalInterestedPeople }}\n")
+    }
+    context.contentResolver.openOutputStream(uri)?.use { it.write(csv.toByteArray()) }
 }

@@ -70,6 +70,9 @@ fun ManageGroupsScreen(
     fixedCongregationId: String?,
     currentPersonId: String,
     canPermanentlyDelete: Boolean,
+    /** A restricted user with `VIEW_GROUPS` but not `MANAGE_GROUPS` — hides
+     * Add/Edit/Delete/Reactivate. */
+    readOnly: Boolean = false,
     onBack: () -> Unit,
     viewModel: ManageGroupsViewModel = hiltViewModel(),
 ) {
@@ -95,8 +98,10 @@ fun ManageGroupsScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showCreateDialog = true }) {
-                Icon(Icons.Rounded.Add, contentDescription = "New Group")
+            if (!readOnly) {
+                FloatingActionButton(onClick = { showCreateDialog = true }) {
+                    Icon(Icons.Rounded.Add, contentDescription = "New Group")
+                }
             }
         },
     ) { padding ->
@@ -130,17 +135,19 @@ fun ManageGroupsScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(row.group.name, style = MaterialTheme.typography.titleMedium)
-                                Row {
-                                    IconButton(onClick = { pendingEdit = row.group }) {
-                                        Icon(Icons.Rounded.Edit, contentDescription = "Edit group")
-                                    }
-                                    if (row.group.status == RecordStatus.ACTIVE) {
-                                        IconButton(onClick = { pendingDelete = row.group }) {
-                                            Icon(Icons.Rounded.Delete, contentDescription = "Delete group")
+                                if (!readOnly) {
+                                    Row {
+                                        IconButton(onClick = { pendingEdit = row.group }) {
+                                            Icon(Icons.Rounded.Edit, contentDescription = "Edit group")
                                         }
-                                    } else {
-                                        IconButton(onClick = { viewModel.setStatus(row.group, RecordStatus.ACTIVE, currentPersonId) }) {
-                                            Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
+                                        if (row.group.status == RecordStatus.ACTIVE) {
+                                            IconButton(onClick = { pendingDelete = row.group }) {
+                                                Icon(Icons.Rounded.Delete, contentDescription = "Delete group")
+                                            }
+                                        } else {
+                                            IconButton(onClick = { viewModel.setStatus(row.group, RecordStatus.ACTIVE, currentPersonId) }) {
+                                                Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
+                                            }
                                         }
                                     }
                                 }

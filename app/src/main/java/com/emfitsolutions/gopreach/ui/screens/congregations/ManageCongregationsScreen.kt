@@ -55,12 +55,19 @@ import kotlinx.coroutines.launch
 
 /** Spec §3/§5.1 — Manage Congregation Master File, Super-Admin only.
  * [canPermanentlyDelete] is Super-Admin-only across every record type in
- * this app's "Admin Record Deletion" pass (see BUILD_PLAN.md). */
+ * this app's "Admin Record Deletion" pass (see BUILD_PLAN.md).
+ * [readOnly] — a restricted user (e.g. Circuit Overseer/custom) whose
+ * [com.emfitsolutions.gopreach.data.model.UserAccessGrant] has
+ * `VIEW_CONGREGATIONS` but not `ADD_CONGREGATIONS`/`EDIT_CONGREGATIONS`/
+ * `DELETE_CONGREGATIONS` still needs somewhere to actually see this data —
+ * this hides Add/Edit/Delete/Reactivate without duplicating the whole
+ * screen (backlog: "read-only variants of the management screens"). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManageCongregationsScreen(
     currentPersonId: String,
     canPermanentlyDelete: Boolean,
+    readOnly: Boolean = false,
     onBack: () -> Unit,
     onAddNew: () -> Unit,
     viewModel: ManageCongregationsViewModel = hiltViewModel(),
@@ -86,8 +93,10 @@ fun ManageCongregationsScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAddNew) {
-                Icon(Icons.Rounded.Add, contentDescription = "New Congregation")
+            if (!readOnly) {
+                FloatingActionButton(onClick = onAddNew) {
+                    Icon(Icons.Rounded.Add, contentDescription = "New Congregation")
+                }
             }
         },
     ) { padding ->
@@ -127,17 +136,19 @@ fun ManageCongregationsScreen(
                                         Text("Inactive", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                                     }
                                 }
-                                Row {
-                                    IconButton(onClick = { pendingEdit = congregation }) {
-                                        Icon(Icons.Rounded.Edit, contentDescription = "Edit")
-                                    }
-                                    if (congregation.status == RecordStatus.ACTIVE) {
-                                        IconButton(onClick = { pendingDelete = congregation }) {
-                                            Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                if (!readOnly) {
+                                    Row {
+                                        IconButton(onClick = { pendingEdit = congregation }) {
+                                            Icon(Icons.Rounded.Edit, contentDescription = "Edit")
                                         }
-                                    } else {
-                                        IconButton(onClick = { viewModel.setStatus(congregation, RecordStatus.ACTIVE, currentPersonId) }) {
-                                            Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
+                                        if (congregation.status == RecordStatus.ACTIVE) {
+                                            IconButton(onClick = { pendingDelete = congregation }) {
+                                                Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                            }
+                                        } else {
+                                            IconButton(onClick = { viewModel.setStatus(congregation, RecordStatus.ACTIVE, currentPersonId) }) {
+                                                Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
+                                            }
                                         }
                                     }
                                 }

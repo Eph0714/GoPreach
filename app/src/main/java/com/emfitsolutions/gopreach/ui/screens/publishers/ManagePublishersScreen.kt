@@ -66,6 +66,10 @@ fun ManagePublishersScreen(
     currentPersonId: String,
     visibleCongregationId: String?,
     canPermanentlyDelete: Boolean,
+    /** A restricted user with `VIEW_PUBLISHERS` but not `MANAGE_PUBLISHERS` —
+     * hides Add/Edit/Delete/Reactivate and the inline Category picker, which
+     * otherwise changes data with no separate "edit" gesture to gate behind. */
+    readOnly: Boolean = false,
     onBack: () -> Unit,
     onAddNew: () -> Unit,
     viewModel: ManagePublishersViewModel = hiltViewModel(),
@@ -92,8 +96,10 @@ fun ManagePublishersScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAddNew) {
-                Icon(Icons.Rounded.Add, contentDescription = "Enroll Publisher")
+            if (!readOnly) {
+                FloatingActionButton(onClick = onAddNew) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Enroll Publisher")
+                }
             }
         },
     ) { padding ->
@@ -128,7 +134,7 @@ fun ManagePublishersScreen(
                             ) {
                                 Text(row.person.fullName, style = MaterialTheme.typography.titleMedium)
                                 Row {
-                                    if (row.person.isTemporaryCredential) {
+                                    if (row.person.isTemporaryCredential && !readOnly) {
                                         IconButton(onClick = { lookupTarget = row.person }) {
                                             Icon(
                                                 Icons.Rounded.Key,
@@ -137,26 +143,32 @@ fun ManagePublishersScreen(
                                             )
                                         }
                                     }
-                                    IconButton(onClick = { pendingEdit = row }) {
-                                        Icon(Icons.Rounded.Edit, contentDescription = "Edit")
-                                    }
-                                    if (row.category != PublisherCategory.REMOVED_PUBLISHER) {
-                                        IconButton(onClick = { pendingDelete = row }) {
-                                            Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                    if (!readOnly) {
+                                        IconButton(onClick = { pendingEdit = row }) {
+                                            Icon(Icons.Rounded.Edit, contentDescription = "Edit")
                                         }
-                                    } else {
-                                        IconButton(onClick = { viewModel.changeCategory(row, PublisherCategory.REGULAR_PUBLISHER, currentPersonId) }) {
-                                            Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
+                                        if (row.category != PublisherCategory.REMOVED_PUBLISHER) {
+                                            IconButton(onClick = { pendingDelete = row }) {
+                                                Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                            }
+                                        } else {
+                                            IconButton(onClick = { viewModel.changeCategory(row, PublisherCategory.REGULAR_PUBLISHER, currentPersonId) }) {
+                                                Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
+                                            }
                                         }
                                     }
                                 }
                             }
                             Text("Group: ${row.groupName}", style = MaterialTheme.typography.bodySmall)
                             Text("Contact: ${row.person.contact}", style = MaterialTheme.typography.bodySmall)
-                            CategoryDropdown(
-                                selected = row.category,
-                                onSelected = { newCategory -> viewModel.changeCategory(row, newCategory, currentPersonId) },
-                            )
+                            if (readOnly) {
+                                ReadOnlyField("Category", row.category.name.replace('_', ' '))
+                            } else {
+                                CategoryDropdown(
+                                    selected = row.category,
+                                    onSelected = { newCategory -> viewModel.changeCategory(row, newCategory, currentPersonId) },
+                                )
+                            }
                         }
                     }
                 }

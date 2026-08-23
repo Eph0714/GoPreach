@@ -1419,12 +1419,36 @@ and are deferred rather than half-built:
   compilation and by code review of the shared single-source-of-truth
   wiring, not by an on-screen before/after of the actual navigation.
 
+## Phase 38 — Backlog sweep: Backup/Restore confirmation, My Scope card, SELECTED_GROUPS scope, read-only screen flags, CSV export ✅ done (partial — see scope notes)
+
+User asked to "finish all pending" against the whole `What's next` backlog below. Went through it item by item; what could be done safely and verifiably in one pass was done, what genuinely needed a user decision or couldn't be verified without breaking something was left alone and explained rather than rushed — see each item's note.
+
+- **Backup & Restore**: strengthened the on-screen disclaimer text (explicitly "a plain JSON snapshot... not a true database backup, no point-in-time recovery, no partial/selective restore") and added a confirmation `AlertDialog` before a restore actually runs — previously it fired the instant a file was picked, with no "are you sure" step for an action that overwrites all current data.
+- **"My Group / My Congregation" summary card**: new `MyScopeSummaryCard`/`MyScopeSummaryViewModel` — shows the actual Congregation/Group *name* a Coordinator/Regular Elder's Main Form is scoped to, above the existing dashboard stats. While wiring it, captured `ownGroupAssignment` as a full object in `AdminHomeScreen` (previously only `.congregationId` was pulled out of it) so the card could also show the Regular Elder's actual `groupId`/name, not just their congregation.
+- **`ScopeType.SELECTED_GROUPS` exposed in the Add/Edit User scope picker**: was fully supported by the data model and `PermissionChecker`/`UserAccessGrant.allows` already, just never reachable from the UI. `AddEditUserViewModel` now loads `GroupRepository.observeAll()` alongside congregations; the screen adds a third "Selected Groups" radio option with a per-congregation-grouped checklist, validated the same way "Selected Congregations" already is (must pick at least one).
+- **Read-only variants of the management screens** — **partially done, safely**: added a `readOnly: Boolean = false` parameter to `ManageCongregationsScreen`, `ManagePublishersScreen`, `ManageGroupsScreen`, and the shared `ElderListScreen` (backing both Coordinator and Regular Elders), hiding Add/Edit/Delete/Reactivate (and, for Publishers, the inline Category picker) when set. Defaults to `false` everywhere, so every existing built-in-role call site is unaffected.
+  **Not done**: actually wiring `readOnly = true` for a restricted (Circuit Overseer/custom) user with a View-but-not-Manage permission, or adding drawer entries so such a user could reach these screens at all. Investigated and found a real blocker: these screens all take a single `congregationId: String?` (`null` meaning "every congregation, unrestricted" — the same convention `Super-Admin` uses), computed today only from the four built-in roles' own `RoleAssignment`. A grant-based user's scope can be `SELECTED_CONGREGATIONS` across *multiple* specific congregations, or `SELECTED_GROUPS` — neither fits a single nullable ID. Wiring drawer access for a restricted user without first generalizing these screens' scope parameter to a `Set<String>?` would either under-scope (falls through to `null` → unrestricted, a real cross-congregation leak) or need a rushed partial fix under time pressure — both worse than leaving it as a clearly disclosed gap. The `readOnly` flag itself is ready and waiting for that follow-up.
+- **Export/print for reports** — **partially done**: added a CSV export button (`Icons.Rounded.Share` in the top bar, via `ActivityResultContracts.CreateDocument("text/csv")`, no new dependency) to the Reports Summary screen — publisher name, Bible Studies, Hours, Interested People, plus an "All Publishers" total row. Verified live on-device: tapping it opens the real Android "Save As" system picker (`documentsui.picker.PickActivity`) and returns cleanly with zero crashes. **Not done**: a formatted, printable PDF (would need `android.graphics.pdf` layout code not written yet) and export from the Dashboard's own per-congregation breakdown.
+- **"A real date-range-filterable Reports Summary module"** — re-checked against the current app and found **already done** as of Phase 35/37 (quick-select Today/This Week/This Month/This Year + custom range, shared across screens) — this was a stale bullet from before that work landed; removed rather than carried forward.
+- **Explicitly investigated and declined, with reasons** (not silently skipped):
+  - **`firestore.rules` hardening for the four built-in roles**: the file's own header comment already lays out exactly why (needs Cloud Functions + custom claims or a denormalized-roles rewrite) and this project has no rules-testing/emulator setup to verify a change against before it hits live data. Deploying an unverified security-rule rewrite blind is a strictly worse risk than leaving the documented gap as-is — declined.
+  - **Release signing keystore**: deliberately not generated. A signing key is a durable identity — losing it means never being able to publish an update under the same app identity again, and it has to be stored somewhere genuinely safe (not this repo). That's a decision for you to make consciously, not one to default into.
+  - **Storage (Blaze plan)**: unchanged — this is a billing decision, explicitly "your call" per SETUP.md, not a code change.
+  - A dedicated Share Location **Settings** screen: assessed and intentionally not built as a separate screen — the actual capability the backlog item wanted (enable/disable the share-my-location toggle) already lives on the existing `ShareLocationScreen`, which the drawer already labels "Share Location Settings." Real additional "privacy preferences" beyond that would mean inventing a narrower-than-assigned-scope visibility concept that doesn't exist anywhere else in this app's permission model — building a second screen just to hold a duplicate toggle would be a hollow shell, not a real feature.
+  - Share Location background/foreground service, Calendar month/week grid, Control Panel color customization, per-field sync conflict detection: all genuinely sizable, self-contained rewrites in their own right; not started this pass given everything above, still open below.
+- Verified via `./gradlew :app:compileDebugKotlin`, a full `:app:assembleDebug`, reinstall+relaunch on-device with zero crash-buffer entries, **and** — since the persisted Super-Admin session happened to still be signed in this time — a live walkthrough: Main Form → Dashboard (This Month, live stats) → drawer → Reports Summary (confirmed the *same* This Month selection carried over, live confirmation of Phase 37) → tapped the new CSV export icon → real system "Save As" picker opened and returned cleanly.
+
 ## What's next (not blocking, tracked for a future pass)
-- Verify Phase 37's date-range-remembered-across-navigation fix, and the
-  Elder Dashboard consistency fixes (Phase 36), with a real login —
-  this environment still has no Admin/Coordinator Elder/Regular Elder
-  credentials, and its one persisted Super-Admin session has since
-  signed itself out.
+- Verify the Elder Dashboard consistency fixes (Phase 36) and the new My
+  Scope Summary Card (Phase 38) with a real Admin/Coordinator Elder/Regular
+  Elder login — this environment still has no credentials for any of those
+  three roles.
+- Generalize `ManageCongregationsScreen`/`ManagePublishersScreen`/
+  `ManageGroupsScreen`/`ElderListScreen`'s congregation scope parameter from
+  a single nullable `String` to a `Set<String>?`, then wire drawer access +
+  `readOnly = true` for a restricted (Circuit Overseer/custom) user whose
+  grant has a View-but-not-Manage permission — see Phase 38's scope note for
+  exactly why this couldn't be done safely in that same pass.
 - Unsaved-changes dirty-tracking for the ~12 `AlertDialog`-based Edit forms
   across the Manage screens (Publishers/Admins/Elders/Congregations/
   Groups/Interested Persons/Users) — see Phase 32's scope note.
@@ -1434,14 +1458,7 @@ and are deferred rather than half-built:
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking
 - Calendar: upgrade the chronological list to a month/week grid
-- Backup & Restore: this is a JSON snapshot of the offline cache, not a true DB backup — fine as a safety net, but call this out to users so expectations are set correctly
-- Harden `firestore.rules` further for the four original built-in roles too (needs Cloud Functions + custom claims, or a denormalized roles field, to check specific role/scope per write — noted inline in the rules file; the new restricted-role checks added in Phase 11 don't need this, since they're already keyed by personId)
-- Set up a dedicated release signing keystore so future versions aren't distributed debug-signed
-- A dedicated "My Group / My Congregation" summary card on the Elder's dashboard home screen (the underlying access already works via Reports, per the Elder Roles work — just not its own dashboard widget yet)
-- Read-only variants of the Congregations/Elders/Groups/Publishers management screens, so a restricted user's "View X" permission (without the matching "Manage X") has somewhere in the nav to actually go
-- Expose `ScopeType.SELECTED_GROUPS` in the Add/Edit User scope picker
-- Export/print for reports and charts (PDF or CSV)
-- A real date-range-filterable "Reports Summary" module (daily/monthly/yearly/custom), replacing the current all-time `ReportsScreen`
+- Harden `firestore.rules` further for the four original built-in roles too — needs Cloud Functions + custom claims (or a denormalized roles field) *and* a rules-testing/emulator setup in this project before deploying it, so a change here can actually be verified instead of guessed at
+- Set up a dedicated release signing keystore so future versions aren't distributed debug-signed — needs your decision on where the keystore/passwords get stored safely
+- A print-formatted PDF export for reports (CSV is done as of Phase 38; PDF needs `android.graphics.pdf` layout code not written yet)
 - Control Panel → Appearance: primary/secondary color and background customization (currently light/dark/system only)
-- A dedicated Share Location Settings screen (enable/disable, visibility, privacy preferences)
-- Side Panel + Dashboard: verified on-device with a real Super-Admin login as of Phase 36; still needs an Admin/Coordinator Elder/Regular Elder login to confirm those roles specifically (see Phase 13's original gap, narrowed)

@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.AccountStatus
 import com.emfitsolutions.gopreach.data.model.Permission
 import com.emfitsolutions.gopreach.data.model.ScopeType
+import com.emfitsolutions.gopreach.data.model.UserAccessGrant
 import com.emfitsolutions.gopreach.data.repository.TempCredentials
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
@@ -44,10 +45,9 @@ import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
  * One form for both [ADD] and [Edit] (spec §4/§8) — Role+Permission+Scope, not
  * a role dropdown (spec's explicit "Final Requirement"). [targetPersonId] null
  * means "creating a new user"; non-null loads that user's current grant for
- * editing. Congregation/group scope is currently congregation-level only —
- * [ScopeType.SELECTED_GROUPS] is fully supported by the data model and
- * [com.emfitsolutions.gopreach.domain.PermissionChecker], just not yet exposed
- * in this picker (a deliberate first-pass scope cut, not a gap in enforcement).
+ * editing. Scope can be All Congregations, a set of whole Congregations, or a
+ * set of individual Groups — all three are backed by [ScopeType] and enforced
+ * by [com.emfitsolutions.gopreach.domain.PermissionChecker]/[UserAccessGrant.allows].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +60,7 @@ fun AddEditUserScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+    val groups by viewModel.groups.collectAsStateWithLifecycle()
 
     LaunchedEffect(targetPersonId) {
         if (targetPersonId != null) viewModel.loadForEdit(targetPersonId)
@@ -184,6 +185,41 @@ fun AddEditUserScreen(
                             checked = congregation.id in uiState.selectedCongregationIds,
                             onCheckedChange = { viewModel.onCongregationToggled(congregation.id, it) },
                         )
+                    }
+                }
+            }
+            ScopeRadioRow(
+                label = "Selected Groups",
+                selected = uiState.scopeType == ScopeType.SELECTED_GROUPS,
+                onClick = { viewModel.onScopeTypeChange(ScopeType.SELECTED_GROUPS) },
+            )
+            if (uiState.scopeType == ScopeType.SELECTED_GROUPS) {
+                Column(modifier = Modifier.padding(start = 24.dp)) {
+                    if (groups.isEmpty()) {
+                        Text(
+                            "No groups exist yet — create one under Enrollment > Groups first.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    // Grouped under their own congregation's name so a Super-Admin
+                    // picking across many congregations can tell them apart —
+                    // Group.name alone isn't unique app-wide.
+                    congregations.forEach { congregation ->
+                        val congregationGroups = groups.filter { it.congregationId == congregation.id }
+                        if (congregationGroups.isNotEmpty()) {
+                            Text(
+                                congregation.name,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                            congregationGroups.forEach { group ->
+                                PermissionRow(
+                                    label = group.name,
+                                    checked = group.id in uiState.selectedGroupIds,
+                                    onCheckedChange = { viewModel.onGroupToggled(group.id, it) },
+                                )
+                            }
+                        }
                     }
                 }
             }

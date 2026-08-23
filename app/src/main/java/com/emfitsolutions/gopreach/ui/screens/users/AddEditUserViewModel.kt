@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.AccountStatus
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.Congregation
+import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Permission
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
@@ -15,6 +16,7 @@ import com.emfitsolutions.gopreach.data.model.UserAccessGrant
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
 import com.emfitsolutions.gopreach.data.repository.AuthRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
+import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.TempCredentials
 import com.emfitsolutions.gopreach.data.repository.UserAccessGrantRepository
@@ -45,6 +47,7 @@ data class AddEditUserUiState(
     val selectedPermissions: Set<Permission> = emptySet(),
     val scopeType: ScopeType = ScopeType.SELECTED_CONGREGATIONS,
     val selectedCongregationIds: Set<String> = emptySet(),
+    val selectedGroupIds: Set<String> = emptySet(),
     val status: AccountStatus = AccountStatus.ACTIVE,
     val isLoading: Boolean = false,
     val isSaving: Boolean = false,
@@ -65,10 +68,13 @@ class AddEditUserViewModel @Inject constructor(
     private val userAccessGrantRepository: UserAccessGrantRepository,
     private val auditLogRepository: AuditLogRepository,
     congregationRepository: CongregationRepository,
+    groupRepository: GroupRepository,
 ) : ViewModel() {
 
     val congregations: StateFlow<List<Congregation>> =
         congregationRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val groups: StateFlow<List<Group>> =
+        groupRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _uiState = MutableStateFlow(AddEditUserUiState())
     val uiState: StateFlow<AddEditUserUiState> = _uiState.asStateFlow()
@@ -96,6 +102,7 @@ class AddEditUserViewModel @Inject constructor(
                     selectedPermissions = grant?.resolvedPermissions.orEmpty(),
                     scopeType = grant?.resolvedScopeType ?: ScopeType.SELECTED_CONGREGATIONS,
                     selectedCongregationIds = grant?.scopeCongregationIds?.toSet().orEmpty(),
+                    selectedGroupIds = grant?.scopeGroupIds?.toSet().orEmpty(),
                 )
             }
         }
@@ -118,6 +125,10 @@ class AddEditUserViewModel @Inject constructor(
         it.copy(selectedCongregationIds = if (checked) it.selectedCongregationIds + congregationId else it.selectedCongregationIds - congregationId)
     }
 
+    fun onGroupToggled(groupId: String, checked: Boolean) = _uiState.update {
+        it.copy(selectedGroupIds = if (checked) it.selectedGroupIds + groupId else it.selectedGroupIds - groupId)
+    }
+
     fun onStatusChange(status: AccountStatus) = _uiState.update { it.copy(status = status) }
 
     private fun buildGrant(personId: String, actingPersonId: String, previous: UserAccessGrant?): UserAccessGrant {
@@ -128,7 +139,7 @@ class AddEditUserViewModel @Inject constructor(
             permissions = state.selectedPermissions.map { it.name },
             scopeType = state.scopeType.name,
             scopeCongregationIds = if (state.scopeType == ScopeType.SELECTED_CONGREGATIONS) state.selectedCongregationIds.toList() else emptyList(),
-            scopeGroupIds = previous?.scopeGroupIds ?: emptyList(),
+            scopeGroupIds = if (state.scopeType == ScopeType.SELECTED_GROUPS) state.selectedGroupIds.toList() else emptyList(),
             createdByPersonId = previous?.createdByPersonId ?: actingPersonId,
             createdAt = previous?.createdAt ?: now,
             lastEditedByPersonId = actingPersonId,
@@ -153,6 +164,10 @@ class AddEditUserViewModel @Inject constructor(
         }
         if (state.scopeType == ScopeType.SELECTED_CONGREGATIONS && state.selectedCongregationIds.isEmpty()) {
             _uiState.update { it.copy(errorMessage = "Select at least one congregation, or choose All Congregations.") }
+            return
+        }
+        if (state.scopeType == ScopeType.SELECTED_GROUPS && state.selectedGroupIds.isEmpty()) {
+            _uiState.update { it.copy(errorMessage = "Select at least one group.") }
             return
         }
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
@@ -195,7 +210,8 @@ class AddEditUserViewModel @Inject constructor(
             userAccessGrantRepository.save(newGrant)
             if (previousGrant?.resolvedPermissions != newGrant.resolvedPermissions ||
                 previousGrant.resolvedScopeType != newGrant.resolvedScopeType ||
-                previousGrant.scopeCongregationIds.toSet() != newGrant.scopeCongregationIds.toSet()
+                previousGrant.scopeCongregationIds.toSet() != newGrant.scopeCongregationIds.toSet() ||
+                previousGrant.scopeGroupIds.toSet() != newGrant.scopeGroupIds.toSet()
             ) {
                 auditLogRepository.log(
                     actorPersonId = actingPersonId,
