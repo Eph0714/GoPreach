@@ -67,3 +67,34 @@ npx firebase-tools deploy --only firestore:rules --project gopreach-957a6
 ```
 
 Requires the Android SDK (compileSdk 35) and JDK 17.
+
+## Publishing a new version (auto-update)
+
+GoPreach checks for updates against **GitHub Releases' own API** — see
+[`UpdateManifestRepository`](app/src/main/java/com/emfitsolutions/gopreach/data/update/UpdateManifestRepository.kt)
+for why that's the update server instead of a bespoke backend. This means
+publishing a new version is just:
+
+1. Bump `versionCode`/`versionName` in `app/build.gradle.kts`.
+2. `./gradlew :app:assembleDebug` (or `:assembleRelease` once a real release
+   signing config exists — see the note below).
+3. `gh release create vX.Y.Z app/build/outputs/apk/debug/GoPreach-debug.apk --title "GoPreach vX.Y.Z" --notes "..."`
+   — **a real new tag**, not re-uploading onto an existing one. The app
+   compares its own version against whatever tag GitHub calls "latest," so
+   reusing a tag means installed apps never see the update as available.
+
+Nothing in the app needs to change for this — `UpdateManifestRepository`
+always asks `releases/latest` for whatever's newest.
+
+**Signing note**: the app is currently built and distributed as a
+**debug-signed** APK (no dedicated release keystore exists yet in this
+project). In-place updates work correctly between debug-signed builds made
+from this same machine/keystore, since Android's Package Installer requires
+an update to be signed with the same certificate as what's already
+installed — that check is what actually protects the auto-update flow (see
+[`UpdateInstaller`](app/src/main/java/com/emfitsolutions/gopreach/data/update/UpdateInstaller.kt)).
+For a genuine production release, generate a proper release keystore, add a
+`signingConfig` for the `release` build type, and build/sign every future
+version with that same key — otherwise devices that installed a
+debug-signed build can never auto-update to a release-signed one (Android
+will refuse the install; a manual uninstall/reinstall would be needed).

@@ -121,9 +121,72 @@ state change instead of once ([`RemoteSyncCoordinator`](app/src/main/java/com/em
 now also logs listener errors instead of swallowing them. Verified live:
 Super-Admin login now correctly shows the full role-gated dashboard.
 
+## Phase 10 — In-app auto-update + APK sharing ✅ done (pending on-device verification)
+Full update/distribution system, built on GitHub Releases as the "update
+server" rather than standing up bespoke backend infrastructure — GitHub's
+free, public `releases/latest` API already provides exactly what an update
+manifest needs (version/tag, a stable per-release download URL, release
+notes, release date, and a SHA-256 digest of the asset), and GitHub's CDN
+already hosts the APK bytes. See
+[`UpdateManifestRepository`](app/src/main/java/com/emfitsolutions/gopreach/data/update/UpdateManifestRepository.kt)'s
+doc comment for the reasoning.
+
+- [`UpdateManifestRepository`](app/src/main/java/com/emfitsolutions/gopreach/data/update/UpdateManifestRepository.kt) —
+  fetches + parses the manifest, numeric (not lexicographic) version comparison.
+- [`ApkDownloader`](app/src/main/java/com/emfitsolutions/gopreach/data/update/ApkDownloader.kt) —
+  streams the APK into the app's private external-files dir with live
+  progress, plus a SHA-256 helper to verify against the manifest's digest.
+- [`UpdateInstaller`](app/src/main/java/com/emfitsolutions/gopreach/data/update/UpdateInstaller.kt) —
+  hands the verified APK to Android's own Package Installer via a
+  `FileProvider` URI; checks `canRequestPackageInstalls()` first and routes
+  to the OS's own "allow this app" setting if needed. This app never installs
+  anything itself — Android's installer is what actually enforces "an update
+  must be signed with the same certificate as what's already installed,"
+  which is the real security guarantee here, not something this code
+  reimplements or could bypass.
+- [`UpdateViewModel`](app/src/main/java/com/emfitsolutions/gopreach/ui/components/update/UpdateViewModel.kt) +
+  [`UpdateHost`](app/src/main/java/com/emfitsolutions/gopreach/ui/components/update/UpdateDialog.kt) —
+  the full state machine (Checking → Available → Downloading → Verifying →
+  ReadyToInstall → handed to the OS, or Failed → Try Again), mounted once at
+  the app root (`MainActivity`) so it works whether or not the user is signed
+  in yet. Checked once per app launch, silently — a check that finds nothing
+  new shows nothing at all, so a normal launch is never interrupted. A
+  Settings → "Check for Updates" entry runs the same check on demand and
+  explicitly shows "GoPreach is up to date" when applicable.
+- **Share APK**: `Available`'s dialog has an [SHARE APK] action that opens
+  Android's native share sheet with the *current* latest APK URL (fetched
+  moments earlier, never hard-coded), matching the spec's example message.
+- A failed download/verification never touches the existing installation —
+  the in-progress download is discarded, a "your current version is still
+  available" message is shown, and Try Again re-attempts from the Available
+  state.
+- Existing data preservation: this is a normal Android app update (same
+  applicationId, same signing key), which is exactly the case Android's own
+  update mechanism (not a fresh install) is designed to preserve app data
+  and settings across — nothing here needed to reimplement that.
+- Publishing v1.2.0+: see SETUP.md's new "Publishing a new version" section —
+  bump the version, build, cut a real new GitHub release tag. Nothing in the
+  app changes for this.
+
+**Known gap, called out rather than silently left**: the app is currently
+**debug-signed** (no dedicated release keystore exists in this project yet).
+In-place auto-updates work correctly between debug-signed builds made from
+this same machine, but a real production rollout should set up a proper
+release signing config first — see SETUP.md's signing note.
+
+**Not verified on-device** — built and pushed per instruction to hold off on
+the emulator this session. Before relying on this in production: install an
+older version, confirm the update-available dialog appears with the correct
+version numbers, confirm UPDATE NOW downloads/verifies/hands off to the
+system installer correctly, confirm SHARE APK opens the native share sheet
+with a working link, and confirm a deliberately-corrupted download is
+rejected without disturbing the working install.
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking
 - Calendar: upgrade the chronological list to a month/week grid
 - Backup & Restore: this is a JSON snapshot of the offline cache, not a true DB backup — fine as a safety net, but call this out to users so expectations are set correctly
 - Harden `firestore.rules` beyond "authenticated = allowed" (needs Cloud Functions + custom claims, or a denormalized roles field, to check specific role/scope per write — noted inline in the rules file)
+- Set up a dedicated release signing keystore so future versions aren't distributed debug-signed
+- A dedicated "My Group / My Congregation" summary card on the Elder's dashboard home screen (the underlying access already works via Reports, per the Elder Roles work — just not its own dashboard widget yet)

@@ -8,11 +8,15 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.repository.ThemePreference
 import com.emfitsolutions.gopreach.data.repository.ThemePreferenceRepository
+import com.emfitsolutions.gopreach.ui.components.update.UpdateHost
+import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
 import com.emfitsolutions.gopreach.ui.navigation.GoPreachNavGraph
 import com.emfitsolutions.gopreach.ui.theme.GoPreachTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -52,6 +56,12 @@ class MainActivity : FragmentActivity() {
                 // button) up above the keyboard instead of behind it.
                 Surface(modifier = Modifier.fillMaxSize().imePadding()) {
                     GoPreachNavGraph()
+
+                    // Checked once per app process, regardless of whether the user is
+                    // signed in yet — "Application Starts -> Check Update Server" per spec.
+                    val updateViewModel: UpdateViewModel = hiltViewModel(this@MainActivity)
+                    LaunchedEffect(Unit) { updateViewModel.checkOnAppStart() }
+                    UpdateHost(updateViewModel)
                 }
             }
         }

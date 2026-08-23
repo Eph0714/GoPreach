@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -17,14 +18,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.repository.ThemePreference
 import com.emfitsolutions.gopreach.ui.components.ThemeOptionRow
+import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
 
 /** Display preference — per-device, not tied to any account (spec §1: "modern
  * Android UI"). Available to every signed-in role. */
@@ -35,6 +40,11 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val theme by viewModel.theme.collectAsStateWithLifecycle()
+    // Explicitly Activity-scoped (not the default nav-entry scope) so this is
+    // the *same* instance MainActivity's UpdateHost renders the result of —
+    // otherwise tapping "Check for Updates" here would update a ViewModel
+    // nothing on screen is actually observing.
+    val updateViewModel: UpdateViewModel = hiltViewModel(LocalContext.current as ComponentActivity)
 
     Scaffold(
         topBar = {
@@ -62,6 +72,17 @@ fun SettingsScreen(
                     ThemeOptionRow("System default", ThemePreference.SYSTEM, theme, viewModel::setTheme)
                     ThemeOptionRow("Light", ThemePreference.LIGHT, theme, viewModel::setTheme)
                     ThemeOptionRow("Dark", ThemePreference.DARK, theme, viewModel::setTheme)
+                }
+            }
+
+            Text("About", style = MaterialTheme.typography.titleMedium)
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
+                    Button(
+                        onClick = updateViewModel::checkManually,
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    ) { Text("Check for Updates") }
                 }
             }
         }

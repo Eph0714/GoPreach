@@ -1,0 +1,148 @@
+package com.emfitsolutions.gopreach.ui.components.update
+
+import android.content.Context
+import android.content.Intent
+import android.util.Log
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.BuildConfig
+import com.emfitsolutions.gopreach.data.update.ApkDownloader
+import com.emfitsolutions.gopreach.data.update.DownloadEvent
+import com.emfitsolutions.gopreach.data.update.UpdateInfo
+import com.emfitsolutions.gopreach.data.update.UpdateInstaller
+import com.emfitsolutions.gopreach.data.update.UpdateManifestRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import java.io.File
+import javax.inject.Inject
+
+private const val TAG = "UpdateViewModel"
+
+/** Mirrors the exact flow the app's auto-update UI walks through. */
+sealed class UpdateCheckState {
+    data object Idle : UpdateCheckState()
+    data object Checking : UpdateCheckState()
+    data class UpToDate(val version: String) : UpdateCheckState()
+    data class Available(val info: UpdateInfo, val currentVersion: String) : UpdateCheckState()
+    data class Downloading(val info: UpdateInfo, val percent: Int) : UpdateCheckState()
+    data class Verifying(val info: UpdateInfo) : UpdateCheckState()
+    data class ReadyToInstall(val info: UpdateInfo, val apkFile: File) : UpdateCheckState()
+    data class Failed(val info: UpdateInfo?, val message: String) : UpdateCheckState()
+}
+
+@HiltViewModel
+class UpdateViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val manifestRepository: UpdateManifestRepository,
+    private val downloader: ApkDownloader,
+    private val installer: UpdateInstaller,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow<UpdateCheckState>(UpdateCheckState.Idle)
+    val state: StateFlow<UpdateCheckState> = _state.asStateFlow()
+
+    private var hasAutoChecked = false
+    private val currentVersion: String get() = BuildConfig.VERSION_NAME
+
+    /** Called once from the app's root composable — checks silently and only
+     * surfaces anything when an update genuinely exists, so a fresh launch
+     * that's already current shows nothing at all (spec: don't repeatedly
+     * annoy the user with unnecessary notifications). */
+    fun checkOnAppStart() {
+        if (hasAutoChecked) return
+        hasAutoChecked = true
+        check(silent = true)
+    }
+
+    /** Called from Settings' "Check for Updates" — always shows a result,
+     * including the explicit "GoPreach is up to date" message. */
+    fun checkManually() = check(silent = false)
+
+    private fun check(silent: Boolean) {
+        _state.value = UpdateCheckState.Checking
+        viewModelScope.launch {
+            manifestRepository.fetchLatest()
+                .onSuccess { info ->
+                    _state.value = if (manifestRepository.isNewer(currentVersion, info.version)) {
+                        UpdateCheckState.Available(info, currentVersion)
+                    } else {
+                        UpdateCheckState.UpToDate(currentVersion)
+                    }
+                }
+                .onFailure { e ->
+                    Log.w(TAG, "Update check failed: ${e.message}")
+                    // A failed *check* (e.g. offline) isn't the "Update Failed" flow —
+                    // that's reserved for a failed download/install. Silently drop back
+                    // to Idle so the app just proceeds as normal.
+                    _state.value = UpdateCheckState.Idle
+                }
+            if (silent && _state.value is UpdateCheckState.UpToDate) {
+                _state.value = UpdateCheckState.Idle
+            }
+        }
+    }
+
+    fun dismiss() {
+        _state.value = UpdateCheckState.Idle
+    }
+
+    /** [UPDATE NOW] — download, verify, then request installation. */
+    fun updateNow() {
+        val info = (_state.value as? UpdateCheckState.Available)?.info
+            ?: (_state.value as? UpdateCheckState.Failed)?.info
+            ?: return
+        viewModelScope.launch {
+            try {
+                downloader.clearDownloads()
+                val fileName = "GoPreach-${info.version}.apk"
+                var lastFile: File? = null
+                downloader.download(info.apkUrl, fileName).collect { event ->
+                    when (event) {
+                        is DownloadEvent.Progress -> _state.value = UpdateCheckState.Downloading(info, event.percent)
+                        is DownloadEvent.Done -> lastFile = event.file
+                    }
+                }
+                val apkFile = lastFile ?: throw Exception("Download did not complete")
+
+                _state.value = UpdateCheckState.Verifying(info)
+                if (info.sha256 != null) {
+                    val actualHash = ApkDownloader.sha256(apkFile)
+                    if (!actualHash.equals(info.sha256, ignoreCase = true)) {
+                        apkFile.delete()
+                        _state.value = UpdateCheckState.Failed(info, "The downloaded update failed a security check and was discarded. Your current version is still available.")
+                        return@launch
+                    }
+                }
+
+                _state.value = UpdateCheckState.ReadyToInstall(info, apkFile)
+            } catch (e: Exception) {
+                Log.w(TAG, "Update failed: ${e.message}", e)
+                _state.value = UpdateCheckState.Failed(info, "The new version could not be downloaded. Your current version is still available.")
+            }
+        }
+    }
+
+    /** Called by the UI right before launching the install Intent — Android's
+     * own Package Installer takes over from here (progress, signature check,
+     * confirmation), which is why there's no "Installing…" state machine step
+     * beyond this: this app hands off and gets out of the way, per spec §3. */
+    fun installIntentFor(apkFile: File): Intent = installer.installIntent(apkFile)
+
+    fun canInstall(): Boolean = installer.canInstall()
+    fun requestInstallPermissionIntent(): Intent = installer.requestInstallPermissionIntent()
+
+    fun retry() {
+        val info = (_state.value as? UpdateCheckState.Failed)?.info
+        _state.value = if (info != null) UpdateCheckState.Available(info, currentVersion) else UpdateCheckState.Idle
+    }
+
+    /** The text handed to Android's native share sheet — always the *current*
+     * latest APK URL fetched moments ago, never a version baked into the app. */
+    fun shareText(info: UpdateInfo): String =
+        "GoPreach ${info.version} is now available!\nDownload the latest version here:\n${info.apkUrl}"
+}
