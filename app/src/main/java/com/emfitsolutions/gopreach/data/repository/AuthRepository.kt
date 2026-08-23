@@ -6,7 +6,9 @@ import com.emfitsolutions.gopreach.data.model.PasswordResetRequest
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.domain.CredentialGenerator
+import com.emfitsolutions.gopreach.domain.PermissionChecker
 import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -23,6 +25,7 @@ data class TempCredentials(
     val username: String,
     val temporaryPassword: String,
     val shareableLink: String,
+    val personId: String = "",
 )
 
 /**
@@ -55,6 +58,12 @@ class AuthRepository @Inject constructor(
     suspend fun signIn(username: String, password: String): AuthResult {
         val person = runCatching { findPersonByUsername(username) }.getOrNull()
             ?: return AuthResult.Error("Invalid username or password.")
+        // Spec §9: a deactivated/suspended account must never sign in again,
+        // regardless of what its RoleAssignments say — checked *before* touching
+        // Firebase Auth so a disabled account doesn't even get to try.
+        if (!PermissionChecker.isAccountUsable(person)) {
+            return AuthResult.Error("This account has been deactivated. Contact your administrator.")
+        }
         return try {
             firebaseAuth.signInWithEmailAndPassword(authEmailFor(person.id), password).await()
             personRepository.save(person) // seed local cache for offline use this session
@@ -113,6 +122,7 @@ class AuthRepository @Inject constructor(
             username = username,
             temporaryPassword = tempPassword,
             shareableLink = CredentialGenerator.shareableSetupLink(username, tempPassword),
+            personId = personId,
         )
     }
 
@@ -165,6 +175,73 @@ class AuthRepository @Inject constructor(
             AuthResult.Success(updated, requiresPasswordChange = false)
         } catch (e: Exception) {
             AuthResult.Error(e.localizedMessage ?: "Couldn't update your credentials.")
+        }
+    }
+
+    /** Re-proves the signed-in user's identity with their *current* password —
+     * required before either self-service credential change below, per spec §1
+     * ("Require the current password before changing the username" / entering
+     * current password to change it). Firebase's own reauthenticate() is what
+     * actually verifies it against the securely-hashed credential; nothing here
+     * ever sees or compares a stored password itself. */
+    private suspend fun reauthenticate(currentPassword: String): Result<Unit> {
+        val user = firebaseAuth.currentUser ?: return Result.failure(IllegalStateException("Session expired — please log in again."))
+        val email = user.email ?: return Result.failure(IllegalStateException("Session expired — please log in again."))
+        return try {
+            user.reauthenticate(EmailAuthProvider.getCredential(email, currentPassword)).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(IllegalStateException("Current password is incorrect."))
+        }
+    }
+
+    /** Super-Admin (or any signed-in user) changing their own username (spec §1).
+     * Firebase Auth's own address is keyed by personId, not username (see
+     * [authEmailFor]), so this never touches Auth itself — only [Person.username]
+     * and, unlike a password change, doesn't require a fresh login afterward. */
+    suspend fun changeUsername(newUsername: String, currentPassword: String): AuthResult {
+        val personId = currentPersonId ?: return AuthResult.Error("Session expired — please log in again.")
+        reauthenticate(currentPassword).onFailure { return AuthResult.Error(it.message ?: "Current password is incorrect.") }
+        val trimmed = newUsername.trim()
+        if (trimmed.isBlank()) return AuthResult.Error("Username cannot be blank.")
+        val existing = findPersonByUsername(trimmed)
+        if (existing != null && existing.id != personId) return AuthResult.Error("That username is already taken.")
+        val person = personRepository.get(personId) ?: return AuthResult.Error("Account record not found.")
+        return try {
+            val previousUsername = person.username
+            val updated = person.copy(username = trimmed)
+            personRepository.save(updated)
+            firestore.collection("people").document(personId).set(updated).await()
+            auditLogRepository.log(
+                actorPersonId = personId,
+                action = "CHANGE_OWN_USERNAME",
+                targetType = "Person",
+                targetId = personId,
+                details = "username: \"$previousUsername\" -> \"$trimmed\"",
+            )
+            AuthResult.Success(updated, requiresPasswordChange = false)
+        } catch (e: Exception) {
+            AuthResult.Error(e.localizedMessage ?: "Couldn't update your username.")
+        }
+    }
+
+    /** Super-Admin (or any signed-in user) changing their own password (spec §1).
+     * `FirebaseAuth.updatePassword` is Firebase's own hashed-credential update —
+     * this app never stores or hashes a login password itself. Signs the user
+     * out afterward so they must log back in with the new password, matching
+     * spec §1's "require the Super-Admin to log in again". */
+    suspend fun changePassword(currentPassword: String, newPassword: String): AuthResult {
+        val personId = currentPersonId ?: return AuthResult.Error("Session expired — please log in again.")
+        if (newPassword.length < 6) return AuthResult.Error("New password must be at least 6 characters.")
+        reauthenticate(currentPassword).onFailure { return AuthResult.Error(it.message ?: "Current password is incorrect.") }
+        val user = firebaseAuth.currentUser ?: return AuthResult.Error("Session expired — please log in again.")
+        return try {
+            user.updatePassword(newPassword).await()
+            auditLogRepository.log(actorPersonId = personId, action = "CHANGE_OWN_PASSWORD", targetType = "Person", targetId = personId)
+            firebaseAuth.signOut()
+            AuthResult.Success(personRepository.get(personId) ?: Person(id = personId), requiresPasswordChange = false)
+        } catch (e: Exception) {
+            AuthResult.Error(e.localizedMessage ?: "Couldn't update your password.")
         }
     }
 

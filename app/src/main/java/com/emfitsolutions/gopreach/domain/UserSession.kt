@@ -2,8 +2,10 @@ package com.emfitsolutions.gopreach.domain
 
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
+import com.emfitsolutions.gopreach.data.model.UserAccessGrant
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
+import com.emfitsolutions.gopreach.data.repository.UserAccessGrantRepository
 import com.emfitsolutions.gopreach.data.repository.personIdFromAuthEmail
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import com.google.firebase.auth.FirebaseAuth
@@ -32,8 +34,19 @@ data class SessionState(
     val isLoading: Boolean = true,
     val person: Person? = null,
     val roleAssignments: List<RoleAssignment> = emptyList(),
+    /** Non-null only for a restricted (Circuit Overseer / custom) user — see
+     * [UserAccessGrant] and [PermissionChecker.hasPermission]. */
+    val grant: UserAccessGrant? = null,
 ) {
     val isSignedIn: Boolean get() = person != null
+
+    /** Spec §9: an account can be deactivated/suspended without deleting it or
+     * touching its RoleAssignments — this is what actually revokes the ability
+     * to keep using an already-open session once that happens (the sign-in gate
+     * in [com.emfitsolutions.gopreach.data.repository.AuthRepository.signIn]
+     * only stops a *new* sign-in attempt). [GoPreachNavGraph] signs the session
+     * out the moment this goes true. */
+    val isAccountBlocked: Boolean get() = person != null && !PermissionChecker.isAccountUsable(person)
 
     /** Source of truth for whether the forced-password-change flow (spec §4.5)
      * still applies to this signed-in session — survives app restarts, unlike the
@@ -65,6 +78,7 @@ class UserSession @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
+    private val userAccessGrantRepository: UserAccessGrantRepository,
     @ApplicationScope appScope: CoroutineScope,
 ) {
     private fun authStateFlow(): Flow<String?> = callbackFlow {
@@ -83,7 +97,8 @@ class UserSession @Inject constructor(
                 combine(
                     personRepository.observeAll().map { people -> people.firstOrNull { it.id == personId } },
                     roleAssignmentRepository.observeForPerson(personId),
-                ) { person, roles -> SessionState(isLoading = false, person = person, roleAssignments = roles) }
+                    userAccessGrantRepository.observeForPerson(personId),
+                ) { person, roles, grant -> SessionState(isLoading = false, person = person, roleAssignments = roles, grant = grant) }
             }
         }
         .stateIn(appScope, SharingStarted.Eagerly, SessionState(isLoading = true))

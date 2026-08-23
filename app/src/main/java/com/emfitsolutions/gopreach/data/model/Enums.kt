@@ -6,7 +6,51 @@ enum class AdminRole {
     ADMIN_PER_CONGREGATION,
     COORDINATOR_ELDER,
     REGULAR_ELDER,
+
+    /**
+     * A restricted, externally-facing role (e.g. a real Circuit Overseer, or any
+     * other one-off account a Super-Admin needs to create) that carries **no**
+     * implicit permissions of its own — unlike the four roles above, whose access
+     * is a fixed, built-in set. Every [AdminRole.CIRCUIT_OVERSEER] account's
+     * actual capabilities live entirely in its [UserAccessGrant]: what it may do
+     * ([UserAccessGrant.permissions]) and where ([UserAccessGrant.scopeType] +
+     * scope lists). A RoleAssignment of this role with no matching grant grants
+     * nothing at all — see [com.emfitsolutions.gopreach.domain.PermissionChecker.hasPermission].
+     */
+    CIRCUIT_OVERSEER,
 }
+
+/**
+ * WHAT a restricted ([AdminRole.CIRCUIT_OVERSEER]) user may do — see
+ * [UserAccessGrant]. Deliberately a flat enum rather than hard-coded booleans
+ * scattered through the app, so a future permission is one new case plus
+ * whatever screen checks it — not a schema change (spec §12/§15).
+ */
+enum class Permission {
+    VIEW_CONGREGATIONS, ADD_CONGREGATIONS, EDIT_CONGREGATIONS, DELETE_CONGREGATIONS,
+    VIEW_ELDERS, MANAGE_ELDERS,
+    VIEW_GROUPS, MANAGE_GROUPS,
+    VIEW_PUBLISHERS, MANAGE_PUBLISHERS,
+    VIEW_PUBLISHER_REPORTS, VIEW_GROUP_REPORTS, VIEW_CONGREGATION_REPORTS,
+    PRINT_REPORTS, EXPORT_REPORTS,
+    MANAGE_USERS,
+}
+
+/** WHERE a [Permission] applies for a restricted user (spec §6) — kept entirely
+ * separate from [Permission] itself so "can view reports" and "for which
+ * congregations" are independently configurable. */
+enum class ScopeType {
+    ALL_CONGREGATIONS,
+    SELECTED_CONGREGATIONS,
+    SELECTED_GROUPS,
+}
+
+/** Account-level (not role-level) lifecycle switch (spec §9) — distinct from
+ * [RoleAssignmentStatus], which tracks one specific role/report-access grant.
+ * A deactivated/suspended account can never sign in, full stop, regardless of
+ * how many active RoleAssignments it still holds; nothing about its historical
+ * records is touched. */
+enum class AccountStatus { ACTIVE, INACTIVE, SUSPENDED }
 
 /** Publisher track — categories, not a hierarchy (spec §2.2). */
 enum class PublisherCategory {

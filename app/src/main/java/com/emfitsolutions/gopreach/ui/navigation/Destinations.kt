@@ -53,4 +53,11 @@ object Destinations {
     const val CALENDAR = "calendar"
 
     const val SETTINGS = "settings"
+
+    // User Access Management (Super-Admin account editing + Circuit Overseer/custom users)
+    const val ACCOUNT_SETTINGS = "account_settings"
+    const val MANAGE_USERS = "manage_users"
+    const val ADD_USER = "add_user"
+    const val EDIT_USER = "edit_user/{targetPersonId}"
+    fun editUser(targetPersonId: String) = "edit_user/$targetPersonId"
 }

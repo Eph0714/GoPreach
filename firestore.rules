@@ -2,22 +2,35 @@ rules_version = '2';
 
 // GoPreach Firestore security rules.
 //
-// Honest scope note: fine-grained per-role authorization (e.g. "only a
-// Coordinator Elder may write RoleAssignments in their own congregation") is
-// enforced by the Android app's UI and PermissionChecker, but these rules
-// can't cheaply re-derive "does this signed-in Person hold an active
-// RoleAssignment of role X in scope Y" without either Cloud Functions +
-// custom claims, or a denormalized roles field kept in sync on every write —
-// both bigger additions than this pass covers (see AuthRepository's
-// secondary-FirebaseApp comment for the same trade-off elsewhere in the
-// app). What these rules DO guarantee: nothing is readable or writable by an
-// unauthenticated caller except the one deliberately public path
-// (passwordResetRequests, create-only — spec §4.5's "forgot password" runs
-// before the requester has valid credentials to sign in with).
+// Honest scope note: fine-grained per-role authorization for the four
+// original, built-in roles (Super-Admin, Admin Per Congregation, Coordinator
+// Elder, Regular Elder) is still enforced by the Android app's UI and
+// PermissionChecker, not by these rules — re-deriving "does this signed-in
+// Person hold an active RoleAssignment of role X in scope Y" for those roles
+// would need either Cloud Functions + custom claims, or denormalizing every
+// congregation/group assignment onto every write, both bigger additions than
+// this pass covers (and riskier to get right with no rules-testing setup in
+// this project — see AuthRepository's secondary-FirebaseApp comment for the
+// same kind of trade-off elsewhere in the app). What's below IS real,
+// however, for the *restricted* role the User Access Management feature
+// introduces (AdminRole.CIRCUIT_OVERSEER / any future grant-based custom
+// user): every one of their permission+scope checks is re-verified here,
+// server-side, from their own `userAccessGrants/{personId}` document — a UI
+// button being hidden was never the enforcement for that role; this is. This
+// is strictly additive: a restricted user is a brand-new kind of account
+// this pass introduces, so nothing that worked before can regress by
+// restricting it correctly now.
 //
-// Hardening path for later: add a Cloud Function that mirrors each Person's
-// RoleAssignments onto their Auth custom claims, then replace
-// `isSignedIn()` below with real role checks read from `request.auth.token`.
+// The one other new check is `isSuperAdmin()`, which reads a denormalized
+// `people/{personId}.isSuperAdmin` flag (see Person.kt's doc comment and
+// SETUP.md's bootstrap steps) — the one cheap, query-free way to answer "is
+// this caller the Super-Admin" from a security rule without Cloud Functions.
+//
+// Hardening path for later: add a Cloud Function that mirrors every Person's
+// RoleAssignments (not just Super-Admin) onto their Auth custom claims, then
+// replace the plain `isSignedIn()` gates below with real role checks read
+// from `request.auth.token` — closing the remaining gap for the four
+// built-in roles too.
 
 function isSignedIn() {
   return request.auth != null;
@@ -25,6 +38,57 @@ function isSignedIn() {
 
 function personIdFromToken() {
   return request.auth.token.email.split('@')[0];
+}
+
+// Every helper below takes [db] explicitly (the `database` path variable from
+// `match /databases/{database}/documents` isn't visible to a function defined
+// outside that block) — this is the documented pattern for reusable
+// cross-collection lookups in Firestore rules; passing it in keeps `exists()`/
+// `get()` resolvable without every helper needing its own `match` nesting.
+function isSuperAdmin(db) {
+  return isSignedIn() &&
+    exists(/databases/$(db)/documents/people/$(personIdFromToken())) &&
+    get(/databases/$(db)/documents/people/$(personIdFromToken())).data.get('isSuperAdmin', false) == true;
+}
+
+function hasGrant(db) {
+  return isSignedIn() &&
+    exists(/databases/$(db)/documents/userAccessGrants/$(personIdFromToken()));
+}
+
+function myGrant(db) {
+  return get(/databases/$(db)/documents/userAccessGrants/$(personIdFromToken())).data;
+}
+
+function myGrantPermissions(db) {
+  return hasGrant(db) ? myGrant(db).permissions : [];
+}
+
+function grantScopeIncludesCongregation(db, congregationId) {
+  let g = myGrant(db);
+  return g.scopeType == 'ALL_CONGREGATIONS' ||
+    (g.scopeType == 'SELECTED_CONGREGATIONS' && congregationId in g.get('scopeCongregationIds', []));
+}
+
+// True if this caller may act under [permission] on data scoped to
+// [congregationId]. For a caller with NO grant at all (one of the four
+// built-in roles, or Super-Admin), this is deliberately permissive — matches
+// the pre-existing `isSignedIn()`-only baseline below. For a caller WHO HAS a
+// grant (a restricted user), it's the real permission+scope check spec §13
+// asks for: "Authenticated User -> Role -> Permission -> Scope -> Data".
+function restrictedAllows(db, permission, congregationId) {
+  return !hasGrant(db) || (
+    permission in myGrantPermissions(db) &&
+    grantScopeIncludesCongregation(db, congregationId)
+  );
+}
+
+// Same, but for an action with no existing congregation to scope against yet
+// (creating a brand-new Congregation document) — permission-only, since a
+// restricted user's scope is a list of *existing* congregation ids and a new
+// one obviously isn't in it yet.
+function restrictedAllowsPermission(db, permission) {
+  return !hasGrant(db) || permission in myGrantPermissions(db);
 }
 
 service cloud.firestore {
@@ -50,8 +114,63 @@ service cloud.firestore {
       allow write: if isSignedIn();
     }
 
-    // Everything else: authenticated read/write. See the file-level note
-    // above for what this does and doesn't guarantee.
+    // User Access Management (spec §2/§6-§8/§13): only a Super-Admin may
+    // create/edit a restricted user's permissions and scope ("Only the
+    // Super-Admin can... Define user access permissions") — OR an Admin whose
+    // *own* grant already includes MANAGE_USERS (spec §14: "Admin can manage
+    // users only if explicitly authorized"). A restricted user may always
+    // read their own grant (so the app can show them their own access),
+    // never anyone else's.
+    match /userAccessGrants/{personId} {
+      allow read: if isSignedIn() && (personId == personIdFromToken() || isSuperAdmin(database) || 'MANAGE_USERS' in myGrantPermissions(database));
+      allow write: if isSignedIn() && (isSuperAdmin(database) || 'MANAGE_USERS' in myGrantPermissions(database));
+    }
+
+    match /congregations/{congregationId} {
+      allow read: if restrictedAllows(database, 'VIEW_CONGREGATIONS', congregationId);
+      allow create: if restrictedAllowsPermission(database, 'ADD_CONGREGATIONS');
+      allow update: if restrictedAllows(database, 'EDIT_CONGREGATIONS', congregationId);
+      allow delete: if restrictedAllows(database, 'DELETE_CONGREGATIONS', congregationId);
+    }
+
+    match /groups/{groupId} {
+      allow read: if restrictedAllows(database, 'VIEW_GROUPS', resource.data.get('congregationId', null));
+      allow create: if restrictedAllows(database, 'MANAGE_GROUPS', request.resource.data.get('congregationId', null));
+      allow update, delete: if restrictedAllows(database, 'MANAGE_GROUPS', resource.data.get('congregationId', null));
+    }
+
+    // Elders and Publishers are both `roleAssignments` rows (see
+    // RoleAssignment.kt — the app's own data model, not this file's
+    // invention); the permission that applies depends on which one a given
+    // document actually is, so a restricted user's read/write is allowed here
+    // if EITHER their Elders or their Publishers permission (for the right
+    // congregation) covers it.
+    match /roleAssignments/{assignmentId} {
+      allow read: if !hasGrant(database) ||
+        restrictedAllows(database, 'VIEW_ELDERS', resource.data.get('congregationId', null)) ||
+        restrictedAllows(database, 'VIEW_PUBLISHERS', resource.data.get('congregationId', null));
+      allow create: if !hasGrant(database) ||
+        restrictedAllows(database, 'MANAGE_ELDERS', request.resource.data.get('congregationId', null)) ||
+        restrictedAllows(database, 'MANAGE_PUBLISHERS', request.resource.data.get('congregationId', null));
+      allow update, delete: if !hasGrant(database) ||
+        restrictedAllows(database, 'MANAGE_ELDERS', resource.data.get('congregationId', null)) ||
+        restrictedAllows(database, 'MANAGE_PUBLISHERS', resource.data.get('congregationId', null));
+    }
+
+    match /monthlyReports/{reportId} {
+      allow read: if restrictedAllows(database, 'VIEW_PUBLISHER_REPORTS', resource.data.get('congregationId', null)) ||
+        restrictedAllows(database, 'VIEW_GROUP_REPORTS', resource.data.get('congregationId', null)) ||
+        restrictedAllows(database, 'VIEW_CONGREGATION_REPORTS', resource.data.get('congregationId', null));
+      // A restricted user's report access is view-only in every one of the
+      // spec's own worked examples — none of them grant report edits.
+      allow write: if !hasGrant(database);
+    }
+
+    // Everything else (schedules, territories, Bible studies, interested
+    // persons, shared locations, app settings, backups, audit log, ...):
+    // authenticated read/write, unchanged from before — none of these are
+    // named in the spec's permission list, and today's UI never routes a
+    // restricted user to them anyway.
     match /{document=**} {
       allow read, write: if isSignedIn();
     }

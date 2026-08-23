@@ -18,7 +18,9 @@ import androidx.compose.material.icons.rounded.Chat
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.ManageAccounts
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Settings
@@ -50,6 +52,9 @@ import com.emfitsolutions.gopreach.ui.navigation.Destinations
 @Composable
 fun AdminHomeScreen(
     onSwitchToPublisher: (() -> Unit)?,
+    /** Super-Admin always; an Admin only if explicitly granted MANAGE_USERS
+     * (spec §2/§14 — "Admin can manage users only if explicitly authorized"). */
+    canManageUsers: Boolean,
     onNavigate: (String) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -129,7 +134,7 @@ fun AdminHomeScreen(
                 }
             }
 
-            if (canAccessControlPanel || isSuperAdmin || canViewUserLogs) {
+            if (canAccessControlPanel || isSuperAdmin || canViewUserLogs || canManageUsers) {
                 DashboardSection("System") {
                     if (canAccessControlPanel) {
                         DashboardTile("Control Panel", Icons.Rounded.Tune, { onNavigate(Destinations.CONTROL_PANEL) })
@@ -140,10 +145,14 @@ fun AdminHomeScreen(
                     if (canViewUserLogs) {
                         DashboardTile("User Logs", Icons.Rounded.History, { onNavigate(Destinations.USER_LOGS) })
                     }
+                    if (canManageUsers) {
+                        DashboardTile("User Management", Icons.Rounded.ManageAccounts, { onNavigate(Destinations.MANAGE_USERS) })
+                    }
                 }
             }
 
             DashboardSection("Account") {
+                DashboardTile("Account Settings", Icons.Rounded.Password, { onNavigate(Destinations.ACCOUNT_SETTINGS) })
                 if (onSwitchToPublisher != null) {
                     DashboardTile("Ministry Report App", Icons.Rounded.SwapHoriz, onSwitchToPublisher)
                 }

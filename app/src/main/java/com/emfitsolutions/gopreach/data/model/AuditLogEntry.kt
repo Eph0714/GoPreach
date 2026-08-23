@@ -21,4 +21,10 @@ data class AuditLogEntry(
     val targetId: String? = null,
     val congregationId: String? = null,
     val timestamp: Long = 0L,
+
+    /** Human-readable "what changed" for account/permission/scope actions (spec's
+     * User Access Management §11) — e.g. "permissions: [VIEW_GROUPS] -> [VIEW_GROUPS,
+     * MANAGE_GROUPS]". Optional and null for the simpler pre-existing action codes
+     * that don't carry a before/after value. */
+    val details: String? = null,
 )

@@ -23,7 +23,14 @@ class AuditLogRepository @Inject constructor(
 ) {
     fun observeAll(): Flow<List<AuditLogEntry>> = offline.observeCollection(COLLECTION)
 
-    suspend fun log(actorPersonId: String, action: String, targetType: String? = null, targetId: String? = null, congregationId: String? = null) {
+    suspend fun log(
+        actorPersonId: String,
+        action: String,
+        targetType: String? = null,
+        targetId: String? = null,
+        congregationId: String? = null,
+        details: String? = null,
+    ) {
         val id = firestore.collection(COLLECTION).document().id
         offline.save(
             COLLECTION,
@@ -36,6 +43,7 @@ class AuditLogRepository @Inject constructor(
                 targetId = targetId,
                 congregationId = congregationId,
                 timestamp = System.currentTimeMillis(),
+                details = details,
             ),
         )
     }

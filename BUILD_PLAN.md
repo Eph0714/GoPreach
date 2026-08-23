@@ -174,19 +174,88 @@ In-place auto-updates work correctly between debug-signed builds made from
 this same machine, but a real production rollout should set up a proper
 release signing config first — see SETUP.md's signing note.
 
-**Not verified on-device** — built and pushed per instruction to hold off on
-the emulator this session. Before relying on this in production: install an
-older version, confirm the update-available dialog appears with the correct
-version numbers, confirm UPDATE NOW downloads/verifies/hands off to the
-system installer correctly, confirm SHARE APK opens the native share sheet
-with a working link, and confirm a deliberately-corrupted download is
-rejected without disturbing the working install.
+**Verified on-device** (emulator, `MiarhPen_Test` AVD): installed 1.0.0,
+confirmed the Update Available dialog showed the correct Current/New version
+text and real release notes, confirmed SHARE APK opened the native share
+sheet with the live "latest" GitHub link, confirmed UPDATE NOW downloaded and
+SHA-256-verified the APK, correctly routed to Android's own "Install unknown
+apps" settings screen when that permission was missing, then handed off to
+the real system Package Installer (which showed its own "Do you want to
+update this app?" confirmation using GoPreach's own icon) and completed the
+in-place install — `dumpsys` confirmed the running app was genuinely 1.1.0
+afterward, with no data loss and no re-prompt.
+
+## Phase 11 — Super-Admin Account and User Access Management ✅ done
+
+- **Super-Admin self-service**: a new "Account Settings" screen (reachable by
+  any signed-in Admin-track user, not just Super-Admin) lets you change your
+  own username and password, each requiring your *current* password first
+  (Firebase `reauthenticate()`). Changing the password signs you out
+  afterward, same as the existing forced-password-change flow. Neither ever
+  touches a plaintext password in Firestore — Firebase Auth's own hashed
+  credential store is what actually holds and verifies it.
+- **Role + Permission + Scope, not a role dropdown**: a new `AdminRole.CIRCUIT_OVERSEER`
+  carries *no* built-in access of its own — everything it (or any future
+  "custom user") may do lives in a separate `UserAccessGrant` document:
+  `Permission` (16 cases — View/Add/Edit/Delete Congregations, View/Manage
+  Elders, View/Manage Groups, View/Manage Publishers, the three report-view
+  permissions, Print/Export Reports, Manage Users) crossed with `ScopeType`
+  (All Congregations / Selected Congregations today; Selected Groups is
+  modeled and enforced but not yet exposed in the picker UI).
+- **User Management module**: a new screen (Super-Admin, or an Admin
+  explicitly granted `MANAGE_USERS` — spec's "Admin can manage users only if
+  explicitly authorized") lists every Circuit Overseer/custom user, with
+  [Add User] generating temp credentials + a permission/scope form, and
+  per-user Edit (same form) plus a three-state Active/Inactive/Suspended
+  status control that's account-level, not role-level (spec §9) — a
+  deactivated account can never sign in again, but nothing about it is
+  deleted. Deactivating/suspending someone **mid-session** also signs them
+  out immediately (`SessionState.isAccountBlocked`, checked reactively in
+  `GoPreachNavGraph`), not just on their next login attempt.
+- **Real backend enforcement, not just a hidden button**: `firestore.rules`
+  now re-derives every restricted user's permission+scope check server-side
+  from their own `userAccessGrants/{personId}` document (see that file's
+  updated header comment for exactly which collections and why) — a
+  restricted user hitting the Firestore API directly, bypassing the Android
+  UI entirely, gets rejected the same way the UI would have refused to show
+  the button. This is additive only: the four pre-existing built-in roles'
+  authorization model is unchanged (still UI/PermissionChecker-enforced, a
+  pre-existing, documented trade-off — see the rules file), since a
+  restricted user is a brand-new kind of account this phase introduces and
+  nothing that worked before can regress by correctly restricting it now.
+- **Audit trail**: every username change, password change, new restricted
+  user, permission/scope edit, and status change writes an `AuditLogEntry`
+  with a human-readable `details` string (e.g. `"status: ACTIVE -> SUSPENDED"`),
+  visible in the existing User Logs screen.
+- Full name/username edits for *existing built-in-role* people (Admins,
+  Elders, Publishers) were already covered by the earlier Add/Edit/Delete
+  pass — this phase only adds the new restricted-role account type on top.
+
+**Known, deliberate scope cuts (disclosed, not silently skipped)**:
+- The "View Congregations / View Elders / View Groups / View Publishers"
+  permissions are modeled, stored, and enforced server-side, but there's no
+  dedicated *read-only* variant of the existing Congregations/Elders/Groups/
+  Publishers management screens yet — building four read-only screen variants
+  was out of scope for this pass. A restricted user granted only "View X" has
+  nothing in the nav today that routes them to those screens at all; the
+  Reports-based permissions (View Publisher/Group/Congregation Reports, the
+  headline capability in every one of the spec's own worked examples) are
+  fully wired end-to-end instead.
+- `ScopeType.SELECTED_GROUPS` is fully modeled and enforced by
+  `PermissionChecker`/`firestore.rules`, but the Add/Edit User screen's scope
+  picker only exposes All Congregations / Selected Congregations today.
+- The denormalized `Person.isSuperAdmin` flag that the security rules check
+  must be set **by hand**, once, on any Super-Admin account created before
+  this phase (see SETUP.md's updated bootstrap steps) — there's still no
+  in-app "create another Super-Admin" flow, by design.
 
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking
 - Calendar: upgrade the chronological list to a month/week grid
 - Backup & Restore: this is a JSON snapshot of the offline cache, not a true DB backup — fine as a safety net, but call this out to users so expectations are set correctly
-- Harden `firestore.rules` beyond "authenticated = allowed" (needs Cloud Functions + custom claims, or a denormalized roles field, to check specific role/scope per write — noted inline in the rules file)
+- Harden `firestore.rules` further for the four original built-in roles too (needs Cloud Functions + custom claims, or a denormalized roles field, to check specific role/scope per write — noted inline in the rules file; the new restricted-role checks added in Phase 11 don't need this, since they're already keyed by personId)
 - Set up a dedicated release signing keystore so future versions aren't distributed debug-signed
 - A dedicated "My Group / My Congregation" summary card on the Elder's dashboard home screen (the underlying access already works via Reports, per the Elder Roles work — just not its own dashboard widget yet)
+- Read-only variants of the Congregations/Elders/Groups/Publishers management screens, so a restricted user's "View X" permission (without the matching "Manage X") has somewhere in the nav to actually go
+- Expose `ScopeType.SELECTED_GROUPS` in the Add/Edit User scope picker

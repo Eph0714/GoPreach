@@ -1,9 +1,13 @@
 package com.emfitsolutions.gopreach.domain
 
+import com.emfitsolutions.gopreach.data.model.AccountStatus
 import com.emfitsolutions.gopreach.data.model.AdminRole
+import com.emfitsolutions.gopreach.data.model.Permission
+import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
+import com.emfitsolutions.gopreach.data.model.UserAccessGrant
 
 /**
  * Every permission check in the app reduces to one question (spec §3): "does this
@@ -47,6 +51,50 @@ object PermissionChecker {
             AdminRole.ADMIN_PER_CONGREGATION,
             AdminRole.COORDINATOR_ELDER,
             AdminRole.REGULAR_ELDER,
+            AdminRole.CIRCUIT_OVERSEER,
         ).firstOrNull { it in activeAdminRoles }
     }
+
+    /** Everything an [AdminRole.ADMIN_PER_CONGREGATION] can do within their own
+     * congregation, today, with no [UserAccessGrant] involved — used only as the
+     * comparison set an Admin's own [UserAccessGrant] (if any, for
+     * "Admin can manage users only if explicitly authorized" — spec §14) is
+     * layered on top of, never to gate the four built-in roles themselves. */
+    val FULL_CONGREGATION_PERMISSIONS: Set<Permission> = Permission.entries.toSet() - Permission.MANAGE_USERS
+
+    /**
+     * WHAT+WHERE check for a restricted ([AdminRole.CIRCUIT_OVERSEER] or any
+     * future grant-based) user — spec §6/§13: "Authenticated User -> Role ->
+     * Permission -> Scope -> Requested Data". The four built-in roles are
+     * untouched by this function; it only ever narrows access for a person whose
+     * *only* relevant RoleAssignment is grant-based, or grants an Admin an
+     * extra capability (MANAGE_USERS) their built-in role doesn't imply on its
+     * own. Mirrored server-side in firestore.rules for the same collections —
+     * see that file's comments for exactly which ones and why.
+     */
+    fun hasPermission(
+        assignments: List<RoleAssignment>,
+        grant: UserAccessGrant?,
+        permission: Permission,
+        congregationId: String? = null,
+        groupId: String? = null,
+    ): Boolean {
+        if (hasAdminRole(assignments, AdminRole.SUPER_ADMIN)) return true
+        if (hasAdminRole(assignments, AdminRole.ADMIN_PER_CONGREGATION, congregationId = congregationId) &&
+            permission in FULL_CONGREGATION_PERMISSIONS
+        ) {
+            return true
+        }
+        // MANAGE_USERS is the one capability even a built-in Admin doesn't carry
+        // implicitly (spec §2/§14: "Admin can manage users only if explicitly
+        // authorized") — so it's always resolved from the grant, for anyone.
+        return grant?.allows(permission, congregationId, groupId) == true
+    }
+
+    /** Spec §9 — an INACTIVE/SUSPENDED account may hold ever so many still-ACTIVE
+     * RoleAssignments; none of them matter once the account itself is disabled.
+     * Checked at sign-in ([com.emfitsolutions.gopreach.data.repository.AuthRepository.signIn]);
+     * exposed here too so any other call site can ask the same question the
+     * same way. */
+    fun isAccountUsable(person: Person): Boolean = person.accountStatus == AccountStatus.ACTIVE
 }

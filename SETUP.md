@@ -41,7 +41,21 @@ one administration root. It's created directly against Firebase:
 3. Create a `roleAssignments/{anyId}` document (same "no literal `id` field"
    rule applies): `personId` = that id, `roleType` = `"ADMIN:SUPER_ADMIN"`,
    `status` = `"ACTIVE"`.
-4. Log in from the app with the username you set and that password.
+4. **Also set `isSuperAdmin: true`** on that same `people/{that-id}` document
+   (a plain boolean field, alongside `username` etc. from step 2). This is a
+   denormalized copy of step 3 that only exists for `firestore.rules` — rules
+   can't cheaply query "does this person have an active SUPER_ADMIN
+   RoleAssignment" the way the app itself does, so `isSuperAdmin()` in the
+   rules file checks this flag on the Person document directly instead. The
+   in-app permission system (`PermissionChecker`) never reads this field —
+   only the security rules do — but the User Access Management feature (who
+   may create Circuit Overseer/custom users and edit their permissions) is
+   enforced *server-side* using it, so a Super-Admin account created before
+   this flag existed must have it added by hand, exactly like this step, or
+   `userAccessGrants` writes will be rejected for that account. **There is no
+   in-app way to create another Super-Admin or set this flag** — by design,
+   matching how the very first Super-Admin is bootstrapped.
+5. Log in from the app with the username you set and that password.
 
 Every other account (Admins, Coordinator Elders, Regular Elders, Publishers)
 is created from inside the app by an existing role, per spec §4 — those

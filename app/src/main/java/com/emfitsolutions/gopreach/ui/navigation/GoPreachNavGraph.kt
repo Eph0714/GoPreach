@@ -16,6 +16,7 @@ import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.domain.PermissionChecker
 import com.emfitsolutions.gopreach.domain.SessionContext
 import com.emfitsolutions.gopreach.ui.screens.about.AboutScreen
+import com.emfitsolutions.gopreach.ui.screens.account.AccountSettingsScreen
 import com.emfitsolutions.gopreach.ui.screens.auth.ForcedPasswordChangeScreen
 import com.emfitsolutions.gopreach.ui.screens.auth.ForgotPasswordScreen
 import com.emfitsolutions.gopreach.ui.screens.admins.ManageAdminsScreen
@@ -45,6 +46,9 @@ import com.emfitsolutions.gopreach.ui.screens.settings.SettingsScreen
 import com.emfitsolutions.gopreach.ui.screens.sharelocation.ShareLocationScreen
 import com.emfitsolutions.gopreach.ui.screens.territories.ManageTerritoriesScreen
 import com.emfitsolutions.gopreach.ui.screens.userlogs.UserLogsScreen
+import com.emfitsolutions.gopreach.ui.screens.users.AddEditUserScreen
+import com.emfitsolutions.gopreach.ui.screens.users.ManageUsersScreen
+import com.emfitsolutions.gopreach.data.model.Permission
 
 /**
  * Root navigation graph. Routing between Login / forced-password-change / the
@@ -93,6 +97,18 @@ fun GoPreachNavGraph(
         }
     }
 
+    // Spec §9 — a Super-Admin deactivating/suspending someone mid-session must
+    // actually end that session, not just block their *next* sign-in attempt.
+    LaunchedEffect(session.isAccountBlocked) {
+        if (session.isAccountBlocked) sessionViewModel.signOut()
+    }
+
+    // Circuit Overseer / custom users (spec §5-§8) carry no built-in scope —
+    // everything they may see comes from their UserAccessGrant instead.
+    val grant = session.grant
+    val canManageUsers = currentRole == AdminRole.SUPER_ADMIN ||
+        (grant?.resolvedPermissions?.contains(Permission.MANAGE_USERS) == true)
+
     NavHost(navController = navController, startDestination = Destinations.LOGIN) {
         composable(Destinations.LOGIN) {
             LoginScreen(
@@ -114,6 +130,7 @@ fun GoPreachNavGraph(
                 onSwitchToPublisher = if (session.availableContext == SessionContext.BOTH) {
                     { navController.navigate(Destinations.PUBLISHER_HOME) }
                 } else null,
+                canManageUsers = canManageUsers,
                 onNavigate = { route -> navController.navigate(route) },
             )
         }
@@ -296,6 +313,15 @@ fun GoPreachNavGraph(
                     canEditAll = false,
                     editableGroupId = ownGroupAssignment?.groupId,
                 )
+                // A Circuit Overseer/custom user is always read-only here — the
+                // Calendar screen only supports one-congregation-at-a-time
+                // filtering today, so a multi-congregation grant sees every
+                // congregation's events rather than an unsupported partial
+                // filter (still no edit access either way).
+                AdminRole.CIRCUIT_OVERSEER -> CalendarScope.AdminTrack(
+                    congregationId = grant?.scopeCongregationIds?.singleOrNull(),
+                    canEditAll = false,
+                )
                 null -> CalendarScope.Publisher(
                     congregationId = ownPublisherAssignment?.congregationId,
                     groupId = ownPublisherAssignment?.groupId,
@@ -315,6 +341,41 @@ fun GoPreachNavGraph(
                 currentPersonId = currentPersonId,
                 canManageLogo = PermissionChecker.highestAdminRole(session.roleAssignments) == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.ACCOUNT_SETTINGS) {
+            AccountSettingsScreen(
+                onBack = { navController.popBackStack() },
+                // A changed password signs the session out (spec §1); routing
+                // back to Login happens reactively above, same as everywhere else.
+                onSignedOutForPasswordChange = { },
+            )
+        }
+        composable(Destinations.MANAGE_USERS) {
+            ManageUsersScreen(
+                currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
+                onAddNew = { navController.navigate(Destinations.ADD_USER) },
+                onEdit = { personId -> navController.navigate(Destinations.editUser(personId)) },
+            )
+        }
+        composable(Destinations.ADD_USER) {
+            AddEditUserScreen(
+                targetPersonId = null,
+                currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
+                onDone = { navController.popBackStack() },
+            )
+        }
+        composable(
+            route = Destinations.EDIT_USER,
+            arguments = listOf(navArgument("targetPersonId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            AddEditUserScreen(
+                targetPersonId = backStackEntry.arguments?.getString("targetPersonId"),
+                currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
+                onDone = { navController.popBackStack() },
             )
         }
     }

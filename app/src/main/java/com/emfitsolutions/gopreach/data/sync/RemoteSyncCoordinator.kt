@@ -13,6 +13,7 @@ import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.ScheduleRepository
 import com.emfitsolutions.gopreach.data.repository.SharedLocationRepository
 import com.emfitsolutions.gopreach.data.repository.TerritoryRepository
+import com.emfitsolutions.gopreach.data.repository.UserAccessGrantRepository
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineScope
@@ -72,6 +73,7 @@ class RemoteSyncCoordinator @Inject constructor(
     private val auditLogRepository: AuditLogRepository,
     private val appSettingsRepository: AppSettingsRepository,
     private val sharedLocationRepository: SharedLocationRepository,
+    private val userAccessGrantRepository: UserAccessGrantRepository,
     private val remoteUpdateTracker: RemoteUpdateTracker,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
@@ -112,5 +114,6 @@ class RemoteSyncCoordinator @Inject constructor(
         auditLogRepository.startRemoteSync().startTracked(uidChanged)
         appSettingsRepository.startRemoteSync().startTracked(uidChanged)
         sharedLocationRepository.startRemoteSync().startTracked(uidChanged)
+        userAccessGrantRepository.startRemoteSync().startTracked(uidChanged)
     }
 }
