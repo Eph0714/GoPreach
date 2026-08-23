@@ -385,6 +385,30 @@ and are deferred rather than half-built:
   Compose Material3 always opens from the leading (start) edge, which is the
   left side in this app's LTR-only layout; no change was needed.
 
+## Phase 15 — Fixes from user feedback on Phase 13/14 ✅ done
+
+- **The hamburger icon was on the wrong side**: it had been placed inside
+  `topEndAction` (grouped with the sync/settings icons on the right), so even
+  though the drawer itself always opens from the left (Phase 14's note was
+  correct about that), the *toggle button* read as a right-side control. Added
+  a proper `leadingAction` slot to `DashboardHero` and moved the hamburger
+  there — it now sits at the true left edge of the header, before the logo.
+- **The graphical Summary had disappeared from the main form**: Phase 14
+  hid *everything* below the hero for Super-Admin/Admin, including the KPI
+  cards/charts — that overshot the actual request (hide navigation buttons,
+  not the dashboard's own reporting content). Extracted the KPI-cards-plus-
+  charts body into a reusable `DashboardStatsContent` composable (no
+  `Scaffold` of its own) and embedded it directly on `AdminHomeScreen`'s main
+  form for Super-Admin/Admin, scoped the same way the standalone Dashboard
+  Reports screen is. The standalone screen (still used by Coordinator Elder/
+  Regular Elder) now just wraps that same composable instead of duplicating it.
+- **Dark Green**: light-theme primary changed from Forest Green (`#228B22`)
+  to the standard "DarkGreen" web color (`#006400`), per explicit request.
+  Verified on-device (login screen).
+- Still not verified: the actual logged-in Super-Admin/Admin view (hamburger
+  position + embedded graphical Summary) — no test credentials available in
+  this session, same disclosed gap as Phase 13/14.
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking

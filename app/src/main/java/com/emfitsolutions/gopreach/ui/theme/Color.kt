@@ -2,11 +2,11 @@ package com.emfitsolutions.gopreach.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// GoPreach brand palette — light theme: Forest Green (standard "ForestGreen"
-// web color, #228B22), per explicit user request.
-val PrimaryGreen = Color(0xFF228B22)
-val PrimaryGreenDark = Color(0xFF155415)
-val PrimaryGreenLight = Color(0xFF4FAE4F)
+// GoPreach brand palette — light theme: Dark Green (standard "DarkGreen"
+// web color, #006400), per explicit user request (previously Forest Green).
+val PrimaryGreen = Color(0xFF006400)
+val PrimaryGreenDark = Color(0xFF003D00)
+val PrimaryGreenLight = Color(0xFF2E7D32)
 val AccentGold = Color(0xFFE0A526)
 
 val SurfaceLight = Color(0xFFFAFAFC)

@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.AdminRole
+import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.domain.PermissionChecker
 import com.emfitsolutions.gopreach.ui.components.DashboardHero
 import com.emfitsolutions.gopreach.ui.components.DashboardSection
@@ -53,6 +54,7 @@ import com.emfitsolutions.gopreach.ui.components.QuickAction
 import com.emfitsolutions.gopreach.ui.components.SyncStatusButton
 import com.emfitsolutions.gopreach.ui.components.UpdateAvailableBanner
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
+import com.emfitsolutions.gopreach.ui.screens.dashboard.DashboardStatsContent
 import kotlinx.coroutines.launch
 
 /** Landing point for the Admin context (spec §5.1) — a Side Panel (spec's
@@ -91,6 +93,13 @@ fun AdminHomeScreen(
     // and the old "Sign Out" tile) is hidden for them; everything it used to
     // offer is still reachable from the drawer instead (see GoPreachSidePanelContent).
     val hideMainFormButtons = isSuperAdmin || role == AdminRole.ADMIN_PER_CONGREGATION
+    // Same scoping GoPreachNavGraph uses for the standalone Dashboard Reports
+    // route — reproduced here so the graphical Summary embedded below (for
+    // Super-Admin/Admin) is scoped identically wherever it's shown.
+    val ownCongregationId = session.roleAssignments.firstOrNull {
+        (it.resolvedRoleType() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER)
+    }?.congregationId
+    val visibleCongregationIds: Set<String>? = if (isSuperAdmin) null else setOfNotNull(ownCongregationId)
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
@@ -130,11 +139,13 @@ fun AdminHomeScreen(
                 isOnline = isOnline,
                 pendingSyncCount = pendingSyncCount,
                 logoContent = { DynamicAppLogo() },
+                leadingAction = {
+                    IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
+                        Icon(Icons.Rounded.Menu, contentDescription = "Menu", tint = Color.White)
+                    }
+                },
                 topEndAction = {
                     Row {
-                        IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
-                            Icon(Icons.Rounded.Menu, contentDescription = "Menu", tint = Color.White)
-                        }
                         SyncStatusButton()
                         IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
                             Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
@@ -158,8 +169,15 @@ fun AdminHomeScreen(
             ) {
                 UpdateAvailableBanner()
 
-                // Super-Admin/Admin: everything below lives in the Side Panel
-                // instead (hamburger icon, top-left) — including Sign Out.
+                // Super-Admin/Admin: the graphical Summary (KPI cards + charts)
+                // shows directly on the main form instead of a tile grid — every
+                // *navigation* button (Publishers, Groups, Enrollment, Control
+                // Panel, Sign Out, ...) moved to the Side Panel, but the
+                // dashboard's own reporting content stays front and center here.
+                if (hideMainFormButtons) {
+                    DashboardStatsContent(visibleCongregationIds = visibleCongregationIds)
+                }
+
                 if (!hideMainFormButtons) {
                     if (role != null) {
                         DashboardSection("Graphical Reports") {

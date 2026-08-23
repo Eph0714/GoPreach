@@ -49,6 +49,12 @@ fun DashboardHero(
     quickActions: List<QuickAction>,
     logoContent: @Composable () -> Unit,
     topEndAction: @Composable () -> Unit,
+    /** A control anchored at the very left edge, before the logo — the Side
+     * Panel's hamburger toggle in particular, which needs to read as a
+     * leading (left-side) header control, distinct from [topEndAction]'s
+     * trailing (right-side) icons like sync status/settings. Null renders
+     * nothing here, same layout as before this existed. */
+    leadingAction: (@Composable () -> Unit)? = null,
 ) {
     Box(
         modifier = Modifier
@@ -63,11 +69,14 @@ fun DashboardHero(
     ) {
         Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, start = 20.dp, end = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, start = 8.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Box(modifier = Modifier.size(36.dp)) { logoContent() }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (leadingAction != null) leadingAction()
+                    Box(modifier = Modifier.padding(start = if (leadingAction != null) 4.dp else 12.dp).size(36.dp)) { logoContent() }
+                }
                 topEndAction()
             }
 
