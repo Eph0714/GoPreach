@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- GoPreach brand green, matches ui/theme/Color.kt PrimaryGreen -->
-    <color name="splash_background">#0E8F2E</color>
+    <!-- GoPreach brand Forest Green, matches ui/theme/Color.kt PrimaryGreen -->
+    <color name="splash_background">#228B22</color>
 </resources>

@@ -86,6 +86,11 @@ fun AdminHomeScreen(
     val canViewUserLogs = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION || role == AdminRole.COORDINATOR_ELDER
     // Publishers/Groups: Super-Admin/Admin/Coordinator Elder only (spec §3 permission matrix — Regular Elder ❌).
     val canManagePublishersAndGroups = canViewUserLogs
+    // Per explicit request: Super-Admin and Admin now navigate entirely through
+    // the Side Panel — the main dashboard body (tile grid, hero quick actions,
+    // and the old "Sign Out" tile) is hidden for them; everything it used to
+    // offer is still reachable from the drawer instead (see GoPreachSidePanelContent).
+    val hideMainFormButtons = isSuperAdmin || role == AdminRole.ADMIN_PER_CONGREGATION
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
@@ -104,6 +109,9 @@ fun AdminHomeScreen(
                 isSuperAdmin = isSuperAdmin,
                 canViewUserLogs = canViewUserLogs,
                 canManageUsers = canManageUsers,
+                onSwitchToPublisher = onSwitchToPublisher?.let { switchAction ->
+                    { coroutineScope.launch { drawerState.close() }; switchAction() }
+                },
                 onNavigate = { route ->
                     coroutineScope.launch { drawerState.close() }
                     onNavigate(route)
@@ -133,11 +141,15 @@ fun AdminHomeScreen(
                         }
                     }
                 },
-                quickActions = buildList {
-                    if (role != null) add(QuickAction("Dashboard", Icons.Rounded.BarChart) { onNavigate(Destinations.DASHBOARD_REPORTS) })
-                    if (canManagePublishersAndGroups) add(QuickAction("Publishers", Icons.Rounded.People) { onNavigate(Destinations.MANAGE_PUBLISHERS) })
-                    if (canManagePublishersAndGroups) add(QuickAction("Groups", Icons.Rounded.Groups) { onNavigate(Destinations.MANAGE_GROUPS) })
-                    if (role != null) add(QuickAction("Calendar", Icons.Rounded.CalendarMonth) { onNavigate(Destinations.CALENDAR) })
+                quickActions = if (hideMainFormButtons) {
+                    emptyList()
+                } else {
+                    buildList {
+                        if (role != null) add(QuickAction("Dashboard", Icons.Rounded.BarChart) { onNavigate(Destinations.DASHBOARD_REPORTS) })
+                        if (canManagePublishersAndGroups) add(QuickAction("Publishers", Icons.Rounded.People) { onNavigate(Destinations.MANAGE_PUBLISHERS) })
+                        if (canManagePublishersAndGroups) add(QuickAction("Groups", Icons.Rounded.Groups) { onNavigate(Destinations.MANAGE_GROUPS) })
+                        if (role != null) add(QuickAction("Calendar", Icons.Rounded.CalendarMonth) { onNavigate(Destinations.CALENDAR) })
+                    }
                 },
             )
             Column(
@@ -146,68 +158,72 @@ fun AdminHomeScreen(
             ) {
                 UpdateAvailableBanner()
 
-                if (role != null) {
-                    DashboardSection("Graphical Reports") {
-                        DashboardTile("Reports Dashboard", Icons.Rounded.BarChart, { onNavigate(Destinations.DASHBOARD_REPORTS) })
+                // Super-Admin/Admin: everything below lives in the Side Panel
+                // instead (hamburger icon, top-left) — including Sign Out.
+                if (!hideMainFormButtons) {
+                    if (role != null) {
+                        DashboardSection("Graphical Reports") {
+                            DashboardTile("Reports Dashboard", Icons.Rounded.BarChart, { onNavigate(Destinations.DASHBOARD_REPORTS) })
+                        }
                     }
-                }
 
-                if (canManagePublishersAndGroups) {
-                    DashboardSection("Management") {
-                        DashboardTile("Publishers", Icons.Rounded.People, { onNavigate(Destinations.MANAGE_PUBLISHERS) })
-                        DashboardTile("Groups", Icons.Rounded.Groups, { onNavigate(Destinations.MANAGE_GROUPS) })
-                        DashboardTile("Territories", Icons.Rounded.Map, { onNavigate(Destinations.MANAGE_TERRITORIES) })
+                    if (canManagePublishersAndGroups) {
+                        DashboardSection("Management") {
+                            DashboardTile("Publishers", Icons.Rounded.People, { onNavigate(Destinations.MANAGE_PUBLISHERS) })
+                            DashboardTile("Groups", Icons.Rounded.Groups, { onNavigate(Destinations.MANAGE_GROUPS) })
+                            DashboardTile("Territories", Icons.Rounded.Map, { onNavigate(Destinations.MANAGE_TERRITORIES) })
+                        }
                     }
-                }
 
-                if (role != null) {
-                    DashboardSection("Ministry") {
-                        DashboardTile("Chat Schedule", Icons.Rounded.Chat, { onNavigate(Destinations.MANAGE_CHAT_SCHEDULES) })
-                        DashboardTile("Reports Summary", Icons.Rounded.Assessment, { onNavigate(Destinations.REPORTS) })
-                        DashboardTile("Share Location", Icons.Rounded.LocationOn, { onNavigate(Destinations.SHARE_LOCATION) })
-                        DashboardTile("Calendar", Icons.Rounded.CalendarMonth, { onNavigate(Destinations.CALENDAR) })
+                    if (role != null) {
+                        DashboardSection("Ministry") {
+                            DashboardTile("Chat Schedule", Icons.Rounded.Chat, { onNavigate(Destinations.MANAGE_CHAT_SCHEDULES) })
+                            DashboardTile("Reports Summary", Icons.Rounded.Assessment, { onNavigate(Destinations.REPORTS) })
+                            DashboardTile("Share Location", Icons.Rounded.LocationOn, { onNavigate(Destinations.SHARE_LOCATION) })
+                            DashboardTile("Calendar", Icons.Rounded.CalendarMonth, { onNavigate(Destinations.CALENDAR) })
+                        }
                     }
-                }
 
-                if (isSuperAdmin || canEnrollCoordinatorElder || canEnrollRegularElderOrPublisher) {
-                    DashboardSection("Enrollment") {
-                        if (isSuperAdmin) {
-                            DashboardTile("Congregations", Icons.Rounded.AccountBalance, { onNavigate(Destinations.MANAGE_CONGREGATIONS) })
-                            DashboardTile("Admins", Icons.Rounded.AdminPanelSettings, { onNavigate(Destinations.MANAGE_ADMINS) })
-                        }
-                        if (canEnrollCoordinatorElder) {
-                            DashboardTile("Coordinator Elder", Icons.Rounded.PersonAdd, { onNavigate(Destinations.MANAGE_COORDINATOR_ELDERS) })
-                        }
-                        if (canEnrollRegularElderOrPublisher) {
-                            DashboardTile("Regular Elder", Icons.Rounded.PersonAdd, { onNavigate(Destinations.MANAGE_REGULAR_ELDERS) })
-                            DashboardTile("Publisher", Icons.Rounded.PersonAdd, { onNavigate(Destinations.ENROLL_PUBLISHER) })
+                    if (isSuperAdmin || canEnrollCoordinatorElder || canEnrollRegularElderOrPublisher) {
+                        DashboardSection("Enrollment") {
+                            if (isSuperAdmin) {
+                                DashboardTile("Congregations", Icons.Rounded.AccountBalance, { onNavigate(Destinations.MANAGE_CONGREGATIONS) })
+                                DashboardTile("Admins", Icons.Rounded.AdminPanelSettings, { onNavigate(Destinations.MANAGE_ADMINS) })
+                            }
+                            if (canEnrollCoordinatorElder) {
+                                DashboardTile("Coordinator Elder", Icons.Rounded.PersonAdd, { onNavigate(Destinations.MANAGE_COORDINATOR_ELDERS) })
+                            }
+                            if (canEnrollRegularElderOrPublisher) {
+                                DashboardTile("Regular Elder", Icons.Rounded.PersonAdd, { onNavigate(Destinations.MANAGE_REGULAR_ELDERS) })
+                                DashboardTile("Publisher", Icons.Rounded.PersonAdd, { onNavigate(Destinations.ENROLL_PUBLISHER) })
+                            }
                         }
                     }
-                }
 
-                if (canAccessControlPanel || isSuperAdmin || canViewUserLogs || canManageUsers) {
-                    DashboardSection("System") {
-                        if (canAccessControlPanel) {
-                            DashboardTile("Control Panel", Icons.Rounded.Tune, { onNavigate(Destinations.CONTROL_PANEL) })
-                        }
-                        if (isSuperAdmin) {
-                            DashboardTile("Backup & Restore", Icons.Rounded.Backup, { onNavigate(Destinations.BACKUP_RESTORE) })
-                        }
-                        if (canViewUserLogs) {
-                            DashboardTile("User Logs", Icons.Rounded.History, { onNavigate(Destinations.USER_LOGS) })
-                        }
-                        if (canManageUsers) {
-                            DashboardTile("User Management", Icons.Rounded.ManageAccounts, { onNavigate(Destinations.MANAGE_USERS) })
+                    if (canAccessControlPanel || isSuperAdmin || canViewUserLogs || canManageUsers) {
+                        DashboardSection("System") {
+                            if (canAccessControlPanel) {
+                                DashboardTile("Control Panel", Icons.Rounded.Tune, { onNavigate(Destinations.CONTROL_PANEL) })
+                            }
+                            if (isSuperAdmin) {
+                                DashboardTile("Backup & Restore", Icons.Rounded.Backup, { onNavigate(Destinations.BACKUP_RESTORE) })
+                            }
+                            if (canViewUserLogs) {
+                                DashboardTile("User Logs", Icons.Rounded.History, { onNavigate(Destinations.USER_LOGS) })
+                            }
+                            if (canManageUsers) {
+                                DashboardTile("User Management", Icons.Rounded.ManageAccounts, { onNavigate(Destinations.MANAGE_USERS) })
+                            }
                         }
                     }
-                }
 
-                DashboardSection("Account") {
-                    DashboardTile("Account Settings", Icons.Rounded.Password, { onNavigate(Destinations.ACCOUNT_SETTINGS) })
-                    if (onSwitchToPublisher != null) {
-                        DashboardTile("Ministry Report App", Icons.Rounded.SwapHoriz, onSwitchToPublisher)
+                    DashboardSection("Account") {
+                        DashboardTile("Account Settings", Icons.Rounded.Password, { onNavigate(Destinations.ACCOUNT_SETTINGS) })
+                        if (onSwitchToPublisher != null) {
+                            DashboardTile("Ministry Report App", Icons.Rounded.SwapHoriz, onSwitchToPublisher)
+                        }
+                        DashboardTile("Sign Out", Icons.AutoMirrored.Rounded.Logout, viewModel::signOut)
                     }
-                    DashboardTile("Sign Out", Icons.AutoMirrored.Rounded.Logout, viewModel::signOut)
                 }
             }
         }

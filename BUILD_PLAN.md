@@ -359,6 +359,32 @@ and are deferred rather than half-built:
   in "Publishers per Congregation" to confirm the drill-down selects that
   congregation.
 
+## Phase 14 — Theme refinement + Super-Admin/Admin nav consolidation ✅ done
+
+- **Forest Green**: light-theme primary color changed from the earlier
+  general green to the exact standard "ForestGreen" web color (`#228B22`),
+  per explicit request. Splash/status-bar color updated to match.
+- **Dark theme redone**: replaced with a deliberately different identity —
+  "Gray Purple" primary (`#8A7CA8`) on a "Graphite Black" background
+  (`#1A1A1C`/`#121212`), white text throughout (`onBackground`/`onSurface`).
+  Verified on-device in both light and dark mode (toggled via
+  `adb shell cmd uimode night yes/no`).
+- Dashboard chart colors (donut/bar) switched from hardcoded green hex values
+  to `MaterialTheme.colorScheme.primary`/`primaryContainer`/`secondary`, so
+  they now correctly follow whichever theme (Forest Green or Gray Purple) is
+  active instead of always rendering green.
+- **Super-Admin & Admin main dashboard body hidden**: per explicit request,
+  `AdminHomeScreen`'s tile grid and hero quick-actions row are now hidden
+  entirely for these two roles (`hideMainFormButtons`) — navigation for them
+  is Side-Panel-only. "Sign Out" (and "Account Settings" / the Publisher-
+  context switch, for anyone holding both roles) moved into the Side Panel
+  itself rather than being lost. Coordinator Elder, Regular Elder, and
+  Circuit Overseer/custom users are unaffected — the request was scoped to
+  Super-Admin/Admin specifically.
+- Side Panel position: already left-aligned — `ModalNavigationDrawer` in
+  Compose Material3 always opens from the leading (start) edge, which is the
+  left side in this app's LTR-only layout; no change was needed.
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking

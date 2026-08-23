@@ -132,9 +132,9 @@ fun DashboardReportsScreen(
                     Text("Publisher Status Breakdown", style = MaterialTheme.typography.titleMedium)
                     DonutChart(
                         slices = listOf(
-                            BarSlice("Regular Pioneer", displayed.regularPioneers.toFloat(), Color(0xFF0E8F2E)),
-                            BarSlice("Auxiliary Pioneer", displayed.auxiliaryPioneers.toFloat(), Color(0xFF4CBE6C)),
-                            BarSlice("Regular Publisher", displayed.regularPublishers.toFloat(), Color(0xFFE0A526)),
+                            BarSlice("Regular Pioneer", displayed.regularPioneers.toFloat(), MaterialTheme.colorScheme.primary),
+                            BarSlice("Auxiliary Pioneer", displayed.auxiliaryPioneers.toFloat(), MaterialTheme.colorScheme.primaryContainer),
+                            BarSlice("Regular Publisher", displayed.regularPublishers.toFloat(), MaterialTheme.colorScheme.secondary),
                             BarSlice("Unbaptized", displayed.unbaptizedPublishers.toFloat(), Color(0xFF6B9BD1)),
                             BarSlice("Inactive", displayed.inactivePublishers.toFloat(), Color(0xFF9E9E9E)),
                         ).filter { it.value > 0f },
@@ -148,8 +148,8 @@ fun DashboardReportsScreen(
                     Text("Preaching Hours", style = MaterialTheme.typography.titleMedium)
                     SimpleBarChart(
                         slices = listOf(
-                            BarSlice("Regular Pioneers", displayed.regularPioneerHours.toFloat(), Color(0xFF0E8F2E)),
-                            BarSlice("Auxiliary Pioneers", displayed.auxiliaryPioneerHours.toFloat(), Color(0xFF4CBE6C)),
+                            BarSlice("Regular Pioneers", displayed.regularPioneerHours.toFloat(), MaterialTheme.colorScheme.primary),
+                            BarSlice("Auxiliary Pioneers", displayed.auxiliaryPioneerHours.toFloat(), MaterialTheme.colorScheme.primaryContainer),
                         ),
                         modifier = Modifier.padding(top = 8.dp),
                     )
@@ -166,7 +166,7 @@ fun DashboardReportsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         SimpleBarChart(
-                            slices = uiState.all.map { BarSlice(it.congregationName, it.totalPublishers.toFloat(), Color(0xFF0E8F2E)) },
+                            slices = uiState.all.map { BarSlice(it.congregationName, it.totalPublishers.toFloat(), MaterialTheme.colorScheme.primary) },
                             modifier = Modifier.padding(top = 8.dp),
                             onBarTap = { slice ->
                                 uiState.all.firstOrNull { it.congregationName == slice.label }?.let { viewModel.selectCongregation(it.congregationId) }

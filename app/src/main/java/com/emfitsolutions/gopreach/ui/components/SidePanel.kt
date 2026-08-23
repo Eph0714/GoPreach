@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -73,6 +74,11 @@ fun GoPreachSidePanelContent(
     isSuperAdmin: Boolean,
     canViewUserLogs: Boolean,
     canManageUsers: Boolean,
+    /** Non-null only for a session holding both an Admin-track role and a
+     * Publisher category (spec's pre-existing "switch context" affordance) —
+     * relocated here now that Super-Admin/Admin's main dashboard body is
+     * hidden, so it isn't silently lost for anyone who had it. */
+    onSwitchToPublisher: (() -> Unit)?,
     onNavigate: (String) -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -122,6 +128,15 @@ fun GoPreachSidePanelContent(
                     onClick = { onNavigate(Destinations.ACCOUNT_SETTINGS) },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                 )
+                if (onSwitchToPublisher != null) {
+                    NavigationDrawerItem(
+                        label = { Text("Ministry Report App") },
+                        icon = { Icon(Icons.Rounded.SwapHoriz, contentDescription = null) },
+                        selected = false,
+                        onClick = onSwitchToPublisher,
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                    )
+                }
                 NavigationDrawerItem(
                     label = { Text("Sign Out") },
                     icon = { Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null) },
