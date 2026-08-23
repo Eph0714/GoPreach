@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -71,9 +72,11 @@ import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.SupportingImage
 import com.emfitsolutions.gopreach.data.model.Visit
+import com.emfitsolutions.gopreach.ui.components.CoordinatesValue
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.ManualCoordinatesDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.SupportingImageSection
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
@@ -210,8 +213,10 @@ private fun InterestedPeopleListScreen(
         InterestedPersonDialog(
             existingPerson = null,
             publisherPersonId = publisherPersonId,
+            currentPersonId = currentPersonId,
             onSave = { viewModel.save(it) },
             onDismiss = { showCreateDialog = false },
+            viewModel = viewModel,
         )
     }
 
@@ -230,26 +235,43 @@ private fun InterestedPeopleListScreen(
 /** Handles both "New Interested Person" (spec §7: image is optional at
  * creation) and "Edit Interested Person" (spec §1-§2: the existing supporting
  * image, if any, shows here with Change/Clear) — one form, per this
- * codebase's established Create/Edit-dialog pattern (see e.g. ManageGroupsScreen). */
+ * codebase's established Create/Edit-dialog pattern (see e.g. ManageGroupsScreen).
+ *
+ * "Interested Person Fields"/"Coordinates" spec §2-§5 — Name/Gender/Address
+ * required, Coordinates/Religion/Notes optional, Date Created/Created By
+ * system-generated and never editable here. Coordinates are held as plain
+ * local state ([CoordinatesValue], not [InterestedPerson]'s own gpsLat/
+ * gpsLng/gpsAccuracy/gpsCapturedAt/... fields) until the whole record is
+ * actually saved — a brand-new person has no id/actor history to attribute a
+ * capture to yet, unlike the Detail screen's [GpsLocationSection], which
+ * persists each GPS action immediately against an already-existing record.
+ */
 @Composable
 private fun InterestedPersonDialog(
     existingPerson: InterestedPerson?,
     publisherPersonId: String,
+    currentPersonId: String,
     onSave: (InterestedPerson) -> Unit,
     onDismiss: () -> Unit,
+    viewModel: InterestedPeopleViewModel,
 ) {
     var name by remember { mutableStateOf(existingPerson?.name.orEmpty()) }
     var address by remember { mutableStateOf(existingPerson?.address.orEmpty()) }
     var religion by remember { mutableStateOf(existingPerson?.religion.orEmpty()) }
+    var notes by remember { mutableStateOf(existingPerson?.notes.orEmpty()) }
     var gender by remember { mutableStateOf(existingPerson?.gender) }
     var image by remember { mutableStateOf(existingPerson?.primarySupportingImage) }
+    val originalCoordinates = remember(existingPerson) {
+        existingPerson?.takeIf { it.hasGpsLocation }?.let { CoordinatesValue(it.gpsLat!!, it.gpsLng!!, it.gpsAccuracy) }
+    }
+    var coordinates by remember { mutableStateOf(originalCoordinates) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existingPerson == null) "New Interested Person" else "Edit Interested Person") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 EditSectionHeader("Personal Information")
@@ -284,6 +306,20 @@ private fun InterestedPersonDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Notes (optional)") },
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                EditSectionHeader("Coordinates (optional)")
+                CoordinatesEditorField(
+                    coordinates = coordinates,
+                    onChange = { coordinates = it },
+                    viewModel = viewModel,
+                )
 
                 EditSectionHeader("Supporting Information")
                 SupportingImageSection(
@@ -296,10 +332,8 @@ private fun InterestedPersonDialog(
                     EditSectionHeader("System Information")
                     ReadOnlyField("Record ID", existingPerson.id)
                     ReadOnlyField("Status", existingPerson.status.name)
-                    ReadOnlyField("Date Added", formatRecordTimestamp(existingPerson.createdAt))
-                    if (existingPerson.gpsLat != null && existingPerson.gpsLng != null) {
-                        ReadOnlyField("Location", "${existingPerson.gpsLat}, ${existingPerson.gpsLng}")
-                    }
+                    ReadOnlyField("Date Created", formatRecordTimestamp(existingPerson.createdAt))
+                    ReadOnlyField("Created By", existingPerson.createdByPersonId.ifBlank { "—" })
                 }
             }
         },
@@ -307,16 +341,32 @@ private fun InterestedPersonDialog(
             TextButton(
                 onClick = {
                     if (name.isNotBlank() && address.isNotBlank() && gender != null) {
+                        // Only bump the GPS capture/update metadata if the
+                        // coordinates actually changed in this edit — an
+                        // unrelated field edit (e.g. fixing a typo in Notes)
+                        // shouldn't silently re-stamp "captured by/at" on a
+                        // location nobody touched this time.
+                        val coordinatesChanged = coordinates != originalCoordinates
+                        val now = System.currentTimeMillis()
+                        val base = existingPerson ?: InterestedPerson(
+                            publisherPersonId = publisherPersonId,
+                            createdAt = now,
+                            createdByPersonId = currentPersonId,
+                        )
                         onSave(
-                            (existingPerson ?: InterestedPerson(
-                                publisherPersonId = publisherPersonId,
-                                createdAt = System.currentTimeMillis(),
-                            )).copy(
+                            base.copy(
                                 name = name.trim(),
                                 gender = gender,
                                 address = address.trim(),
                                 religion = religion.trim().ifBlank { null },
+                                notes = notes.trim().ifBlank { null },
                                 supportingImages = listOfNotNull(image),
+                                gpsLat = coordinates?.lat,
+                                gpsLng = coordinates?.lng,
+                                gpsAccuracy = coordinates?.accuracyMeters ?: existingPerson?.gpsAccuracy.takeIf { !coordinatesChanged },
+                                gpsCapturedAt = if (coordinatesChanged) coordinates?.let { now } else existingPerson?.gpsCapturedAt,
+                                gpsCapturedBy = if (coordinatesChanged) coordinates?.let { currentPersonId } else existingPerson?.gpsCapturedBy,
+                                gpsUpdatedAt = if (coordinatesChanged) coordinates?.let { now } else existingPerson?.gpsUpdatedAt,
                             ),
                         )
                         onDismiss()
@@ -326,6 +376,95 @@ private fun InterestedPersonDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** The "Location" choice inside [InterestedPersonDialog] — [CAPTURE CURRENT
+ * LOCATION] / [ENTER COORDINATES MANUALLY] when empty, or the current value
+ * plus [EDIT LOCATION]/[CLEAR] when set (spec §3-§5). Purely local state via
+ * [onChange] — nothing here touches the repository directly. */
+@Composable
+private fun CoordinatesEditorField(
+    coordinates: CoordinatesValue?,
+    onChange: (CoordinatesValue?) -> Unit,
+    viewModel: InterestedPeopleViewModel,
+) {
+    val coroutineScope = rememberCoroutineScope()
+    var isCapturing by remember { mutableStateOf(false) }
+    var pendingCapture by remember { mutableStateOf<LatLng?>(null) }
+    var showManualEntry by remember { mutableStateOf(false) }
+    var captureError by remember { mutableStateOf<String?>(null) }
+
+    fun runCapture() {
+        captureError = null
+        isCapturing = true
+        coroutineScope.launch {
+            val result = viewModel.captureCurrentLocation()
+            isCapturing = false
+            if (result == null) captureError = "Could not get a GPS fix. Make sure location is turned on and try again." else pendingCapture = result
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) runCapture() else captureError = "Location permission is required to capture GPS."
+    }
+    fun startCapture() {
+        if (viewModel.hasLocationPermission()) runCapture() else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    val capture = pendingCapture
+    when {
+        capture != null -> Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("New Location Captured", style = MaterialTheme.typography.labelLarge)
+                Text("Latitude: ${"%.6f".format(capture.lat)}", style = MaterialTheme.typography.bodyMedium)
+                Text("Longitude: ${"%.6f".format(capture.lng)}", style = MaterialTheme.typography.bodyMedium)
+                if (capture.accuracyMeters != null) Text("Accuracy: ${capture.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                    TextButton(onClick = {
+                        onChange(CoordinatesValue(capture.lat, capture.lng, capture.accuracyMeters))
+                        pendingCapture = null
+                    }) { Text("CONFIRM") }
+                    TextButton(onClick = { pendingCapture = null }) { Text("CANCEL") }
+                }
+            }
+        }
+        isCapturing -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(modifier = Modifier.padding(end = 12.dp))
+            Text("Getting current location…")
+        }
+        coordinates != null -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Latitude: ${"%.6f".format(coordinates.lat)}", style = MaterialTheme.typography.bodyMedium)
+            Text("Longitude: ${"%.6f".format(coordinates.lng)}", style = MaterialTheme.typography.bodyMedium)
+            if (coordinates.accuracyMeters != null) Text("Accuracy: ${coordinates.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { startCapture() }) { Text("EDIT LOCATION") }
+                OutlinedButton(
+                    onClick = { onChange(null) },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("CLEAR") }
+            }
+        }
+        else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { startCapture() }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                Text("CAPTURE CURRENT LOCATION")
+            }
+            OutlinedButton(onClick = { showManualEntry = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                Text("ENTER COORDINATES MANUALLY")
+            }
+        }
+    }
+    if (captureError != null) {
+        Text(captureError!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+    if (showManualEntry) {
+        ManualCoordinatesDialog(
+            initial = coordinates,
+            onConfirm = { onChange(it); showManualEntry = false },
+            onDismiss = { showManualEntry = false },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -348,7 +487,13 @@ private fun InterestedPersonDetailScreen(
     val livePerson by livePersonFlow.collectAsStateWithLifecycle(initialValue = person)
     var showAddVisit by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
+    var selectedVisit by remember { mutableStateOf<Visit?>(null) }
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
+    // Spec §10: "the newest visit should be easy to identify" — newest first.
+    val sortedVisits = remember(visits) { visits.sortedByDescending { it.visitDate } }
+    val createdByName by remember(livePerson.createdByPersonId) {
+        viewModel.personName(livePerson.createdByPersonId)
+    }.collectAsStateWithLifecycle(initialValue = null)
 
     Scaffold(
         topBar = {
@@ -377,35 +522,61 @@ private fun InterestedPersonDetailScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // "Interested Person Details Screen" spec §6/§16 — a complete,
+            // clearly sectioned profile (Personal Information / Location /
+            // Notes / Visit History), not just a name with minimal info.
             item {
+                EditSectionHeader("Personal Information")
+                Text("Name: ${livePerson.name}", style = MaterialTheme.typography.bodyMedium)
+                Text("Gender: ${livePerson.gender?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Address: ${livePerson.address}", style = MaterialTheme.typography.bodyMedium)
-                if (livePerson.religion != null) {
-                    Text("Religion: ${livePerson.religion}", style = MaterialTheme.typography.bodyMedium)
-                }
+                Text("Religion: ${livePerson.religion ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 SupportingImagePreview(livePerson.primarySupportingImage)
-                GpsLocationSection(person = livePerson, currentPersonId = currentPersonId, viewModel = viewModel)
-                Text("Visits", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
             }
-            if (visits.isEmpty()) {
+            item {
+                EditSectionHeader("Location", modifier = Modifier.padding(top = 16.dp))
+                GpsLocationSection(person = livePerson, currentPersonId = currentPersonId, viewModel = viewModel)
+            }
+            item {
+                EditSectionHeader("Notes", modifier = Modifier.padding(top = 16.dp))
+                Text(livePerson.notes ?: "No notes recorded.", style = MaterialTheme.typography.bodyMedium)
+            }
+            item {
+                EditSectionHeader("System Information", modifier = Modifier.padding(top = 16.dp))
+                Text("Date Created: ${formatRecordTimestamp(livePerson.createdAt)}", style = MaterialTheme.typography.bodyMedium)
+                Text("Created By: ${createdByName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+            }
+            item {
+                EditSectionHeader("Visit History", modifier = Modifier.padding(top = 16.dp))
+            }
+            if (sortedVisits.isEmpty()) {
                 item { Text("No visits logged yet.", style = MaterialTheme.typography.bodySmall) }
             }
-            items(visits, key = { it.id }) { visit ->
-                Card(modifier = Modifier.fillMaxWidth()) {
+            itemsIndexed(sortedVisits, key = { _, visit -> visit.id }) { index, visit ->
+                Card(modifier = Modifier.fillMaxWidth().clickable { selectedVisit = visit }) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column {
-                            Text(dateFormat.format(Date(visit.visitDate)), style = MaterialTheme.typography.titleSmall)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(dateFormat.format(Date(visit.visitDate)), style = MaterialTheme.typography.titleSmall)
+                                // Spec §10: "the newest visit should be easy
+                                // to identify" — sortedVisits is already
+                                // newest-first, so index 0 always is it.
+                                if (index == 0) {
+                                    Text(
+                                        "  •  Latest",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
                             Text(visit.householderStatus.name.replace('_', ' '), style = MaterialTheme.typography.bodySmall)
                             if (visit.topicDiscussed != null) {
-                                Text("Topic: ${visit.topicDiscussed}", style = MaterialTheme.typography.bodySmall)
+                                Text("Notes: ${visit.topicDiscussed}", style = MaterialTheme.typography.bodySmall)
                             }
-                            Text(
-                                "Time: ${visit.timeConsumedMinutes / 60}h ${visit.timeConsumedMinutes % 60}m",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
                         }
                         IconButton(onClick = { viewModel.deleteVisit(person.id, visit.id) }) {
                             Icon(Icons.Rounded.Delete, contentDescription = "Delete visit")
@@ -416,9 +587,15 @@ private fun InterestedPersonDetailScreen(
         }
     }
 
+    selectedVisit?.let { visit ->
+        VisitDetailDialog(visit = visit, dateFormat = dateFormat, onDismiss = { selectedVisit = null })
+    }
+
     if (showAddVisit) {
         AddVisitDialog(
             interestedPersonId = person.id,
+            publisherPersonId = person.publisherPersonId,
+            currentPersonId = currentPersonId,
             onSave = { viewModel.saveVisit(it) },
             onDismiss = { showAddVisit = false },
         )
@@ -428,8 +605,10 @@ private fun InterestedPersonDetailScreen(
         InterestedPersonDialog(
             existingPerson = livePerson,
             publisherPersonId = person.publisherPersonId,
+            currentPersonId = currentPersonId,
             onSave = { viewModel.save(it) },
             onDismiss = { showEditDialog = false },
+            viewModel = viewModel,
         )
     }
 }
@@ -488,6 +667,7 @@ private fun GpsLocationSection(
     var pendingCapture by remember { mutableStateOf<LatLng?>(null) }
     var captureError by remember { mutableStateOf<String?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
+    var showManualEntry by remember { mutableStateOf(false) }
 
     fun runCapture() {
         captureError = null
@@ -564,23 +744,30 @@ private fun GpsLocationSection(
                         Text("Captured: ${formatRecordTimestamp(person.gpsCapturedAt)}", style = MaterialTheme.typography.bodySmall)
                     }
                     Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { startCapture() }) { Text("EDIT GPS") }
+                        OutlinedButton(onClick = { startCapture() }) { Text("EDIT LOCATION") }
                         OutlinedButton(
                             onClick = { showClearConfirm = true },
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        ) { Text("CLEAR GPS") }
+                        ) { Text("CLEAR LOCATION") }
                     }
                 }
             }
-            else -> Column(modifier = Modifier.padding(top = 8.dp)) {
+            // Spec §7/§8 — "if no coordinates have been saved: No location
+            // captured, [CAPTURE CURRENT LOCATION] [ENTER COORDINATES
+            // MANUALLY]" — both options, same as the enrollment form's.
+            else -> Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "No GPS location captured",
+                    "No location captured",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(onClick = { startCapture() }, modifier = Modifier.padding(top = 8.dp)) {
+                Button(onClick = { startCapture() }) {
                     Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text("CAPTURE GPS")
+                    Text("CAPTURE CURRENT LOCATION")
+                }
+                OutlinedButton(onClick = { showManualEntry = true }) {
+                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                    Text("ENTER COORDINATES MANUALLY")
                 }
             }
         }
@@ -588,6 +775,17 @@ private fun GpsLocationSection(
         if (captureError != null) {
             Text(captureError!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
         }
+    }
+
+    if (showManualEntry) {
+        ManualCoordinatesDialog(
+            initial = person.takeIf { it.hasGpsLocation }?.let { CoordinatesValue(it.gpsLat!!, it.gpsLng!!, it.gpsAccuracy) },
+            onConfirm = { value ->
+                viewModel.saveGpsLocation(person, value.lat, value.lng, value.accuracyMeters, currentPersonId)
+                showManualEntry = false
+            },
+            onDismiss = { showManualEntry = false },
+        )
     }
 
     if (showClearConfirm) {
@@ -610,6 +808,8 @@ private fun GpsLocationSection(
 @Composable
 private fun AddVisitDialog(
     interestedPersonId: String,
+    publisherPersonId: String,
+    currentPersonId: String,
     onSave: (Visit) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -617,20 +817,21 @@ private fun AddVisitDialog(
     var topic by remember { mutableStateOf("") }
     var status by remember { mutableStateOf(HouseholderStatus.NOT_AT_HOME) }
     var minutesText by remember { mutableStateOf("") }
+    var followUpDate by remember { mutableStateOf<Long?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Log Visit") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 DateTimeField(label = "Visit Date/Time", valueMillis = visitDate, onValueChange = { visitDate = it })
                 OutlinedTextField(
                     value = topic,
                     onValueChange = { topic = it.uppercase() },
-                    label = { Text("Topic Discussed (optional)") },
+                    label = { Text("Notes / Visit Details (optional)") },
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -643,6 +844,13 @@ private fun AddVisitDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // Spec §9: "Follow-up Date, if applicable" — optional, so a
+                // Clear affordance matters here in a way it doesn't for the
+                // required Visit Date/Time above.
+                DateTimeField(label = "Follow-up Date (optional)", valueMillis = followUpDate, onValueChange = { followUpDate = it })
+                if (followUpDate != null) {
+                    TextButton(onClick = { followUpDate = null }) { Text("Clear Follow-up Date") }
+                }
             }
         },
         confirmButton = {
@@ -659,7 +867,10 @@ private fun AddVisitDialog(
                                 topicDiscussed = topic.trim().ifBlank { null },
                                 householderStatus = status,
                                 timeConsumedMinutes = minutes,
+                                publisherPersonId = publisherPersonId,
+                                followUpDate = followUpDate,
                                 createdAt = System.currentTimeMillis(),
+                                createdByPersonId = currentPersonId,
                             )
                         )
                         onDismiss()
@@ -668,6 +879,27 @@ private fun AddVisitDialog(
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** "View Visit Details" spec §11 — every field, not just the date the
+ * compact Visit History card already shows. */
+@Composable
+private fun VisitDetailDialog(visit: Visit, dateFormat: SimpleDateFormat, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Visit Details") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ReadOnlyField("Visit Date", dateFormat.format(Date(visit.visitDate)))
+                ReadOnlyField("Status of Householder", visit.householderStatus.name.replace('_', ' '))
+                ReadOnlyField("Time Consumed", "${visit.timeConsumedMinutes / 60}h ${visit.timeConsumedMinutes % 60}m")
+                ReadOnlyField("Notes / Visit Details", visit.topicDiscussed ?: "—")
+                ReadOnlyField("Follow-up Date", visit.followUpDate?.let { dateFormat.format(Date(it)) } ?: "—")
+                ReadOnlyField("Logged", formatRecordTimestamp(visit.createdAt))
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
 }
 

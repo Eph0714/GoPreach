@@ -2,6 +2,7 @@ package com.emfitsolutions.gopreach.ui.screens.sharelocation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.location.LatLng
 import com.emfitsolutions.gopreach.data.location.LocationTracker
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.SharedLocation
@@ -12,6 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
@@ -19,6 +21,14 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SharedLocationRow(val person: Person, val location: SharedLocation)
+
+/** "Share Location – Show Current Coordinates" spec §1 — [capturedAt] is
+ * when this specific fix was obtained, so the UI can say "captured just
+ * now" rather than only showing raw numbers with no sense of freshness. */
+data class MyLocationState(
+    val fix: LatLng,
+    val capturedAt: Long,
+)
 
 /**
  * Spec §6.1 — Share Location. Visibility is role-scoped by the caller (see
@@ -44,6 +54,32 @@ class ShareLocationViewModel @Inject constructor(
      * last-known position with a zeroed-out one. */
     private var lastFix: SharedLocation? = null
 
+    /** "Share Location – Show Current Coordinates" spec §1 — the signed-in
+     * user's own current position, independent of whether they're actively
+     * *sharing* it with anyone (those are two different questions: "where am
+     * I" vs. "is my group allowed to see where I am"). Populated by
+     * [refreshMyLocation] and, while actively sharing, by every tick of the
+     * same fix [toggleSharing]'s loop already captures — no second GPS poll
+     * needed just to keep this in sync. */
+    private val _myLocation = MutableStateFlow<MyLocationState?>(null)
+    val myLocation: StateFlow<MyLocationState?> = _myLocation.asStateFlow()
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
+
+    /** [REFRESH LOCATION] — works whether or not Share Location is currently
+     * on; a Publisher may just want to see where the device thinks they are. */
+    fun refreshMyLocation() {
+        _isRefreshing.value = true
+        viewModelScope.launch {
+            val fix = locationTracker.getCurrentLocation()
+            _isRefreshing.value = false
+            if (fix != null) _myLocation.value = MyLocationState(fix, System.currentTimeMillis())
+        }
+    }
+
     fun rowsFor(visibleCongregationId: String?, visibleGroupId: String?, excludePersonId: String): Flow<List<SharedLocationRow>> =
         combine(sharedLocationRepository.observeAll(), personRepository.observeAll()) { locations, people ->
             locations
@@ -63,6 +99,7 @@ class ShareLocationViewModel @Inject constructor(
                 while (isActive && _isSharing.value) {
                     val fix = locationTracker.getCurrentLocation()
                     if (fix != null) {
+                        _myLocation.value = MyLocationState(fix, System.currentTimeMillis())
                         val location = SharedLocation(
                             publisherPersonId = publisherPersonId,
                             congregationId = congregationId.orEmpty(),

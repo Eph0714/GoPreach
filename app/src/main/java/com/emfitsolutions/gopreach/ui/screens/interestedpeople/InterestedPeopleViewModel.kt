@@ -9,6 +9,7 @@ import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.Visit
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
+import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.VisitRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
@@ -24,7 +25,15 @@ class InterestedPeopleViewModel @Inject constructor(
     private val visitRepository: VisitRepository,
     private val auditLogRepository: AuditLogRepository,
     private val locationTracker: LocationTracker,
+    private val personRepository: PersonRepository,
 ) : ViewModel() {
+
+    /** "Created By" (spec §2/§6) display — resolves a personId to a full
+     * name for the detail screen; `null` while unresolved or if the person
+     * can no longer be found (e.g. deleted), rather than crashing on a
+     * missing lookup. */
+    fun personName(personId: String): Flow<String?> =
+        personRepository.observeAll().map { people -> people.firstOrNull { it.id == personId }?.fullName }
 
     /** "Interested Person GPS Capture" spec §5 — request permission first;
      * the UI checks this before ever calling [captureCurrentLocation]. */

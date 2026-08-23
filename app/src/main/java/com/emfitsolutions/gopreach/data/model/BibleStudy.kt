@@ -82,7 +82,15 @@ data class InterestedPerson(
      * distinction is a read-only addition, not a schema change. */
     val gpsUpdatedAt: Long? = null,
     val religion: String? = null,
+    /** "Interested Person Fields" spec §2 — optional free text; distinct
+     * from [religion] (a specific field with its own semantics) rather than
+     * folding general notes into it. */
+    val notes: String? = null,
     val createdAt: Long = 0L,
+    /** System-generated (spec §2/§12) — the signed-in session that enrolled
+     * this person; set once at creation and never touched by an edit, same
+     * way [createdAt] is already handled. Not shown as an editable field. */
+    val createdByPersonId: String = "",
     /** Optional (spec §7) — empty until a supporting photo is captured. Only
      * the first entry is used by the current UI; see [SupportingImage]. */
     val supportingImages: List<SupportingImage> = emptyList(),
@@ -104,9 +112,21 @@ data class Visit(
     val interestedPersonId: String = "",
     val visitDate: Long = 0L,
     val visitTime: Long = 0L,
+    /** "Notes / Visit Details" (spec §9) — what [topicDiscussed] already was;
+     * kept as this field name rather than adding a redundant duplicate. */
     val topicDiscussed: String? = null,
     val householderStatus: HouseholderStatus = HouseholderStatus.NOT_AT_HOME,
     /** Time consumed, in minutes (displayed as hh:mm). */
     val timeConsumedMinutes: Int = 0,
+    /** "Visit Information" spec §9 — who conducted this visit. Usually the
+     * owning [InterestedPerson.publisherPersonId], but kept as its own field
+     * (not derived) since an Elder can log a visit on a Publisher's behalf,
+     * same reasoning as [InterestedPerson.gpsCapturedBy]. */
+    val publisherPersonId: String = "",
+    /** Optional (spec §9: "if applicable") — when a follow-up is planned. */
+    val followUpDate: Long? = null,
     val createdAt: Long = 0L,
+    /** System-generated (spec §9) — the signed-in session that logged this
+     * visit; may differ from [publisherPersonId] (see its doc comment). */
+    val createdByPersonId: String = "",
 )
