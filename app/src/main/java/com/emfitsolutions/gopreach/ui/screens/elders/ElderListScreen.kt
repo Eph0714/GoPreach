@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.RestoreFromTrash
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -38,24 +39,30 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 import com.emfitsolutions.gopreach.ui.components.displayLabel
 
 /** Shared list UI for [ManageCoordinatorEldersScreen] and [ManageRegularEldersScreen] —
  * same card layout as Manage Admins (name/scope/contact/edit/delete(deactivate)/
  * temp-credential lookup), just parameterized by title and what "scope" means
- * for that role. */
+ * for that role. [canPermanentlyDelete] is Super-Admin-only, per the "Admin
+ * Record Deletion" spec's scoping decision (see BUILD_PLAN.md). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ElderListScreen(
     title: String,
     scopeLabel: String,
     rows: List<ElderRow>,
+    canPermanentlyDelete: Boolean,
     onBack: () -> Unit,
     onAddNew: () -> Unit,
     onSetActive: (ElderRow, Boolean) -> Unit,
     onEdit: (ElderRow, Person) -> Unit,
+    onPermanentlyDelete: (ElderRow) -> Unit,
 ) {
+    var showInactive by remember { mutableStateOf(false) }
+    val visibleRows = rows.filter { showInactive || it.isActive }
     var lookupTarget by remember { mutableStateOf<Person?>(null) }
     var pendingEdit by remember { mutableStateOf<ElderRow?>(null) }
     var pendingDeactivate by remember { mutableStateOf<ElderRow?>(null) }
@@ -77,20 +84,28 @@ fun ElderListScreen(
             }
         },
     ) { padding ->
-        if (rows.isEmpty()) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = showInactive, onCheckedChange = { showInactive = it })
+                Text("Show Inactive")
+            }
+        if (visibleRows.isEmpty()) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text("None enrolled yet. Tap + to enroll one.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(rows, key = { it.person.id }) { row ->
+                items(visibleRows, key = { it.person.id }) { row ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -134,6 +149,7 @@ fun ElderListScreen(
                 }
             }
         }
+        }
     }
 
     lookupTarget?.let { person ->
@@ -154,17 +170,12 @@ fun ElderListScreen(
 
     val toDeactivate = pendingDeactivate
     if (toDeactivate != null) {
-        AlertDialog(
-            onDismissRequest = { pendingDeactivate = null },
-            title = { Text("Delete ${toDeactivate.person.fullName}?") },
-            text = { Text("This deactivates their access. Their record and history stay intact and can be restored later.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    onSetActive(toDeactivate, false)
-                    pendingDeactivate = null
-                }) { Text("Delete") }
-            },
-            dismissButton = { TextButton(onClick = { pendingDeactivate = null }) { Text("Cancel") } },
+        DeleteChoiceDialog(
+            recordLabel = toDeactivate.person.fullName,
+            canPermanentlyDelete = canPermanentlyDelete,
+            onDismiss = { pendingDeactivate = null },
+            onMoveToInactive = { onSetActive(toDeactivate, false) },
+            onDeletePermanently = { onPermanentlyDelete(toDeactivate) },
         )
     }
 }

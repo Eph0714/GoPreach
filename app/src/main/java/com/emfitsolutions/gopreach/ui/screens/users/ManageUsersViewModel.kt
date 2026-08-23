@@ -80,4 +80,23 @@ class ManageUsersViewModel @Inject constructor(
             roleAssignmentRepository.save(assignment.copy(status = if (active) RoleAssignmentStatus.ACTIVE else RoleAssignmentStatus.INACTIVE))
         }
     }
+
+    /** Only Super-Admin ever sees this (see BUILD_PLAN.md scoping). Deletes the
+     * UserAccessGrant, the Circuit Overseer RoleAssignment, and the Person doc
+     * itself — a restricted User has no historical reports of their own tied to
+     * them the way a Publisher does, so nothing here needs a relationship check. */
+    fun permanentlyDelete(row: RestrictedUserRow, actorPersonId: String) {
+        viewModelScope.launch {
+            userAccessGrantRepository.delete(row.person.id)
+            roleAssignmentRepository.delete(row.assignment.id)
+            personRepository.delete(row.person.id)
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "PERMANENT_DELETE_USER",
+                targetType = "Person",
+                targetId = row.person.id,
+                details = row.person.fullName,
+            )
+        }
+    }
 }

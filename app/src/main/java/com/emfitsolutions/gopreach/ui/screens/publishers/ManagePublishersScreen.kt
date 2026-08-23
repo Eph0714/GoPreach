@@ -15,8 +15,10 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.RestoreFromTrash
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -31,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,23 +46,33 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
+import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 
-/** Spec §3/§5.1 — Manage Publishers (all categories). */
+/** Spec §3/§5.1 — Manage Publishers (all categories).
+ * [canPermanentlyDelete] is Super-Admin-only, per the "Admin Record Deletion"
+ * spec's scoping decision (see BUILD_PLAN.md). "Move to Inactive" for a
+ * Publisher is the pre-existing [PublisherCategory.REMOVED_PUBLISHER]
+ * recategorization — Removed publishers are hidden unless "Show Inactive" is on. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManagePublishersScreen(
     currentPersonId: String,
     visibleCongregationId: String?,
+    canPermanentlyDelete: Boolean,
     onBack: () -> Unit,
     onAddNew: () -> Unit,
     viewModel: ManagePublishersViewModel = hiltViewModel(),
 ) {
     val rowsFlow = remember(visibleCongregationId) { viewModel.rowsFor(visibleCongregationId) }
-    val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allRows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var showInactive by remember { mutableStateOf(false) }
+    val rows = allRows.filter { showInactive || it.category != PublisherCategory.REMOVED_PUBLISHER }
     var lookupTarget by remember { mutableStateOf<Person?>(null) }
     var pendingEdit by remember { mutableStateOf<PublisherRow?>(null) }
     var pendingDelete by remember { mutableStateOf<PublisherRow?>(null) }
+    var permanentDeleteBlockReason by remember { mutableStateOf<String?>(null) }
+    var permanentDeleteChecked by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -78,16 +91,24 @@ fun ManagePublishersScreen(
             }
         },
     ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = showInactive, onCheckedChange = { showInactive = it })
+                Text("Show Inactive (Removed)")
+            }
         if (rows.isEmpty()) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text("No publishers enrolled yet. Tap + to enroll one.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -117,6 +138,10 @@ fun ManagePublishersScreen(
                                         IconButton(onClick = { pendingDelete = row }) {
                                             Icon(Icons.Rounded.Delete, contentDescription = "Delete")
                                         }
+                                    } else {
+                                        IconButton(onClick = { viewModel.changeCategory(row, PublisherCategory.REGULAR_PUBLISHER, currentPersonId) }) {
+                                            Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
+                                        }
                                     }
                                 }
                             }
@@ -130,6 +155,7 @@ fun ManagePublishersScreen(
                     }
                 }
             }
+        }
         }
     }
 
@@ -151,18 +177,20 @@ fun ManagePublishersScreen(
 
     val toDelete = pendingDelete
     if (toDelete != null) {
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete ${toDelete.person.fullName}?") },
-            text = { Text("This recategorizes them as Removed. Their record and history stay intact and this can be undone by changing their category back.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.changeCategory(toDelete, PublisherCategory.REMOVED_PUBLISHER, currentPersonId)
-                    pendingDelete = null
-                }) { Text("Delete") }
-            },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
-        )
+        LaunchedEffect(toDelete.person.id) {
+            permanentDeleteBlockReason = viewModel.permanentDeleteBlockReason(toDelete.person.id)
+            permanentDeleteChecked = true
+        }
+        if (permanentDeleteChecked) {
+            DeleteChoiceDialog(
+                recordLabel = toDelete.person.fullName,
+                canPermanentlyDelete = canPermanentlyDelete,
+                permanentDeleteBlockedReason = permanentDeleteBlockReason,
+                onDismiss = { pendingDelete = null; permanentDeleteChecked = false },
+                onMoveToInactive = { viewModel.changeCategory(toDelete, PublisherCategory.REMOVED_PUBLISHER, currentPersonId) },
+                onDeletePermanently = { viewModel.permanentlyDelete(toDelete, currentPersonId) },
+            )
+        }
     }
 }
 

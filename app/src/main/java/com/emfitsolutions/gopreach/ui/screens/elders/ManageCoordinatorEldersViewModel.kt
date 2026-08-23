@@ -8,12 +8,14 @@ import com.emfitsolutions.gopreach.data.model.RegularElderRole
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
+import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -36,6 +38,7 @@ class ManageCoordinatorEldersViewModel @Inject constructor(
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val congregationRepository: CongregationRepository,
+    private val auditLogRepository: AuditLogRepository,
 ) : ViewModel() {
 
     fun rowsFor(visibleCongregationId: String?): Flow<List<ElderRow>> = combine(
@@ -54,15 +57,41 @@ class ManageCoordinatorEldersViewModel @Inject constructor(
             .sortedBy { it.person.fullName }
     }
 
-    fun setActive(assignment: RoleAssignment, active: Boolean) {
+    fun setActive(assignment: RoleAssignment, active: Boolean, actorPersonId: String) {
         viewModelScope.launch {
-            roleAssignmentRepository.save(
-                assignment.copy(status = if (active) RoleAssignmentStatus.ACTIVE else RoleAssignmentStatus.INACTIVE),
+            val previous = assignment.status
+            val newStatus = if (active) RoleAssignmentStatus.ACTIVE else RoleAssignmentStatus.INACTIVE
+            roleAssignmentRepository.save(assignment.copy(status = newStatus))
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "CHANGE_COORDINATOR_ELDER_STATUS",
+                targetType = "Person",
+                targetId = assignment.personId,
+                congregationId = assignment.congregationId,
+                details = "status: $previous -> $newStatus",
             )
         }
     }
 
     fun updatePerson(person: Person) {
         viewModelScope.launch { personRepository.save(person) }
+    }
+
+    /** Super-Admin/Admin-only permanent delete (see BUILD_PLAN.md scoping).
+     * Deletes the Coordinator Elder RoleAssignment; deletes the Person doc too
+     * only if no other RoleAssignment remains for them. */
+    fun permanentlyDelete(row: ElderRow, actorPersonId: String) {
+        viewModelScope.launch {
+            roleAssignmentRepository.delete(row.assignment.id)
+            val remaining = roleAssignmentRepository.observeAll().first().count { it.personId == row.person.id }
+            if (remaining == 0) personRepository.delete(row.person.id)
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "PERMANENT_DELETE_COORDINATOR_ELDER",
+                targetType = "Person",
+                targetId = row.person.id,
+                congregationId = row.assignment.congregationId,
+            )
+        }
     }
 }

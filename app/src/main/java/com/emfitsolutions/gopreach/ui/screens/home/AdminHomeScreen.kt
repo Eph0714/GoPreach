@@ -55,7 +55,6 @@ import com.emfitsolutions.gopreach.domain.PermissionChecker
 import com.emfitsolutions.gopreach.ui.components.DashboardHero
 import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
-import com.emfitsolutions.gopreach.ui.components.DynamicAppLogo
 import com.emfitsolutions.gopreach.ui.components.GoPreachSidePanelContent
 import com.emfitsolutions.gopreach.ui.components.QuickAction
 import com.emfitsolutions.gopreach.ui.components.SyncStatusButton
@@ -167,7 +166,6 @@ fun AdminHomeScreen(
                     roleLabel = role?.name?.replace('_', ' ') ?: "GoPreach Admin",
                     isOnline = isOnline,
                     pendingSyncCount = pendingSyncCount,
-                    logoContent = { DynamicAppLogo() },
                     leadingAction = {
                         IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
                             Icon(Icons.Rounded.Menu, contentDescription = "Menu", tint = Color.White)

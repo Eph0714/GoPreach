@@ -91,6 +91,18 @@ sealed class RoleType {
 
 enum class RoleAssignmentStatus { ACTIVE, INACTIVE }
 
+/**
+ * Lifecycle status for a master record that isn't Person/RoleAssignment-based
+ * (Congregation, Group, InterestedPerson) — the "Admin Record Deletion and
+ * Inactive Status" spec's "Move to Inactive" outcome for those record types.
+ * Person-linked records (Admins, Elders, Publisher categories, restricted
+ * Users) already had their own equivalent before this spec
+ * ([RoleAssignmentStatus], [PublisherCategory.REMOVED_PUBLISHER], and
+ * [AccountStatus] respectively) and keep using those, rather than gaining a
+ * second, redundant status field.
+ */
+enum class RecordStatus { ACTIVE, INACTIVE }
+
 /** A Regular Elder's structural role within their assigned Group — distinct from
  * [ElderTitleEntity] (a free-form, admin-editable "specific title" label): this is
  * a fixed 3-way split that drives Group-completeness validation and which of a

@@ -12,6 +12,11 @@ data class Congregation(
     val code: String = "",
     val createdAt: Long = 0L,
     val createdByPersonId: String = "",
+    /** "Admin Record Deletion and Inactive Status" spec — Move to Inactive
+     * keeps the record and everything under it, just hides it from normal
+     * active lists/reports; Delete Permanently is only offered when nothing
+     * still references this congregation (see ManageCongregationsViewModel). */
+    val status: RecordStatus = RecordStatus.ACTIVE,
 )
 
 /**
@@ -40,6 +45,8 @@ data class Group(
     val servantPersonId: String? = null,
     val assistantPersonId: String? = null,
     val createdAt: Long = 0L,
+    /** "Admin Record Deletion and Inactive Status" spec — see [Congregation.status]. */
+    val status: RecordStatus = RecordStatus.ACTIVE,
 ) {
     /** Which of the three required roles still need an Elder — empty means fully assigned. */
     fun missingRoles(): List<RegularElderRole> = buildList {

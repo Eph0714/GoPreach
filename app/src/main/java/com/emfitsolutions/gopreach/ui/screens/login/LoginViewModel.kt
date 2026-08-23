@@ -48,6 +48,10 @@ class LoginViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 username = saved?.first ?: "",
+                // Restoring only the username left the password field blank on every
+                // relaunch despite "Remember me" showing checked — the whole point of
+                // the feature is to not have to retype the password, so restore both.
+                password = saved?.second ?: "",
                 rememberMe = saved != null,
                 biometricSignInAvailable = biometricReady,
             )

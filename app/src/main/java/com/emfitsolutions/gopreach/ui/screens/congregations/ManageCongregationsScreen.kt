@@ -9,13 +9,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.RestoreFromTrash
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -27,9 +30,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,19 +43,30 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
+import com.emfitsolutions.gopreach.data.model.RecordStatus
+import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
+import kotlinx.coroutines.launch
 
-/** Spec §3/§5.1 — Manage Congregation Master File, Super-Admin only. */
+/** Spec §3/§5.1 — Manage Congregation Master File, Super-Admin only.
+ * [canPermanentlyDelete] is Super-Admin-only across every record type in
+ * this app's "Admin Record Deletion" pass (see BUILD_PLAN.md). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManageCongregationsScreen(
     currentPersonId: String,
+    canPermanentlyDelete: Boolean,
     onBack: () -> Unit,
     onAddNew: () -> Unit,
     viewModel: ManageCongregationsViewModel = hiltViewModel(),
 ) {
-    val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+    val allCongregations by viewModel.congregations.collectAsStateWithLifecycle()
+    var showInactive by remember { mutableStateOf(false) }
+    val congregations = allCongregations.filter { showInactive || it.status == RecordStatus.ACTIVE }
     var pendingDelete by remember { mutableStateOf<Congregation?>(null) }
     var pendingEdit by remember { mutableStateOf<Congregation?>(null) }
+    var permanentDeleteBlockReason by remember { mutableStateOf<String?>(null) }
+    var permanentDeleteChecked by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -69,37 +85,55 @@ fun ManageCongregationsScreen(
             }
         },
     ) { padding ->
-        if (congregations.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("No congregations yet. Tap + to add one.", style = MaterialTheme.typography.bodyMedium)
+                Checkbox(checked = showInactive, onCheckedChange = { showInactive = it })
+                Text("Show Inactive")
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(congregations, key = { it.id }) { congregation ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column {
-                                Text(congregation.name, style = MaterialTheme.typography.titleMedium)
-                                Text(congregation.address, style = MaterialTheme.typography.bodySmall)
-                                Text("Code: ${congregation.code}", style = MaterialTheme.typography.bodySmall)
-                            }
-                            Row {
-                                IconButton(onClick = { pendingEdit = congregation }) {
-                                    Icon(Icons.Rounded.Edit, contentDescription = "Edit")
+            if (congregations.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("No congregations yet. Tap + to add one.", style = MaterialTheme.typography.bodyMedium)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(congregations, key = { it.id }) { congregation ->
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column {
+                                    Text(congregation.name, style = MaterialTheme.typography.titleMedium)
+                                    Text(congregation.address, style = MaterialTheme.typography.bodySmall)
+                                    Text("Code: ${congregation.code}", style = MaterialTheme.typography.bodySmall)
+                                    if (congregation.status == RecordStatus.INACTIVE) {
+                                        Text("Inactive", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                    }
                                 }
-                                IconButton(onClick = { pendingDelete = congregation }) {
-                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                Row {
+                                    IconButton(onClick = { pendingEdit = congregation }) {
+                                        Icon(Icons.Rounded.Edit, contentDescription = "Edit")
+                                    }
+                                    if (congregation.status == RecordStatus.ACTIVE) {
+                                        IconButton(onClick = { pendingDelete = congregation }) {
+                                            Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                        }
+                                    } else {
+                                        IconButton(onClick = { viewModel.setStatus(congregation, RecordStatus.ACTIVE, currentPersonId) }) {
+                                            Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -111,20 +145,20 @@ fun ManageCongregationsScreen(
 
     val toDelete = pendingDelete
     if (toDelete != null) {
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete ${toDelete.name}?") },
-            text = { Text("This removes the congregation record. Admins, groups, and publishers already assigned to it are not automatically reassigned.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.delete(toDelete.id, currentPersonId)
-                    pendingDelete = null
-                }) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
-            },
-        )
+        LaunchedEffect(toDelete.id) {
+            permanentDeleteBlockReason = viewModel.permanentDeleteBlockReason(toDelete.id)
+            permanentDeleteChecked = true
+        }
+        if (permanentDeleteChecked) {
+            DeleteChoiceDialog(
+                recordLabel = toDelete.name,
+                canPermanentlyDelete = canPermanentlyDelete,
+                permanentDeleteBlockedReason = permanentDeleteBlockReason,
+                onDismiss = { pendingDelete = null; permanentDeleteChecked = false },
+                onMoveToInactive = { viewModel.setStatus(toDelete, RecordStatus.INACTIVE, currentPersonId) },
+                onDeletePermanently = { viewModel.permanentlyDelete(toDelete.id, currentPersonId) },
+            )
+        }
     }
 
     val toEdit = pendingEdit

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.RestoreFromTrash
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -29,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,19 +42,25 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 
-/** Spec §3/§5.1 — Manage Admins, Super-Admin only. "Delete" deactivates rather
- * than erases the record (same pattern as Publishers' recategorize) — an
- * inactive Admin can be restored, and their history/audit trail stays intact. */
+/** Spec §3/§5.1 — Manage Admins, Super-Admin only. "Move to Inactive" deactivates
+ * rather than erases the record — an inactive Admin can be restored, and their
+ * history/audit trail stays intact. [canPermanentlyDelete] is Super-Admin-only
+ * per the "Admin Record Deletion" spec's scoping decision (see BUILD_PLAN.md). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManageAdminsScreen(
+    currentPersonId: String,
+    canPermanentlyDelete: Boolean,
     onBack: () -> Unit,
     onAddNew: () -> Unit,
     viewModel: ManageAdminsViewModel = hiltViewModel(),
 ) {
-    val admins by viewModel.admins.collectAsStateWithLifecycle()
+    val allAdmins by viewModel.admins.collectAsStateWithLifecycle()
+    var showInactive by remember { mutableStateOf(false) }
+    val admins = allAdmins.filter { showInactive || it.isActive }
     var lookupTarget by remember { mutableStateOf<Person?>(null) }
     var pendingEdit by remember { mutableStateOf<AdminRow?>(null) }
     var pendingDeactivate by remember { mutableStateOf<AdminRow?>(null) }
@@ -74,16 +82,24 @@ fun ManageAdminsScreen(
             }
         },
     ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = showInactive, onCheckedChange = { showInactive = it })
+                Text("Show Inactive")
+            }
         if (admins.isEmpty()) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text("No admins enrolled yet. Tap + to enroll one.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -119,7 +135,7 @@ fun ManageAdminsScreen(
                                     Icon(Icons.Rounded.Delete, contentDescription = "Delete")
                                 }
                             } else {
-                                IconButton(onClick = { viewModel.setActive(row.assignment, true) }) {
+                                IconButton(onClick = { viewModel.setActive(row.assignment, true, currentPersonId) }) {
                                     Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Restore")
                                 }
                             }
@@ -127,6 +143,7 @@ fun ManageAdminsScreen(
                     }
                 }
             }
+        }
         }
     }
 
@@ -148,17 +165,12 @@ fun ManageAdminsScreen(
 
     val toDeactivate = pendingDeactivate
     if (toDeactivate != null) {
-        AlertDialog(
-            onDismissRequest = { pendingDeactivate = null },
-            title = { Text("Delete ${toDeactivate.person.fullName}?") },
-            text = { Text("This deactivates their admin access. Their record and history stay intact and can be restored later.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.setActive(toDeactivate.assignment, false)
-                    pendingDeactivate = null
-                }) { Text("Delete") }
-            },
-            dismissButton = { TextButton(onClick = { pendingDeactivate = null }) { Text("Cancel") } },
+        DeleteChoiceDialog(
+            recordLabel = toDeactivate.person.fullName,
+            canPermanentlyDelete = canPermanentlyDelete,
+            onDismiss = { pendingDeactivate = null },
+            onMoveToInactive = { viewModel.setActive(toDeactivate.assignment, false, currentPersonId) },
+            onDeletePermanently = { viewModel.permanentlyDelete(toDeactivate, currentPersonId) },
         )
     }
 }

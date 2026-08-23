@@ -17,9 +17,11 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.RestoreFromTrash
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -34,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,25 +50,35 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
+import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.displayLabel
 
 /** Spec: "CRUD Groups" — each Group needs exactly one Elder in each of three
  * roles (Overseer/Servant/Assistant), not the single Elder this used to allow.
  * [fixedCongregationId] scopes both the list and the create dialog for Admin/
- * Coordinator Elder; null lets a Super-Admin pick a congregation per group instead. */
+ * Coordinator Elder; null lets a Super-Admin pick a congregation per group instead.
+ * [canPermanentlyDelete] is Super-Admin-only, per the "Admin Record Deletion"
+ * spec's scoping decision (see BUILD_PLAN.md). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManageGroupsScreen(
     fixedCongregationId: String?,
+    currentPersonId: String,
+    canPermanentlyDelete: Boolean,
     onBack: () -> Unit,
     viewModel: ManageGroupsViewModel = hiltViewModel(),
 ) {
     val rowsFlow = remember(fixedCongregationId) { viewModel.rowsFor(fixedCongregationId) }
-    val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allRows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var showInactive by remember { mutableStateOf(false) }
+    val rows = allRows.filter { showInactive || it.group.status == RecordStatus.ACTIVE }
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingEdit by remember { mutableStateOf<Group?>(null) }
     var pendingDelete by remember { mutableStateOf<Group?>(null) }
+    var permanentDeleteBlockReason by remember { mutableStateOf<String?>(null) }
+    var permanentDeleteChecked by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -84,16 +97,24 @@ fun ManageGroupsScreen(
             }
         },
     ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = showInactive, onCheckedChange = { showInactive = it })
+                Text("Show Inactive")
+            }
         if (rows.isEmpty()) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text("No groups yet. Tap + to add one.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -110,10 +131,19 @@ fun ManageGroupsScreen(
                                     IconButton(onClick = { pendingEdit = row.group }) {
                                         Icon(Icons.Rounded.Edit, contentDescription = "Edit group")
                                     }
-                                    IconButton(onClick = { pendingDelete = row.group }) {
-                                        Icon(Icons.Rounded.Delete, contentDescription = "Delete group")
+                                    if (row.group.status == RecordStatus.ACTIVE) {
+                                        IconButton(onClick = { pendingDelete = row.group }) {
+                                            Icon(Icons.Rounded.Delete, contentDescription = "Delete group")
+                                        }
+                                    } else {
+                                        IconButton(onClick = { viewModel.setStatus(row.group, RecordStatus.ACTIVE, currentPersonId) }) {
+                                            Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
+                                        }
                                     }
                                 }
+                            }
+                            if (row.group.status == RecordStatus.INACTIVE) {
+                                Text("Inactive", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             }
                             Text(
                                 "${RegularElderRole.GROUP_OVERSEER.displayLabel()}: ${row.overseerName ?: "Unassigned"}",
@@ -159,6 +189,7 @@ fun ManageGroupsScreen(
                 }
             }
         }
+        }
     }
 
     if (showCreateDialog) {
@@ -182,18 +213,20 @@ fun ManageGroupsScreen(
 
     val toDelete = pendingDelete
     if (toDelete != null) {
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete ${toDelete.name}?") },
-            text = { Text("Publishers already assigned to this group keep their assignment; reassign them afterward. The three Elders assigned here are also unassigned from it.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.delete(toDelete.id)
-                    pendingDelete = null
-                }) { Text("Delete") }
-            },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
-        )
+        LaunchedEffect(toDelete.id) {
+            permanentDeleteBlockReason = viewModel.permanentDeleteBlockReason(toDelete.id)
+            permanentDeleteChecked = true
+        }
+        if (permanentDeleteChecked) {
+            DeleteChoiceDialog(
+                recordLabel = toDelete.name,
+                canPermanentlyDelete = canPermanentlyDelete,
+                permanentDeleteBlockedReason = permanentDeleteBlockReason,
+                onDismiss = { pendingDelete = null; permanentDeleteChecked = false },
+                onMoveToInactive = { viewModel.setStatus(toDelete, RecordStatus.INACTIVE, currentPersonId) },
+                onDeletePermanently = { viewModel.permanentlyDelete(toDelete.id, currentPersonId) },
+            )
+        }
     }
 }
 

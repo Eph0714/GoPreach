@@ -645,6 +645,111 @@ and are deferred rather than half-built:
   no Super-Admin/Admin test account available this session). The color
   match itself *was* verified visually.
 
+## Phase 24 — Admin Record Deletion and Inactive Status ✅ done
+
+- **`Delete` no longer means immediate destruction, anywhere in the app.**
+  Every Manage screen's delete icon now opens a shared `DeleteChoiceDialog`
+  ("What would you like to do with this record?" → Move to Inactive /
+  Delete Permanently / Cancel), and Delete Permanently always gets its own
+  second, harder-to-hit confirmation ("This action cannot be undone...").
+  Applied consistently to Congregations, Groups, Publishers, Admins,
+  Coordinator Elders, Regular Elders, restricted Users, and Interested
+  Persons.
+- **New `RecordStatus { ACTIVE, INACTIVE }` enum** added to Congregation,
+  Group, and InterestedPerson — the three record types that had no
+  inactive-equivalent mechanism before this. Admins/Elders already had
+  `RoleAssignmentStatus`, Publishers already had
+  `PublisherCategory.REMOVED_PUBLISHER`, and restricted Users already had
+  `AccountStatus` — those existing mechanisms are reused as-is rather than
+  gaining a second, redundant status field.
+- **"Show Inactive" filter** added to every affected list screen — inactive/
+  removed/deactivated records are hidden from the normal list by default,
+  matching spec §5's "should not appear in normal active lists unless the
+  user chooses Show Inactive." A restore/reactivate icon appears on
+  already-inactive rows.
+- **Permanent deletion is a genuinely new capability** — it never existed
+  for any record type before this phase (the old "Delete" button always
+  meant deactivate/recategorize). It is **scoped to Super-Admin only,
+  across every record type**, via `canPermanentlyDelete` threaded from
+  `GoPreachNavGraph.kt` (`currentRole == AdminRole.SUPER_ADMIN`) into each
+  screen and passed down into `DeleteChoiceDialog`, which hides the option
+  entirely (not just disables it) when false. This is the conservative
+  reading of spec §7's "appropriate Delete/Manage permission" — it mirrors
+  the hierarchy from the earlier User Access Management phase, where
+  Super-Admin is the only role with unrestricted system control. Every
+  `permanentlyDelete(...)` call is also on the ViewModel, not just hidden
+  in the UI, so it can't be reached by manipulating the screen.
+- **Referential-integrity checks before permanent delete, where the data
+  model has real relationships to protect**:
+  - Congregation → blocked if it still has any Group or any Admin/Elder/
+    Publisher RoleAssignment (active *or* inactive) pointing at it.
+  - Group → blocked if any Publisher's RoleAssignment.groupId still points
+    at it (Elders in the three named roles are auto-cleared instead of
+    blocking, same as before).
+  - Publisher → blocked if they have any MonthlyReport, InterestedPerson,
+    or BibleStudyRecord on file.
+  - Admins/Elders/Users/Congregations/Groups have no such records tied to
+    them in a way that needs blocking, so their permanent-delete just
+    cascades what little needs clearing (see below) and proceeds.
+- **Cascade fixes applied as part of this pass** (both were real,
+  pre-existing gaps, not new by-design behavior):
+  - Regular Elder permanent delete now clears them out of any Group role
+    slot (Overseer/Servant/Assistant/legacy) they still occupy first —
+    the old plain `delete()` for Groups already did this in the other
+    direction (Group deletion clearing the Elder's `groupId`), but nothing
+    previously cleared a *deleted Elder* back out of a Group.
+  - Group permanent delete now also clears `groupId` on every Publisher
+    RoleAssignment still pointing at it — the old `ManageGroupsViewModel
+    .delete()` cleared the three Elder roles' `groupId` but never touched
+    Publishers, silently leaving their report/schedule scope pointing at a
+    group that no longer existed.
+  - Interested Person permanent delete now actually cascades-deletes every
+    child Visit document first — the old `delete()`'s UI copy claimed this
+    ("removes... their visit history") but never did it, leaving orphaned
+    `visits` subcollection documents behind every time.
+- **Audit trail**: every Move-to-Inactive/reactivate and every permanent
+  delete logs an `AuditLogRepository` entry (actor, action, target,
+  timestamp, and a human-readable `"status: OLD -> NEW"` detail line for
+  status changes) — including for the three record/ViewModel types that
+  had zero audit logging before this phase (Admins, Coordinator Elders,
+  Regular Elders all gained a newly-injected `AuditLogRepository`).
+  Permanent-delete audit entries are written before/alongside the delete
+  itself, so the trail survives even though the source record doesn't.
+- **Not implemented, deliberately out of scope for this pass**: a
+  Congregation/Group "empty" permanent-delete does not also reach into
+  historical MonthlyReport/InterestedPerson rows that reference a deleted
+  Group's *Publishers* transitively — only direct relationships were
+  checked, consistent with spec §4's "do not blindly delete related data"
+  being about direct references, not a full graph traversal.
+- Not verified on-device: none of the actual delete/reactivate/permanent-
+  delete flows for any of the seven record types (same recurring
+  credential gap — no Super-Admin/Admin test account available this
+  session). Every change was verified by `./gradlew :app:compileDebugKotlin`
+  after each record type's vertical slice, and a final clean
+  `:app:assembleDebug` after all seven were wired.
+
+## Phase 25 — Login "Remember me" fix and app-logo redundancy removal ✅ done
+
+- **"Remember me" bug fix**: `LoginViewModel`'s `init` block was restoring
+  the saved *username* from `CredentialStore` on launch but never the saved
+  *password* — so the checkbox showed checked and the username field
+  pre-filled, but the password field was always blank, meaning the user
+  still had to retype their password every time despite "remembering" them.
+  Now both are restored together.
+- **App logo removed from Login, Admin, and Publisher headers** to avoid
+  showing the logo image and the "GoPreach" title stacked together in the
+  same header. `DynamicAppLogo()` calls removed from `LoginScreen`'s
+  `GradientHero`, `AdminHomeScreen`'s `DashboardHero`, and
+  `PublisherHomeScreen`'s `DashboardHero`; `DashboardHero`'s now-unused
+  `logoContent` parameter was removed. `DynamicAppLogo`/`AppBanner`
+  themselves are left in place (unused for now) rather than deleted
+  outright, since the Super-Admin logo-upload Control Panel feature they
+  support is still a real (if Storage-blocked) feature — just no display
+  call site left standing anywhere that also shows a text title next to it.
+- Not verified on-device (same recurring credential gap): visually
+  confirming the headers read cleanly without the logo. Verified by a clean
+  `:app:compileDebugKotlin`/`:app:assembleDebug` only.
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking

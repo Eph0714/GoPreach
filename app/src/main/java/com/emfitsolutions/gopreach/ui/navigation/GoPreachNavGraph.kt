@@ -183,12 +183,15 @@ fun GoPreachNavGraph(
         composable(Destinations.MANAGE_CONGREGATIONS) {
             ManageCongregationsScreen(
                 currentPersonId = currentPersonId,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
                 onAddNew = { navController.navigate(Destinations.ENROLL_CONGREGATION) },
             )
         }
         composable(Destinations.MANAGE_ADMINS) {
             ManageAdminsScreen(
+                currentPersonId = currentPersonId,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
                 onAddNew = { navController.navigate(Destinations.ENROLL_ADMIN) },
             )
@@ -196,6 +199,8 @@ fun GoPreachNavGraph(
         composable(Destinations.MANAGE_COORDINATOR_ELDERS) {
             ManageCoordinatorEldersScreen(
                 fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+                currentPersonId = currentPersonId,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
                 onAddNew = { navController.navigate(Destinations.ENROLL_COORDINATOR_ELDER) },
             )
@@ -203,6 +208,8 @@ fun GoPreachNavGraph(
         composable(Destinations.MANAGE_REGULAR_ELDERS) {
             ManageRegularEldersScreen(
                 fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
+                currentPersonId = currentPersonId,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
                 onAddNew = { navController.navigate(Destinations.ENROLL_REGULAR_ELDER) },
             )
@@ -224,6 +231,7 @@ fun GoPreachNavGraph(
             ManagePublishersScreen(
                 currentPersonId = currentPersonId,
                 visibleCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
                 onAddNew = { navController.navigate(Destinations.ENROLL_PUBLISHER) },
             )
@@ -231,6 +239,8 @@ fun GoPreachNavGraph(
         composable(Destinations.MANAGE_GROUPS) {
             ManageGroupsScreen(
                 fixedCongregationId = ownCongregationId,
+                currentPersonId = currentPersonId,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -294,6 +304,8 @@ fun GoPreachNavGraph(
         composable(Destinations.INTERESTED_PEOPLE) {
             InterestedPeopleScreen(
                 publisherPersonId = currentPersonId,
+                currentPersonId = currentPersonId,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -371,6 +383,7 @@ fun GoPreachNavGraph(
         composable(Destinations.MANAGE_USERS) {
             ManageUsersScreen(
                 currentPersonId = currentPersonId,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
                 onAddNew = { navController.navigate(Destinations.ADD_USER) },
                 onEdit = { personId -> navController.navigate(Destinations.editUser(personId)) },

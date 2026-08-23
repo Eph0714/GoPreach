@@ -8,12 +8,16 @@ import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
+import com.emfitsolutions.gopreach.data.repository.BibleStudyRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
+import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
+import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -39,6 +43,9 @@ class ManagePublishersViewModel @Inject constructor(
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val auditLogRepository: AuditLogRepository,
+    private val monthlyReportRepository: MonthlyReportRepository,
+    private val interestedPersonRepository: InterestedPersonRepository,
+    private val bibleStudyRepository: BibleStudyRepository,
     groupRepository: GroupRepository,
 ) : ViewModel() {
 
@@ -78,5 +85,38 @@ class ManagePublishersViewModel @Inject constructor(
 
     fun updatePerson(person: Person) {
         viewModelScope.launch { personRepository.save(person) }
+    }
+
+    /** Returns a human-readable reason permanent deletion is blocked, or null if
+     * safe (spec §4: Publisher → Monthly Reports / Interested Persons / Bible
+     * Study Records must not be silently destroyed). */
+    suspend fun permanentDeleteBlockReason(publisherPersonId: String): String? {
+        val reportCount = monthlyReportRepository.observeAll().first().count { it.publisherPersonId == publisherPersonId }
+        val interestedCount = interestedPersonRepository.observeAll().first().count { it.publisherPersonId == publisherPersonId }
+        val bibleStudyCount = bibleStudyRepository.observeForPublisher(publisherPersonId).first().size
+        return when {
+            reportCount > 0 -> "This publisher has $reportCount monthly report(s) on file. Use Move to Inactive instead to keep their history."
+            interestedCount > 0 -> "This publisher has $interestedCount interested person record(s) on file. Use Move to Inactive instead."
+            bibleStudyCount > 0 -> "This publisher has $bibleStudyCount Bible study record(s) on file. Use Move to Inactive instead."
+            else -> null
+        }
+    }
+
+    /** Only reachable when [permanentDeleteBlockReason] returned null — deletes
+     * the RoleAssignment, and the Person doc too only if they have no other
+     * RoleAssignment left (e.g. also an Elder/Admin elsewhere). */
+    fun permanentlyDelete(row: PublisherRow, actorPersonId: String) {
+        viewModelScope.launch {
+            roleAssignmentRepository.delete(row.assignment.id)
+            val remaining = roleAssignmentRepository.observeAll().first().count { it.personId == row.person.id }
+            if (remaining == 0) personRepository.delete(row.person.id)
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "PERMANENT_DELETE_PUBLISHER",
+                targetType = "Person",
+                targetId = row.person.id,
+                congregationId = row.assignment.congregationId,
+            )
+        }
     }
 }

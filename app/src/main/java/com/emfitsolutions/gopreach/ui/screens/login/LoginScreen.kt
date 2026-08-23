@@ -50,7 +50,6 @@ import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.BuildConfig
-import com.emfitsolutions.gopreach.ui.components.DynamicAppLogo
 import com.emfitsolutions.gopreach.ui.components.GradientHero
 
 private val FieldShape = RoundedCornerShape(16.dp)
@@ -123,7 +122,6 @@ fun LoginScreen(
                     modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(top = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    DynamicAppLogo()
                     Text("GoPreach", style = MaterialTheme.typography.headlineLarge, color = Color.White)
                     Text(
                         "Ministry Activity Tracking",

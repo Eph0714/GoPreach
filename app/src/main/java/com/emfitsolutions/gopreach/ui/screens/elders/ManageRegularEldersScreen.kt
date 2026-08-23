@@ -9,6 +9,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @Composable
 fun ManageRegularEldersScreen(
     fixedCongregationId: String?,
+    currentPersonId: String,
+    canPermanentlyDelete: Boolean,
     onBack: () -> Unit,
     onAddNew: () -> Unit,
     viewModel: ManageRegularEldersViewModel = hiltViewModel(),
@@ -20,9 +22,11 @@ fun ManageRegularEldersScreen(
         title = "Regular Elders",
         scopeLabel = "Group",
         rows = rows,
+        canPermanentlyDelete = canPermanentlyDelete,
         onBack = onBack,
         onAddNew = onAddNew,
-        onSetActive = { row, active -> viewModel.setActive(row.assignment, active) },
+        onSetActive = { row, active -> viewModel.setActive(row.assignment, active, currentPersonId) },
         onEdit = { _, updated -> viewModel.updatePerson(updated) },
+        onPermanentlyDelete = { row -> viewModel.permanentlyDelete(row, currentPersonId) },
     )
 }

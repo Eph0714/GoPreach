@@ -28,7 +28,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.ui.components.DashboardHero
 import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
-import com.emfitsolutions.gopreach.ui.components.DynamicAppLogo
 import com.emfitsolutions.gopreach.ui.components.QuickAction
 import com.emfitsolutions.gopreach.ui.components.SyncStatusButton
 import com.emfitsolutions.gopreach.ui.components.UpdateAvailableBanner
@@ -51,7 +50,6 @@ fun PublisherHomeScreen(
             roleLabel = "Ministry Report",
             isOnline = isOnline,
             pendingSyncCount = pendingSyncCount,
-            logoContent = { DynamicAppLogo() },
             topEndAction = {
                 Row {
                     SyncStatusButton()

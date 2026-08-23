@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,13 +37,12 @@ fun DashboardHero(
     isOnline: Boolean,
     pendingSyncCount: Int,
     quickActions: List<QuickAction>,
-    logoContent: @Composable () -> Unit,
     topEndAction: @Composable () -> Unit,
-    /** A control anchored at the very left edge, before the logo — the Side
-     * Panel's hamburger toggle in particular, which needs to read as a
-     * leading (left-side) header control, distinct from [topEndAction]'s
-     * trailing (right-side) icons like sync status/settings. Null renders
-     * nothing here, same layout as before this existed. */
+    /** A control anchored at the very left edge — the Side Panel's hamburger
+     * toggle in particular, which needs to read as a leading (left-side)
+     * header control, distinct from [topEndAction]'s trailing (right-side)
+     * icons like sync status/settings. Null renders nothing here, same
+     * layout as before this existed. */
     leadingAction: (@Composable () -> Unit)? = null,
 ) {
     Box(
@@ -61,7 +59,6 @@ fun DashboardHero(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (leadingAction != null) leadingAction()
-                    Box(modifier = Modifier.padding(start = if (leadingAction != null) 4.dp else 12.dp).size(36.dp)) { logoContent() }
                 }
                 topEndAction()
             }

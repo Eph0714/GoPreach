@@ -6,9 +6,11 @@ import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
+import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
@@ -35,6 +37,7 @@ class ManageGroupsViewModel @Inject constructor(
     private val groupRepository: GroupRepository,
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
+    private val auditLogRepository: AuditLogRepository,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -119,17 +122,57 @@ class ManageGroupsViewModel @Inject constructor(
         )
     }
 
-    fun delete(groupId: String) {
+    /** "Move to Inactive" / reactivate — the group and its elder assignments are
+     * untouched; this only hides it from the normal active list. */
+    fun setStatus(group: Group, status: RecordStatus, actorPersonId: String) {
+        viewModelScope.launch {
+            val previous = group.status
+            groupRepository.save(group.copy(status = status))
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "CHANGE_GROUP_STATUS",
+                targetType = "Group",
+                targetId = group.id,
+                congregationId = group.congregationId,
+                details = "status: $previous -> $status",
+            )
+        }
+    }
+
+    /** Returns a human-readable reason permanent deletion is blocked, or null
+     * if safe — a Group with any Publisher still pointing at it as their
+     * report/schedule scope shouldn't be silently orphaned. */
+    suspend fun permanentDeleteBlockReason(groupId: String): String? {
+        val publisherCount = roleAssignmentRepository.observeAll().first()
+            .count { it.groupId == groupId && (it.resolvedRoleType() as? RoleType.Admin)?.role != AdminRole.REGULAR_ELDER }
+        return if (publisherCount > 0) {
+            "This group still has $publisherCount publisher(s) assigned to it. Reassign them first, or use Move to Inactive instead."
+        } else null
+    }
+
+    fun permanentlyDelete(groupId: String, actorPersonId: String) {
         viewModelScope.launch {
             // Clear groupId for whoever was on this group so they don't keep
-            // seeing a report/calendar scope that no longer exists.
+            // seeing a report/calendar scope that no longer exists — Elders in
+            // one of the three named roles, and (spec §4 gap fix) any Publisher
+            // whose RoleAssignment.groupId still points at this group.
             val group = groupRepository.observeAll().first().firstOrNull { it.id == groupId }
             if (group != null) {
                 listOfNotNull(group.overseerPersonId, group.servantPersonId, group.assistantPersonId, group.regularElderPersonId)
                     .distinct()
                     .forEach { setElderGroup(it, null, null) }
             }
+            roleAssignmentRepository.observeAll().first()
+                .filter { it.groupId == groupId }
+                .forEach { roleAssignmentRepository.save(it.copy(groupId = null)) }
             groupRepository.delete(groupId)
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "PERMANENT_DELETE_GROUP",
+                targetType = "Group",
+                targetId = groupId,
+                congregationId = group?.congregationId,
+            )
         }
     }
 }

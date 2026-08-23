@@ -21,8 +21,10 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.RestoreFromTrash
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -56,18 +58,25 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Gender
 import com.emfitsolutions.gopreach.data.model.HouseholderStatus
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
+import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.SupportingImage
 import com.emfitsolutions.gopreach.data.model.Visit
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
+import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.SupportingImageSection
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Spec §6.3 — Interested People Records, each with multiple preaching visits. */
+/** Spec §6.3 — Interested People Records, each with multiple preaching visits.
+ * [canPermanentlyDelete] is Super-Admin-only, per the "Admin Record Deletion"
+ * spec's scoping decision (see BUILD_PLAN.md) — a Publisher can always Move to
+ * Inactive their own contacts, but never permanently erase one. */
 @Composable
 fun InterestedPeopleScreen(
     publisherPersonId: String,
+    currentPersonId: String,
+    canPermanentlyDelete: Boolean,
     onBack: () -> Unit,
     viewModel: InterestedPeopleViewModel = hiltViewModel(),
 ) {
@@ -76,6 +85,8 @@ fun InterestedPeopleScreen(
     if (current == null) {
         InterestedPeopleListScreen(
             publisherPersonId = publisherPersonId,
+            currentPersonId = currentPersonId,
+            canPermanentlyDelete = canPermanentlyDelete,
             onBack = onBack,
             onOpenPerson = { selectedPerson = it },
             viewModel = viewModel,
@@ -93,12 +104,16 @@ fun InterestedPeopleScreen(
 @Composable
 private fun InterestedPeopleListScreen(
     publisherPersonId: String,
+    currentPersonId: String,
+    canPermanentlyDelete: Boolean,
     onBack: () -> Unit,
     onOpenPerson: (InterestedPerson) -> Unit,
     viewModel: InterestedPeopleViewModel,
 ) {
     val peopleFlow = remember(publisherPersonId) { viewModel.peopleFor(publisherPersonId) }
-    val people by peopleFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allPeople by peopleFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var showInactive by remember { mutableStateOf(false) }
+    val people = allPeople.filter { showInactive || it.status == RecordStatus.ACTIVE }
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<InterestedPerson?>(null) }
 
@@ -119,16 +134,24 @@ private fun InterestedPeopleListScreen(
             }
         },
     ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = showInactive, onCheckedChange = { showInactive = it })
+                Text("Show Inactive")
+            }
         if (people.isEmpty()) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text("No interested people yet. Tap + to add one.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -146,14 +169,24 @@ private fun InterestedPeopleListScreen(
                             Column {
                                 Text(person.name, style = MaterialTheme.typography.titleMedium)
                                 Text(person.address, style = MaterialTheme.typography.bodySmall)
+                                if (person.status == RecordStatus.INACTIVE) {
+                                    Text("Inactive", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                }
                             }
-                            IconButton(onClick = { pendingDelete = person }) {
-                                Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                            if (person.status == RecordStatus.ACTIVE) {
+                                IconButton(onClick = { pendingDelete = person }) {
+                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete")
+                                }
+                            } else {
+                                IconButton(onClick = { viewModel.setStatus(person, RecordStatus.ACTIVE, currentPersonId) }) {
+                                    Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
+                                }
                             }
                         }
                     }
                 }
             }
+        }
         }
     }
 
@@ -168,17 +201,12 @@ private fun InterestedPeopleListScreen(
 
     val toDelete = pendingDelete
     if (toDelete != null) {
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("Delete \"${toDelete.name}\"?") },
-            text = { Text("This removes the interested person and their visit history.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.delete(toDelete.id)
-                    pendingDelete = null
-                }) { Text("Delete") }
-            },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+        DeleteChoiceDialog(
+            recordLabel = toDelete.name,
+            canPermanentlyDelete = canPermanentlyDelete,
+            onDismiss = { pendingDelete = null },
+            onMoveToInactive = { viewModel.setStatus(toDelete, RecordStatus.INACTIVE, currentPersonId) },
+            onDeletePermanently = { viewModel.permanentlyDelete(toDelete, currentPersonId) },
         )
     }
 }

@@ -68,6 +68,8 @@ data class InterestedPerson(
     /** Optional (spec §7) — empty until a supporting photo is captured. Only
      * the first entry is used by the current UI; see [SupportingImage]. */
     val supportingImages: List<SupportingImage> = emptyList(),
+    /** "Admin Record Deletion and Inactive Status" spec — see [Congregation.status]. */
+    val status: RecordStatus = RecordStatus.ACTIVE,
 ) {
     val primarySupportingImage: SupportingImage? get() = supportingImages.firstOrNull()
 }

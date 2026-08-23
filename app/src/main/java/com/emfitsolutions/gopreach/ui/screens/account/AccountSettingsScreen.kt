@@ -9,6 +9,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,11 +25,46 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+/** A password field with a show/hide toggle — without this, a typo the user
+ * can't see is indistinguishable from a genuinely wrong password, which is
+ * exactly what was causing "password is correct but it says incorrect" here:
+ * the field looked wrong when it wasn't, or vice versa, because it was always
+ * masked with no way to check. */
+@Composable
+private fun PasswordField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    var visible by remember { mutableStateOf(false) }
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }) {
+                Icon(
+                    if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                    contentDescription = if (visible) "Hide password" else "Show password",
+                )
+            }
+        },
+        modifier = modifier,
+    )
+}
 
 /** Spec §1 — "Edit Account / Account Settings" screen: change username (with
  * uniqueness + current-password checks) and change password (current/new/
@@ -68,12 +105,10 @@ fun AccountSettingsScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
+            PasswordField(
                 value = uiState.currentPasswordForUsername,
                 onValueChange = viewModel::onCurrentPasswordForUsernameChange,
-                label = { Text("Current Password") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                label = "Current Password",
                 modifier = Modifier.fillMaxWidth(),
             )
             if (uiState.usernameError != null) Text(uiState.usernameError!!, color = MaterialTheme.colorScheme.error)
@@ -86,28 +121,22 @@ fun AccountSettingsScreen(
             HorizontalDivider()
 
             Text("Change Password", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
+            PasswordField(
                 value = uiState.currentPassword,
                 onValueChange = viewModel::onCurrentPasswordChange,
-                label = { Text("Current Password") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                label = "Current Password",
                 modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
+            PasswordField(
                 value = uiState.newPassword,
                 onValueChange = viewModel::onNewPasswordChange,
-                label = { Text("New Password") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                label = "New Password",
                 modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
+            PasswordField(
                 value = uiState.confirmNewPassword,
                 onValueChange = viewModel::onConfirmNewPasswordChange,
-                label = { Text("Confirm New Password") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                label = "Confirm New Password",
                 modifier = Modifier.fillMaxWidth(),
             )
             Text("At least 6 characters.", style = MaterialTheme.typography.bodySmall)
