@@ -39,7 +39,7 @@ fun GradientHero(
             .clip(RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp))
             .background(
                 Brush.verticalGradient(
-                    // Theme-driven: navy blue in light mode, purple/black in dark mode.
+                    // Theme-driven: green in light mode, bright green/black in dark mode.
                     colors = listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary),
                 )
             ),

@@ -13,9 +13,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 private val LightColors = lightColorScheme(
-    primary = PrimaryBlue,
+    primary = PrimaryGreen,
     onPrimary = Color.White,
-    primaryContainer = PrimaryBlueLight,
+    primaryContainer = PrimaryGreenLight,
     onPrimaryContainer = Color.White,
     secondary = AccentGold,
     onSecondary = Color.White,
@@ -32,9 +32,9 @@ private val LightColors = lightColorScheme(
 )
 
 private val DarkColors = darkColorScheme(
-    primary = PrimaryPurple,
+    primary = PrimaryGreenBright,
     onPrimary = Color.Black,
-    primaryContainer = PrimaryPurpleDark,
+    primaryContainer = PrimaryGreenContainerDark,
     onPrimaryContainer = Color.White,
     secondary = AccentGoldDark,
     onSecondary = Color.Black,
