@@ -7,6 +7,7 @@ import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
+import com.emfitsolutions.gopreach.ui.components.DateRange
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -25,6 +26,12 @@ data class PublisherReportRow(
  * congregation. This assembles the per-publisher rows; the screen sums them for
  * the "all publishers" / "per congregation" totals rather than duplicating the
  * aggregation two ways.
+ *
+ * "Main Form Date Range Filtering" spec §7 — [dateRange] scopes both figures
+ * that actually have a point-in-time dimension: [MonthlyReport.periodMonth]
+ * (via [DateRange.overlapsMonth]) and [InterestedPerson.createdAt] (a real
+ * timestamp, checked directly). `null` means "no filter" (all-time), used by
+ * callers that haven't opted into date scoping.
  */
 @HiltViewModel
 class ReportsViewModel @Inject constructor(
@@ -36,7 +43,11 @@ class ReportsViewModel @Inject constructor(
 
     /** [visibleGroupId] narrows further for a Regular Elder (own group only, spec
      * §3 permission matrix); leave null for congregation-wide or all-congregations roles. */
-    fun rowsFor(visibleCongregationId: String?, visibleGroupId: String? = null): Flow<List<PublisherReportRow>> =
+    fun rowsFor(
+        visibleCongregationId: String?,
+        visibleGroupId: String? = null,
+        dateRange: DateRange? = null,
+    ): Flow<List<PublisherReportRow>> =
         combine(
             personRepository.observeAll(),
             roleAssignmentRepository.observeAll(),
@@ -50,11 +61,14 @@ class ReportsViewModel @Inject constructor(
                 .mapNotNull { assignment ->
                     val person = people.firstOrNull { it.id == assignment.personId } ?: return@mapNotNull null
                     val personReports = reports.filter { it.publisherPersonId == person.id }
+                        .filter { dateRange == null || dateRange.overlapsMonth(it.periodMonth) }
+                    val personInterested = interestedPeople.filter { it.publisherPersonId == person.id }
+                        .filter { dateRange == null || it.createdAt in dateRange }
                     PublisherReportRow(
                         person = person,
                         totalBibleStudies = personReports.sumOf { it.bibleStudiesCount },
                         totalHours = personReports.sumOf { it.hoursRendered ?: 0.0 },
-                        totalInterestedPeople = interestedPeople.count { it.publisherPersonId == person.id },
+                        totalInterestedPeople = personInterested.size,
                     )
                 }
                 .sortedBy { it.person.fullName }

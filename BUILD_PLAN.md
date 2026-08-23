@@ -1209,7 +1209,80 @@ and are deferred rather than half-built:
   total against real cross-congregation data — needs a signed-in session
   with that exact scenario, which this environment doesn't have.
 
+## Phase 35 — Main Form Date Range Filtering; Total-count audit; Update Sharing already covered ✅ done (partial — see scope notes)
+
+- **Audited every "Total X" card on the Main Form for the same class of bug**
+  (user: "check all related issues about this," after the elder-count
+  fixes) — confirmed the two Phase 33/34 fixes already apply **uniformly**
+  to every person-count card (Total Publishers, Total Elders, Regular/
+  Auxiliary Pioneers, Unbaptized/Inactive/Removed Publishers), not just
+  elders, since they all share the same `publisherAssignments`/`elderCount`
+  computation in `CongregationStats.compute()`/`total()`. Separately
+  verified `MonthlyReportViewModel.submit()` reuses the existing report's
+  own document id when one exists for that publisher+period rather than
+  creating a new one, so Bible Studies/Preaching Hours were never
+  vulnerable to this class of duplicate-counting bug in the first place —
+  confirmed by code review, not assumed.
+- **Update Sharing (spec §11-§13) was already fully implemented** before
+  this phase — `UpdateHost`'s "Update Available" dialog already has both
+  `UPDATE NOW` and `SHARE APK` (native Android Share Sheet via
+  `Intent.ACTION_SEND`/`createChooser`, reaching Messenger/SMS/email/
+  WhatsApp/etc.), the shared link always comes from the live
+  `UpdateManifestRepository` fetch (never a hard-coded URL), and
+  automatically reflects whichever version was just detected. No new code
+  needed for this section.
+- **New: "Main Form Date Range Filtering"** (spec §2-§6, §9, §14, §16) —
+  `DateRangeSelection.kt` (pure, testable date math: `QuickDateRange`
+  enum + `DateRange` with `today()`/`thisWeek()`/`thisMonth()`/`thisYear()`/
+  `custom()`, all computed live from `Calendar.getInstance()`, never
+  hard-coded) and `DateRangeFilterBar.kt` (the reusable UI: quick-select
+  chips with a clear selected state, native date pickers for Start/End,
+  Purple-theme-consistent). "This Month" is the default everywhere it's
+  used, calculated dynamically. Picking a date manually correctly flips
+  the selection to `CUSTOM`; `DateRange.custom()` swaps/clamps so Start ≤
+  End always holds.
+- **Wired into two screens** as the first real applications of this: the
+  Main Form's own Dashboard/Reports summary (`DashboardReportsScreen`) and
+  the standalone Publisher Reports screen (`ReportsScreen`). In both,
+  the range filters `MonthlyReport`-derived figures (Bible Studies,
+  Preaching Hours) via `DateRange.overlapsMonth()` (a report is
+  month-grain, so a "This Week" range correctly still matches whichever
+  month it falls in, per spec §9's real-timestamp requirement applied
+  honestly to what this data model actually stores) and, on the Publisher
+  Reports screen, `InterestedPerson.createdAt` directly (a true
+  timestamp). Congregation scoping is untouched — the date range only
+  narrows further within whatever congregation(s)/group the caller already
+  resolved the session is authorized to see (spec §10), never bypassing it.
+- **Deliberately, honestly left always-current regardless of date
+  range**: the Publisher/Elder *count* cards (Total Publishers, Total
+  Elders, etc.). A `RoleAssignment` only ever reflects "assigned right
+  now" — there is no historical "who was an elder as of August 2026"
+  snapshot anywhere in this data model, so applying the date range to
+  those specific numbers would fabricate a precision the app doesn't
+  track. Disclosed directly in the Dashboard's own caption text, not
+  silently glossed over.
+- **Not done in this pass — a real, disclosed scope limit**: date-range
+  wiring for Congregation Reports, Group Reports, Interested Person
+  Reports (as its own report, distinct from the count folded into
+  Publisher Reports above), Activity Reports, Statistics, and Summary
+  Reports (spec §7's full list) — each would need its own review of
+  what timestamp field it actually has to filter by, the same way this
+  phase had to check `MonthlyReport`/`InterestedPerson` individually
+  rather than assume a blanket filter works everywhere. Also not done:
+  remembering the selected range across navigation between reports (spec
+  §8) — each screen currently keeps its own local `DateRange` state,
+  independent of the others.
+- Verified via `./gradlew :app:compileDebugKotlin`, a full
+  `:app:assembleDebug`, and an on-device screenshot of the Login screen
+  (v1.17.0, no crash). Not verified live: the actual filtered figures
+  against real data, the date pickers themselves, and the corrected
+  Total-count cards — all need a signed-in session with real enrolled
+  data and reports, which this environment doesn't have credentials for.
+
 ## What's next (not blocking, tracked for a future pass)
+- Date-range filtering extended to Congregation/Group/Interested Person/
+  Activity/Statistics/Summary reports, and remembering the selected range
+  across navigation between reports — see Phase 35's scope note.
 - Unsaved-changes dirty-tracking for the ~12 `AlertDialog`-based Edit forms
   across the Manage screens (Publishers/Admins/Elders/Congregations/
   Groups/Interested Persons/Users) — see Phase 32's scope note.

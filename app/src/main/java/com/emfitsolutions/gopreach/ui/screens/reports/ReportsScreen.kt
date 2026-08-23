@@ -34,6 +34,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.ui.components.DateRange
+import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 
 /** Spec §5.1 — Total Bible Studies / Interested People / preaching hours, per
  * publisher, with an "All Publishers" summary at the top. */
@@ -59,7 +61,13 @@ fun ReportsScreen(
     val canToggleScope = visibleCongregationId != null && visibleGroupId != null
     val effectiveGroupId = if (canToggleScope && showCongregationWide) null else visibleGroupId
 
-    val rowsFlow = remember(visibleCongregationId, effectiveGroupId) { viewModel.rowsFor(visibleCongregationId, effectiveGroupId) }
+    // "Main Form Date Range Filtering" spec §7/§4 — This Month selected by
+    // default, calculated live from the current date.
+    var dateRange by remember { mutableStateOf(DateRange.thisMonth()) }
+
+    val rowsFlow = remember(visibleCongregationId, effectiveGroupId, dateRange) {
+        viewModel.rowsFor(visibleCongregationId, effectiveGroupId, dateRange)
+    }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     Scaffold(
@@ -89,6 +97,11 @@ fun ReportsScreen(
                 ) { Text("My Congregation") }
             }
         }
+        DateRangeFilterBar(
+            range = dateRange,
+            onRangeChange = { dateRange = it },
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
         if (rows.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),

@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.charts.BarSlice
 import com.emfitsolutions.gopreach.ui.components.charts.DonutChart
 import com.emfitsolutions.gopreach.ui.components.charts.SimpleBarChart
@@ -151,6 +152,17 @@ fun DashboardStatsContent(
             }
         }
 
+        DateRangeFilterBar(
+            range = uiState.dateRange,
+            onRangeChange = viewModel::setDateRange,
+        )
+        Text(
+            "Bible Studies and Preaching Hours reflect the selected period above. " +
+                "Publisher/Elder counts always reflect current status.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
         if (displayed == null) {
             Text("No congregation data available yet.", style = MaterialTheme.typography.bodyMedium)
             return@Column
@@ -159,7 +171,8 @@ fun DashboardStatsContent(
         Column {
             Text(displayed.congregationName, style = MaterialTheme.typography.titleLarge)
             Text(
-                remember { SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date()) },
+                "${SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(uiState.dateRange.startMillis))} – " +
+                    SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(uiState.dateRange.endMillis)),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -237,7 +250,9 @@ fun DashboardStatsContent(
                     ) {
                         Text(detail.value, style = MaterialTheme.typography.headlineMedium)
                         Text(
-                            "${displayed.congregationName} · ${SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date())}",
+                            "${displayed.congregationName} · " +
+                                "${SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(uiState.dateRange.startMillis))} – " +
+                                SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(uiState.dateRange.endMillis)),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
