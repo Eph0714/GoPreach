@@ -1471,6 +1471,15 @@ User request: "IN TOTAL ELDERS, COUNT ONLY THE NUMBER OF REGULAR ELDERS NOT THE 
 - **Removed the "Publisher Status Breakdown" donut chart** from the Dashboard — the same per-category numbers it visualized (Regular Publisher/Regular Pioneer/Auxiliary Pioneer/Unbaptized/Inactive) are still available via the "Total Publishers" stat card's own tap-to-see breakdown dialog directly above it, so this was a redundant second visualization of the same data, not a data loss.
 - Verified via `./gradlew :app:compileDebugKotlin`, a full `:app:assembleDebug`, and reinstall+relaunch on-device (Super-Admin session, zero crash-buffer entries) — including the cold-start splash comparison above. **Not verified live**: the redesigned `DashboardTile` buttons and the relocated Sign Out specifically, since the persisted session available this round (Super-Admin, not a dual-role Publisher account) has no route into `PublisherHomeScreen` to see them rendered. Confirmed correct by compilation and code review only.
 
+## Phase 42 — Removed the "New updates are available / Refresh" banner ✅ done
+
+User asked what the banner was actually for; on inspection its own doc comment already admitted the honest answer: the app's data is already always current (every collection has a live Firestore listener via `RemoteSyncCoordinator`), so this "isn't gating anything" — tapping Refresh only dismissed the banner, it never fetched anything the app didn't already have. Confirmed not useful, removed rather than kept as unexplained UI:
+
+- Deleted `UpdateAvailableBanner.kt` (the Composable + its `UpdateAvailableViewModel`) and `RemoteUpdateTracker.kt` (the singleton it existed solely to back — confirmed via search, nothing else referenced it).
+- Removed both call sites (`AdminHomeScreen.kt`, `PublisherHomeScreen.kt`).
+- `RemoteSyncCoordinator.startTracked()` kept its real job (re-subscribing every collection's listener on every auth-state change — see that class's own doc comment for why that specifically matters) but dropped the `.drop(1)`/`.onEach { markUpdated() }` chain that only existed to feed the now-deleted tracker.
+- Verified via `./gradlew :app:compileDebugKotlin`, a full `:app:assembleDebug`, and a live on-device check (Super-Admin session): the banner is gone from the Main Form, "SYNC TO SERVER" and everything below it render normally, zero crash-buffer entries.
+
 ## What's next (not blocking, tracked for a future pass)
 - Live-verify the redesigned Publisher "My Ministry" buttons and relocated
   Sign Out icon with a real Publisher (or dual-role) login — see Phase 41's

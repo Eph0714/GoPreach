@@ -21,10 +21,8 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -74,7 +72,6 @@ class RemoteSyncCoordinator @Inject constructor(
     private val appSettingsRepository: AppSettingsRepository,
     private val sharedLocationRepository: SharedLocationRepository,
     private val userAccessGrantRepository: UserAccessGrantRepository,
-    private val remoteUpdateTracker: RemoteUpdateTracker,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     private var started = false
@@ -86,15 +83,10 @@ class RemoteSyncCoordinator @Inject constructor(
         awaitClose { firebaseAuth.removeAuthStateListener(listener) }
     }.distinctUntilChanged()
 
-    /** Wires one collection's listener into [appScope], and — after its first
-     * (initial-load) emission, which [Flow.drop] skips — flags [remoteUpdateTracker]
-     * on every later emission, since that means a change arrived *after* this
-     * session was already up and running, not just the normal "load what's
-     * already there" on sign-in. */
+    /** Wires one collection's listener into [appScope], re-subscribing fresh
+     * on every auth-state change (see the class doc for why that matters). */
     private fun Flow<Unit>.startTracked(uidChanged: Flow<String?>): Unit {
-        uidChanged.flatMapLatest { this.drop(1) }
-            .onEach { remoteUpdateTracker.markUpdated() }
-            .launchIn(appScope)
+        uidChanged.flatMapLatest { this }.launchIn(appScope)
     }
 
     fun startAll() {

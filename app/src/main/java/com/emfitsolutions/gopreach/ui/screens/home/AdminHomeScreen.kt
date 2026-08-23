@@ -61,7 +61,6 @@ import com.emfitsolutions.gopreach.ui.components.DashboardTile
 import com.emfitsolutions.gopreach.ui.components.GoPreachSidePanelContent
 import com.emfitsolutions.gopreach.ui.components.QuickAction
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
-import com.emfitsolutions.gopreach.ui.components.UpdateAvailableBanner
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 import com.emfitsolutions.gopreach.ui.screens.dashboard.DashboardStatsContent
 import kotlinx.coroutines.delay
@@ -244,7 +243,6 @@ fun AdminHomeScreen(
                     modifier = Modifier.fillMaxSize().padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
-                    UpdateAvailableBanner()
                     SyncToServerButton()
 
                     // "My Group / My Congregation" summary card — an Elder's own

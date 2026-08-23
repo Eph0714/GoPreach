@@ -39,7 +39,6 @@ import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
 import com.emfitsolutions.gopreach.ui.components.QuickAction
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
-import com.emfitsolutions.gopreach.ui.components.UpdateAvailableBanner
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 
 /** Landing point for the Ministry Report App / Publisher context (spec §5.2). */
@@ -103,7 +102,6 @@ fun PublisherHomeScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            UpdateAvailableBanner()
             SyncToServerButton()
 
             DashboardSection("My Ministry") {
