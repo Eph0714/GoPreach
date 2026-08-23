@@ -149,22 +149,54 @@ data class CongregationStats(
             )
         }
 
-        /** Sums every field across [all] — the "global totals" KPI row (spec §3)
-         * for a Super-Admin viewing every congregation at once. */
-        fun total(all: List<CongregationStats>): CongregationStats = CongregationStats(
-            congregationId = "",
-            congregationName = "All Congregations",
-            totalPublishers = all.sumOf { it.totalPublishers },
-            totalElders = all.sumOf { it.totalElders },
-            regularPioneers = all.sumOf { it.regularPioneers },
-            auxiliaryPioneers = all.sumOf { it.auxiliaryPioneers },
-            regularPublishers = all.sumOf { it.regularPublishers },
-            unbaptizedPublishers = all.sumOf { it.unbaptizedPublishers },
-            inactivePublishers = all.sumOf { it.inactivePublishers },
-            removedPublishers = all.sumOf { it.removedPublishers },
-            totalBibleStudies = all.sumOf { it.totalBibleStudies },
-            regularPioneerHours = all.sumOf { it.regularPioneerHours },
-            auxiliaryPioneerHours = all.sumOf { it.auxiliaryPioneerHours },
-        )
+        /** The "All Congregations" KPI row (spec §3) for a Super-Admin viewing
+         * everything at once — recomputed from the raw, global (already
+         * congregation-scoped by the caller) [assignments]/[reports] lists, via
+         * the exact same personId-dedup [compute] uses, rather than by summing
+         * the already-computed per-congregation [CongregationStats.totalElders]
+         * /publisher-category numbers. Summing was a real, confirmed bug: each
+         * per-congregation count is already correctly deduped *within* that one
+         * congregation, but a person holding an ACTIVE elder/publisher
+         * assignment in **two different** congregations at once (still an edge
+         * case worth fixing, not the common case) was then counted once per
+         * congregation when those per-congregation totals were added together —
+         * reported as "3 elders shown, only 2 enrolled" persisting even after
+         * the per-congregation fix. Recomputing from scratch, globally, is the
+         * only way to dedupe across congregation boundaries too. */
+        fun total(
+            congregations: List<Congregation>,
+            assignments: List<RoleAssignment>,
+            reports: List<MonthlyReport>,
+        ): CongregationStats {
+            val congregationIds = congregations.map { it.id }.toSet()
+            val active = assignments.filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId in congregationIds }
+            val publisherAssignments = active.filter { it.resolvedRoleType() is RoleType.Publisher }
+                .distinctBy { it.personId }
+            fun countOf(category: PublisherCategory) = publisherAssignments.count {
+                (it.resolvedRoleType() as RoleType.Publisher).category == category
+            }
+            val elderCount = active.filter {
+                val role = (it.resolvedRoleType() as? RoleType.Admin)?.role
+                role == AdminRole.COORDINATOR_ELDER || role == AdminRole.REGULAR_ELDER
+            }.distinctBy { it.personId }.size
+            val scopedReports = reports.filter { it.congregationId in congregationIds }
+            return CongregationStats(
+                congregationId = "",
+                congregationName = "All Congregations",
+                totalPublishers = publisherAssignments.count {
+                    (it.resolvedRoleType() as RoleType.Publisher).category != PublisherCategory.REMOVED_PUBLISHER
+                },
+                totalElders = elderCount,
+                regularPioneers = countOf(PublisherCategory.REGULAR_PIONEER),
+                auxiliaryPioneers = countOf(PublisherCategory.AUXILIARY_PIONEER),
+                regularPublishers = countOf(PublisherCategory.REGULAR_PUBLISHER),
+                unbaptizedPublishers = countOf(PublisherCategory.UNBAPTIZED_PUBLISHER),
+                inactivePublishers = countOf(PublisherCategory.INACTIVE_PUBLISHER),
+                removedPublishers = countOf(PublisherCategory.REMOVED_PUBLISHER),
+                totalBibleStudies = scopedReports.sumOf { it.bibleStudiesCount },
+                regularPioneerHours = scopedReports.filter { it.category == PublisherCategory.REGULAR_PIONEER }.sumOf { it.hoursRendered ?: 0.0 },
+                auxiliaryPioneerHours = scopedReports.filter { it.category == PublisherCategory.AUXILIARY_PIONEER }.sumOf { it.hoursRendered ?: 0.0 },
+            )
+        }
     }
 }

@@ -1172,6 +1172,43 @@ and are deferred rather than half-built:
   need a signed-in session with real enrolled data, which this environment
   doesn't have credentials for.
 
+## Phase 34 — Elder/publisher count still wrong after Phase 33: cross-congregation double-count ✅ done
+
+- **Reported again after updating**: "still wrong number in elder count,
+  there are only 2 in the records but it shows 3." Phase 33's `distinctBy
+  personId` fix was correct but incomplete — it dedupes *within* one
+  congregation's `CongregationStats.compute()` call, but the "All
+  Congregations" total (what a Super-Admin sees by default) was built by
+  **summing** those already-deduped per-congregation numbers
+  (`all.sumOf { it.totalElders }`, etc.). If the same person holds an
+  ACTIVE elder/publisher assignment in **two different** congregations at
+  once, each per-congregation count correctly shows them once *there*, but
+  adding those totals together counts that one person twice anyway —
+  exactly the kind of cross-congregation duplication the per-congregation
+  fix couldn't reach.
+- **Fix**: `CongregationStats.total()` no longer sums `all`'s numbers at
+  all — it now takes the raw, already-scoped `congregations`/`assignments`
+  /`reports` lists directly and recomputes the elder/publisher counts from
+  scratch with a **global** `distinctBy { it.personId }` (ignoring which
+  congregation each assignment belongs to), the same way `compute()`
+  dedupes within one congregation. `DashboardStatsViewModel` now exposes
+  this as `overallTotal` computed independently, rather than the screen
+  deriving it from `all` after the fact.
+- **If the count is still wrong after this update**: the remaining
+  explanation this fix can't reach is a genuine **duplicate Person
+  record** — two separate enrolled accounts for the same real human (e.g.
+  from a double-submitted enrollment). That can't be safely auto-merged by
+  matching names in code. The Phase 33 "tap the card to see names"
+  feature is the intended way to spot this: if "Total Elders" lists the
+  same name twice, that confirms a duplicate record, which can then be
+  permanently deleted via the existing Admin Record Deletion flow
+  (Phase 24).
+- Verified via `./gradlew :app:compileDebugKotlin`, a full
+  `:app:assembleDebug`, and an on-device screenshot of the Login screen
+  (v1.16.1, no crash). Not verified live: the corrected "All Congregations"
+  total against real cross-congregation data — needs a signed-in session
+  with that exact scenario, which this environment doesn't have.
+
 ## What's next (not blocking, tracked for a future pass)
 - Unsaved-changes dirty-tracking for the ~12 `AlertDialog`-based Edit forms
   across the Manage screens (Publishers/Admins/Elders/Congregations/

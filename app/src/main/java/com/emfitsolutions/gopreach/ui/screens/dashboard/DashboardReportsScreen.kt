@@ -115,7 +115,7 @@ fun DashboardStatsContent(
     }
 
     val displayed = uiState.selectedCongregationId?.let { id -> uiState.all.firstOrNull { it.congregationId == id } }
-        ?: if (isMultiCongregation) CongregationStats.total(uiState.all) else uiState.all.firstOrNull()
+        ?: uiState.overallTotal ?: uiState.all.firstOrNull()
 
     Column(
         modifier = modifier.fillMaxWidth(),

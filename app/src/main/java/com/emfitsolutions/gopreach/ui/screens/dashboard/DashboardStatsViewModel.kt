@@ -18,6 +18,12 @@ import javax.inject.Inject
 
 data class DashboardStatsUiState(
     val all: List<CongregationStats> = emptyList(),
+    /** The "All Congregations" row — recomputed globally (see
+     * [CongregationStats.total]'s doc comment), **not** derived by summing
+     * [all]'s already-per-congregation-deduped numbers, since that silently
+     * double-counted anyone holding an active elder/publisher assignment in
+     * more than one congregation at once. */
+    val overallTotal: CongregationStats? = null,
     val members: List<StatMember> = emptyList(),
     val selectedCongregationId: String? = null,
     val isLoading: Boolean = true,
@@ -63,6 +69,7 @@ class DashboardStatsViewModel @Inject constructor(
         val scoped = scopeFilter?.let { allowed -> congregations.filter { it.id in allowed } } ?: congregations
         DashboardStatsUiState(
             all = CongregationStats.compute(scoped, assignments, reports).sortedBy { it.congregationName },
+            overallTotal = if (scoped.size > 1) CongregationStats.total(scoped, assignments, reports) else null,
             members = computeStatMembers(scoped, assignments, people),
             selectedCongregationId = selected,
             isLoading = false,
