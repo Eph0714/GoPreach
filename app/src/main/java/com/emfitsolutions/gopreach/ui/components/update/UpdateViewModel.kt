@@ -30,7 +30,6 @@ sealed class UpdateCheckState {
     data class UpToDate(val version: String) : UpdateCheckState()
     data class Available(val info: UpdateInfo, val currentVersion: String) : UpdateCheckState()
     data class Downloading(val info: UpdateInfo, val percent: Int) : UpdateCheckState()
-    data class Verifying(val info: UpdateInfo) : UpdateCheckState()
     data class ReadyToInstall(val info: UpdateInfo, val apkFile: File) : UpdateCheckState()
     data class Failed(val info: UpdateInfo?, val message: String) : UpdateCheckState()
 }
@@ -91,7 +90,15 @@ class UpdateViewModel @Inject constructor(
         _state.value = UpdateCheckState.Idle
     }
 
-    /** [UPDATE NOW] — download, verify, then request installation. */
+    /** [UPDATE NOW] — download, then request installation immediately.
+     * Per explicit request, GoPreach's own post-download checksum check
+     * (the "Verifying Update..." step) is skipped — the APK goes straight
+     * from download to the install handoff. Android's own Package Installer
+     * still enforces its own signature check on the way in (an update
+     * signed with a different key than the installed app is refused
+     * regardless of anything here) — that's the OS-level guarantee this app
+     * was never trying to duplicate; only GoPreach's *own additional*
+     * integrity check is what's being skipped now. */
     fun updateNow() {
         val info = (_state.value as? UpdateCheckState.Available)?.info
             ?: (_state.value as? UpdateCheckState.Failed)?.info
@@ -108,16 +115,6 @@ class UpdateViewModel @Inject constructor(
                     }
                 }
                 val apkFile = lastFile ?: throw Exception("Download did not complete")
-
-                _state.value = UpdateCheckState.Verifying(info)
-                if (info.sha256 != null) {
-                    val actualHash = ApkDownloader.sha256(apkFile)
-                    if (!actualHash.equals(info.sha256, ignoreCase = true)) {
-                        apkFile.delete()
-                        _state.value = UpdateCheckState.Failed(info, "The downloaded update failed a security check and was discarded. Your current version is still available.")
-                        return@launch
-                    }
-                }
 
                 _state.value = UpdateCheckState.ReadyToInstall(info, apkFile)
             } catch (e: Exception) {

@@ -92,20 +92,6 @@ fun UpdateHost(viewModel: UpdateViewModel = hiltViewModel()) {
             )
         }
 
-        is UpdateCheckState.Verifying -> {
-            AlertDialog(
-                onDismissRequest = {},
-                title = { Text("Verifying Update...") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator()
-                        Text("Checking the download's integrity and signature before installing.")
-                    }
-                },
-                confirmButton = {},
-            )
-        }
-
         is UpdateCheckState.ReadyToInstall -> {
             AlertDialog(
                 onDismissRequest = {},

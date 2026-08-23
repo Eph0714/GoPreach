@@ -14,18 +14,21 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,6 +62,19 @@ private val COLOR_INACTIVE: Color get() = Color(0xFF9E9E9E)
 private val COLOR_REMOVED: Color get() = Color(0xFFC63737)
 private val COLOR_BIBLE_STUDIES: Color get() = Color(0xFF17A398)
 private val COLOR_HOURS: Color get() = Color(0xFFE0A526)
+
+/** What the details dialog shows for one tapped [StatCard] — spec: "make the
+ * button clickable... show the details inside when clicked." [breakdown] is
+ * whatever sub-figures actually compose that headline number, when there
+ * are any (e.g. Total Publishers breaks down into its categories); it's
+ * empty for a figure with no further breakdown in this app's data model,
+ * in which case the dialog just confirms the value, congregation, and
+ * period it's for. */
+private data class StatDetail(
+    val label: String,
+    val value: String,
+    val breakdown: List<Pair<String, String>>,
+)
 
 /**
  * "Role-Based Dashboard... Graphical Reports" spec §3-§5,§7,§8,§15 — KPI
@@ -152,18 +168,36 @@ fun DashboardStatsContent(
         // Per explicit request: no icons, no per-item color coding on these
         // cards — Total Publishers and Total Elders are also their own
         // separate cards here now, not one combined "Publishers vs Elders"
-        // card with a shared proportion bar.
+        // card with a shared proportion bar. Each is clickable and opens a
+        // details dialog (spec: "show the details inside when clicked").
+        val totalHours = displayed.regularPioneerHours + displayed.auxiliaryPioneerHours
         val statCards = listOf(
-            "Total Publishers" to displayed.totalPublishers.toString(),
-            "Total Elders" to displayed.totalElders.toString(),
-            "Regular Pioneers" to displayed.regularPioneers.toString(),
-            "Auxiliary Pioneers" to displayed.auxiliaryPioneers.toString(),
-            "Unbaptized Publishers" to displayed.unbaptizedPublishers.toString(),
-            "Inactive Publishers" to displayed.inactivePublishers.toString(),
-            "Removed Publishers" to displayed.removedPublishers.toString(),
-            "Bible Studies" to displayed.totalBibleStudies.toString(),
-            "Total Preaching Hours" to "%.1f".format(displayed.regularPioneerHours + displayed.auxiliaryPioneerHours),
+            StatDetail(
+                "Total Publishers", displayed.totalPublishers.toString(),
+                breakdown = listOf(
+                    "Regular Publishers" to displayed.regularPublishers.toString(),
+                    "Regular Pioneers" to displayed.regularPioneers.toString(),
+                    "Auxiliary Pioneers" to displayed.auxiliaryPioneers.toString(),
+                    "Unbaptized Publishers" to displayed.unbaptizedPublishers.toString(),
+                    "Inactive Publishers" to displayed.inactivePublishers.toString(),
+                ),
+            ),
+            StatDetail("Total Elders", displayed.totalElders.toString(), emptyList()),
+            StatDetail("Regular Pioneers", displayed.regularPioneers.toString(), emptyList()),
+            StatDetail("Auxiliary Pioneers", displayed.auxiliaryPioneers.toString(), emptyList()),
+            StatDetail("Unbaptized Publishers", displayed.unbaptizedPublishers.toString(), emptyList()),
+            StatDetail("Inactive Publishers", displayed.inactivePublishers.toString(), emptyList()),
+            StatDetail("Removed Publishers", displayed.removedPublishers.toString(), emptyList()),
+            StatDetail("Bible Studies", displayed.totalBibleStudies.toString(), emptyList()),
+            StatDetail(
+                "Total Preaching Hours", "%.1f".format(totalHours),
+                breakdown = listOf(
+                    "Regular Pioneer Hours" to "%.1f".format(displayed.regularPioneerHours),
+                    "Auxiliary Pioneer Hours" to "%.1f".format(displayed.auxiliaryPioneerHours),
+                ),
+            ),
         )
+        var selectedDetail by remember { mutableStateOf<StatDetail?>(null) }
         // A fixed 2-column grid (not a wrapping FlowRow) — matches the
         // reference's "Accounts" section exactly: two equal-width cards per
         // row, regardless of screen width, rather than reflowing to 3+ on a
@@ -171,11 +205,43 @@ fun DashboardStatsContent(
         // a LazyVerticalGrid would be more machinery than this needs).
         statCards.chunked(2).forEach { rowItems ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                rowItems.forEach { (label, value) ->
-                    StatCard(label, value, modifier = Modifier.weight(1f))
+                rowItems.forEach { detail ->
+                    StatCard(detail.label, detail.value, onClick = { selectedDetail = detail }, modifier = Modifier.weight(1f))
                 }
                 if (rowItems.size == 1) Box(modifier = Modifier.weight(1f))
             }
+        }
+
+        selectedDetail?.let { detail ->
+            AlertDialog(
+                onDismissRequest = { selectedDetail = null },
+                title = { Text(detail.label) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(detail.value, style = MaterialTheme.typography.headlineMedium)
+                        Text(
+                            "${displayed.congregationName} · ${SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date())}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (detail.breakdown.isNotEmpty()) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            detail.breakdown.forEach { (subLabel, subValue) ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(subLabel, style = MaterialTheme.typography.bodyMedium)
+                                    Text(subValue, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { selectedDetail = null }) { Text("Close") }
+                },
+            )
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {

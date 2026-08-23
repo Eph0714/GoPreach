@@ -613,6 +613,38 @@ and are deferred rather than half-built:
   a crash. Not verified on a screen that actually renders `DashboardStatsContent`
   (same recurring credential gap as prior phases).
 
+## Phase 23 — Update flow skips its own checksum step; clickable stat-card details; violet re-match ✅ done
+
+- **Update flow no longer verifies its own download**: clarified with the
+  user that "install without scanning" meant GoPreach's own post-download
+  SHA-256 check (the "Verifying Update..." step), not Android/Play
+  Protect's own OS-level scan — which isn't something app code can
+  legitimately disable anyway. `UpdateViewModel.updateNow()` now goes
+  straight from Downloading to the install handoff; the now-unreachable
+  `UpdateCheckState.Verifying` state and its dialog branch were removed.
+  Android's Package Installer still enforces its own signature check on
+  every install regardless — that guarantee was never provided by this
+  app's extra checksum step to begin with.
+- **Stat cards are now clickable**: tapping any card in the Reports
+  Dashboard's Overview grid opens a details dialog showing the value, the
+  congregation + month it's for, and — for Total Publishers and Total
+  Preaching Hours specifically, which are the only two figures with a real
+  sub-breakdown in this app's data model — the categories/components that
+  make it up (e.g. Total Publishers breaks down into Regular Publishers/
+  Pioneers/Auxiliary Pioneers/Unbaptized/Inactive). Other cards' dialogs
+  just confirm the value/scope/period since there's no further breakdown
+  to show.
+- **Violet re-matched to a supplied swatch**: the user pasted an exact
+  target color; `PrimaryPurple` (light theme) changed from `#6A1B9A` to
+  `#5F4B8B`, with the dark-theme bright accent, containers, secondary tone,
+  splash background, and the logo (launcher icon + in-app mark) all
+  regenerated to match. Verified on-device against the pasted swatch —
+  visually a very close match.
+- Not verified on-device: the update flow's install-without-verifying path,
+  and the new stat-card details dialogs (same recurring credential gap —
+  no Super-Admin/Admin test account available this session). The color
+  match itself *was* verified visually.
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking
