@@ -1,42 +1,23 @@
 package com.emfitsolutions.gopreach.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 /**
- * One action tile in the Main Form's icon grid — originally the "Professional
- * Green Icon-Based Main Form Redesign," now purple per the "Purple Brand
- * Logo and Purple/White Theme" spec: a large, consistently-colored circular
- * icon badge with a short label underneath, not a shrunk button with a tiny
- * icon inside it. Every dimension here (badge size, icon size, tap target,
- * spacing) is a deliberate, fixed system rather than "whatever fits" — see
- * the inline comments below for the reasoning behind each number, so a
- * future tweak changes the system on purpose instead of by accident.
- *
- * Uses `MaterialTheme.colorScheme.primary` (not a separate fixed constant)
- * for the badge/icon color — the app's overall primary color *is* the brand
- * purple in both light and dark theme now, so tying the icon system directly
- * to it is what keeps them from ever silently drifting apart, and it
- * automatically picks the correctly-contrasting purple tone for whichever
- * theme is active (deep purple on white, bright purple on #121212).
+ * One action button in the Main Form (Coordinator Elder/Regular Elder/
+ * Publisher dashboards) — per explicit request, a plain text button: no
+ * icon, and no per-item accent/color coding (a single neutral outlined
+ * style for every function alike, not the earlier purple icon-badge grid).
+ * [icon] is accepted but intentionally unused, kept only so every existing
+ * call site (there are several, across AdminHomeScreen/PublisherHomeScreen)
+ * didn't need to change just because the visual design did.
  */
 @Composable
 fun DashboardTile(
@@ -45,52 +26,13 @@ fun DashboardTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        // 96dp: wide enough for a two-line label under the 64dp badge without
-        // wrapping awkwardly, narrow enough that 3 fit per row on a standard
-        // ~360dp-wide phone with the grid's own spacing (spec §3/§9: fits
-        // small phones through tablets without the tile itself changing shape
-        // — DashboardSection's FlowRow is what reflows the *count* per row).
-        modifier = modifier
-            .width(96.dp)
-            .clip(RoundedCornerShape(16.dp))
-            // The clickable area is the *entire* tile (badge + label + this
-            // padding), not just the visible icon circle (spec §7: "the
-            // clickable area must be large enough... do not make the actual
-            // clickable area too small") — comfortably exceeds Android's
-            // 48dp minimum touch target in both dimensions once the label
-            // and padding are included.
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier,
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
     ) {
-        Box(
-            // 64dp badge, 28dp glyph: large enough to read as the visually
-            // dominant element on the tile (spec §6: "icon should be visually
-            // dominant") while the label stays legible text, not a caption —
-            // the same badge size is used everywhere a DashboardTile appears,
-            // so every function in the grid reads as one consistent system
-            // (spec §8) rather than some icons looking more important than others.
-            modifier = Modifier
-                .size(64.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(30.dp),
-            )
-        }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        Text(text = label, modifier = Modifier.padding(vertical = 4.dp))
     }
 }

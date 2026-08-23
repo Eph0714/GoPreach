@@ -566,6 +566,26 @@ and are deferred rather than half-built:
   correct black-on-light-purple button text), and the home-screen launcher
   icon all render correctly.
 
+## Phase 21 — Main Form buttons: icons and color coding removed ✅ done
+
+- **`DashboardTile` reverted to a plain text button**: per explicit request,
+  removed the circular icon badge entirely — Coordinator Elder/Regular
+  Elder/Publisher dashboards now show plain `OutlinedButton`s with just the
+  label, no icon, and no per-item or brand-color tinting (neutral
+  `onSurface` content color, not the purple accent). The `icon` parameter is
+  still accepted (unused) so none of the existing call sites in
+  `AdminHomeScreen`/`PublisherHomeScreen` needed to change.
+- **Scope note**: "buttons in main form" was read as the clickable
+  navigation tiles (`DashboardTile`) specifically — the Reports Dashboard's
+  `StatCard` grid and chart color-coding (Regular Pioneers/Elders/etc., each
+  a fixed distinct color) were left untouched, since those are statistic
+  displays, not buttons, and their color-coding was a separate, explicit,
+  still-standing request from a few phases back. Flagged this reading back
+  to the user in case "do not color code it" was meant to cover that too.
+- Verified: clean compile, app installs and still launches to Login without
+  a crash. Not verified on a screen that actually renders a `DashboardTile`
+  (same recurring credential gap as prior phases).
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking
