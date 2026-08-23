@@ -38,6 +38,7 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         setContent {
             val preference by themePreferenceRepository.preference.collectAsStateWithLifecycle()
+            val colorOption by themePreferenceRepository.colorOption.collectAsStateWithLifecycle()
             val darkTheme = when (preference) {
                 ThemePreference.SYSTEM -> isSystemInDarkTheme()
                 ThemePreference.LIGHT -> false
@@ -45,8 +46,9 @@ class MainActivity : FragmentActivity() {
             }
             // Dynamic (wallpaper-derived) color is deliberately off — spec §1 asks for
             // a clean, consistent look, which a fixed brand palette delivers more
-            // reliably than colors that shift with the user's wallpaper.
-            GoPreachTheme(darkTheme = darkTheme, dynamicColor = false) {
+            // reliably than colors that shift with the user's wallpaper. colorOption
+            // is the user's own per-device accent color pick (Settings screen) instead.
+            GoPreachTheme(darkTheme = darkTheme, dynamicColor = false, colorOption = colorOption) {
                 // enableEdgeToEdge() opts this app out of the system's automatic
                 // windowSoftInputMode="adjustResize" handling — Compose has to react to
                 // the IME inset itself, or the keyboard simply draws on top of whatever

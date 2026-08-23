@@ -6,10 +6,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
@@ -45,6 +48,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
+import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
+import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import kotlinx.coroutines.launch
 
 /** Spec §3/§5.1 — Manage Congregation Master File, Super-Admin only.
@@ -174,6 +180,10 @@ fun ManageCongregationsScreen(
     }
 }
 
+/** Congregation's editable surface (Name/Address/Code) is already the whole
+ * record's editable content — this adds the previously-missing read-only
+ * System Information (record ID, status, date added) so the full stored
+ * record is visible, not just what happens to be editable. */
 @Composable
 private fun EditCongregationDialog(
     congregation: Congregation,
@@ -188,7 +198,11 @@ private fun EditCongregationDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit Congregation") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                EditSectionHeader("Congregation Information")
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.uppercase() },
@@ -212,6 +226,11 @@ private fun EditCongregationDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                EditSectionHeader("System Information")
+                ReadOnlyField("Record ID", congregation.id)
+                ReadOnlyField("Status", congregation.status.name)
+                ReadOnlyField("Date Added", formatRecordTimestamp(congregation.createdAt))
             }
         },
         confirmButton = {
@@ -221,7 +240,7 @@ private fun EditCongregationDialog(
                         onSave(congregation.copy(name = name.trim(), address = address.trim(), code = code.trim()))
                     }
                 },
-            ) { Text("Save") }
+            ) { Text("Save Changes") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

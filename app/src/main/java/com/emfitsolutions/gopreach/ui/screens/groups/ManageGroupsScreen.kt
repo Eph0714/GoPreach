@@ -53,7 +53,10 @@ import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
+import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.displayLabel
+import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 
 /** Spec: "CRUD Groups" — each Group needs exactly one Elder in each of three
  * roles (Overseer/Servant/Assistant), not the single Elder this used to allow.
@@ -331,6 +334,13 @@ private fun GroupDialog(
                     selected = assistant,
                     onSelected = { assistant = it },
                 )
+
+                if (existingGroup != null) {
+                    EditSectionHeader("System Information")
+                    ReadOnlyField("Record ID", existingGroup.id)
+                    ReadOnlyField("Status", existingGroup.status.name)
+                    ReadOnlyField("Date Added", formatRecordTimestamp(existingGroup.createdAt))
+                }
             }
         },
         confirmButton = {

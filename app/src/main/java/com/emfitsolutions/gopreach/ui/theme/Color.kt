@@ -36,3 +36,15 @@ val OnSurfaceDark = Color(0xFFFFFFFF) // white text on dark theme
 val StatusPending = Color(0xFFE0A526) // "pending sync" indicator — a genuine status color, kept (spec §9's exception)
 val StatusSynced = Color(0xFF2E9E5B)
 val StatusError = Color(0xFFC63737)
+
+/** One set of accent hues for [ThemeColorOption] — everything else (surfaces,
+ * backgrounds, white/#121212 base) stays exactly as the brand theme already
+ * defines it; only the primary/secondary accent shifts per user choice. */
+data class ThemeColorSwatch(
+    val light: Color,
+    val lightContainer: Color,
+    val secondary: Color,
+    val darkBright: Color,
+    val darkContainer: Color,
+    val secondaryDark: Color,
+)

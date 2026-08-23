@@ -118,15 +118,24 @@ fun LoginScreen(
             .verticalScroll(rememberScrollState()),
     ) {
         GradientHero(height = 220.dp) {
+                // Bottom-aligned rather than pinned under the status bar — sitting
+                // right at the top of the hero read as too high/cramped; anchoring
+                // to the bottom instead gives the title/subtitle block room to
+                // breathe and keeps it comfortably in view regardless of status bar
+                // height across devices.
                 Column(
-                    modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(top = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text("GoPreach", style = MaterialTheme.typography.headlineLarge, color = Color.White)
                     Text(
                         "Ministry Activity Tracking",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.secondary,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
                     )
                 }
             }

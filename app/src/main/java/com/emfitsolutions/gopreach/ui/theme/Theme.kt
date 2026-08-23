@@ -1,8 +1,8 @@
 package com.emfitsolutions.gopreach.ui.theme
 
-import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -12,12 +12,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
-private val LightColors = lightColorScheme(
-    primary = PrimaryPurple,
+private fun lightColorsFor(swatch: ThemeColorSwatch): ColorScheme = lightColorScheme(
+    primary = swatch.light,
     onPrimary = Color.White,
-    primaryContainer = PrimaryPurpleLight,
+    primaryContainer = swatch.lightContainer,
     onPrimaryContainer = Color.White,
-    secondary = SecondaryPurple,
+    secondary = swatch.secondary,
     onSecondary = Color.White,
     background = SurfaceLight,
     onBackground = OnSurfaceLight,
@@ -31,12 +31,12 @@ private val LightColors = lightColorScheme(
     onError = Color.White,
 )
 
-private val DarkColors = darkColorScheme(
-    primary = PrimaryPurpleBright,
+private fun darkColorsFor(swatch: ThemeColorSwatch): ColorScheme = darkColorScheme(
+    primary = swatch.darkBright,
     onPrimary = Color.Black,
-    primaryContainer = PrimaryPurpleContainerDark,
+    primaryContainer = swatch.darkContainer,
     onPrimaryContainer = Color.White,
-    secondary = SecondaryPurpleDark,
+    secondary = swatch.secondaryDark,
     onSecondary = Color.Black,
     background = DarkBackground121212,
     onBackground = OnSurfaceDark,
@@ -53,12 +53,15 @@ private val DarkColors = darkColorScheme(
 /**
  * GoPreach Material 3 theme. Uses dynamic color on Android 12+ where available,
  * falling back to the fixed brand palette otherwise, and follows the system
- * light/dark setting.
+ * light/dark setting. [colorOption] is the user's own per-device accent color
+ * choice (Settings screen) — [ThemeColorOption.PURPLE] is the original brand
+ * default.
  */
 @Composable
 fun GoPreachTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
+    colorOption: ThemeColorOption = ThemeColorOption.PURPLE,
     content: @Composable () -> Unit,
 ) {
     val colorScheme = when {
@@ -66,8 +69,8 @@ fun GoPreachTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        darkTheme -> DarkColors
-        else -> LightColors
+        darkTheme -> darkColorsFor(colorOption.swatch)
+        else -> lightColorsFor(colorOption.swatch)
     }
 
     MaterialTheme(

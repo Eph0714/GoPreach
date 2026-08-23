@@ -37,6 +37,8 @@ import com.emfitsolutions.gopreach.data.model.AccountStatus
 import com.emfitsolutions.gopreach.data.model.Permission
 import com.emfitsolutions.gopreach.data.model.ScopeType
 import com.emfitsolutions.gopreach.data.repository.TempCredentials
+import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
+import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 
 /**
  * One form for both [ADD] and [Edit] (spec §4/§8) — Role+Permission+Scope, not
@@ -98,6 +100,51 @@ fun AddEditUserScreen(
                     "A username and temporary password are generated automatically — you'll get a shareable link once this is saved.",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                HorizontalDivider()
+            } else {
+                // Show the complete stored Person record when editing, not just
+                // permissions/scope/status — Personal Information is editable;
+                // Username/Date Added are system-generated and shown read-only.
+                Text("Personal Information", style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(
+                    value = uiState.firstName,
+                    onValueChange = viewModel::onFirstNameChange,
+                    label = { Text("First Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = uiState.lastName,
+                    onValueChange = viewModel::onLastNameChange,
+                    label = { Text("Last Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = uiState.address,
+                    onValueChange = viewModel::onAddressChange,
+                    label = { Text("Address") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = uiState.contact,
+                    onValueChange = viewModel::onContactChange,
+                    label = { Text("Contact") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = uiState.email,
+                    onValueChange = viewModel::onEmailChange,
+                    label = { Text("Email (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                HorizontalDivider()
+                Text("System Information", style = MaterialTheme.typography.titleMedium)
+                ReadOnlyField("Username", uiState.username)
+                ReadOnlyField("Date Added", formatRecordTimestamp(uiState.createdAt))
                 HorizontalDivider()
             }
 

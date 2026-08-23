@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
@@ -43,6 +46,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
+import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
+import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 
 /** Spec §3/§5.1 — Manage Admins, Super-Admin only. "Move to Inactive" deactivates
@@ -175,12 +181,18 @@ fun ManageAdminsScreen(
     }
 }
 
+/** Shows the complete stored Admin record when editing, not just Address/
+ * Contact/Email — Personal Information is editable; Assignment and System
+ * Information are read-only (congregation reassignment and active/inactive
+ * status already have their own dedicated flows on this screen). */
 @Composable
 private fun EditAdminDialog(
     row: AdminRow,
     onSave: (Person) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var firstName by remember { mutableStateOf(row.person.firstName) }
+    var lastName by remember { mutableStateOf(row.person.lastName) }
     var address by remember { mutableStateOf(row.person.address) }
     var contact by remember { mutableStateOf(row.person.contact) }
     var email by remember { mutableStateOf(row.person.email ?: "") }
@@ -189,7 +201,27 @@ private fun EditAdminDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit ${row.person.fullName}") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                EditSectionHeader("Personal Information")
+                OutlinedTextField(
+                    value = firstName,
+                    onValueChange = { firstName = it.uppercase() },
+                    label = { Text("First Name") },
+                    singleLine = true,
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = lastName,
+                    onValueChange = { lastName = it.uppercase() },
+                    label = { Text("Last Name") },
+                    singleLine = true,
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 OutlinedTextField(
                     value = address,
                     onValueChange = { address = it.uppercase() },
@@ -213,12 +245,31 @@ private fun EditAdminDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                EditSectionHeader("Assignment")
+                ReadOnlyField("Congregation", row.congregationName)
+                ReadOnlyField("Role", "Admin")
+
+                EditSectionHeader("System Information")
+                ReadOnlyField("Username", row.person.username)
+                ReadOnlyField("Status", if (row.isActive) "Active" else "Inactive")
+                ReadOnlyField("Date Added", formatRecordTimestamp(row.person.createdAt))
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                onSave(row.person.copy(address = address.trim(), contact = contact.trim(), email = email.trim().ifBlank { null }))
-            }) { Text("Save") }
+                if (firstName.isNotBlank() && lastName.isNotBlank() && address.isNotBlank() && contact.isNotBlank()) {
+                    onSave(
+                        row.person.copy(
+                            firstName = firstName.trim(),
+                            lastName = lastName.trim(),
+                            address = address.trim(),
+                            contact = contact.trim(),
+                            email = email.trim().ifBlank { null },
+                        ),
+                    )
+                }
+            }) { Text("Save Changes") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

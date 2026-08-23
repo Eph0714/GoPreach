@@ -32,6 +32,16 @@ import javax.inject.Inject
 data class AddEditUserUiState(
     val isEditMode: Boolean = false,
     val fullName: String = "",
+    /** Edit-mode-only fields — show the complete stored Person record, not
+     * just permissions/scope/status (spec: "Show Complete Record Information
+     * When Editing"). [username]/[createdAt] are read-only/system-generated. */
+    val firstName: String = "",
+    val lastName: String = "",
+    val address: String = "",
+    val contact: String = "",
+    val email: String = "",
+    val username: String = "",
+    val createdAt: Long = 0L,
     val selectedPermissions: Set<Permission> = emptySet(),
     val scopeType: ScopeType = ScopeType.SELECTED_CONGREGATIONS,
     val selectedCongregationIds: Set<String> = emptySet(),
@@ -75,6 +85,13 @@ class AddEditUserViewModel @Inject constructor(
                 it.copy(
                     isLoading = false,
                     fullName = person?.fullName.orEmpty(),
+                    firstName = person?.firstName.orEmpty(),
+                    lastName = person?.lastName.orEmpty(),
+                    address = person?.address.orEmpty(),
+                    contact = person?.contact.orEmpty(),
+                    email = person?.email.orEmpty(),
+                    username = person?.username.orEmpty(),
+                    createdAt = person?.createdAt ?: 0L,
                     status = person?.accountStatus ?: AccountStatus.ACTIVE,
                     selectedPermissions = grant?.resolvedPermissions.orEmpty(),
                     scopeType = grant?.resolvedScopeType ?: ScopeType.SELECTED_CONGREGATIONS,
@@ -85,6 +102,11 @@ class AddEditUserViewModel @Inject constructor(
     }
 
     fun onFullNameChange(value: String) = _uiState.update { it.copy(fullName = value.uppercase(), errorMessage = null) }
+    fun onFirstNameChange(value: String) = _uiState.update { it.copy(firstName = value.uppercase(), errorMessage = null) }
+    fun onLastNameChange(value: String) = _uiState.update { it.copy(lastName = value.uppercase(), errorMessage = null) }
+    fun onAddressChange(value: String) = _uiState.update { it.copy(address = value.uppercase(), errorMessage = null) }
+    fun onContactChange(value: String) = _uiState.update { it.copy(contact = value.uppercase(), errorMessage = null) }
+    fun onEmailChange(value: String) = _uiState.update { it.copy(email = value, errorMessage = null) }
 
     fun onPermissionToggled(permission: Permission, checked: Boolean) = _uiState.update {
         it.copy(selectedPermissions = if (checked) it.selectedPermissions + permission else it.selectedPermissions - permission)
@@ -186,16 +208,26 @@ class AddEditUserViewModel @Inject constructor(
                 )
             }
             val person = personRepository.get(personId)
-            if (person != null && person.accountStatus != _uiState.value.status) {
-                val previousStatus = person.accountStatus
-                personRepository.save(person.copy(accountStatus = _uiState.value.status))
-                auditLogRepository.log(
-                    actorPersonId = actingPersonId,
-                    action = "CHANGE_USER_STATUS",
-                    targetType = "Person",
-                    targetId = personId,
-                    details = "status: $previousStatus -> ${_uiState.value.status}",
+            if (person != null) {
+                val state = _uiState.value
+                val updated = person.copy(
+                    firstName = state.firstName.trim().ifBlank { person.firstName },
+                    lastName = state.lastName.trim().ifBlank { person.lastName },
+                    address = state.address.trim(),
+                    contact = state.contact.trim(),
+                    email = state.email.trim().ifBlank { null },
+                    accountStatus = state.status,
                 )
+                if (updated != person) personRepository.save(updated)
+                if (person.accountStatus != state.status) {
+                    auditLogRepository.log(
+                        actorPersonId = actingPersonId,
+                        action = "CHANGE_USER_STATUS",
+                        targetType = "Person",
+                        targetId = personId,
+                        details = "status: ${person.accountStatus} -> ${state.status}",
+                    )
+                }
             }
             _uiState.update { it.copy(isSaving = false, saveCompleted = true) }
         }

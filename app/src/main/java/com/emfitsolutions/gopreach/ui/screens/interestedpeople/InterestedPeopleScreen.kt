@@ -30,7 +30,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,7 +62,10 @@ import com.emfitsolutions.gopreach.data.model.SupportingImage
 import com.emfitsolutions.gopreach.data.model.Visit
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
+import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.SupportingImageSection
+import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -233,9 +235,10 @@ private fun InterestedPersonDialog(
         title = { Text(if (existingPerson == null) "New Interested Person" else "Edit Interested Person") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                EditSectionHeader("Personal Information")
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.uppercase() },
@@ -267,12 +270,23 @@ private fun InterestedPersonDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                HorizontalDivider()
+
+                EditSectionHeader("Supporting Information")
                 SupportingImageSection(
                     currentImage = image,
                     onImageConfirmed = { image = it },
                     onClear = { image = null },
                 )
+
+                if (existingPerson != null) {
+                    EditSectionHeader("System Information")
+                    ReadOnlyField("Record ID", existingPerson.id)
+                    ReadOnlyField("Status", existingPerson.status.name)
+                    ReadOnlyField("Date Added", formatRecordTimestamp(existingPerson.createdAt))
+                    if (existingPerson.gpsLat != null && existingPerson.gpsLng != null) {
+                        ReadOnlyField("Location", "${existingPerson.gpsLat}, ${existingPerson.gpsLng}")
+                    }
+                }
             }
         },
         confirmButton = {

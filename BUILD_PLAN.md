@@ -824,14 +824,94 @@ and are deferred rather than half-built:
   network/no-network/progress/summary states were not exercised live (same
   recurring credential gap).
 
+## Phase 27 — Complete-record Edit forms, true offline login, Login layout, multi Theme Color ✅ done
+
+- **"Show Complete Record Information When Editing"** — every Manage
+  screen's Edit dialog now shows the complete stored record, not just a
+  couple of fields, organized into sections (`EditSectionHeader`) with a
+  clear editable/read-only split (`ReadOnlyField`, both new shared
+  components in `RecordEditSections.kt`):
+  - **Congregations**: added System Information (Record ID, Status, Date
+    Added) — the 3 editable fields already covered the whole editable
+    surface.
+  - **Groups**: same System Information addition; the 3 role dropdowns +
+    name already covered the rest.
+  - **Publishers**: was Address/Contact only — now First/Last Name, Email
+    added as editable; Category, Group, Username, Account Status, Date
+    Added added as read-only (Category/Group already have their own
+    dedicated controls elsewhere on the screen, so they're shown, not
+    re-editable here).
+  - **Admins**: same expansion — First/Last Name added as editable;
+    Congregation, Role, Username, Status, Date Added added read-only.
+  - **Coordinator/Regular Elders** (shared `ElderListScreen`): same
+    expansion, plus Email added as editable; Congregation/Group scope,
+    Group Role (Regular Elder only), Username, Status, Date Added added
+    read-only.
+  - **Interested Persons**: name/gender/address/religion/image already
+    covered the whole editable surface — added Record ID, Status, Date
+    Added, and GPS location (when captured) as read-only.
+  - **Restricted Users** (`AddEditUserScreen`): the biggest gap — Edit mode
+    previously showed *no* Personal Information fields at all (not even the
+    person's name), only Permissions/Scope/Status. Now shows First/Last
+    Name, Address, Contact, Email as editable, and Username/Date Added as
+    read-only, alongside the existing Permissions/Scope/Account Status
+    sections.
+  - All of this reads from/writes to the same Room-cached, offline-first
+    repositories every other screen already uses — no separate online-only
+    path, so editing offline and seeing it marked Pending Sync already
+    works via the existing architecture, unchanged.
+- **True offline login** — the "session reuse" fix from Phase 26 wasn't
+  enough in practice, so this adds the actual local-credential fallback the
+  spec (and the user) asked for:
+  - `OfflineAuthStore` (new): every successful *online* [`AuthRepository
+    .signIn`] now also saves a PBKDF2-hashed verifier (random per-record
+    salt, 120,000 iterations, at rest in `EncryptedSharedPreferences`/
+    Android Keystore) for that exact username/password — never the
+    password itself. Independent of the "Remember me" checkbox, which is
+    a separate, opt-in, unrelated biometric-unlock convenience.
+  - `AuthRepository.offlineSignIn(username, password)` (new): verifies
+    against that saved hash with no network call at all, then grants
+    access using whatever Person/RoleAssignment data is already cached
+    locally from the prior online session (spec §1's "last synchronized
+    permissions and scope").
+  - `OfflineSessionMarker` (new): Firebase's own Auth SDK has no offline
+    sign-in path — it always requires a network round trip — so a
+    successful `offlineSignIn` can't make `FirebaseAuth.currentUser`
+    non-null the way a real online sign-in does. This marker is the app's
+    own "this personId is signed in" record; `UserSession.state` now reads
+    Firebase's persisted auth state *or* this marker (Firebase wins when
+    both are present), so the reactive nav routing treats an offline
+    sign-in exactly like a normal one everywhere else in the app.
+  - `LoginViewModel` now checks `ConnectivityObserver.isOnline()` before
+    submitting and calls `offlineSignIn` instead of `signIn` when offline.
+  - Only works for a user who has signed in online at least once on that
+    specific device — matches this app's own documented offline-first flow
+    ("First Online Login" → "Device Can Operate Offline"); a device that
+    has never been online with this app still correctly cannot log in
+    without network.
+- **Login screen layout**: "Ministry Activity Tracking" was small,
+  low-contrast (`colorScheme.secondary` on the purple gradient), and
+  pinned right under the status bar. Now bold, white, `titleMedium`, and
+  the whole title/subtitle block is bottom-aligned within the hero instead
+  of top-aligned, so it reads clearly and sits lower on the screen.
+- **Multi Theme Color choices** — a new, purely per-device (never synced,
+  never shared) accent-color picker in Settings → Appearance, alongside the
+  existing Light/Dark/System choice: `ThemeColorOption` (Purple/Blue/Green/
+  Teal/Orange/Red, Purple staying the original default), stored via
+  `ThemePreferenceRepository` (extended, same SharedPreferences pattern as
+  the existing theme preference), applied in `GoPreachTheme` by swapping
+  just the primary/secondary accent hues — surfaces, backgrounds, and the
+  white/#121212 base stay exactly as the brand theme already defines them.
+- Verified via `./gradlew :app:compileDebugKotlin` after each change, a
+  full `:app:assembleDebug`, and an on-device screenshot of the Login
+  screen (v1.13.0) confirming the new layout/subtitle styling. Not verified
+  live: the expanded Edit dialogs' actual save behavior, the offline-login
+  flow itself (would need airplane mode + a real prior online sign-in on
+  this emulator, which needs Super-Admin/Admin/Publisher credentials this
+  session doesn't have), and the Theme Color picker (Settings requires
+  being signed in).
+
 ## What's next (not blocking, tracked for a future pass)
-- **NOT STARTED — "Show Complete Record Information When Editing"**: a full
-  pass across every Edit screen (Congregations, Groups, Publishers, Elders,
-  Interested Persons, Users, and others) to show the complete stored record
-  — organized into sections (Personal/Assignment/Status/Supporting Info),
-  read-only vs. editable fields distinguished, images/attachments visible
-  inline, offline-safe (load from Room cache, save as Pending Sync) — this
-  is a large, multi-screen redesign task requested but not yet begun.
 - Real per-field sync conflict detection/resolution (needs a version/
   timestamp field added to synced documents first) and a discrete
   downloaded-changes count in the Sync to Server summary — see Phase 26.

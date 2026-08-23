@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.repository.AuthRepository
 import com.emfitsolutions.gopreach.data.repository.AuthResult
 import com.emfitsolutions.gopreach.data.repository.CredentialStore
+import com.emfitsolutions.gopreach.data.sync.ConnectivityObserver
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,7 @@ data class LoginUiState(
 class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val credentialStore: CredentialStore,
+    private val connectivityObserver: ConnectivityObserver,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -87,10 +89,22 @@ class LoginViewModel @Inject constructor(
         performSignIn(saved.first, saved.second)
     }
 
+    /** "Offline Login" spec §1 — no network means Firebase's own sign-in call
+     * can't be made at all (it always requires a round trip; there's no offline
+     * path in the SDK), so this checks connectivity first and, when offline,
+     * verifies against the locally-hashed credential saved by this device's
+     * last successful *online* sign-in instead — see
+     * [AuthRepository.offlineSignIn]. "Remember me"'s saved pair is unrelated
+     * (that's for the optional biometric shortcut) and isn't touched here. */
     private fun performSignIn(username: String, password: String) {
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         viewModelScope.launch {
-            when (val result = authRepository.signIn(username, password)) {
+            val result = if (connectivityObserver.isOnline()) {
+                authRepository.signIn(username, password)
+            } else {
+                authRepository.offlineSignIn(username, password)
+            }
+            when (result) {
                 is AuthResult.Success -> {
                     if (_uiState.value.rememberMe) {
                         credentialStore.save(username, password)

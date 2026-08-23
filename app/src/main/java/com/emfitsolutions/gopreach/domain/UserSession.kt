@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.domain
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.UserAccessGrant
+import com.emfitsolutions.gopreach.data.repository.OfflineSessionMarker
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.UserAccessGrantRepository
@@ -79,6 +80,7 @@ class UserSession @Inject constructor(
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val userAccessGrantRepository: UserAccessGrantRepository,
+    private val offlineSessionMarker: OfflineSessionMarker,
     @ApplicationScope appScope: CoroutineScope,
 ) {
     private fun authStateFlow(): Flow<String?> = callbackFlow {
@@ -89,7 +91,15 @@ class UserSession @Inject constructor(
         awaitClose { firebaseAuth.removeAuthStateListener(listener) }
     }
 
-    val state: StateFlow<SessionState> = authStateFlow()
+    /** Firebase's own persisted sign-in wins when present (the normal case —
+     * survives app restart with no network needed on its own); [OfflineSessionMarker]
+     * only matters for [com.emfitsolutions.gopreach.data.repository.AuthRepository
+     * .offlineSignIn], which Firebase's SDK has no way to reflect into
+     * `currentUser` itself since it never makes a network call. */
+    private fun signedInPersonIdFlow(): Flow<String?> =
+        combine(authStateFlow(), offlineSessionMarker.personId) { firebaseId, offlineId -> firebaseId ?: offlineId }
+
+    val state: StateFlow<SessionState> = signedInPersonIdFlow()
         .flatMapLatest { personId ->
             if (personId == null) {
                 flowOf(SessionState(isLoading = false, person = null, roleAssignments = emptyList()))

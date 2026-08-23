@@ -44,9 +44,11 @@ class AuthRepository @Inject constructor(
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val auditLogRepository: AuditLogRepository,
+    private val offlineAuthStore: OfflineAuthStore,
+    private val offlineSessionMarker: OfflineSessionMarker,
 ) {
     val currentPersonId: String?
-        get() = personIdFromAuthEmail(firebaseAuth.currentUser?.email)
+        get() = personIdFromAuthEmail(firebaseAuth.currentUser?.email) ?: offlineSessionMarker.personId.value
 
     suspend fun findPersonByUsername(username: String): Person? =
         firestore.collection("people")
@@ -70,6 +72,13 @@ class AuthRepository @Inject constructor(
         return try {
             firebaseAuth.signInWithEmailAndPassword(authEmailFor(person.id), password).await()
             personRepository.save(person) // seed local cache for offline use this session
+            // "Offline Login" spec §1-§2: securely cache a hashed verifier for this
+            // exact username/password (never the password itself) so a later
+            // sign-in attempt with no network can still be verified — see
+            // [offlineSignIn]. Independent of the "Remember me" checkbox, which is
+            // a separate, opt-in biometric-unlock convenience.
+            offlineAuthStore.saveVerifier(username, password, person.id)
+            offlineSessionMarker.save(person.id)
             auditLogRepository.log(actorPersonId = person.id, action = "SIGN_IN")
             AuthResult.Success(person, requiresPasswordChange = person.isTemporaryCredential)
         } catch (e: Exception) {
@@ -77,8 +86,31 @@ class AuthRepository @Inject constructor(
         }
     }
 
+    /** "Offline Login" spec §1 — used instead of [signIn] whenever the device has
+     * no network connection. Verifies the entered password against the hashed
+     * verifier saved by the most recent successful *online* [signIn] on this
+     * device (never touches the network, never compares a stored plaintext
+     * password), then grants access using whatever Person/RoleAssignment data is
+     * already cached locally from that prior session (spec §1: "the user's last
+     * synchronized permissions and scope") — see [OfflineSessionMarker] for how
+     * this makes [UserSession] treat the app as signed in without
+     * `FirebaseAuth.currentUser`, which Firebase's SDK has no offline path to
+     * populate. */
+    suspend fun offlineSignIn(username: String, password: String): AuthResult {
+        val personId = offlineAuthStore.verify(username, password)
+            ?: return AuthResult.Error("Invalid username or password.")
+        val person = personRepository.get(personId)
+            ?: return AuthResult.Error("No local data available for this account yet. Connect to the internet at least once, then try again.")
+        if (!PermissionChecker.isAccountUsable(person)) {
+            return AuthResult.Error("This account has been deactivated. Contact your administrator.")
+        }
+        offlineSessionMarker.save(personId)
+        return AuthResult.Success(person, requiresPasswordChange = person.isTemporaryCredential)
+    }
+
     fun signOut() {
         firebaseAuth.signOut()
+        offlineSessionMarker.clear()
     }
 
     /**
