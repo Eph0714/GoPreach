@@ -249,6 +249,52 @@ afterward, with no data loss and no re-prompt.
   this phase (see SETUP.md's updated bootstrap steps) — there's still no
   in-app "create another Super-Admin" flow, by design.
 
+## Phase 12 — Interested Person supporting-place image capture ✅ done
+
+- **Capture / Change / Clear**, all in one reusable `SupportingImageSection`
+  composable (used from both the "New Interested Person" and "Edit
+  Interested Person" dialogs — there was no edit dialog for a person's own
+  fields at all before this phase, only Add + Delete, so this phase adds real
+  editing too, not just the image part of it): [Capture Image] opens the
+  device camera (`ActivityResultContracts.TakePicturePreview`, with a runtime
+  `CAMERA` permission request first), shows the captured shot in an inline
+  preview with **Use Photo** / **Retake Photo**, and only calls back into the
+  form's state on "Use Photo" — nothing is saved to the record until the
+  surrounding dialog's own Save/Add is tapped. [Change Image] is the same
+  capture flow layered over an existing image, and per spec §6 the old image
+  stays exactly where it is (in the dialog's local state) until a *new* one
+  is confirmed — a cancelled or abandoned recapture can never lose what was
+  already saved. [Clear Image] shows the exact confirmation copy from the
+  spec, then empties the image slot back to the "No supporting image" +
+  [Capture Image] empty state.
+- **Storage**: the compressed JPEG (downscaled to ≤1024px, quality 60 — a
+  few hundred KB at most) is Base64-encoded directly into a new
+  `InterestedPerson.supportingImages` field, **not** Firebase Storage — this
+  project's Storage bucket isn't provisioned (still needs the paid Blaze
+  plan, see SETUP.md). Embedding it in the same Firestore document instead
+  means it rides the existing offline-first Room-cache + Firestore-sync path
+  with zero new plumbing, inherits the InterestedPerson record's own access
+  control automatically (spec §9's "same security rules as the record"), and
+  has no separate download URL of any kind to leak (spec §9's other
+  requirement) — there's nothing to fetch independently of the record.
+- **Future-ready structure** (spec §8): `SupportingImage` carries a `type`
+  field (`SupportingImageType`: HOUSE/GATE/LANDMARK/MEETING_PLACE/OTHER) and
+  `InterestedPerson.supportingImages` is already a list — today's UI only
+  ever reads/writes the first entry (`primarySupportingImage`), so adding a
+  real multi-image picker later is a UI change on top of an already-correct
+  data model, not a migration.
+- New `CAMERA` runtime permission + `<uses-feature ... required="false">` (so
+  the app still installs on a camera-less device/emulator) in the manifest.
+
+**Known gap, disclosed rather than skipped**: not verified on a physical
+device's real camera this pass — compiles and installs cleanly, and the
+emulator's simulated camera exercises the same code path, but there's no
+Publisher test account credential available in this session to walk the
+actual capture → preview → confirm → save round-trip end-to-end on-device.
+Recommended before relying on this in the field: sign in as a Publisher, add
+an Interested Person, capture an image, back out and reopen the record to
+confirm it persisted, then exercise Change Image and Clear Image the same way.
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking

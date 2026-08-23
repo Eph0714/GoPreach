@@ -1,8 +1,10 @@
 package com.emfitsolutions.gopreach.ui.screens.interestedpeople
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,10 +15,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
@@ -24,6 +28,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +46,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -48,8 +56,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Gender
 import com.emfitsolutions.gopreach.data.model.HouseholderStatus
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
+import com.emfitsolutions.gopreach.data.model.SupportingImage
 import com.emfitsolutions.gopreach.data.model.Visit
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
+import com.emfitsolutions.gopreach.ui.components.SupportingImageSection
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -148,7 +158,8 @@ private fun InterestedPeopleListScreen(
     }
 
     if (showCreateDialog) {
-        CreateInterestedPersonDialog(
+        InterestedPersonDialog(
+            existingPerson = null,
             publisherPersonId = publisherPersonId,
             onSave = { viewModel.save(it) },
             onDismiss = { showCreateDialog = false },
@@ -172,23 +183,29 @@ private fun InterestedPeopleListScreen(
     }
 }
 
+/** Handles both "New Interested Person" (spec §7: image is optional at
+ * creation) and "Edit Interested Person" (spec §1-§2: the existing supporting
+ * image, if any, shows here with Change/Clear) — one form, per this
+ * codebase's established Create/Edit-dialog pattern (see e.g. ManageGroupsScreen). */
 @Composable
-private fun CreateInterestedPersonDialog(
+private fun InterestedPersonDialog(
+    existingPerson: InterestedPerson?,
     publisherPersonId: String,
     onSave: (InterestedPerson) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
-    var address by remember { mutableStateOf("") }
-    var religion by remember { mutableStateOf("") }
-    var gender by remember { mutableStateOf<Gender?>(null) }
+    var name by remember { mutableStateOf(existingPerson?.name.orEmpty()) }
+    var address by remember { mutableStateOf(existingPerson?.address.orEmpty()) }
+    var religion by remember { mutableStateOf(existingPerson?.religion.orEmpty()) }
+    var gender by remember { mutableStateOf(existingPerson?.gender) }
+    var image by remember { mutableStateOf(existingPerson?.primarySupportingImage) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New Interested Person") },
+        title = { Text(if (existingPerson == null) "New Interested Person" else "Edit Interested Person") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 OutlinedTextField(
@@ -222,6 +239,12 @@ private fun CreateInterestedPersonDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                HorizontalDivider()
+                SupportingImageSection(
+                    currentImage = image,
+                    onImageConfirmed = { image = it },
+                    onClear = { image = null },
+                )
             }
         },
         confirmButton = {
@@ -229,19 +252,21 @@ private fun CreateInterestedPersonDialog(
                 onClick = {
                     if (name.isNotBlank() && address.isNotBlank() && gender != null) {
                         onSave(
-                            InterestedPerson(
+                            (existingPerson ?: InterestedPerson(
                                 publisherPersonId = publisherPersonId,
+                                createdAt = System.currentTimeMillis(),
+                            )).copy(
                                 name = name.trim(),
                                 gender = gender,
                                 address = address.trim(),
                                 religion = religion.trim().ifBlank { null },
-                                createdAt = System.currentTimeMillis(),
-                            )
+                                supportingImages = listOfNotNull(image),
+                            ),
                         )
                         onDismiss()
                     }
                 },
-            ) { Text("Add") }
+            ) { Text(if (existingPerson == null) "Add" else "Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -258,6 +283,7 @@ private fun InterestedPersonDetailScreen(
     val visitsFlow = remember(person.id) { viewModel.visitsFor(person.id) }
     val visits by visitsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showAddVisit by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
 
     Scaffold(
@@ -267,6 +293,11 @@ private fun InterestedPersonDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showEditDialog = true }) {
+                        Icon(Icons.Rounded.Edit, contentDescription = "Edit")
                     }
                 },
             )
@@ -287,6 +318,7 @@ private fun InterestedPersonDetailScreen(
                 if (person.religion != null) {
                     Text("Religion: ${person.religion}", style = MaterialTheme.typography.bodyMedium)
                 }
+                SupportingImagePreview(person.primarySupportingImage)
                 Text("Visits", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
             }
             if (visits.isEmpty()) {
@@ -324,6 +356,41 @@ private fun InterestedPersonDetailScreen(
             interestedPersonId = person.id,
             onSave = { viewModel.saveVisit(it) },
             onDismiss = { showAddVisit = false },
+        )
+    }
+
+    if (showEditDialog) {
+        InterestedPersonDialog(
+            existingPerson = person,
+            publisherPersonId = person.publisherPersonId,
+            onSave = { viewModel.save(it) },
+            onDismiss = { showEditDialog = false },
+        )
+    }
+}
+
+/** Read-only thumbnail on the detail screen — the editable Capture/Change/
+ * Clear controls live inside [InterestedPersonDialog]'s edit mode instead, so
+ * this just shows what's currently saved (or nothing, if there isn't one). */
+@Composable
+private fun SupportingImagePreview(image: SupportingImage?) {
+    if (image == null || image.base64Jpeg.isBlank()) return
+    val bitmap = remember(image.base64Jpeg) {
+        runCatching {
+            val bytes = android.util.Base64.decode(image.base64Jpeg, android.util.Base64.NO_WRAP)
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }.getOrNull()
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "Supporting image",
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+                .height(160.dp)
+                .clip(RoundedCornerShape(8.dp)),
+            contentScale = ContentScale.Crop,
         )
     }
 }

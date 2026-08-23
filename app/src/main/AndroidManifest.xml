@@ -8,6 +8,13 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Interested Person supporting-place image capture (spec §1) — the
+         in-app camera preview capture flow. android:required="false" so the
+         app still installs on a device/emulator with no camera; the feature
+         itself is optional per spec §7 either way. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <!-- In-app auto-update (see data/update): hands the downloaded APK to the
          system Package Installer rather than installing it directly. Required
          on API 26+ to launch that installer from within an app at all. -->
