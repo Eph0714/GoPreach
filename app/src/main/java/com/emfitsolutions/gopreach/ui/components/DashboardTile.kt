@@ -20,16 +20,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.emfitsolutions.gopreach.ui.theme.IconAccentGreen
 
 /**
- * One action tile in the Main Form's icon grid — "Professional Green
- * Icon-Based Main Form Redesign" spec: a large, consistently-green circular
+ * One action tile in the Main Form's icon grid — originally the "Professional
+ * Green Icon-Based Main Form Redesign," now purple per the "Purple Brand
+ * Logo and Purple/White Theme" spec: a large, consistently-colored circular
  * icon badge with a short label underneath, not a shrunk button with a tiny
  * icon inside it. Every dimension here (badge size, icon size, tap target,
  * spacing) is a deliberate, fixed system rather than "whatever fits" — see
  * the inline comments below for the reasoning behind each number, so a
  * future tweak changes the system on purpose instead of by accident.
+ *
+ * Uses `MaterialTheme.colorScheme.primary` (not a separate fixed constant)
+ * for the badge/icon color — the app's overall primary color *is* the brand
+ * purple in both light and dark theme now, so tying the icon system directly
+ * to it is what keeps them from ever silently drifting apart, and it
+ * automatically picks the correctly-contrasting purple tone for whichever
+ * theme is active (deep purple on white, bright purple on #121212).
  */
 @Composable
 fun DashboardTile(
@@ -68,13 +75,13 @@ fun DashboardTile(
             modifier = Modifier
                 .size(64.dp)
                 .clip(CircleShape)
-                .background(IconAccentGreen.copy(alpha = 0.14f)),
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = IconAccentGreen,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(30.dp),
             )
         }

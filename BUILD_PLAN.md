@@ -526,6 +526,46 @@ and are deferred rather than half-built:
   Phase 13-18 (no Super-Admin/Admin/Coordinator Elder test credentials
   available this session).
 
+## Phase 20 — Purple Brand Logo and Purple/White Theme ✅ done, verified on-device
+
+- **New logo**: the app's launcher icon (every mipmap density, legacy +
+  adaptive) and the in-app `DynamicAppLogo` fallback are now a purple
+  circular "GO Preach" badge (deep purple `#6A1B9A` fill with a darker
+  `#4A148C` ring, white text) — generated programmatically (no source image
+  was supplied this round, unlike the earlier green logo), same layout/
+  proportions as the previous mark so the swap reads as a genuine rebrand,
+  not a redraw.
+- **Light theme → Purple + White**: `PrimaryPurple` (`#6A1B9A`) replaces Dark
+  Green as the primary color; `background`/`surface` changed to pure white
+  (`#FFFFFF`, was an off-white), with a faint purple-tinted neutral
+  (`#F6F1FA`) reserved for card/section hierarchy only, per spec §2's "white
+  as primary background... neutral tones only where necessary."
+  `secondary` changed from the old gold accent to a distinguishable lighter
+  purple (`SecondaryPurple`, `#9575CD`) rather than leaving an unrelated
+  accent color in the theme (spec §9).
+- **Dark theme → Purple + `#121212`**: primary is now `PrimaryPurpleBright`
+  (`#BB86FC`, the classic high-contrast Material purple for dark
+  surfaces) on a background of exactly `#121212` (spec §3's literal
+  requirement, not an approximation) — this app's dark background already
+  happened to be `#121212` from an earlier "Graphite Black" request, so this
+  phase only had to swap the accent hue, not the background value.
+- **Main Form icon system**: `DashboardTile`'s icon badges switched from a
+  fixed green constant to `MaterialTheme.colorScheme.primary` directly —
+  since the app's primary color *is* the brand purple in both themes now,
+  every dashboard icon automatically tracks whichever purple tone is
+  correct for light vs. dark, with no separate constant to keep in sync.
+- **Consistency pass**: updated stale code comments in `AppBanner`/
+  `GradientHero` that still said "green" post-rebrand; per-metric KPI/chart
+  colors (`COLOR_PUBLISHERS`, `COLOR_ELDERS`, etc.) were deliberately left
+  as-is — spec §9's own exception for "status or semantic meaning," and
+  those exist specifically to tell different statistics apart, which a
+  single unified purple would undo.
+- **Verified on-device** (light and dark, via `adb shell cmd uimode night`):
+  splash screen, Login screen (gradient hero, white body, purple headline/
+  button/links), dark-mode Login (`#121212` body, bright-purple accents,
+  correct black-on-light-purple button text), and the home-screen launcher
+  icon all render correctly.
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking

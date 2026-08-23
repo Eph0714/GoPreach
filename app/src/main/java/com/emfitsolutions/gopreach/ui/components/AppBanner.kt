@@ -42,9 +42,10 @@ fun AppBanner(
             .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
             .background(
                 Brush.verticalGradient(
-                    // Theme-driven, not a hardcoded brand color, so this reads green
-                    // in light mode and bright green/black in dark mode (spec: two
-                    // distinct theme identities, not just a dimmed copy of the light one).
+                    // Theme-driven, not a hardcoded brand color, so this reads deep
+                    // purple in light mode and bright purple on #121212 in dark mode
+                    // (spec: two distinct theme identities, not just a dimmed copy of
+                    // the light one).
                     colors = listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary),
                 )
             ),

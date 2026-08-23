@@ -117,7 +117,7 @@ fun DashboardStatsContent(
             var expanded by remember { mutableStateOf(false) }
             val selectedLabel = uiState.selectedCongregationId
                 ?.let { id -> uiState.all.firstOrNull { it.congregationId == id }?.congregationName }
-                ?: "All Congregations"
+                ?: "ALL CONGREGATIONS"
             ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
                 OutlinedTextField(
                     value = selectedLabel,
@@ -129,7 +129,7 @@ fun DashboardStatsContent(
                 )
                 ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                     DropdownMenuItem(
-                        text = { Text("All Congregations") },
+                        text = { Text("ALL CONGREGATIONS") },
                         onClick = { viewModel.selectCongregation(null); expanded = false },
                     )
                     uiState.all.forEach { stats ->
