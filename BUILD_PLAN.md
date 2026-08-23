@@ -1063,7 +1063,119 @@ and are deferred rather than half-built:
   end-to-end and the button correctly returning to "SYNC TO SERVER" — needs
   a signed-in session this environment doesn't have credentials for.
 
+## Phase 32 — Proper Back Button and Page Navigation Behavior ✅ done (partial — see scope notes)
+
+- **Audited the existing back-stack behavior first** rather than assuming a
+  rewrite was needed: this app already uses Jetpack Navigation Compose
+  (`NavHost`/`NavController`), which maintains a proper back stack and
+  handles the system Back button automatically — every `navController
+  .navigate(route)` call app-wide (Congregations → Group → Publisher List →
+  Publisher Details, etc.) already pushes onto that stack with no extra
+  code needed, and the only `popUpTo(0) { inclusive = true }` anywhere in
+  `GoPreachNavGraph` is the one place that should have it — the reactive
+  sign-in/sign-out/role-change router, which correctly should not be
+  "back-into-able." So spec §1-§3, §8-§10 (proper multi-level history,
+  consistent everywhere) needed **no code change** — confirmed by grep
+  audit, not assumption.
+- **Fixed a real gap (spec §6)**: the Admin Home screen's navigation
+  drawer had no `BackHandler` at all — pressing system Back while it was
+  open would fall through to the normal nav-stack pop (or exit) instead of
+  just closing the drawer first. Added `BackHandler(enabled = drawerState
+  .isOpen)` to close it first, and a second `BackHandler(enabled =
+  !drawerState.isOpen)` for the Main Form exit case below, so the two
+  never both fire for the same back-press.
+- **Added Main Form exit confirmation (spec §7)**: `AdminHomeScreen` and
+  `PublisherHomeScreen` are both root/home destinations with nothing left
+  in the nav stack to pop to — Back here previously fell through to
+  Android's default "finish the Activity" behavior with zero warning. Both
+  now show "Exit GoPreach? / Are you sure you want to close the
+  application? [CANCEL] [EXIT]" instead, matching the spec's copy exactly.
+- **New reusable `rememberUnsavedChangesBackHandler` (spec §4)**, wired
+  into all five dedicated enrollment screens (Admin, Publisher, Coordinator
+  Elder, Regular Elder, Congregation) — the app's "add a new record" forms
+  most likely to have real unsaved typing at risk. Intercepts both the
+  system Back gesture and the top app bar's back arrow through the same
+  guard, showing "Unsaved Changes / You have changes that have not been
+  saved. [CANCEL] [DISCARD] [SAVE]" whenever any field has content and the
+  record hasn't been created yet — Congregation's version wires a real
+  `SAVE` (its save function is a simple, already-validated one-tap
+  action); the other four offer Cancel/Discard only, since their "save" is
+  an async temp-credential-creation flow, not a safe one-tap action to run
+  invisibly from inside a confirmation dialog.
+- **Dialogs closing on Back before navigating away (spec §5)**: already
+  correct app-wide with **no code change needed** — every `AlertDialog` in
+  Compose Material3 already intercepts the system Back button via its own
+  internal dialog window before it reaches the underlying screen's nav
+  stack; this was verified as already-correct behavior, not implemented.
+- **Explicitly not done — a real scope limit, not an oversight**: the
+  `AlertDialog`-based "Edit" forms inside the various Manage screens
+  (Publishers, Admins, Elders, Congregations, Groups, Interested Persons,
+  restricted Users — roughly a dozen dialogs across the app) do **not**
+  have unsaved-changes dirty-tracking. Back already correctly dismisses
+  just the dialog rather than navigating the whole screen away (satisfying
+  §5), but doesn't yet warn before discarding typed edits inside it
+  (§4's stricter requirement) — retrofitting dirty-tracking to every one
+  of those dialogs individually is a large separate task, tracked below
+  rather than attempted partially in this pass.
+- Verified via `./gradlew :app:compileDebugKotlin`, a full
+  `:app:assembleDebug`, and an on-device screenshot of the Login screen
+  (v1.16.0, no crash). Not verified live: the drawer-close-on-back, the
+  Exit GoPreach confirmation, and the Unsaved Changes dialogs — all need a
+  signed-in session and physically pressing the hardware/gesture back
+  button, neither of which this environment can exercise; confirmed
+  correct by code review and a successful compile only.
+
+## Phase 33 — Critical fix: Sync stuck (actual root cause); Elder/Publisher double-count bug; stat-card member names ✅ done
+
+- **The real fix for "Sync to Server" getting stuck** — Phase 31's
+  `ExistingWorkPolicy.REPLACE` change was a genuine improvement but **did
+  not fully fix it**, confirmed by further live user reports after
+  updating. The actual bug: `observeWorkInfo()` picked
+  `infos.maxByOrNull { it.generation }` from the unique-work-name list to
+  guess "the current run" — but `WorkInfo.generation` only increments for
+  a *periodic* work request updated in place; every fresh one-time
+  `REPLACE`d request starts at generation 0, so that comparison was
+  meaningless and the ambiguity Phase 31 was meant to close was still
+  there. Fixed properly this time: `SyncScheduler.requestSyncNow()` now
+  returns the specific `WorkRequest`'s own `UUID`, and
+  `observeWorkInfo(id)` uses `WorkManager.getWorkInfoByIdFlow(id)` to track
+  *exactly* that request — no unique-work-name list, no ambiguity of any
+  kind, regardless of whatever else has ever run under that name.
+- **Fixed a real, confirmed double-counting bug**: reported as "3 elders
+  shown in the dashboard, only 2 actually enrolled." `CongregationStats
+  .compute()` counted matching `RoleAssignment` *documents*, not distinct
+  people — if the same person ends up with more than one ACTIVE assignment
+  landing in the same bucket (e.g. holding both a Coordinator Elder and a
+  Regular Elder assignment at once), they were counted twice. Now
+  `distinctBy { it.personId }` before counting, for both the elder count
+  and every publisher-category count.
+- **Stat cards now show the actual people behind the number**, not just
+  the number, on every card where that's meaningful — spec-requested
+  example: "Total Elders 3 / Henry Canales (Solano Tagalog Congregation),
+  Joel Martin (Central Congregation), ...". New `computeStatMembers()`
+  (in `DashboardStats.kt`) resolves the exact same deduplicated-by-person
+  data `CongregationStats.compute()` counts into named `StatMember`
+  entries, so the list a card's dialog shows can never silently disagree
+  with the number on the card — both come from the same source, same
+  dedup pass. Applied to Total Publishers, Total Elders, Regular Pioneers,
+  Auxiliary Pioneers, Unbaptized Publishers, Inactive Publishers, and
+  Removed Publishers; Bible Studies and Total Preaching Hours are left
+  numeric-only (a record/aggregate count, not a 1:1 list of named people).
+- **Removed the small sync-status icon next to the Settings gear** on both
+  the Admin and Publisher Main Form headers, per request — `SyncToServer
+  Button` in the body is now the only sync-status affordance on the Main
+  Form.
+- Verified via `./gradlew :app:compileDebugKotlin`, a full
+  `:app:assembleDebug`, and an on-device screenshot of the Login screen.
+  Not verified live: an actual sync run completing end-to-end, the
+  corrected elder/publisher counts, and the new member-name dialogs — all
+  need a signed-in session with real enrolled data, which this environment
+  doesn't have credentials for.
+
 ## What's next (not blocking, tracked for a future pass)
+- Unsaved-changes dirty-tracking for the ~12 `AlertDialog`-based Edit forms
+  across the Manage screens (Publishers/Admins/Elders/Congregations/
+  Groups/Interested Persons/Users) — see Phase 32's scope note.
 - Real per-field sync conflict detection/resolution (needs a version/
   timestamp field added to synced documents first) and a discrete
   downloaded-changes count in the Sync to Server summary — see Phase 26.

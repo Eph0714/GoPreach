@@ -34,6 +34,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.ui.components.TempCredentialsResultCard
+import com.emfitsolutions.gopreach.ui.components.rememberUnsavedChangesBackHandler
 
 /** Spec §4.2 — Admin Per Congregation enrollment, Super-Admin only. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,12 +48,21 @@ fun AdminEnrollmentScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
 
+    // "Back Button and Page Navigation" spec §4 — once a temp-credentials result
+    // is showing, the form's work is already done, so Back behaves normally;
+    // before that, any typed field guards against silently losing it.
+    val hasUnsavedChanges = uiState.result == null && (
+        uiState.name.isNotBlank() || uiState.address.isNotBlank() ||
+            uiState.email.isNotBlank() || uiState.contact.isNotBlank() || uiState.selectedCongregationId != null
+        )
+    val guardedBack = rememberUnsavedChangesBackHandler(hasUnsavedChanges, onDiscard = onBack)
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Enroll Admin") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = guardedBack.onBackPressed) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },

@@ -75,8 +75,11 @@ class ManualSyncViewModel @Inject constructor(
      * for later) if offline; a click while already syncing is a no-op — the
      * button itself is disabled for that same reason, but this guards the
      * ViewModel side too in case something else ever calls it directly. Then
-     * kicks off [SyncScheduler.requestSyncNow] and follows this specific run's
-     * [WorkInfo.progress] until it reports finished. */
+     * kicks off [SyncScheduler.requestSyncNow] and follows *that exact request's
+     * id* — not "whatever the unique work name currently shows" — until it
+     * reports finished (see [SyncScheduler.requestSyncNow]'s doc comment for
+     * why the id-based tracking is what actually fixes the stuck-forever bug,
+     * not just switching to `REPLACE`). */
     fun syncToServer() {
         if (_uiState.value is ManualSyncState.Syncing) return
         if (!connectivityObserver.isOnline()) {
@@ -84,9 +87,9 @@ class ManualSyncViewModel @Inject constructor(
             return
         }
         _uiState.value = ManualSyncState.Syncing(done = 0, total = 0)
-        syncScheduler.requestSyncNow()
+        val requestId = syncScheduler.requestSyncNow()
         viewModelScope.launch {
-            syncScheduler.observeWorkInfo().collect { info ->
+            syncScheduler.observeWorkInfo(requestId).collect { info ->
                 if (info == null) return@collect
                 val progress = info.progress
                 val finished = progress.getBoolean(SyncWorker.KEY_FINISHED, false)

@@ -35,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
 import com.emfitsolutions.gopreach.ui.components.TempCredentialsResultCard
 import com.emfitsolutions.gopreach.ui.components.displayLabel
+import com.emfitsolutions.gopreach.ui.components.rememberUnsavedChangesBackHandler
 
 /** Spec §4.4 — Regular Elder enrollment (Super-Admin, Admin, Coordinator Elder). */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,12 +48,18 @@ fun RegularElderEnrollmentScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    val hasUnsavedChanges = uiState.result == null && (
+        uiState.name.isNotBlank() || uiState.address.isNotBlank() ||
+            uiState.email.isNotBlank() || uiState.contact.isNotBlank() || uiState.selectedRole != null
+        )
+    val guardedBack = rememberUnsavedChangesBackHandler(hasUnsavedChanges, onDiscard = onBack)
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Enroll Regular Elder") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = guardedBack.onBackPressed) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },

@@ -3,10 +3,69 @@ package com.emfitsolutions.gopreach.ui.screens.dashboard
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.MonthlyReport
+import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
+
+/** One named person behind a KPI card's headline number — spec: tapping "Total
+ * Elders" shows e.g. "Henry Canales (Solano Tagalog Congregation)" for each
+ * elder that number counts, not just the number itself. [statLabels] is every
+ * [DashboardStatsUiState]-facing card label this one person counts toward
+ * (e.g. a Regular Pioneer counts toward both "Total Publishers" and "Regular
+ * Pioneers") — computed once from the same de-duplicated-by-person data
+ * [CongregationStats.compute] uses, so the list a card's dialog shows always
+ * matches the number on the card exactly (same source, same dedup, no risk of
+ * the two silently drifting apart). */
+data class StatMember(
+    val fullName: String,
+    val congregationId: String,
+    val congregationName: String,
+    val statLabels: Set<String>,
+)
+
+/** Companion to [CongregationStats.compute] — same scoped/deduplicated
+ * ACTIVE-assignment data, but resolved into named people instead of counts. */
+fun computeStatMembers(
+    congregations: List<Congregation>,
+    assignments: List<RoleAssignment>,
+    people: List<Person>,
+): List<StatMember> {
+    val peopleById = people.associateBy { it.id }
+    val congregationsById = congregations.associateBy { it.id }
+    return assignments
+        .filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId in congregationsById }
+        .distinctBy { it.personId to it.congregationId }
+        .mapNotNull { assignment ->
+            val person = peopleById[assignment.personId] ?: return@mapNotNull null
+            val congregation = congregationsById[assignment.congregationId] ?: return@mapNotNull null
+            val labels: Set<String> = when (val role = assignment.resolvedRoleType()) {
+                is RoleType.Admin -> when (role.role) {
+                    AdminRole.COORDINATOR_ELDER, AdminRole.REGULAR_ELDER -> setOf("Total Elders")
+                    else -> emptySet()
+                }
+                is RoleType.Publisher -> buildSet {
+                    if (role.category != PublisherCategory.REMOVED_PUBLISHER) add("Total Publishers")
+                    when (role.category) {
+                        PublisherCategory.REGULAR_PIONEER -> add("Regular Pioneers")
+                        PublisherCategory.AUXILIARY_PIONEER -> add("Auxiliary Pioneers")
+                        PublisherCategory.UNBAPTIZED_PUBLISHER -> add("Unbaptized Publishers")
+                        PublisherCategory.INACTIVE_PUBLISHER -> add("Inactive Publishers")
+                        PublisherCategory.REMOVED_PUBLISHER -> add("Removed Publishers")
+                        PublisherCategory.REGULAR_PUBLISHER -> Unit
+                    }
+                }
+            }
+            if (labels.isEmpty()) return@mapNotNull null
+            StatMember(
+                fullName = person.fullName,
+                congregationId = congregation.id,
+                congregationName = congregation.name,
+                statLabels = labels,
+            )
+        }
+}
 
 /**
  * One congregation's worth of the "Role-Based Dashboard... Graphical Reports"
@@ -54,14 +113,22 @@ data class CongregationStats(
             reports: List<MonthlyReport>,
         ): List<CongregationStats> = congregations.map { congregation ->
             val active = assignments.filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId == congregation.id }
+            // distinctBy personId — a RoleAssignment is one document per role,
+            // not one per person, so if the same person ever ends up with more
+            // than one ACTIVE assignment matching the same bucket (a duplicate
+            // enrollment, or a promotion flow that added a new assignment
+            // instead of converting the old one), counting assignments directly
+            // over-counts real, distinct people. This was a real, confirmed bug
+            // (reported: "3 elders shown, only 2 actually enrolled").
             val publisherAssignments = active.filter { it.resolvedRoleType() is RoleType.Publisher }
+                .distinctBy { it.personId }
             fun countOf(category: PublisherCategory) = publisherAssignments.count {
                 (it.resolvedRoleType() as RoleType.Publisher).category == category
             }
-            val elderCount = active.count {
+            val elderCount = active.filter {
                 val role = (it.resolvedRoleType() as? RoleType.Admin)?.role
                 role == AdminRole.COORDINATOR_ELDER || role == AdminRole.REGULAR_ELDER
-            }
+            }.distinctBy { it.personId }.size
             val congregationReports = reports.filter { it.congregationId == congregation.id }
             CongregationStats(
                 congregationId = congregation.id,

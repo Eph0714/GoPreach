@@ -1,8 +1,9 @@
 package com.emfitsolutions.gopreach.ui.screens.home
 
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -28,11 +29,14 @@ import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -44,6 +48,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,7 +60,6 @@ import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
 import com.emfitsolutions.gopreach.ui.components.GoPreachSidePanelContent
 import com.emfitsolutions.gopreach.ui.components.QuickAction
-import com.emfitsolutions.gopreach.ui.components.SyncStatusButton
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
 import com.emfitsolutions.gopreach.ui.components.UpdateAvailableBanner
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
@@ -109,6 +113,31 @@ fun AdminHomeScreen(
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
+
+    // "Back Button and Page Navigation" spec §6/§7 — this is the Main Form
+    // (root/home screen): the drawer, if open, must close on Back *before*
+    // anything else (never navigate away or exit while it's open), and Back
+    // from here otherwise means "exit the app," which needs its own
+    // confirmation rather than silently closing GoPreach — Compose Navigation
+    // has nothing left to pop to at this destination, so an unguarded Back
+    // would finish the Activity immediately with no chance to back out.
+    val activity = LocalContext.current as? ComponentActivity
+    var showExitConfirm by remember { mutableStateOf(false) }
+    BackHandler(enabled = drawerState.isOpen) {
+        coroutineScope.launch { drawerState.close() }
+    }
+    BackHandler(enabled = !drawerState.isOpen) {
+        showExitConfirm = true
+    }
+    if (showExitConfirm) {
+        AlertDialog(
+            onDismissRequest = { showExitConfirm = false },
+            title = { Text("Exit GoPreach?") },
+            text = { Text("Are you sure you want to close the application?") },
+            confirmButton = { TextButton(onClick = { activity?.finish() }) { Text("EXIT") } },
+            dismissButton = { TextButton(onClick = { showExitConfirm = false }) { Text("CANCEL") } },
+        )
+    }
 
     // Pull-to-refresh here is deliberately decoupled from both app-update
     // checking and from uploading pending changes (spec: "Refresh, Automatic
@@ -174,11 +203,8 @@ fun AdminHomeScreen(
                         }
                     },
                     topEndAction = {
-                        Row {
-                            SyncStatusButton()
-                            IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
-                                Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
-                            }
+                        IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
+                            Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
                         }
                     },
                     quickActions = if (hideMainFormButtons) {

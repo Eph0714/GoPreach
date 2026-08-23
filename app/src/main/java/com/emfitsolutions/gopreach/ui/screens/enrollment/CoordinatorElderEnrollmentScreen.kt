@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.ui.components.TempCredentialsResultCard
+import com.emfitsolutions.gopreach.ui.components.rememberUnsavedChangesBackHandler
 
 /** Spec §4.3 — Coordinator Elder enrollment, by Super-Admin or Admin. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,12 +50,18 @@ fun CoordinatorElderEnrollmentScreen(
         isSuperAdmin = viewModel.isEnrollerSuperAdmin(currentPersonId)
     }
 
+    val hasUnsavedChanges = uiState.result == null && (
+        uiState.name.isNotBlank() || uiState.address.isNotBlank() ||
+            uiState.email.isNotBlank() || uiState.contact.isNotBlank()
+        )
+    val guardedBack = rememberUnsavedChangesBackHandler(hasUnsavedChanges, onDiscard = onBack)
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Enroll Coordinator Elder") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = guardedBack.onBackPressed) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },

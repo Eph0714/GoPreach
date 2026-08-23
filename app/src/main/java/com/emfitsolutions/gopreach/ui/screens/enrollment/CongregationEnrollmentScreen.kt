@@ -27,6 +27,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.ui.components.rememberUnsavedChangesBackHandler
 
 /** Spec §4.1 — Congregation Master File, Super-Admin only. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,12 +44,21 @@ fun CongregationEnrollmentScreen(
         if (uiState.saved) onSaved()
     }
 
+    val hasUnsavedChanges = !uiState.saved && (
+        uiState.name.isNotBlank() || uiState.address.isNotBlank() || uiState.code.isNotBlank()
+        )
+    val guardedBack = rememberUnsavedChangesBackHandler(
+        hasUnsavedChanges,
+        onDiscard = onBack,
+        onSave = { viewModel.save(createdByPersonId = currentPersonId) },
+    )
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("New Congregation") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = guardedBack.onBackPressed) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },

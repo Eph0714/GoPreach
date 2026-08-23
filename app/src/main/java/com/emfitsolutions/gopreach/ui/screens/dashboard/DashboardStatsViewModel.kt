@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
+import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,7 @@ import javax.inject.Inject
 
 data class DashboardStatsUiState(
     val all: List<CongregationStats> = emptyList(),
+    val members: List<StatMember> = emptyList(),
     val selectedCongregationId: String? = null,
     val isLoading: Boolean = true,
 )
@@ -37,6 +39,7 @@ class DashboardStatsViewModel @Inject constructor(
     congregationRepository: CongregationRepository,
     roleAssignmentRepository: RoleAssignmentRepository,
     monthlyReportRepository: MonthlyReportRepository,
+    personRepository: PersonRepository,
 ) : ViewModel() {
 
     private val _selectedCongregationId = MutableStateFlow<String?>(null)
@@ -54,11 +57,13 @@ class DashboardStatsViewModel @Inject constructor(
         congregationRepository.observeAll(),
         roleAssignmentRepository.observeAll(),
         monthlyReportRepository.observeAll(),
+        personRepository.observeAll(),
         _selectedCongregationId,
-    ) { congregations, assignments, reports, selected ->
+    ) { congregations, assignments, reports, people, selected ->
         val scoped = scopeFilter?.let { allowed -> congregations.filter { it.id in allowed } } ?: congregations
         DashboardStatsUiState(
             all = CongregationStats.compute(scoped, assignments, reports).sortedBy { it.congregationName },
+            members = computeStatMembers(scoped, assignments, people),
             selectedCongregationId = selected,
             isLoading = false,
         )

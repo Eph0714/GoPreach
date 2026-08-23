@@ -40,6 +40,7 @@ import com.emfitsolutions.gopreach.data.model.Gender
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.ui.components.TempCredentialsResultCard
+import com.emfitsolutions.gopreach.ui.components.rememberUnsavedChangesBackHandler
 
 /** Spec §4.6 — Publisher Master File enrollment. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,12 +54,19 @@ fun PublisherEnrollmentScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val groups by viewModel.groups.collectAsStateWithLifecycle()
 
+    val hasUnsavedChanges = uiState.result == null && (
+        uiState.firstName.isNotBlank() || uiState.lastName.isNotBlank() ||
+            uiState.address.isNotBlank() || uiState.contact.isNotBlank() ||
+            uiState.contactPerson.isNotBlank() || uiState.contactPersonNumber.isNotBlank()
+        )
+    val guardedBack = rememberUnsavedChangesBackHandler(hasUnsavedChanges, onDiscard = onBack)
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Enroll Publisher") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = guardedBack.onBackPressed) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },

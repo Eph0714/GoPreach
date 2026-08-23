@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -213,11 +214,27 @@ fun DashboardStatsContent(
         }
 
         selectedDetail?.let { detail ->
+            // Spec: tapping a card shows who actually makes up that number, not
+            // just the number — e.g. "Total Elders 3 / Henry Canales (Solano
+            // Tagalog Congregation), ...". Scoped to whichever congregation
+            // [displayed] currently represents — a blank congregationId means
+            // the "All Congregations" total, so every member counts there;
+            // otherwise only that one congregation's members do. Same
+            // deduplicated-by-person source [CongregationStats.compute] uses
+            // for the headline number itself, so the list and the count can
+            // never silently disagree.
+            val matchingMembers = uiState.members
+                .filter { detail.label in it.statLabels }
+                .filter { displayed.congregationId.isBlank() || it.congregationId == displayed.congregationId }
+                .sortedBy { it.fullName }
             AlertDialog(
                 onDismissRequest = { selectedDetail = null },
                 title = { Text(detail.label) },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(
+                        modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         Text(detail.value, style = MaterialTheme.typography.headlineMedium)
                         Text(
                             "${displayed.congregationName} · ${SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date())}",
@@ -234,6 +251,15 @@ fun DashboardStatsContent(
                                     Text(subLabel, style = MaterialTheme.typography.bodyMedium)
                                     Text(subValue, style = MaterialTheme.typography.bodyMedium)
                                 }
+                            }
+                        }
+                        if (matchingMembers.isNotEmpty()) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            matchingMembers.forEach { member ->
+                                Text(
+                                    "${member.fullName} (${member.congregationName})",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
                             }
                         }
                     }
