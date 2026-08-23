@@ -409,6 +409,27 @@ and are deferred rather than half-built:
   position + embedded graphical Summary) — no test credentials available in
   this session, same disclosed gap as Phase 13/14.
 
+## Phase 16 — Dashboard congregation dropdown, non-scrolling KPI grid, color code ✅ done
+
+- **Congregation selector is now a dropdown**: replaced the horizontally-
+  scrolling row of `FilterChip`s (Super-Admin only, when more than one
+  congregation is in scope) with a proper `ExposedDropdownMenuBox` — tap it,
+  pick "All Congregations" or one specific congregation from the list.
+- **KPI cards no longer scroll**: replaced the `LazyRow` with a wrapping
+  `FlowRow` — all nine KPI cards (Total Publishers, Total Elders, Regular/
+  Auxiliary Pioneers, Unbaptized/Inactive/Removed Publishers, Bible Studies,
+  Total Preaching Hours) lay out directly on the main form and wrap onto as
+  many rows as needed, with nothing to scroll to see the rest.
+- **Color code added**: each KPI metric now has a fixed, consistent color
+  (e.g. Regular Pioneers is always the same green, Removed Publishers is
+  always the same red) — `KpiCard` gained a `color` param (a colored top
+  accent strip + colored value text, tinted card background), and the same
+  color constants are reused for the matching donut-chart slice, so a metric
+  reads as the same color everywhere on the dashboard, not just within the
+  KPI row.
+- Not verified on-device past the login screen — same disclosed gap as
+  Phase 13-15 (no Super-Admin/Admin test credentials available this session).
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking
