@@ -1,23 +1,35 @@
 package com.emfitsolutions.gopreach.ui.components
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
- * One action button in the Main Form (Coordinator Elder/Regular Elder/
- * Publisher dashboards) — per explicit request, a plain text button: no
- * icon, and no per-item accent/color coding (a single neutral outlined
- * style for every function alike, not the earlier purple icon-badge grid).
- * [icon] is accepted but intentionally unused, kept only so every existing
- * call site (there are several, across AdminHomeScreen/PublisherHomeScreen)
- * didn't need to change just because the visual design did.
+ * One action button in the Main Form — currently only reached in practice by
+ * [PublisherHomeScreen] (Coordinator/Regular Elder/Admin's own tile grid has
+ * been hidden in favor of the drawer+stats Main Form since the Elder
+ * Dashboard consistency work, so this component's real-world usage is
+ * Publisher-only today).
+ *
+ * "Publishers UI — bigger, colored buttons" spec: a filled [Button] — not the
+ * previous plain-outline, no-icon style — full width, taller than the stock
+ * default, with its icon restored and the label in a larger weight, so it
+ * reads as a primary action rather than a low-emphasis link. The fill color
+ * is [MaterialTheme.colorScheme.primary], which already *is* "the current
+ * theme" everywhere else in the app (the Control Panel's theme-color picker
+ * changes this same token) — there's no separate hardcoded color to keep in
+ * sync, using the theme token directly *is* the sync.
  */
 @Composable
 fun DashboardTile(
@@ -26,13 +38,16 @@ fun DashboardTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    OutlinedButton(
+    Button(
         onClick = onClick,
-        modifier = modifier,
-        colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier.fillMaxWidth().height(56.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
         ),
+        contentPadding = PaddingValues(horizontal = 20.dp),
     ) {
-        Text(text = label, modifier = Modifier.padding(vertical = 4.dp))
+        Icon(icon, contentDescription = null, modifier = Modifier.padding(end = 12.dp))
+        Text(text = label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
     }
 }

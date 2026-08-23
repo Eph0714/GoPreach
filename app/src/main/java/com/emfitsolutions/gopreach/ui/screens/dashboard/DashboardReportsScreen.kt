@@ -45,7 +45,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.charts.BarSlice
-import com.emfitsolutions.gopreach.ui.components.charts.DonutChart
 import com.emfitsolutions.gopreach.ui.components.charts.SimpleBarChart
 import com.emfitsolutions.gopreach.ui.components.charts.StatCard
 import java.text.SimpleDateFormat
@@ -59,10 +58,6 @@ private val COLOR_PUBLISHERS: Color get() = Color(0xFF1565C0)
 private val COLOR_ELDERS: Color get() = Color(0xFF6A1B9A)
 private val COLOR_REGULAR_PIONEER: Color get() = Color(0xFF2E7D32)
 private val COLOR_AUXILIARY_PIONEER: Color get() = Color(0xFF66BB6A)
-private val COLOR_UNBAPTIZED: Color get() = Color(0xFF6B9BD1)
-private val COLOR_INACTIVE: Color get() = Color(0xFF9E9E9E)
-private val COLOR_REMOVED: Color get() = Color(0xFFC63737)
-private val COLOR_BIBLE_STUDIES: Color get() = Color(0xFF17A398)
 private val COLOR_HOURS: Color get() = Color(0xFFE0A526)
 
 /** What the details dialog shows for one tapped [StatCard] — spec: "make the
@@ -298,21 +293,12 @@ fun DashboardStatsContent(
             )
         }
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Publisher Status Breakdown", style = MaterialTheme.typography.titleMedium)
-                DonutChart(
-                    slices = listOf(
-                        BarSlice("Regular Pioneer", displayed.regularPioneers.toFloat(), COLOR_REGULAR_PIONEER),
-                        BarSlice("Auxiliary Pioneer", displayed.auxiliaryPioneers.toFloat(), COLOR_AUXILIARY_PIONEER),
-                        BarSlice("Regular Publisher", displayed.regularPublishers.toFloat(), COLOR_PUBLISHERS),
-                        BarSlice("Unbaptized", displayed.unbaptizedPublishers.toFloat(), COLOR_UNBAPTIZED),
-                        BarSlice("Inactive", displayed.inactivePublishers.toFloat(), COLOR_INACTIVE),
-                    ).filter { it.value > 0f },
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-        }
+        // "Publisher Status Breakdown" donut chart removed per explicit
+        // request — the same per-category numbers (Regular Publisher/
+        // Regular Pioneer/Auxiliary Pioneer/Unbaptized/Inactive) are still
+        // available via the "Total Publishers" stat card's own tap-to-see
+        // breakdown dialog above, so no data was lost, just this redundant
+        // second visualization of it.
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {

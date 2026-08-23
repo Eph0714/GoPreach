@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -76,8 +77,17 @@ fun PublisherHomeScreen(
             isOnline = isOnline,
             pendingSyncCount = pendingSyncCount,
             topEndAction = {
-                IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
-                    Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
+                // Sign Out relocated here from its own "Account" tile below
+                // (explicit request) — next to Settings, both in the header's
+                // top-right corner, rather than requiring a scroll down to
+                // the bottom of the tile grid to sign out.
+                Row {
+                    IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
+                        Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
+                    }
+                    IconButton(onClick = viewModel::signOut) {
+                        Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = "Sign Out", tint = Color.White)
+                    }
                 }
             },
             quickActions = listOf(
@@ -104,11 +114,13 @@ fun PublisherHomeScreen(
                 DashboardTile("Calendar", Icons.Rounded.CalendarMonth, { onNavigate(Destinations.CALENDAR) })
             }
 
-            DashboardSection("Account") {
-                if (onSwitchToAdmin != null) {
+            // Sign Out moved to the header, next to Settings (see topEndAction
+            // above) — this section now only exists at all for a dual-role
+            // account that also needs the "switch context" tile.
+            if (onSwitchToAdmin != null) {
+                DashboardSection("Account") {
                     DashboardTile("Admin App", Icons.Rounded.SwapHoriz, onSwitchToAdmin)
                 }
-                DashboardTile("Sign Out", Icons.AutoMirrored.Rounded.Logout, viewModel::signOut)
             }
         }
     }
