@@ -181,6 +181,7 @@ fun GoPreachNavGraph(
         composable(Destinations.ENROLL_PUBLISHER) {
             PublisherEnrollmentScreen(
                 currentPersonId = currentPersonId,
+                visibleCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
                 onBack = { navController.popBackStack() },
                 onDone = { navController.popBackStack() },
             )

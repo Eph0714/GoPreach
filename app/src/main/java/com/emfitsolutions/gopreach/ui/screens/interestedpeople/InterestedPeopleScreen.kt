@@ -1,5 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.interestedpeople
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -21,10 +24,15 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.RestoreFromTrash
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -33,6 +41,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -44,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +64,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.location.LatLng
 import com.emfitsolutions.gopreach.data.model.Gender
 import com.emfitsolutions.gopreach.data.model.HouseholderStatus
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
@@ -66,6 +77,8 @@ import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.SupportingImageSection
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -96,6 +109,7 @@ fun InterestedPeopleScreen(
     } else {
         InterestedPersonDetailScreen(
             person = current,
+            currentPersonId = currentPersonId,
             onBack = { selectedPerson = null },
             viewModel = viewModel,
         )
@@ -318,12 +332,20 @@ private fun InterestedPersonDialog(
 @Composable
 private fun InterestedPersonDetailScreen(
     person: InterestedPerson,
+    currentPersonId: String,
     onBack: () -> Unit,
     viewModel: InterestedPeopleViewModel,
 ) {
     LaunchedEffect(person.id) { viewModel.startVisitSync(person.id) }
     val visitsFlow = remember(person.id) { viewModel.visitsFor(person.id) }
     val visits by visitsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    // Live, not the static snapshot passed in — a GPS capture/edit/clear
+    // (or any other in-place edit) needs to show up here immediately, not
+    // only after backing out to the list and reopening this person.
+    val livePersonFlow = remember(person.id) {
+        viewModel.peopleFor(person.publisherPersonId).map { list -> list.firstOrNull { it.id == person.id } ?: person }
+    }
+    val livePerson by livePersonFlow.collectAsStateWithLifecycle(initialValue = person)
     var showAddVisit by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
@@ -331,7 +353,7 @@ private fun InterestedPersonDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(person.name) },
+                title = { Text(livePerson.name) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -356,11 +378,12 @@ private fun InterestedPersonDetailScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item {
-                Text("Address: ${person.address}", style = MaterialTheme.typography.bodyMedium)
-                if (person.religion != null) {
-                    Text("Religion: ${person.religion}", style = MaterialTheme.typography.bodyMedium)
+                Text("Address: ${livePerson.address}", style = MaterialTheme.typography.bodyMedium)
+                if (livePerson.religion != null) {
+                    Text("Religion: ${livePerson.religion}", style = MaterialTheme.typography.bodyMedium)
                 }
-                SupportingImagePreview(person.primarySupportingImage)
+                SupportingImagePreview(livePerson.primarySupportingImage)
+                GpsLocationSection(person = livePerson, currentPersonId = currentPersonId, viewModel = viewModel)
                 Text("Visits", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
             }
             if (visits.isEmpty()) {
@@ -403,7 +426,7 @@ private fun InterestedPersonDetailScreen(
 
     if (showEditDialog) {
         InterestedPersonDialog(
-            existingPerson = person,
+            existingPerson = livePerson,
             publisherPersonId = person.publisherPersonId,
             onSave = { viewModel.save(it) },
             onDismiss = { showEditDialog = false },
@@ -433,6 +456,152 @@ private fun SupportingImagePreview(image: SupportingImage?) {
                 .height(160.dp)
                 .clip(RoundedCornerShape(8.dp)),
             contentScale = ContentScale.Crop,
+        )
+    }
+}
+
+/**
+ * "Interested Person GPS Capture" spec §4-§8 — Capture/Edit/Clear, all in one
+ * place on the profile screen, persisting straight through
+ * [InterestedPeopleViewModel.saveGpsLocation]/[clearGpsLocation] (offline-
+ * first — spec §10 — same as every other field on this record). Capture and
+ * Edit share one flow: both end with a fresh coordinate the user must
+ * explicitly confirm (spec §5/§6) before it replaces anything, shown as its
+ * own "Confirm Location" state rather than saving the instant a fix comes
+ * back.
+ *
+ * Access control follows the same rule as the rest of this screen (spec §9):
+ * this composable has no permission logic of its own — it's only ever reached
+ * by a signed-in session already authorized to open this Interested Person's
+ * profile at all (enforced upstream, same as viewing/editing anything else
+ * about them), and every write goes through the same authenticated
+ * repository/Firestore-rules path as any other field.
+ */
+@Composable
+private fun GpsLocationSection(
+    person: InterestedPerson,
+    currentPersonId: String,
+    viewModel: InterestedPeopleViewModel,
+) {
+    val coroutineScope = rememberCoroutineScope()
+    var isCapturing by remember { mutableStateOf(false) }
+    var pendingCapture by remember { mutableStateOf<LatLng?>(null) }
+    var captureError by remember { mutableStateOf<String?>(null) }
+    var showClearConfirm by remember { mutableStateOf(false) }
+
+    fun runCapture() {
+        captureError = null
+        isCapturing = true
+        coroutineScope.launch {
+            val result = viewModel.captureCurrentLocation()
+            isCapturing = false
+            if (result == null) {
+                captureError = "Could not get a GPS fix. Make sure location is turned on and try again."
+            } else {
+                pendingCapture = result
+            }
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) runCapture() else captureError = "Location permission is required to capture GPS."
+    }
+
+    fun startCapture() {
+        if (viewModel.hasLocationPermission()) runCapture() else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    Column(modifier = Modifier.padding(top = 16.dp)) {
+        Text("Interested Person Location", style = MaterialTheme.typography.titleMedium)
+
+        val capture = pendingCapture
+        when {
+            // Spec §5/§6 — freshly captured, not yet saved: shown for an
+            // explicit confirm/retake before it touches the stored record.
+            capture != null -> Card(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("New Location Captured", style = MaterialTheme.typography.titleSmall)
+                    Text("Latitude: ${"%.6f".format(capture.lat)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Longitude: ${"%.6f".format(capture.lng)}", style = MaterialTheme.typography.bodyMedium)
+                    if (capture.accuracyMeters != null) {
+                        Text("Accuracy: ${capture.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            viewModel.saveGpsLocation(person, capture.lat, capture.lng, capture.accuracyMeters, currentPersonId)
+                            pendingCapture = null
+                        }) { Text("CONFIRM & SAVE") }
+                        OutlinedButton(onClick = { pendingCapture = null }) { Text("CANCEL") }
+                    }
+                }
+            }
+            isCapturing -> Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(modifier = Modifier.padding(end = 12.dp))
+                Text("Getting current location…")
+            }
+            person.hasGpsLocation -> Card(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text(
+                            "GPS Location Captured",
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                    }
+                    Text("Latitude: ${"%.6f".format(person.gpsLat)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Longitude: ${"%.6f".format(person.gpsLng)}", style = MaterialTheme.typography.bodyMedium)
+                    if (person.gpsAccuracy != null) {
+                        Text("Accuracy: ${person.gpsAccuracy.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (person.gpsCapturedAt != null) {
+                        Text("Captured: ${formatRecordTimestamp(person.gpsCapturedAt)}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { startCapture() }) { Text("EDIT GPS") }
+                        OutlinedButton(
+                            onClick = { showClearConfirm = true },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        ) { Text("CLEAR GPS") }
+                    }
+                }
+            }
+            else -> Column(modifier = Modifier.padding(top = 8.dp)) {
+                Text(
+                    "No GPS location captured",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(onClick = { startCapture() }, modifier = Modifier.padding(top = 8.dp)) {
+                    Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                    Text("CAPTURE GPS")
+                }
+            }
+        }
+
+        if (captureError != null) {
+            Text(captureError!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("Clear GPS Location?") },
+            text = { Text("This will remove the saved GPS coordinates from this Interested Person.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.clearGpsLocation(person, currentPersonId)
+                    showClearConfirm = false
+                }) { Text("CLEAR") }
+            },
+            dismissButton = { TextButton(onClick = { showClearConfirm = false }) { Text("CANCEL") } },
         )
     }
 }

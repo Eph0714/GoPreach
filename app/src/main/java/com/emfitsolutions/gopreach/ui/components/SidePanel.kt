@@ -91,7 +91,15 @@ fun GoPreachSidePanelContent(
             if (canEnrollCoordinatorElder) add(SideItem("Coordinator Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_COORDINATOR_ELDERS))
             if (canManagePublishersAndGroups) add(SideItem("Groups", Icons.Rounded.Groups, Destinations.MANAGE_GROUPS))
             if (canEnrollRegularElderOrPublisher) add(SideItem("Regular Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_REGULAR_ELDERS))
-            if (canEnrollRegularElderOrPublisher) add(SideItem("Publisher", Icons.Rounded.PersonAdd, Destinations.ENROLL_PUBLISHER))
+            // Routes to the Manage Publishers *list* screen (which has its own
+            // onAddNew FAB into ENROLL_PUBLISHER), matching every other entry
+            // in this section (Congregations/Admins/Coordinator Elder/Regular
+            // Elder all go to their list screen too) — this used to jump
+            // straight to enrollment instead, which meant Admin/Coordinator
+            // Elder had no way to reach the Publisher list/edit screen at all
+            // once the old tile grid (their only other route to it) was
+            // hidden for them.
+            if (canEnrollRegularElderOrPublisher) add(SideItem("Publisher", Icons.Rounded.People, Destinations.MANAGE_PUBLISHERS))
             if (canManageTerritories) add(SideItem("Territories", Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES))
         }
         if (enrollmentItems.isNotEmpty()) add(SideSection("Enrollment", enrollmentItems))

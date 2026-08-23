@@ -26,7 +26,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -96,10 +97,22 @@ fun ManagePublishersScreen(
             )
         },
         floatingActionButton = {
+            // "Publisher UI – Make the Main Button Larger and More
+            // Professional" spec — an ExtendedFloatingActionButton (icon +
+            // short label) rather than the plain icon-only FAB every other
+            // Manage screen still uses: larger touch target, clearer intent
+            // at a glance, still Material3-standard corner radius/elevation/
+            // ripple/typography, so it reads as "more polished," not "bigger
+            // for its own sake" (explicitly not wanted per the spec).
             if (!readOnly) {
-                FloatingActionButton(onClick = onAddNew) {
-                    Icon(Icons.Rounded.Add, contentDescription = "Enroll Publisher")
-                }
+                ExtendedFloatingActionButton(
+                    onClick = onAddNew,
+                    icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                    text = { Text("ADD PUBLISHER") },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp, pressedElevation = 8.dp),
+                )
             }
         },
     ) { padding ->

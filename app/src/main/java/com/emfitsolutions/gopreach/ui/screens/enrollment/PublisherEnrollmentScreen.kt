@@ -36,23 +36,37 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.LaunchedEffect
+import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Gender
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.ui.components.TempCredentialsResultCard
 import com.emfitsolutions.gopreach.ui.components.rememberUnsavedChangesBackHandler
 
-/** Spec §4.6 — Publisher Master File enrollment. */
+/** Spec §4.6 — Publisher Master File enrollment.
+ *
+ * "Publisher Congregation Assignment" spec — [visibleCongregationId] is the
+ * security boundary (resolved by the caller from the enrolling session's own
+ * role, see GoPreachNavGraph): `null` means Super-Admin, and only then does
+ * the Select Congregation field appear at all (spec §2: "do not unnecessarily
+ * change the existing... design" for Admin/Elder) — a non-null value keeps
+ * their original Group-only screen exactly as it was, just correctly scoped
+ * to their own congregation's groups now (previously every congregation's
+ * groups showed here, a real pre-existing scope gap this closes). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PublisherEnrollmentScreen(
     currentPersonId: String,
+    visibleCongregationId: String? = null,
     onBack: () -> Unit,
     onDone: () -> Unit,
     viewModel: PublisherEnrollmentViewModel = hiltViewModel(),
 ) {
+    LaunchedEffect(visibleCongregationId) { viewModel.restrictTo(visibleCongregationId) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val groups by viewModel.groups.collectAsStateWithLifecycle()
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle()
 
     val hasUnsavedChanges = uiState.result == null && (
         uiState.firstName.isNotBlank() || uiState.lastName.isNotBlank() ||
@@ -155,10 +169,25 @@ fun PublisherEnrollmentScreen(
 
                     PublisherCategoryDropdown(selected = uiState.category, onSelected = viewModel::onCategoryChange)
 
+                    // Super-Admin only (spec §1) — Admin/Coordinator Elder are
+                    // already restricted to their own congregation upstream
+                    // (visibleCongregationId), so this field would be both
+                    // redundant and a way to imply a choice they don't
+                    // actually have; omitted entirely for them instead of
+                    // shown-but-disabled.
+                    if (visibleCongregationId == null) {
+                        CongregationDropdown(
+                            congregations = congregations,
+                            selectedId = uiState.selectedCongregationId,
+                            onSelected = viewModel::onCongregationSelected,
+                        )
+                    }
+
                     GroupDropdown(
                         groups = groups,
                         selectedId = uiState.selectedGroupId,
                         onSelected = viewModel::onGroupSelected,
+                        enabled = visibleCongregationId != null || uiState.selectedCongregationId != null,
                     )
 
                     if (uiState.errorMessage != null) {
@@ -224,22 +253,28 @@ private fun PublisherCategoryDropdown(selected: PublisherCategory, onSelected: (
     }
 }
 
+// CongregationDropdown (Super-Admin only, spec §1) is already defined in
+// AdminEnrollmentScreen.kt — same package, same exact shape needed here, so
+// it's reused as-is rather than duplicated.
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun GroupDropdown(groups: List<Group>, selectedId: String?, onSelected: (String) -> Unit) {
+private fun GroupDropdown(groups: List<Group>, selectedId: String?, onSelected: (String) -> Unit, enabled: Boolean = true) {
     var expanded by remember { mutableStateOf(false) }
     val selectedName = groups.firstOrNull { it.id == selectedId }?.name ?: ""
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+    ExposedDropdownMenuBox(expanded = expanded && enabled, onExpandedChange = { if (enabled) expanded = it }) {
         OutlinedTextField(
             value = selectedName,
             onValueChange = {},
             readOnly = true,
+            enabled = enabled,
             label = { Text("Group") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            placeholder = { if (!enabled) Text("Select a congregation first") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded && enabled) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        ExposedDropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
             groups.forEach { group ->
                 DropdownMenuItem(
                     text = { Text(group.name) },

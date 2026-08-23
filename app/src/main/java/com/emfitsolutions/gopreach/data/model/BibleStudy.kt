@@ -61,8 +61,26 @@ data class InterestedPerson(
     val name: String = "",
     val gender: Gender? = null,
     val address: String = "",
+    /** "Interested Person GPS Capture" spec §12 — proper numeric fields, not
+     * formatted text, so filtering/mapping by coordinate stays possible.
+     * `null` means "not captured yet"; [gpsLat]/[gpsLng] are always set or
+     * cleared together (see [InterestedPeopleViewModel.saveGpsLocation]/
+     * [InterestedPeopleViewModel.clearGpsLocation]), never independently. */
     val gpsLat: Double? = null,
     val gpsLng: Double? = null,
+    /** Meters, as reported by [com.emfitsolutions.gopreach.data.location
+     * .LocationTracker] at capture time — spec §12's recommended metadata. */
+    val gpsAccuracy: Float? = null,
+    val gpsCapturedAt: Long? = null,
+    /** personId of whoever last captured/replaced this location — spec §12's
+     * recommended metadata; distinct from the record's own [publisherPersonId]
+     * since an Elder editing on a Publisher's behalf is still possible. */
+    val gpsCapturedBy: String? = null,
+    /** Set on every capture/replace, same value as [gpsCapturedAt] for a
+     * fresh capture — kept as its own field (rather than reusing
+     * [gpsCapturedAt]) so a future "originally captured vs. last updated"
+     * distinction is a read-only addition, not a schema change. */
+    val gpsUpdatedAt: Long? = null,
     val religion: String? = null,
     val createdAt: Long = 0L,
     /** Optional (spec §7) — empty until a supporting photo is captured. Only
@@ -72,6 +90,7 @@ data class InterestedPerson(
     val status: RecordStatus = RecordStatus.ACTIVE,
 ) {
     val primarySupportingImage: SupportingImage? get() = supportingImages.firstOrNull()
+    val hasGpsLocation: Boolean get() = gpsLat != null && gpsLng != null
 }
 
 /**
