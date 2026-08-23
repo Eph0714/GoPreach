@@ -911,6 +911,35 @@ and are deferred rather than half-built:
   session doesn't have), and the Theme Color picker (Settings requires
   being signed in).
 
+## Phase 28 — Fully manual sync, Account Settings name field ✅ done
+
+- **Automatic sync removed entirely** — Phase 26 kept auto-sync running
+  alongside the new manual button; this reverses that and goes fully
+  manual, per explicit follow-up direction. `OfflineFirestoreRepository
+  .save()`/`saveRawJson()`/`delete()` no longer call
+  `SyncScheduler.requestSyncNow()` at all — a write now only ever updates
+  the local cache and enqueues the pending operation, nothing more. The
+  *only* remaining triggers for a sync run are explicit user actions:
+  `SyncToServerButton` (checks connectivity first, shows progress/summary),
+  the header `SyncStatusButton` shortcut, and pull-to-refresh — matching
+  spec §17's "Manual Sync Requirement" literally now, not just via an
+  additional button on top of the old behavior. Live Firestore listeners
+  that download *other* users' changes are unchanged — those are a
+  separate concern (this device receiving updates) from this device's own
+  pending-edit upload queue, which is what "manual sync" is about.
+- **Account Settings: added a Personal Information section** (First Name/
+  Last Name, editable, no current-password check needed since it's profile
+  info rather than a login credential) above the existing Change Username/
+  Change Password sections — this screen is used by every signed-in role
+  including Super-Admin, whose name previously had no edit surface
+  anywhere in the app at all.
+- Verified via `./gradlew :app:compileDebugKotlin`, a full
+  `:app:assembleDebug`, and an on-device screenshot of the Login screen
+  (v1.14.0, no crash). Not verified live: an actual sync run no longer
+  firing automatically after a write, and the new Account Settings name
+  field's save behavior (Settings/Account Settings both require being
+  signed in — same recurring credential gap).
+
 ## What's next (not blocking, tracked for a future pass)
 - Real per-field sync conflict detection/resolution (needs a version/
   timestamp field added to synced documents first) and a discrete

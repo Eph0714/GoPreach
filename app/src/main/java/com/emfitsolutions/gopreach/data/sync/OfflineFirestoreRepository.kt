@@ -17,14 +17,21 @@ import javax.inject.Singleton
  * Publishers, Territories, Bible Studies, ...) so the "queue-and-sync applies to
  * all CRUD app-wide" requirement (spec §6.5) is implemented once, not per feature.
  *
- * Write path: save to the local cache immediately (state PENDING), enqueue the
- * operation, then ask [SyncScheduler] to run — if online, the write reaches
- * Firestore right away; if not, it sits queued and a "pending sync" indicator can
- * be driven off [SyncQueueDao.observePendingCount] until connectivity returns.
+ * Write path: save to the local cache immediately (state PENDING) and enqueue the
+ * operation — that's it. Per the "Manual Sync Requirement" (spec §17: "Do not
+ * automatically upload the user's locally created/edited data merely because a
+ * network connection becomes available"), this never itself asks [SyncScheduler]
+ * to run; the queued row just sits there, tracked by a "pending sync" indicator
+ * ([SyncQueueDao.observePendingCount]), until the user explicitly taps
+ * [com.emfitsolutions.gopreach.ui.components.SyncToServerButton] (or the older
+ * [com.emfitsolutions.gopreach.ui.components.SyncStatusButton]/pull-to-refresh).
  *
  * Read path: callers observe the local cache (always available offline); the cache
  * itself is kept current by Firestore snapshot listeners set up per collection where
- * live updates matter (added alongside each domain repository).
+ * live updates matter (added alongside each domain repository) — those downloads
+ * are a separate concern from this file's upload queue and are unaffected by the
+ * manual-sync-only requirement, which is specifically about *this device's own*
+ * pending edits.
  */
 @Singleton
 class OfflineFirestoreRepository @Inject constructor(
@@ -34,7 +41,6 @@ class OfflineFirestoreRepository @Inject constructor(
     @PublishedApi internal val cacheDao: CacheDao,
     private val syncQueueDao: SyncQueueDao,
     @PublishedApi internal val gson: Gson,
-    private val syncScheduler: SyncScheduler,
 ) {
     inline fun <reified T> observeCollection(collectionPath: String): Flow<List<T>> =
         cacheDao.observeCollection(collectionPath).map { rows ->
@@ -74,7 +80,6 @@ class OfflineFirestoreRepository @Inject constructor(
                 createdAt = now,
             )
         )
-        syncScheduler.requestSyncNow()
     }
 
     suspend fun delete(collectionPath: String, documentId: String) {
@@ -88,7 +93,6 @@ class OfflineFirestoreRepository @Inject constructor(
                 createdAt = System.currentTimeMillis(),
             )
         )
-        syncScheduler.requestSyncNow()
     }
 
     fun observePendingSyncCount(): Flow<Int> = syncQueueDao.observePendingCount()

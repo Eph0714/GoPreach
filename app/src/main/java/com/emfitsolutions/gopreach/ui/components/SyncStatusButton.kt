@@ -44,10 +44,12 @@ class SyncStatusViewModel @Inject constructor(
 
 /**
  * The app works fully offline (spec: local writes always succeed instantly,
- * queued for later); this is the visible "you have N changes waiting to go
- * up" affordance plus a manual trigger, rather than only relying on the
- * automatic background flush on reconnect (see SyncScheduler/SyncWorker) —
- * some users want to see and control that moment, not just trust it happened.
+ * queued for later, never uploaded automatically — see spec §17 "Manual Sync
+ * Requirement"). This is the small header-level "you have N changes waiting to
+ * go up" status indicator (spec §16) plus a quick manual trigger — the main,
+ * full-featured way to sync is [SyncToServerButton] on the Main Form, which
+ * checks connectivity and shows progress/a summary; this is a lighter-weight
+ * shortcut for the same explicit, user-initiated flush.
  */
 @Composable
 fun SyncStatusButton(viewModel: SyncStatusViewModel = hiltViewModel()) {

@@ -97,6 +97,30 @@ fun AccountSettingsScreen(
             modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            Text("Personal Information", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = uiState.firstName,
+                onValueChange = viewModel::onFirstNameChange,
+                label = { Text("First Name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = uiState.lastName,
+                onValueChange = viewModel::onLastNameChange,
+                label = { Text("Last Name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (uiState.nameError != null) Text(uiState.nameError!!, color = MaterialTheme.colorScheme.error)
+            if (uiState.nameMessage != null) Text(uiState.nameMessage!!, color = MaterialTheme.colorScheme.primary)
+            Button(onClick = viewModel::saveName, enabled = !uiState.isSavingName, modifier = Modifier.fillMaxWidth()) {
+                if (uiState.isSavingName) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
+                Text("Save Name")
+            }
+
+            HorizontalDivider()
+
             Text("Change Username", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
                 value = uiState.newUsername,

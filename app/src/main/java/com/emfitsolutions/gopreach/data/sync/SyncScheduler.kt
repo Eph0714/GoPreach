@@ -21,11 +21,15 @@ class SyncScheduler @Inject constructor(
         const val UNIQUE_WORK_NAME = "gopreach_sync_queue"
     }
 
-    /** Enqueues a flush of the pending-operations queue; a no-op while offline until
-     * connectivity returns, since the request carries a network constraint. Every
-     * local write (auto-sync, unchanged) and the manual "SYNC TO SERVER" button both
-     * call this same method — [observeWorkInfo] is what lets the button's UI tell the
-     * two apart and show progress/a summary only for the run it triggered. */
+    /** Enqueues a flush of the pending-operations queue. Per spec §17 "Manual Sync
+     * Requirement," this is called **only** by an explicit user action — the
+     * "SYNC TO SERVER" button, the header [com.emfitsolutions.gopreach.ui.components
+     * .SyncStatusButton] shortcut, or a manual pull-to-refresh — never automatically
+     * off the back of a write or a network-reconnect event. Still carries a network
+     * constraint so a request made while offline simply waits rather than failing
+     * outright; [SyncToServerButton] checks connectivity itself beforehand precisely
+     * so it can show the "No Network Connection" message instead of silently queuing
+     * a run for whenever connectivity happens to return later. */
     fun requestSyncNow() {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
