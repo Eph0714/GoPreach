@@ -430,6 +430,29 @@ and are deferred rather than half-built:
 - Not verified on-device past the login screen — same disclosed gap as
   Phase 13-15 (no Super-Admin/Admin test credentials available this session).
 
+## Phase 17 — Pull-to-refresh on the main dashboard checks for updates ✅ done
+
+- `AdminHomeScreen`'s main form is now wrapped in a Material3
+  `PullToRefreshBox`: pulling down (a) flushes any queued offline writes
+  (`HomeViewModel.refreshData()` → `SyncScheduler.requestSyncNow()`) and (b)
+  re-checks for an app update via the same **Activity-scoped**
+  `UpdateViewModel` instance `MainActivity`'s `UpdateHost` already observes
+  (same scoping trick `SettingsScreen`'s "Check for Updates" uses) — so
+  pulling to refresh shows the same "Update Available" dialog (or "GoPreach
+  is up to date") as a fresh app launch or the Settings button would,
+  without a second, disconnected update-check flow.
+- The refresh spinner clears itself as soon as the update check leaves its
+  `Checking` state (observed via `LaunchedEffect`), not a fixed timer.
+- Every other number on the dashboard already updates live off its own
+  Firestore listener (offline-first architecture) — there's no separate
+  "reload the data" step for a refresh gesture to trigger beyond the sync
+  flush; re-checking for an update is genuinely the useful thing a manual
+  refresh can still *do* here, which is why that's what it's wired to.
+- Not verified on-device past the login screen — same disclosed gap as
+  Phase 13-16 (no Super-Admin/Admin test credentials available this session);
+  confirmed only that the app builds, installs, and the login screen still
+  renders without a crash after this change.
+
 ## What's next (not blocking, tracked for a future pass)
 - Storage: needs the Blaze plan (billing) to provision a bucket — your call, see SETUP.md
 - Share Location: move from a foreground timer to a real background/foreground service for continuous tracking
