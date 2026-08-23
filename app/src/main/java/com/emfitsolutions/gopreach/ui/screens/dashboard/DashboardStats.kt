@@ -42,7 +42,10 @@ fun computeStatMembers(
             val congregation = congregationsById[assignment.congregationId] ?: return@mapNotNull null
             val labels: Set<String> = when (val role = assignment.resolvedRoleType()) {
                 is RoleType.Admin -> when (role.role) {
-                    AdminRole.COORDINATOR_ELDER, AdminRole.REGULAR_ELDER -> setOf("Total Elders")
+                    // "Total Elders" counts Regular Elders only (per explicit
+                    // request) — Coordinator Elder is an administrative role,
+                    // not counted here even though it's also an Elder title.
+                    AdminRole.REGULAR_ELDER -> setOf("Total Elders")
                     else -> emptySet()
                 }
                 is RoleType.Publisher -> buildSet {
@@ -87,8 +90,9 @@ data class CongregationStats(
      * "Total Publishers" KPI, distinct from [regularPublishers] below (spec §7
      * lists both "Total Publishers" and each category separately). */
     val totalPublishers: Int,
-    /** Coordinator Elders + Regular Elders — Admin Per Congregation is an
-     * administrative role, not counted as an "Elder" here. */
+    /** Regular Elders only (per explicit request) — Coordinator Elder and
+     * Admin Per Congregation are both administrative roles, not counted as
+     * an "Elder" here even though Coordinator Elder is also an Elder title. */
     val totalElders: Int,
     val regularPioneers: Int,
     val auxiliaryPioneers: Int,
@@ -125,9 +129,11 @@ data class CongregationStats(
             fun countOf(category: PublisherCategory) = publisherAssignments.count {
                 (it.resolvedRoleType() as RoleType.Publisher).category == category
             }
+            // Regular Elders only — Coordinator Elder is deliberately excluded
+            // from "Total Elders" (per explicit request), even though it's
+            // also an Elder title; it's an administrative role here.
             val elderCount = active.filter {
-                val role = (it.resolvedRoleType() as? RoleType.Admin)?.role
-                role == AdminRole.COORDINATOR_ELDER || role == AdminRole.REGULAR_ELDER
+                (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
             }.distinctBy { it.personId }.size
             val congregationReports = reports.filter { it.congregationId == congregation.id }
             CongregationStats(
@@ -175,9 +181,11 @@ data class CongregationStats(
             fun countOf(category: PublisherCategory) = publisherAssignments.count {
                 (it.resolvedRoleType() as RoleType.Publisher).category == category
             }
+            // Regular Elders only — Coordinator Elder is deliberately excluded
+            // from "Total Elders" (per explicit request), even though it's
+            // also an Elder title; it's an administrative role here.
             val elderCount = active.filter {
-                val role = (it.resolvedRoleType() as? RoleType.Admin)?.role
-                role == AdminRole.COORDINATOR_ELDER || role == AdminRole.REGULAR_ELDER
+                (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
             }.distinctBy { it.personId }.size
             val scopedReports = reports.filter { it.congregationId in congregationIds }
             return CongregationStats(

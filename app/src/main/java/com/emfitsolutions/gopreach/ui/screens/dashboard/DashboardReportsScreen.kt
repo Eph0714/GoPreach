@@ -170,7 +170,8 @@ fun DashboardStatsContent(
         )
         Text(
             "Bible Studies and Preaching Hours reflect the selected period above. " +
-                "Publisher/Elder counts always reflect current status.",
+                "Publisher/Elder counts always reflect current status. " +
+                "\"Total Elders\" counts Regular Elders only (Coordinator Elders are shown under Admins).",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -337,6 +338,32 @@ fun DashboardStatsContent(
                     )
                     SimpleBarChart(
                         slices = uiState.all.map { BarSlice(it.congregationName, it.totalPublishers.toFloat(), COLOR_PUBLISHERS) },
+                        modifier = Modifier.padding(top = 8.dp),
+                        onBarTap = { slice ->
+                            uiState.all.firstOrNull { it.congregationName == slice.label }?.let { viewModel.selectCongregation(it.congregationId) }
+                        },
+                    )
+                }
+            }
+
+            // "Group them per congregation in Super-Admin account" — explicit
+            // request. Only a Super-Admin (or anyone else who happens to be
+            // scoped to more than one congregation) ever sees this; an
+            // Admin/Coordinator Elder is always scoped to exactly their own
+            // congregation upstream (visibleCongregationIds — see
+            // AdminHomeScreen/GoPreachNavGraph), so `isMultiCongregation` is
+            // false for them and they never see anything beyond their own
+            // congregation's single Total Elders card above.
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Elders per Congregation", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Regular Elders only. Tap a bar to drill into that congregation.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    SimpleBarChart(
+                        slices = uiState.all.map { BarSlice(it.congregationName, it.totalElders.toFloat(), COLOR_ELDERS) },
                         modifier = Modifier.padding(top = 8.dp),
                         onBarTap = { slice ->
                             uiState.all.firstOrNull { it.congregationName == slice.label }?.let { viewModel.selectCongregation(it.congregationId) }
