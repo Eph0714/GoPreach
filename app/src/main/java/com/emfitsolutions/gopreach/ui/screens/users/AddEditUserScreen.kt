@@ -39,6 +39,7 @@ import com.emfitsolutions.gopreach.data.model.ScopeType
 import com.emfitsolutions.gopreach.data.model.UserAccessGrant
 import com.emfitsolutions.gopreach.data.repository.TempCredentials
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
+import com.emfitsolutions.gopreach.ui.components.ShareableSetupLink
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 
 /**
@@ -285,7 +286,7 @@ private fun NewUserCredentialsCard(credentials: TempCredentials, onDone: () -> U
             Text("Share these credentials — the user must change the password on first login.")
             Text("Username: ${credentials.username}", fontWeight = FontWeight.Bold)
             Text("Temporary password: ${credentials.temporaryPassword}", fontWeight = FontWeight.Bold)
-            Text(credentials.shareableLink, style = MaterialTheme.typography.bodySmall)
+            ShareableSetupLink(credentials.username, credentials.temporaryPassword, credentials.shareableLink)
             TextButton(onClick = onDone) { Text("Done") }
         }
     }

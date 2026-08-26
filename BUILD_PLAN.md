@@ -1598,6 +1598,14 @@ User report: "The new Coordinator elder cannot login using their temporary usern
 
 **Verified live, end-to-end, not just reasoned about**: enrolled a real test Coordinator Elder as Super-Admin, captured the exact temp username/password shown, signed out, and logged in with those exact credentials — succeeded immediately, landed on the forced "Set Your Permanent Credentials" screen, completed it, and landed correctly on that Coordinator Elder's own scoped dashboard ("Welcome, TEST! COORDINATOR ELDER... SOLANO TAGALOG CONGREGATION"). Zero crash-buffer entries throughout. This reproduces the reported failure's exact shape (a fresh account's login immediately after enrollment) and confirms it now works.
 
+## Phase 53 — Shareable setup link is now tappable everywhere temp credentials are shown ✅ done
+
+User request: "in all new accounts, make the setup link clickable for sharing."
+
+- New shared `ShareableSetupLink` composable (`ui/components/`) — replaces the plain `Text("Setup Link: ...")` used in three places: `TempCredentialsResultCard` (shown right after enrolling an Admin/Coordinator Elder/Service Overseer/Regular Elder/Publisher), `AddEditUserScreen`'s `NewUserCredentialsCard` (custom/Circuit Overseer users), and `TempCredentialLookupDialog` (the key-icon "view again" dialog for an account that still hasn't completed its first login — the other place a "new," not-yet-activated account's credentials are shown). Underlined, tinted with the app's primary color, and prefixed with a share icon so it visibly reads as tappable rather than plain informational text.
+- Tapping it launches the standard Android Share sheet (`Intent.ACTION_SEND`, `text/plain`) with the username, temporary password, and setup link bundled into one message — not just the bare link — since whoever's sharing it needs to hand over all three pieces together for the recipient to actually sign in, and a share sheet only gets one shot at it.
+- Verified via `./gradlew :app:compileDebugKotlin`, a full `:app:assembleDebug`, and a real on-device test as a signed-in Coordinator Elder: opened the temp sign-in lookup for a still-pending publisher, confirmed the Setup Link now renders underlined/tinted with a share icon, tapped it, and confirmed the real Android Share sheet opened with the correctly formatted username/password/link text ready to send via Messages, Bluetooth, Drive, etc. Zero crashes.
+
 ## What's next (not blocking, tracked for a future pass)
 - Live-verify the entire Phase 50 Searching/Return Visit/Bible Study pipeline,
   Forward to Other Congregation flow, and Monthly Report submission window +

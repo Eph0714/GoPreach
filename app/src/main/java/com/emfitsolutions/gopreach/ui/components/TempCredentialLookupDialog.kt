@@ -33,9 +33,7 @@ fun TempCredentialLookupDialog(person: Person, onDismiss: () -> Unit) {
                 Text("Username: ${person.username}", fontWeight = FontWeight.Bold)
                 if (tempPassword != null) {
                     Text("Temporary Password: $tempPassword", fontWeight = FontWeight.Bold)
-                    Text(
-                        "Setup Link: ${CredentialGenerator.shareableSetupLink(person.username, tempPassword)}",
-                    )
+                    ShareableSetupLink(person.username, tempPassword, CredentialGenerator.shareableSetupLink(person.username, tempPassword))
                 } else {
                     Text("No temporary password on file for this account — it may have been created before this feature, or the record needs re-syncing.")
                 }
