@@ -1540,6 +1540,10 @@ User request: split Name into First/Last Name (all required alongside Address/Co
 - Group Servant and a publisher category are independent of each other (not mutually exclusive with each other) — a Coordinator Elder can be enrolled as both at once, matching the spec's own wording ("a Regular Publisher category and Group Servant can both apply at once, but only one publisher category at a time"), which is also called out directly in the form's own helper text.
 - Verified via `./gradlew :app:compileDebugKotlin`, a full `:app:assembleDebug`, and a real on-device click-through: opened Enroll Coordinator Elder, confirmed the new First Name/Last Name/Address/Email/Contact/Congregation field order and the four checkboxes render correctly, checked "Regular Pioneer" and confirmed "Auxiliary Pioneer"/"Regular Publisher" immediately greyed out and became untappable while "Group Servant" stayed independently checkable. Zero crash-buffer entries.
 
+## Phase 48 — Coordinator Elder enrollment: "Group Servant" → "Group Overseer" ✅ done
+
+User request: change the role from Group Servant to Group Overseer. Renamed throughout Phase 47's checkbox: `CoordinatorElderEnrollmentUiState.isGroupServant` → `isGroupOverseer`, `onGroupServantToggled` → `onGroupOverseerToggled`, the checkbox label, the helper text, and — the part that actually matters functionally — the created `RoleAssignment`'s `regularElderRole` now uses `RegularElderRole.GROUP_OVERSEER` instead of `GROUP_SERVANT`. Verified via `./gradlew :app:compileDebugKotlin`, a full `:app:assembleDebug`, and a real on-device check: opened Enroll Coordinator Elder and confirmed the checkbox and its helper text both now read "Group Overseer." Zero crashes.
+
 ## What's next (not blocking, tracked for a future pass)
 - Live-verify the "Other (specify)" free-text fallback path specifically
   (only the dropdown-selection path was exercised live in Phase 46).

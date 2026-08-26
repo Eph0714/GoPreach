@@ -140,13 +140,13 @@ fun CoordinatorElderEnrollmentScreen(
                     HorizontalDivider()
                     Text("Select Role (optional)", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "In addition to Coordinator Elder — a Regular Publisher category and Group Servant can both apply at once, but only one publisher category at a time.",
+                        "In addition to Coordinator Elder — a Regular Publisher category and Group Overseer can both apply at once, but only one publisher category at a time.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     RoleCheckboxRow(
-                        label = "Group Servant",
-                        checked = uiState.isGroupServant,
-                        onCheckedChange = viewModel::onGroupServantToggled,
+                        label = "Group Overseer",
+                        checked = uiState.isGroupOverseer,
+                        onCheckedChange = viewModel::onGroupOverseerToggled,
                     )
                     RoleCheckboxRow(
                         label = "Regular Pioneer",

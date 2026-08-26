@@ -38,13 +38,13 @@ data class CoordinatorElderEnrollmentUiState(
     /** "Select Role" checkboxes (additional, simultaneous roles on top of
      * the Coordinator Elder admin role itself) — independent of the three
      * publisher categories below, so a Coordinator Elder can also be a
-     * Group Servant *and* a Regular Pioneer at once. No specific Group is
+     * Group Overseer *and* a Regular Pioneer at once. No specific Group is
      * picked here, deliberately: [com.emfitsolutions.gopreach.data.model
      * .RoleAssignment.groupId] is left unset here exactly like a freshly
      * enrolled Regular Elder's already is (see RegularElderEnrollmentViewModel) —
      * it's filled in later when an admin places them into one of a Group's
      * three slots via Manage Groups. */
-    val isGroupServant: Boolean = false,
+    val isGroupOverseer: Boolean = false,
     /** Mutually exclusive — checking one clears the other two (spec: "If
      * checked, the others are disabled and unchecked"). `null` means none
      * selected; this Coordinator Elder gets no Publisher-category
@@ -76,7 +76,7 @@ class CoordinatorElderEnrollmentViewModel @Inject constructor(
     fun onContactChange(value: String) = _uiState.update { it.copy(contact = value.uppercase(), errorMessage = null) }
     fun onCongregationSelected(id: String) = _uiState.update { it.copy(selectedCongregationId = id, errorMessage = null) }
 
-    fun onGroupServantToggled(checked: Boolean) = _uiState.update { it.copy(isGroupServant = checked) }
+    fun onGroupOverseerToggled(checked: Boolean) = _uiState.update { it.copy(isGroupOverseer = checked) }
 
     /** A single nullable field naturally gives the "checking one clears the
      * other two" behavior the spec asks for — checking one just replaces
@@ -135,13 +135,13 @@ class CoordinatorElderEnrollmentViewModel @Inject constructor(
             // freshly enrolled Regular Elder's own RoleAssignment doesn't —
             // that's filled in later when an admin places this person into
             // one of a Group's three slots via Manage Groups.
-            if (state.isGroupServant) {
+            if (state.isGroupOverseer) {
                 roleAssignmentRepository.save(
                     RoleAssignment(
                         personId = credentials.personId,
                         roleType = RoleType.serialize(RoleType.Admin(AdminRole.REGULAR_ELDER)),
                         congregationId = congregationId,
-                        regularElderRole = RegularElderRole.GROUP_SERVANT,
+                        regularElderRole = RegularElderRole.GROUP_OVERSEER,
                         status = RoleAssignmentStatus.ACTIVE,
                         dateAssigned = now,
                         assignedByPersonId = enrollingPersonId,
