@@ -26,8 +26,11 @@ class PreachingTimeRecordRepository @Inject constructor(
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     fun observeForPublisher(publisherPersonId: String): Flow<List<PreachingTimeRecord>> =
-        offline.observeCollection<PreachingTimeRecord>(COLLECTION)
-            .map { list -> list.filter { it.publisherPersonId == publisherPersonId } }
+        observeAll().map { list -> list.filter { it.publisherPersonId == publisherPersonId } }
+
+    /** "Consolidated Monthly Report" — every publisher's Preaching Time
+     * records at once, for the multi-publisher congregation view. */
+    fun observeAll(): Flow<List<PreachingTimeRecord>> = offline.observeCollection(COLLECTION)
 
     suspend fun save(record: PreachingTimeRecord): PreachingTimeRecord {
         val id = record.id.ifBlank { firestore.collection(COLLECTION).document().id }

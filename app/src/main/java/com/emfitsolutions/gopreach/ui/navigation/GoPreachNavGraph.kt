@@ -29,11 +29,13 @@ import com.emfitsolutions.gopreach.ui.screens.controlpanel.ControlPanelScreen
 import com.emfitsolutions.gopreach.ui.screens.dashboard.DashboardReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.elders.ManageCoordinatorEldersScreen
 import com.emfitsolutions.gopreach.ui.screens.elders.ManageRegularEldersScreen
+import com.emfitsolutions.gopreach.ui.screens.elders.ManageServiceOverseersScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.AdminEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.CongregationEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.CoordinatorElderEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.PublisherEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.RegularElderEnrollmentScreen
+import com.emfitsolutions.gopreach.ui.screens.enrollment.ServiceOverseerEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.groups.ManageGroupsScreen
 import com.emfitsolutions.gopreach.ui.screens.home.AdminHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
@@ -42,6 +44,7 @@ import com.emfitsolutions.gopreach.ui.screens.preachingtime.PreachingTimeRecordS
 import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MonthlyReportScreen
 import com.emfitsolutions.gopreach.ui.screens.login.LoginScreen
 import com.emfitsolutions.gopreach.ui.screens.publishers.ManagePublishersScreen
+import com.emfitsolutions.gopreach.ui.screens.reports.ConsolidatedReportScreen
 import com.emfitsolutions.gopreach.ui.screens.reports.ReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.schedules.ManageChatSchedulesScreen
 import com.emfitsolutions.gopreach.ui.screens.settings.SettingsScreen
@@ -79,7 +82,7 @@ fun GoPreachNavGraph(
     // instant Compose evaluated this line, right when the Main Form should
     // appear. A malformed assignment is now just skipped instead.
     val ownCongregationId = session.roleAssignments.firstOrNull {
-        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER)
+        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER)
     }?.congregationId
     // A Regular Elder's own group (spec §3: their CRUD/view scope is "own group", not congregation-wide).
     val ownGroupAssignment = session.roleAssignments.firstOrNull {
@@ -172,6 +175,13 @@ fun GoPreachNavGraph(
                 onDone = { navController.popBackStack() },
             )
         }
+        composable(Destinations.ENROLL_SERVICE_OVERSEER) {
+            ServiceOverseerEnrollmentScreen(
+                currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
+                onDone = { navController.popBackStack() },
+            )
+        }
         composable(Destinations.ENROLL_REGULAR_ELDER) {
             RegularElderEnrollmentScreen(
                 currentPersonId = currentPersonId,
@@ -210,6 +220,18 @@ fun GoPreachNavGraph(
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
                 onAddNew = { navController.navigate(Destinations.ENROLL_COORDINATOR_ELDER) },
+            )
+        }
+        composable(Destinations.MANAGE_SERVICE_OVERSEERS) {
+            // Reachable by Super-Admin, Admin, and Coordinator Elder (unlike
+            // Coordinator Elder enrollment itself, which a Coordinator Elder
+            // cannot reach) — see canEnrollServiceOverseer's gating.
+            ManageServiceOverseersScreen(
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+                currentPersonId = currentPersonId,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
+                onBack = { navController.popBackStack() },
+                onAddNew = { navController.navigate(Destinations.ENROLL_SERVICE_OVERSEER) },
             )
         }
         composable(Destinations.MANAGE_REGULAR_ELDERS) {
@@ -291,6 +313,18 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
+        composable(Destinations.CONSOLIDATED_REPORT) {
+            // Only Super-Admin/Admin/Coordinator Elder/Service Overseer ever
+            // reach this route at all (see canViewConsolidatedReport's
+            // drawer gating) — scoped the same way their own Main Form
+            // dashboard already is, never falling back to a Regular Elder/
+            // Publisher's own group/congregation the way Dashboard Reports
+            // does, since neither of those roles should see this report.
+            ConsolidatedReportScreen(
+                visibleCongregationIds = if (currentRole == AdminRole.SUPER_ADMIN) null else setOfNotNull(ownCongregationId),
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable(
             route = Destinations.EDIT_MONTHLY_REPORT,
             arguments = listOf(navArgument("targetPersonId") { type = NavType.StringType }),
@@ -350,7 +384,7 @@ fun GoPreachNavGraph(
         composable(Destinations.CALENDAR) {
             val scope = when (currentRole) {
                 AdminRole.SUPER_ADMIN -> CalendarScope.AdminTrack(congregationId = null, canEditAll = true)
-                AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER ->
+                AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER ->
                     CalendarScope.AdminTrack(congregationId = ownCongregationId, canEditAll = true)
                 AdminRole.REGULAR_ELDER -> CalendarScope.AdminTrack(
                     congregationId = ownGroupAssignment?.congregationId,

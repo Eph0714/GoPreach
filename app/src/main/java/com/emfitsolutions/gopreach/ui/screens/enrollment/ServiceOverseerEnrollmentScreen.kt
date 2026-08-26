@@ -4,14 +4,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -28,7 +26,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -38,14 +35,20 @@ import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.ui.components.TempCredentialsResultCard
 import com.emfitsolutions.gopreach.ui.components.rememberUnsavedChangesBackHandler
 
-/** Spec §4.3 — Coordinator Elder enrollment, by Super-Admin or Admin. */
+/**
+ * New Service Overseer enrollment. Reachable by Super-Admin, Admin (own
+ * congregation), and Coordinator Elder (own congregation) — unlike
+ * Coordinator Elder enrollment, which a Coordinator Elder cannot reach.
+ * One Service Overseer per congregation is the goal; a second active one
+ * for the same congregation is blocked (see the ViewModel).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CoordinatorElderEnrollmentScreen(
+fun ServiceOverseerEnrollmentScreen(
     currentPersonId: String,
     onBack: () -> Unit,
     onDone: () -> Unit,
-    viewModel: CoordinatorElderEnrollmentViewModel = hiltViewModel(),
+    viewModel: ServiceOverseerEnrollmentViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
@@ -64,7 +67,7 @@ fun CoordinatorElderEnrollmentScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Enroll Coordinator Elder") },
+                title = { Text("Enroll Service Overseer") },
                 navigationIcon = {
                     IconButton(onClick = guardedBack.onBackPressed) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -140,7 +143,7 @@ fun CoordinatorElderEnrollmentScreen(
                     HorizontalDivider()
                     Text("Select Role (optional)", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "In addition to Coordinator Elder — a Regular Publisher category and Group Overseer can both apply at once, but only one publisher category at a time.",
+                        "In addition to Service Overseer — a Regular Publisher category and Group Overseer can both apply at once, but only one publisher category at a time.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     RoleCheckboxRow(
@@ -179,28 +182,10 @@ fun CoordinatorElderEnrollmentScreen(
                         if (uiState.isSaving) {
                             CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
                         }
-                        Text("Create Coordinator Elder Account")
+                        Text("Create Service Overseer Account")
                     }
                 }
             }
         }
-    }
-}
-
-/** One "Select Role" checkbox — [enabled] false renders it visibly disabled
- * (spec: checking one of the three mutually-exclusive categories disables
- * the other two, not just leaves them checkable-but-ignored). Internal, not
- * private — reused as-is by ServiceOverseerEnrollmentScreen (same package,
- * identical "Select Role" section). */
-@Composable
-internal fun RoleCheckboxRow(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
-        Text(label, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

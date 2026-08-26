@@ -26,6 +26,10 @@ object Destinations {
     const val ENROLL_PUBLISHER = "enroll_publisher"
     const val MANAGE_COORDINATOR_ELDERS = "manage_coordinator_elders"
     const val MANAGE_REGULAR_ELDERS = "manage_regular_elders"
+    // New Service Overseer role.
+    const val ENROLL_SERVICE_OVERSEER = "enroll_service_overseer"
+    const val MANAGE_SERVICE_OVERSEERS = "manage_service_overseers"
+    const val CONSOLIDATED_REPORT = "consolidated_report"
 
     // Phase 3
     const val CONTROL_PANEL = "control_panel"

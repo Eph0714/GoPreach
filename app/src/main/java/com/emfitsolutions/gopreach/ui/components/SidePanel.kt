@@ -69,6 +69,8 @@ fun GoPreachSidePanelContent(
     activeRoute: String?,
     canManageCongregationsAndAdmins: Boolean,
     canEnrollCoordinatorElder: Boolean,
+    canEnrollServiceOverseer: Boolean,
+    canViewConsolidatedReport: Boolean,
     canEnrollRegularElderOrPublisher: Boolean,
     canManagePublishersAndGroups: Boolean,
     canManageTerritories: Boolean,
@@ -89,6 +91,7 @@ fun GoPreachSidePanelContent(
             if (canManageCongregationsAndAdmins) add(SideItem("Congregations", Icons.Rounded.AccountBalance, Destinations.MANAGE_CONGREGATIONS))
             if (canManageCongregationsAndAdmins) add(SideItem("Admins", Icons.Rounded.AdminPanelSettings, Destinations.MANAGE_ADMINS))
             if (canEnrollCoordinatorElder) add(SideItem("Coordinator Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_COORDINATOR_ELDERS))
+            if (canEnrollServiceOverseer) add(SideItem("Service Overseer", Icons.Rounded.PersonAdd, Destinations.MANAGE_SERVICE_OVERSEERS))
             if (canManagePublishersAndGroups) add(SideItem("Groups", Icons.Rounded.Groups, Destinations.MANAGE_GROUPS))
             if (canEnrollRegularElderOrPublisher) add(SideItem("Regular Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_REGULAR_ELDERS))
             // Routes to the Manage Publishers *list* screen (which has its own
@@ -123,6 +126,9 @@ fun GoPreachSidePanelContent(
             add(SideItem("Dashboard", Icons.Rounded.BarChart, Destinations.DASHBOARD_REPORTS))
             add(SideItem("Chat Schedule", Icons.AutoMirrored.Rounded.Chat, Destinations.MANAGE_CHAT_SCHEDULES))
             add(SideItem("Reports Summary", Icons.Rounded.Assessment, Destinations.REPORTS))
+            if (canViewConsolidatedReport) {
+                add(SideItem("Consolidated Report", Icons.Rounded.Assessment, Destinations.CONSOLIDATED_REPORT))
+            }
             add(SideItem("Calendar", Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
             add(SideItem("Share Location Settings", Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
             if (canViewUserLogs) add(SideItem("User Logs", Icons.Rounded.History, Destinations.USER_LOGS))

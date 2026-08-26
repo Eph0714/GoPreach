@@ -7,6 +7,7 @@ import com.emfitsolutions.gopreach.data.sync.mirrorFirestoreCollection
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -44,8 +45,16 @@ class VisitRepository @Inject constructor(
      * kept current by [startRemoteSyncForPublisher]'s collection-group
      * listener — this is a read-only aggregation, no new write path. */
     fun observeAllForPublisher(publisherPersonId: String): Flow<List<Visit>> =
-        offline.observeCollectionsMatching<Visit>("interestedPeople/%/visits")
-            .map { list -> list.filter { it.publisherPersonId == publisherPersonId } }
+        observeAllVisits().map { list -> list.filter { it.publisherPersonId == publisherPersonId } }
+
+    /** "Consolidated Monthly Report" — every Visit across every Interested
+     * Person, unfiltered by publisher, for the multi-publisher congregation
+     * view. Kept current by [startRemoteSyncAllForCongregationView] instead
+     * of per-publisher listeners (this app's scale — a congregation's
+     * publishers, not millions of rows — makes one broad listener simpler
+     * and cheaper than one collection-group listener per publisher shown on
+     * the report). */
+    fun observeAllVisits(): Flow<List<Visit>> = offline.observeCollectionsMatching("interestedPeople/%/visits")
 
     /** The one collection-group query in this app — needed because Visits are
      * a subcollection of a variable, per-person parent, so there's no single
@@ -60,33 +69,41 @@ class VisitRepository @Inject constructor(
      * is the very first collection-group query ever run against this
      * project, Firestore's error will include a direct link to create that
      * index in the Console; that's a one-time setup step, not a bug. */
-    fun startRemoteSyncForPublisher(publisherPersonId: String): Flow<Unit> = callbackFlow {
-        val registration = firestore.collectionGroup("visits")
-            .whereEqualTo("publisherPersonId", publisherPersonId)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null || snapshot == null) {
-                    if (error != null) Log.w(TAG, "Collection-group listener for visits failed: ${error.message}")
-                    return@addSnapshotListener
-                }
-                appScope.launch {
-                    for (change in snapshot.documentChanges) {
-                        try {
-                            val visit = change.document.toObject(Visit::class.java)
-                            val path = visitsPath(visit.interestedPersonId)
-                            when (change.type) {
-                                DocumentChange.Type.REMOVED -> offline.deleteFromServer(path, visit.id)
-                                else -> offline.cacheFromServer(path, visit.id, visit)
-                            }
-                        } catch (e: Exception) {
-                            // Same defensive containment as FirestoreMirror's —
-                            // one malformed document must never take the whole
-                            // listener (or the app) down with it.
-                            Log.e(TAG, "Skipping malformed visit document ${change.document.id}", e)
+    fun startRemoteSyncForPublisher(publisherPersonId: String): Flow<Unit> =
+        mirrorVisitsCollectionGroup(firestore.collectionGroup("visits").whereEqualTo("publisherPersonId", publisherPersonId))
+
+    /** "Consolidated Monthly Report" spec — a Service Overseer/Coordinator
+     * Elder/Admin/Super-Admin needs every publisher's Visits in their scope
+     * at once, not just one publisher's; unfiltered collection-group query,
+     * started only while that report screen is open (see
+     * ConsolidatedReportViewModel), not app-wide at every login. */
+    fun startRemoteSyncAllForCongregationView(): Flow<Unit> = mirrorVisitsCollectionGroup(firestore.collectionGroup("visits"))
+
+    private fun mirrorVisitsCollectionGroup(query: Query): Flow<Unit> = callbackFlow {
+        val registration = query.addSnapshotListener { snapshot, error ->
+            if (error != null || snapshot == null) {
+                if (error != null) Log.w(TAG, "Collection-group listener for visits failed: ${error.message}")
+                return@addSnapshotListener
+            }
+            appScope.launch {
+                for (change in snapshot.documentChanges) {
+                    try {
+                        val visit = change.document.toObject(Visit::class.java)
+                        val path = visitsPath(visit.interestedPersonId)
+                        when (change.type) {
+                            DocumentChange.Type.REMOVED -> offline.deleteFromServer(path, visit.id)
+                            else -> offline.cacheFromServer(path, visit.id, visit)
                         }
+                    } catch (e: Exception) {
+                        // Same defensive containment as FirestoreMirror's —
+                        // one malformed document must never take the whole
+                        // listener (or the app) down with it.
+                        Log.e(TAG, "Skipping malformed visit document ${change.document.id}", e)
                     }
                 }
-                trySend(Unit)
             }
+            trySend(Unit)
+        }
         awaitClose { registration.remove() }
     }
 

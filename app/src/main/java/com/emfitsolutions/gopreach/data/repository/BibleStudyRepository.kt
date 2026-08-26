@@ -21,8 +21,11 @@ class BibleStudyRepository @Inject constructor(
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     fun observeForPublisher(publisherPersonId: String): Flow<List<BibleStudyRecord>> =
-        offline.observeCollection<BibleStudyRecord>(COLLECTION)
-            .map { list -> list.filter { it.publisherPersonId == publisherPersonId } }
+        observeAll().map { list -> list.filter { it.publisherPersonId == publisherPersonId } }
+
+    /** "Consolidated Monthly Report" — every publisher's Bible Study records
+     * at once, for the multi-publisher congregation view. */
+    fun observeAll(): Flow<List<BibleStudyRecord>> = offline.observeCollection(COLLECTION)
 
     suspend fun save(record: BibleStudyRecord): BibleStudyRecord {
         val id = record.id.ifBlank { firestore.collection(COLLECTION).document().id }

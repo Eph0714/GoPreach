@@ -5,6 +5,14 @@ enum class AdminRole {
     SUPER_ADMIN,
     ADMIN_PER_CONGREGATION,
     COORDINATOR_ELDER,
+    /** One per congregation (spec: "there must be 1 Service Overseer in
+     * every congregation") — enforced as "at most one active" at enrollment
+     * time (see ServiceOverseerEnrollmentViewModel), not a hard app-wide
+     * invariant, since an admin may not have created one yet. Sees the
+     * Consolidated Monthly Report for their own congregation; Coordinator
+     * Elder/Admin see the same for their congregation, Super-Admin for every
+     * congregation (see ConsolidatedReportViewModel). */
+    SERVICE_OVERSEER,
     REGULAR_ELDER,
 
     /**
