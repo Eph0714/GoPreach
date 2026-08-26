@@ -1520,10 +1520,16 @@ User request: add a Language Used field to Congregation enrollment, multiple val
 - `ManageCongregationsScreen`'s list card now shows a "Languages: ..." line when any are recorded.
 - Verified via `./gradlew :app:compileDebugKotlin` and a full `:app:assembleDebug`. **Not live-verified this round**: the emulator session hit a "System UI isn't responding" hang partway through reinstall/relaunch (an emulator-level issue, not an app crash — the app's own Main Form rendered correctly underneath the ANR dialog, and the crash buffer stayed empty) and stayed stuck across several retries; didn't force through further interactive testing on a visibly unstable emulator instance. Confirmed correct by compilation and code review, following the same tag-chip/dialog patterns already used elsewhere in this app.
 
+## Phase 46 — "Language(s) Used" changed from free text to a dropdown ✅ done
+
+User request: make the language field a dropdown instead of free text.
+
+- `LanguagesTagInput` reworked: the text field is now a read-only `ExposedDropdownMenuBox` listing a curated set of common languages (Tagalog, English, Iloko, Ibanag, Itawes, Ivatan, Gaddang, Yogad, Pangasinan, Kapampangan, Cebuano, Hiligaynon, Waray, Bikol, Kankanaey, Ifugao) plus an always-present "Other (specify)" entry that reveals a free-text field — so a congregation using a language not on this list is never blocked from recording it, just doesn't get a dropdown shortcut for it. Already-added languages are filtered out of the dropdown (can't pick "Iloko" twice). Same chip display/removal as before; call sites (`CongregationEnrollmentScreen`, `ManageCongregationsScreen`'s Edit dialog) needed no changes since the component's public API (`languages`/`onAdd`/`onRemove`) didn't change.
+- Verified via `./gradlew :app:compileDebugKotlin`, a full `:app:assembleDebug`, **and this time a real on-device click-through** (emulator had recovered from Phase 45's hang): opened Edit on "Solano Tagalog Congregation," tapped the Language Used field, confirmed the dropdown opens with the full list, selected a language, tapped the `+` to add it — it appeared as a removable chip and the dropdown reset to "Select a language" with that language now excluded from the list. Zero crash-buffer entries.
+
 ## What's next (not blocking, tracked for a future pass)
-- Live-verify Phase 45's Language(s) Used field (enrollment + edit + list
-  display) once a stable emulator/device session is available — this
-  round's emulator instance had a System UI hang unrelated to the app.
+- Live-verify the "Other (specify)" free-text fallback path specifically
+  (only the dropdown-selection path was exercised live in Phase 46).
 - Live-verify the entire Phase 44 dashboard/Preaching Time Record module
   with a real Pioneer, Regular, and Unbaptized Publisher login — and
   specifically confirm the new collection-group query either already has
