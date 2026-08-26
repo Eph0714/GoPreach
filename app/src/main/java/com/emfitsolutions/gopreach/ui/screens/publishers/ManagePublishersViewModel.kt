@@ -17,6 +17,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -48,6 +49,12 @@ class ManagePublishersViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val groups: Flow<List<Group>> = groupRepository.observeAll()
+
+    /** For the Edit Publisher dialog's Group dropdown — every Group in this
+     * publisher's own congregation (a Publisher can only ever belong to a
+     * Group within their own congregation). */
+    fun groupsFor(congregationId: String?): Flow<List<Group>> =
+        groups.map { list -> list.filter { it.congregationId == congregationId }.sortedBy { it.name } }
 
     fun rowsFor(visibleCongregationId: String?): Flow<List<PublisherRow>> =
         combine(personRepository.observeAll(), roleAssignmentRepository.observeAll(), groups) { people, assignments, groups ->
@@ -83,6 +90,28 @@ class ManagePublishersViewModel @Inject constructor(
 
     fun updatePerson(person: Person) {
         viewModelScope.launch { personRepository.save(person) }
+    }
+
+    /** "Enable the user to edit all entities like the Groups" — moves this
+     * Publisher's RoleAssignment to a different Group within their own
+     * congregation (or clears it back to Unassigned with `null`), the same
+     * kind of write [changeCategory] already makes to the same document. */
+    fun changeGroup(row: PublisherRow, newGroupId: String?, changedByPersonId: String) {
+        viewModelScope.launch {
+            val updated = row.assignment.copy(
+                groupId = newGroupId,
+                lastEditedByPersonId = changedByPersonId,
+                lastEditedAt = System.currentTimeMillis(),
+            )
+            roleAssignmentRepository.save(updated)
+            auditLogRepository.log(
+                actorPersonId = changedByPersonId,
+                action = "CHANGE_PUBLISHER_GROUP",
+                targetType = "Person",
+                targetId = row.person.id,
+                congregationId = row.assignment.congregationId,
+            )
+        }
     }
 
     /** Returns a human-readable reason permanent deletion is blocked, or null if

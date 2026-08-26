@@ -32,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,6 +49,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.model.Gender
+import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
@@ -198,10 +201,8 @@ fun ManagePublishersScreen(
     if (toEdit != null) {
         EditPublisherDialog(
             row = toEdit,
-            onSave = { updated ->
-                viewModel.updatePerson(updated)
-                pendingEdit = null
-            },
+            currentPersonId = currentPersonId,
+            viewModel = viewModel,
             onDismiss = { pendingEdit = null },
         )
     }
@@ -225,29 +226,44 @@ fun ManagePublishersScreen(
     }
 }
 
-/** Shows the complete stored Publisher record when editing — not just Address/
- * Contact — organized into Personal Information (editable), Assignment and
- * System Information (read-only: category/group already have their own
- * dedicated controls elsewhere on this screen; username/creation are
- * system-generated). */
+/** Shows the complete stored Publisher record when editing — every Person
+ * field, plus Category and Group (spec: "enable the user to edit all
+ * entities like the Groups and all data"), not just Address/Contact. Category/
+ * Group changes go through [ManagePublishersViewModel.changeCategory]/
+ * [changeGroup] (they live on the [RoleAssignment], not the [Person] document)
+ * while every other field saves through [ManagePublishersViewModel.updatePerson]
+ * — both fire from this one Save Changes button so editing here still feels
+ * like one record, not three separate saves. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EditPublisherDialog(
     row: PublisherRow,
-    onSave: (Person) -> Unit,
+    currentPersonId: String,
+    viewModel: ManagePublishersViewModel,
     onDismiss: () -> Unit,
 ) {
     var firstName by remember { mutableStateOf(row.person.firstName) }
     var lastName by remember { mutableStateOf(row.person.lastName) }
+    var middleInitial by remember { mutableStateOf(row.person.middleInitial.orEmpty()) }
+    var extensionName by remember { mutableStateOf(row.person.extensionName.orEmpty()) }
+    var gender by remember { mutableStateOf(row.person.gender) }
     var email by remember { mutableStateOf(row.person.email.orEmpty()) }
     var address by remember { mutableStateOf(row.person.address) }
     var contact by remember { mutableStateOf(row.person.contact) }
+    var contactPerson by remember { mutableStateOf(row.person.contactPerson.orEmpty()) }
+    var contactPersonNumber by remember { mutableStateOf(row.person.contactPersonNumber.orEmpty()) }
+    var category by remember { mutableStateOf(row.category) }
+    var groupId by remember { mutableStateOf(row.assignment.groupId) }
+
+    val groupsFlow = remember(row.assignment.congregationId) { viewModel.groupsFor(row.assignment.congregationId) }
+    val groups by groupsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit ${row.person.fullName}") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 EditSectionHeader("Personal Information")
@@ -260,6 +276,14 @@ private fun EditPublisherDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
+                    value = middleInitial,
+                    onValueChange = { middleInitial = it.uppercase() },
+                    label = { Text("Middle Initial (optional)") },
+                    singleLine = true,
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
                     value = lastName,
                     onValueChange = { lastName = it.uppercase() },
                     label = { Text("Last Name") },
@@ -267,6 +291,22 @@ private fun EditPublisherDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    value = extensionName,
+                    onValueChange = { extensionName = it.uppercase() },
+                    label = { Text("Extension Name (optional, e.g. Jr., III)") },
+                    singleLine = true,
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row {
+                    Gender.entries.forEach { g ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = gender == g, onClick = { gender = g })
+                            Text(g.name.lowercase().replaceFirstChar { it.uppercase() })
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = address,
                     onValueChange = { address = it.uppercase() },
@@ -290,10 +330,26 @@ private fun EditPublisherDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedTextField(
+                    value = contactPerson,
+                    onValueChange = { contactPerson = it.uppercase() },
+                    label = { Text("Contact Person (optional)") },
+                    singleLine = true,
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = contactPersonNumber,
+                    onValueChange = { contactPersonNumber = it.uppercase() },
+                    label = { Text("Contact Person Number (optional)") },
+                    singleLine = true,
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
 
                 EditSectionHeader("Assignment")
-                ReadOnlyField("Category", row.category.name.replace('_', ' '))
-                ReadOnlyField("Group", row.groupName)
+                CategoryDropdown(selected = category, onSelected = { category = it })
+                GroupDropdown(groups = groups, selectedGroupId = groupId, onSelected = { groupId = it })
 
                 EditSectionHeader("System Information")
                 ReadOnlyField("Username", row.person.username)
@@ -305,21 +361,60 @@ private fun EditPublisherDialog(
             TextButton(
                 onClick = {
                     if (firstName.isNotBlank() && lastName.isNotBlank() && address.isNotBlank() && contact.isNotBlank()) {
-                        onSave(
+                        viewModel.updatePerson(
                             row.person.copy(
                                 firstName = firstName.trim(),
                                 lastName = lastName.trim(),
+                                middleInitial = middleInitial.trim().ifBlank { null },
+                                extensionName = extensionName.trim().ifBlank { null },
+                                gender = gender,
                                 address = address.trim(),
                                 contact = contact.trim(),
                                 email = email.trim().ifBlank { null },
+                                contactPerson = contactPerson.trim().ifBlank { null },
+                                contactPersonNumber = contactPersonNumber.trim().ifBlank { null },
                             ),
                         )
+                        if (category != row.category) viewModel.changeCategory(row, category, currentPersonId)
+                        if (groupId != row.assignment.groupId) viewModel.changeGroup(row, groupId, currentPersonId)
+                        onDismiss()
                     }
                 },
             ) { Text("Save Changes") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** Every Group in this publisher's own congregation, plus "Unassigned"
+ * (`null`) — the same clear-back-out option a fresh enrollment leaves them
+ * in before an admin ever places them into a Group. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GroupDropdown(
+    groups: List<Group>,
+    selectedGroupId: String?,
+    onSelected: (String?) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = groups.firstOrNull { it.id == selectedGroupId }?.name ?: "Unassigned"
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selectedName,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Group") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("Unassigned") }, onClick = { onSelected(null); expanded = false })
+            groups.forEach { g ->
+                DropdownMenuItem(text = { Text(g.name) }, onClick = { onSelected(g.id); expanded = false })
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
