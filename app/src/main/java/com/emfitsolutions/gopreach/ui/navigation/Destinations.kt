@@ -46,13 +46,21 @@ object Destinations {
     const val REPORTS = "reports"
 
     // Phase 5 — Ministry Report App (Publisher context)
-    const val BIBLE_STUDY_RECORD = "bible_study_record"
-    const val INTERESTED_PEOPLE = "interested_people"
     // "Preaching Time Record Module" spec §12 — Pioneer-only.
     const val PREACHING_TIME_RECORD = "preaching_time_record"
     const val MONTHLY_REPORT = "monthly_report"
     const val EDIT_MONTHLY_REPORT = "edit_monthly_report/{targetPersonId}"
     fun editMonthlyReport(targetPersonId: String) = "edit_monthly_report/$targetPersonId"
+
+    // "Redesign the Publisher Dashboard" — Searching → Return Visit → Bible
+    // Study pipeline (see PipelineStage). Replaces the old separate
+    // INTERESTED_PEOPLE/BIBLE_STUDY_RECORD destinations: all three stages are
+    // now one PipelineScreen parameterized by which stage it shows.
+    const val SEARCHING = "searching"
+    const val RETURN_VISIT = "return_visit"
+    const val BIBLE_STUDY = "bible_study"
+    // Service Overseer's incoming "Forward to Other Congregation" review queue.
+    const val FORWARD_REQUESTS = "forward_requests"
 
     // Phase 6
     const val SHARE_LOCATION = "share_location"

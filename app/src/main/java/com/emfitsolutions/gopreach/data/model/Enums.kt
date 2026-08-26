@@ -120,17 +120,34 @@ enum class RegularElderRole { GROUP_OVERSEER, GROUP_SERVANT, GROUP_ASSISTANT }
 
 enum class Gender { MALE, FEMALE }
 
-/** Status of a householder at a preaching visit (spec §6.3). Congregations may need to
- * extend this list — kept as a plain enum for now per the spec's fixed field name;
- * revisit as a lookup table (like [ElderTitleEntity]) if that need shows up in practice. */
-enum class HouseholderStatus {
-    INTERESTED,
-    NOT_INTERESTED,
-    NOT_AT_HOME,
-    MOVED,
-    DO_NOT_CALL,
-    RETURN_VISIT_SCHEDULED,
+/** Outcome of one preaching visit logged against a Return Visit or Bible
+ * Study pipeline record ("Manage Returned Visit/Bible Study Module" spec's
+ * Status dropdown: NH/B/CA/MO/NT). Replaces the old, differently-scoped
+ * `HouseholderStatus` — this app's only user of that enum was [Visit.outcome]
+ * itself, so this is a rename-in-place to the spec's exact vocabulary, not a
+ * parallel field. */
+enum class VisitOutcome {
+    /** NH */ NOT_AT_HOME,
+    /** B */ BUSY,
+    /** CA */ CALL_AGAIN,
+    /** MO */ MOVED_OUT,
+    /** NT — ready for the next study topic. */ NEXT_TOPIC,
 }
+
+/** Where one [InterestedPerson] currently sits in the Searching → Return
+ * Visit → Bible Study pipeline (spec's three-module redesign). Distinct from
+ * [RecordStatus] (active/inactive soft-delete) — a record can be inactive at
+ * any stage. Advancing a stage is a one-way action from the Searching/Return
+ * Visit module's own screen (see PipelineViewModel.advanceStage); there is no
+ * spec'd path backward. */
+enum class PipelineStage { SEARCHING, RETURN_VISIT, BIBLE_STUDY }
+
+/** Lifecycle of one cross-congregation [ForwardRequest] ("Forward to Other
+ * Congregation" spec flow). [InterestedPerson.pendingForwardRequestId] points
+ * at the most recent one for that person (if any), regardless of which of
+ * these three states it's currently in — that's how the sending publisher's
+ * own screen shows a live "Forward status: ..." without a separate lookup. */
+enum class ForwardRequestStatus { PENDING, ACCEPTED, DECLINED }
 
 /** Local-only sync state for offline-first CRUD (spec §6.5), stored alongside cached rows. */
 enum class SyncState { SYNCED, PENDING, FAILED }

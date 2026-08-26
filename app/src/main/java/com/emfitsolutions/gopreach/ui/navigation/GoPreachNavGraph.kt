@@ -12,6 +12,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.emfitsolutions.gopreach.data.model.AdminRole
+import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.domain.PermissionChecker
 import com.emfitsolutions.gopreach.domain.SessionContext
@@ -21,7 +22,6 @@ import com.emfitsolutions.gopreach.ui.screens.auth.ForcedPasswordChangeScreen
 import com.emfitsolutions.gopreach.ui.screens.auth.ForgotPasswordScreen
 import com.emfitsolutions.gopreach.ui.screens.admins.ManageAdminsScreen
 import com.emfitsolutions.gopreach.ui.screens.backup.BackupRestoreScreen
-import com.emfitsolutions.gopreach.ui.screens.biblestudy.BibleStudyScreen
 import com.emfitsolutions.gopreach.ui.screens.calendar.CalendarScope
 import com.emfitsolutions.gopreach.ui.screens.calendar.CalendarScreen
 import com.emfitsolutions.gopreach.ui.screens.congregations.ManageCongregationsScreen
@@ -39,7 +39,8 @@ import com.emfitsolutions.gopreach.ui.screens.enrollment.ServiceOverseerEnrollme
 import com.emfitsolutions.gopreach.ui.screens.groups.ManageGroupsScreen
 import com.emfitsolutions.gopreach.ui.screens.home.AdminHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
-import com.emfitsolutions.gopreach.ui.screens.interestedpeople.InterestedPeopleScreen
+import com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestsScreen
+import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineScreen
 import com.emfitsolutions.gopreach.ui.screens.preachingtime.PreachingTimeRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MonthlyReportScreen
 import com.emfitsolutions.gopreach.ui.screens.login.LoginScreen
@@ -336,17 +337,43 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(Destinations.BIBLE_STUDY_RECORD) {
-            BibleStudyScreen(
+        composable(Destinations.SEARCHING) {
+            PipelineScreen(
                 publisherPersonId = currentPersonId,
+                currentPersonId = currentPersonId,
+                congregationId = ownPublisherAssignment?.congregationId.orEmpty(),
+                stage = PipelineStage.SEARCHING,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(Destinations.INTERESTED_PEOPLE) {
-            InterestedPeopleScreen(
+        composable(Destinations.RETURN_VISIT) {
+            PipelineScreen(
                 publisherPersonId = currentPersonId,
                 currentPersonId = currentPersonId,
+                congregationId = ownPublisherAssignment?.congregationId.orEmpty(),
+                stage = PipelineStage.RETURN_VISIT,
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.BIBLE_STUDY) {
+            PipelineScreen(
+                publisherPersonId = currentPersonId,
+                currentPersonId = currentPersonId,
+                congregationId = ownPublisherAssignment?.congregationId.orEmpty(),
+                stage = PipelineStage.BIBLE_STUDY,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.FORWARD_REQUESTS) {
+            // Same access set as enrolling a Service Overseer (spec) — Super-
+            // Admin sees every congregation's queue, everyone else only their
+            // own congregation's.
+            ForwardRequestsScreen(
+                congregationIds = if (currentRole == AdminRole.SUPER_ADMIN) null else setOfNotNull(ownCongregationId),
+                currentPersonId = currentPersonId,
                 onBack = { navController.popBackStack() },
             )
         }

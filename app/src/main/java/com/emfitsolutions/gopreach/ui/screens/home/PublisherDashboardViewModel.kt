@@ -3,9 +3,10 @@ package com.emfitsolutions.gopreach.ui.screens.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.MonthlyReport
+import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.ReportStatus
-import com.emfitsolutions.gopreach.data.repository.BibleStudyRepository
+import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
 import com.emfitsolutions.gopreach.data.repository.VisitRepository
@@ -27,12 +28,14 @@ fun isPioneerCategory(category: PublisherCategory?): Boolean =
  * date-range-scoped) regardless of which cards a given [PublisherCategory]
  * actually shows. */
 data class PublisherDashboardStats(
-    /** Spec §7/§18 — COUNT DISTINCT Bible Study person, not visit rows. Every
-     * [com.emfitsolutions.gopreach.data.model.BibleStudyRecord] already *is*
-     * one distinct person (there's no separate per-visit log for Bible
-     * Studies in this app's data model, unlike Return Visits below), so this
-     * is simply how many such records fall in the selected range — already
-     * correct by construction, not something to de-duplicate further. */
+    /** Spec §7/§18 — COUNT DISTINCT Bible Study person, not visit rows. A
+     * "Bible Study" is an [com.emfitsolutions.gopreach.data.model
+     * .InterestedPerson] whose [PipelineStage] is [PipelineStage.BIBLE_STUDY]
+     * (see the Redesigned Publisher Dashboard's Searching → Return Visit →
+     * Bible Study pipeline) — counted here by when they *entered* that stage
+     * ([com.emfitsolutions.gopreach.data.model.InterestedPerson
+     * .stageEnteredAt] falling in the selected range), not by record
+     * creation date, since a person can spend time in earlier stages first. */
     val bibleStudiesCount: Int = 0,
     /** Spec §8/§10 — COUNT DISTINCT Return Visit person: every
      * [com.emfitsolutions.gopreach.data.model.Visit] in range, grouped by
@@ -56,7 +59,7 @@ data class PublisherDashboardStats(
  */
 @HiltViewModel
 class PublisherDashboardViewModel @Inject constructor(
-    private val bibleStudyRepository: BibleStudyRepository,
+    private val interestedPersonRepository: InterestedPersonRepository,
     private val visitRepository: VisitRepository,
     private val preachingTimeRecordRepository: PreachingTimeRecordRepository,
     private val monthlyReportRepository: MonthlyReportRepository,
@@ -74,18 +77,27 @@ class PublisherDashboardViewModel @Inject constructor(
     fun startVisitSync(publisherPersonId: String): Flow<Unit> = visitRepository.startRemoteSyncForPublisher(publisherPersonId)
 
     fun statsFor(publisherPersonId: String): StateFlow<PublisherDashboardStats> = combine(
-        bibleStudyRepository.observeForPublisher(publisherPersonId),
+        interestedPersonRepository.observeAll(),
         visitRepository.observeAllForPublisher(publisherPersonId),
         preachingTimeRecordRepository.observeForPublisher(publisherPersonId),
         monthlyReportRepository.observeAll(),
         dateRangeStore.range,
-    ) { bibleStudies, visits, preachingRecords, allReports, range ->
-        val visitsInRange = visits.filter { range.contains(it.visitDate) }
+    ) { allPeople, visits, preachingRecords, allReports, range ->
+        // Bible Study visits now share the same Visit sub-collection as
+        // Return Visits (see PipelineStage) — restrict this card to visits
+        // against people currently *in* the Return Visit stage, so a Bible
+        // Study conversation doesn't inflate the Return Visits count.
+        val returnVisitPersonIds = allPeople
+            .filter { it.publisherPersonId == publisherPersonId && it.pipelineStage == PipelineStage.RETURN_VISIT }
+            .map { it.id }
+            .toSet()
+        val visitsInRange = visits.filter { range.contains(it.visitDate) && it.interestedPersonId in returnVisitPersonIds }
         val reportsInRange = allReports.filter {
             it.publisherPersonId == publisherPersonId && it.status == ReportStatus.SUBMITTED && range.overlapsMonth(it.periodMonth)
         }
+        val bibleStudies = allPeople.filter { it.publisherPersonId == publisherPersonId && it.pipelineStage == PipelineStage.BIBLE_STUDY }
         PublisherDashboardStats(
-            bibleStudiesCount = bibleStudies.count { range.contains(it.createdAt) },
+            bibleStudiesCount = bibleStudies.count { range.contains(it.stageEnteredAt) },
             returnVisitsCount = visitsInRange.distinctBy { it.interestedPersonId }.size,
             preachingHours = preachingRecords
                 .filter { it.status == com.emfitsolutions.gopreach.data.model.RecordStatus.ACTIVE && range.contains(it.date) }

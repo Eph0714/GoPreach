@@ -71,6 +71,7 @@ fun GoPreachSidePanelContent(
     canEnrollCoordinatorElder: Boolean,
     canEnrollServiceOverseer: Boolean,
     canViewConsolidatedReport: Boolean,
+    canViewForwardRequests: Boolean,
     canEnrollRegularElderOrPublisher: Boolean,
     canManagePublishersAndGroups: Boolean,
     canManageTerritories: Boolean,
@@ -128,6 +129,9 @@ fun GoPreachSidePanelContent(
             add(SideItem("Reports Summary", Icons.Rounded.Assessment, Destinations.REPORTS))
             if (canViewConsolidatedReport) {
                 add(SideItem("Consolidated Report", Icons.Rounded.Assessment, Destinations.CONSOLIDATED_REPORT))
+            }
+            if (canViewForwardRequests) {
+                add(SideItem("Forward Requests", Icons.Rounded.SwapHoriz, Destinations.FORWARD_REQUESTS))
             }
             add(SideItem("Calendar", Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
             add(SideItem("Share Location Settings", Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))

@@ -31,6 +31,20 @@ data class MonthlyReportUiState(
      * that only a Coordinator/Regular Elder can edit — [MonthlyReportScreen]
      * passes `allowEditWhenLocked = true` for that elder-edit entry point. */
     val isLocked: Boolean get() = existingReport?.status == ReportStatus.SUBMITTED
+
+    /** "Submission of report is done each month... available 2 days before
+     * the end of each month" spec — true only inside that window. Checked
+     * against the device clock, not [existingReport], so it stays correct
+     * across the month-boundary reset described by the same spec item
+     * ("available again in the following month using the same logic") with
+     * no extra state to track: a new month means a new [periodMonth] anyway,
+     * so `existingReport` for *this* period simply won't exist yet. */
+    val canSubmitWindow: Boolean get() = daysUntilMonthEnd() <= 2
+}
+
+private fun daysUntilMonthEnd(): Int {
+    val cal = Calendar.getInstance()
+    return cal.getActualMaximum(Calendar.DAY_OF_MONTH) - cal.get(Calendar.DAY_OF_MONTH)
 }
 
 /** Spec §5.2 — monthly ministry report, required fields vary by [PublisherCategory]. */

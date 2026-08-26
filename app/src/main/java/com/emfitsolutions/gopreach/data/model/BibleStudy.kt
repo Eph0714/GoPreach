@@ -2,24 +2,6 @@ package com.emfitsolutions.gopreach.data.model
 
 import com.google.firebase.firestore.DocumentId
 
-/**
- * Publisher-managed Bible Study Record (spec §6.4). The *count* of Bible studies a
- * publisher reports monthly (see [MonthlyReport]) is how many of these were actually
- * conducted in person during the period — not how many visit log rows exist.
- *
- * Firestore collection: `bibleStudies/{bibleStudyId}`
- */
-data class BibleStudyRecord(
-    @DocumentId val id: String = "",
-    val publisherPersonId: String = "",
-    val name: String = "",
-    val address: String = "",
-    val gpsLat: Double? = null,
-    val gpsLng: Double? = null,
-    val contact: String? = null,
-    val createdAt: Long = 0L,
-)
-
 /** What a [SupportingImage] shows — the UI only ever manages one image today
  * (the first entry of [InterestedPerson.supportingImages], defaulting to
  * [HOUSE]), but the type field is already there so a future multi-image
@@ -51,16 +33,41 @@ data class SupportingImage(
 )
 
 /**
- * Publisher-managed Interested Person record (spec §6.3).
+ * Publisher-managed pipeline record — one person moving through Searching →
+ * Return Visit → Bible Study (see [PipelineStage]). Before the "Redesign the
+ * Publisher Dashboard" phase this was two separate, unrelated entities (an
+ * `InterestedPerson` with no stage field, and a standalone `BibleStudyRecord`
+ * with no visit history of its own); they're unified into this one record now
+ * that the spec describes a single person carrying the same GPS/name/etc.
+ * fields and one shared [Visit] history through every stage of their life in
+ * this app. A "Bible Study" today is simply an [InterestedPerson] whose
+ * [pipelineStage] is [PipelineStage.BIBLE_STUDY] — there is no separate
+ * Bible Study collection or model anymore.
  *
  * Firestore collection: `interestedPeople/{interestedPersonId}`
  */
 data class InterestedPerson(
     @DocumentId val id: String = "",
     val publisherPersonId: String = "",
+    /** The congregation this record currently belongs to — set at creation
+     * from the enrolling publisher's own assignment, and the one field a
+     * successful [ForwardRequest] acceptance actually changes (along with
+     * [publisherPersonId]). This is also the scope boundary a Service
+     * Overseer's incoming-request screen filters on. */
+    val congregationId: String = "",
     val name: String = "",
     val gender: Gender? = null,
     val address: String = "",
+    /** "Searching Module" spec — optional; free text since a household's
+     * make-up isn't a fixed shape (multiple spouses/none/n-a are all valid
+     * free-text answers in the source spec's own example). */
+    val spouse: String? = null,
+    val children: String? = null,
+    val ageYears: Int? = null,
+    val placeOrigin: String? = null,
+    val language: String? = null,
+    val literaturePlace: String? = null,
+    val remarks: String? = null,
     /** "Interested Person GPS Capture" spec §12 — proper numeric fields, not
      * formatted text, so filtering/mapping by coordinate stays possible.
      * `null` means "not captured yet"; [gpsLat]/[gpsLng] are always set or
@@ -96,14 +103,31 @@ data class InterestedPerson(
     val supportingImages: List<SupportingImage> = emptyList(),
     /** "Admin Record Deletion and Inactive Status" spec — see [Congregation.status]. */
     val status: RecordStatus = RecordStatus.ACTIVE,
+    val pipelineStage: PipelineStage = PipelineStage.SEARCHING,
+    /** Bumped every time [pipelineStage] changes (and set to [createdAt] at
+     * creation) — this, not [createdAt], is what "Bible Studies this month"
+     * style date-range reports filter on (see ConsolidatedReportViewModel/
+     * PublisherDashboardViewModel), since a record's creation date and the
+     * date it actually became a Bible Study are two different things once a
+     * person can spend weeks in Searching or Return Visit first. */
+    val stageEnteredAt: Long = 0L,
+    /** Points at the most recent [ForwardRequest] for this person, in
+     * whichever of its three states it's currently in — `null` means this
+     * person has never been forwarded (or was forwarded and the sender
+     * cleared/acknowledged the outcome). The sending publisher's own screen
+     * reads this id to show a live "Forward status: Pending/Accepted/Declined"
+     * without a separate per-person lookup table. */
+    val pendingForwardRequestId: String? = null,
 ) {
     val primarySupportingImage: SupportingImage? get() = supportingImages.firstOrNull()
     val hasGpsLocation: Boolean get() = gpsLat != null && gpsLng != null
 }
 
 /**
- * One preaching visit to an [InterestedPerson]. Several of these can exist per
- * interested person (spec §6.3).
+ * One preaching visit to an [InterestedPerson], logged at any pipeline stage
+ * (spec §6.3; "Manage Returned Visit/Bible Study Module"'s own visit-history
+ * mechanic reuses this same sub-collection rather than inventing a second
+ * one per stage).
  *
  * Firestore collection: `interestedPeople/{interestedPersonId}/visits/{visitId}`
  */
@@ -113,15 +137,18 @@ data class Visit(
     val visitDate: Long = 0L,
     val visitTime: Long = 0L,
     /** "Notes / Visit Details" (spec §9) — what [topicDiscussed] already was;
-     * kept as this field name rather than adding a redundant duplicate. */
+     * kept as this field name rather than adding a redundant duplicate. Also
+     * doubles as "Remarks/Topic Discussed" for a Return Visit/Bible Study
+     * entry (spec's Visit History example). */
     val topicDiscussed: String? = null,
-    val householderStatus: HouseholderStatus = HouseholderStatus.NOT_AT_HOME,
+    val outcome: VisitOutcome = VisitOutcome.NOT_AT_HOME,
     /** Time consumed, in minutes (displayed as hh:mm). */
     val timeConsumedMinutes: Int = 0,
-    /** "Visit Information" spec §9 — who conducted this visit. Usually the
-     * owning [InterestedPerson.publisherPersonId], but kept as its own field
-     * (not derived) since an Elder can log a visit on a Publisher's behalf,
-     * same reasoning as [InterestedPerson.gpsCapturedBy]. */
+    /** "Visit Information" spec §9 — who conducted this visit ("Visited by"/
+     * "Studied by" depending on [InterestedPerson.pipelineStage] at logging
+     * time). Usually the owning [InterestedPerson.publisherPersonId], but
+     * kept as its own field (not derived) since an Elder can log a visit on a
+     * Publisher's behalf, same reasoning as [InterestedPerson.gpsCapturedBy]. */
     val publisherPersonId: String = "",
     /** Optional (spec §9: "if applicable") — when a follow-up is planned. */
     val followUpDate: Long? = null,
@@ -129,4 +156,35 @@ data class Visit(
     /** System-generated (spec §9) — the signed-in session that logged this
      * visit; may differ from [publisherPersonId] (see its doc comment). */
     val createdByPersonId: String = "",
+)
+
+/**
+ * "Forward to Other Congregation" spec flow — a cross-congregation transfer
+ * request for one [InterestedPerson], created from the Searching module.
+ * Name/congregation snapshots are captured at request time so the receiving
+ * Service Overseer's review screen and the sending publisher's status view
+ * both render correctly even if the underlying Person/Congregation records
+ * change later — the same "snapshot what mattered at the time" reasoning
+ * this app already applies to [MonthlyReport.category].
+ *
+ * Firestore collection: `forwardRequests/{forwardRequestId}`
+ */
+data class ForwardRequest(
+    @DocumentId val id: String = "",
+    val interestedPersonId: String = "",
+    val personNameSnapshot: String = "",
+    val fromCongregationId: String = "",
+    val fromCongregationNameSnapshot: String = "",
+    val fromPublisherPersonId: String = "",
+    val fromPublisherNameSnapshot: String = "",
+    val toCongregationId: String = "",
+    val toCongregationNameSnapshot: String = "",
+    val status: ForwardRequestStatus = ForwardRequestStatus.PENDING,
+    val requestedAt: Long = 0L,
+    val respondedAt: Long? = null,
+    val respondedByPersonId: String? = null,
+    /** Set only on [ForwardRequestStatus.ACCEPTED] — who in the receiving
+     * congregation the record was assigned to. */
+    val assignedToPublisherPersonId: String? = null,
+    val assignedToPublisherNameSnapshot: String? = null,
 )

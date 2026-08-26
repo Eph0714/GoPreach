@@ -56,6 +56,10 @@ fun MonthlyReportScreen(
 
     val isPioneer = uiState.category == PublisherCategory.REGULAR_PIONEER || uiState.category == PublisherCategory.AUXILIARY_PIONEER
     val effectivelyLocked = uiState.isLocked && !allowEditWhenLocked
+    // The submission-window gate only applies to a publisher's own normal
+    // submit flow — an Elder editing on someone's behalf (allowEditWhenLocked)
+    // isn't restricted to the last-2-days window.
+    val submitBlockedByWindow = !uiState.canSubmitWindow && !allowEditWhenLocked && !uiState.isLocked
 
     Scaffold(
         topBar = {
@@ -131,9 +135,17 @@ fun MonthlyReportScreen(
                 Text(text = uiState.errorMessage!!, color = MaterialTheme.colorScheme.error)
             }
 
+            if (submitBlockedByWindow) {
+                Text(
+                    "Submission opens 2 days before the end of the month.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
             Button(
                 onClick = { viewModel.submit(publisherPersonId) },
-                enabled = !uiState.isSaving && !effectivelyLocked,
+                enabled = !uiState.isSaving && !effectivelyLocked && !submitBlockedByWindow,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (uiState.isSaving) {

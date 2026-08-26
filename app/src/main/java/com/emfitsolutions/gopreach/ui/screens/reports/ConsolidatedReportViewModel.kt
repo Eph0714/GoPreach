@@ -2,10 +2,11 @@ package com.emfitsolutions.gopreach.ui.screens.reports
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.emfitsolutions.gopreach.data.model.BibleStudyRecord
 import com.emfitsolutions.gopreach.data.model.Congregation
+import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.MonthlyReport
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.PreachingTimeRecord
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RecordStatus
@@ -14,8 +15,8 @@ import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.model.Visit
-import com.emfitsolutions.gopreach.data.repository.BibleStudyRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
+import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
@@ -87,7 +89,7 @@ class ConsolidatedReportViewModel @Inject constructor(
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val congregationRepository: CongregationRepository,
-    private val bibleStudyRepository: BibleStudyRepository,
+    private val interestedPersonRepository: InterestedPersonRepository,
     private val preachingTimeRecordRepository: PreachingTimeRecordRepository,
     private val visitRepository: VisitRepository,
     private val monthlyReportRepository: MonthlyReportRepository,
@@ -122,7 +124,7 @@ class ConsolidatedReportViewModel @Inject constructor(
     )
 
     private data class RecordsData(
-        val bibleStudies: List<BibleStudyRecord>,
+        val pipelinePeople: List<InterestedPerson>,
         val preachingRecords: List<PreachingTimeRecord>,
         val visits: List<Visit>,
         val reports: List<MonthlyReport>,
@@ -135,11 +137,11 @@ class ConsolidatedReportViewModel @Inject constructor(
     ) { people, assignments, congregations -> RawData(people, assignments, congregations) }
 
     private val recordsData = combine(
-        bibleStudyRepository.observeAll(),
+        interestedPersonRepository.observeAll(),
         preachingTimeRecordRepository.observeAll(),
         visitRepository.observeAllVisits(),
         monthlyReportRepository.observeAll(),
-    ) { bibleStudies, preachingRecords, visits, reports -> RecordsData(bibleStudies, preachingRecords, visits, reports) }
+    ) { pipelinePeople, preachingRecords, visits, reports -> RecordsData(pipelinePeople, preachingRecords, visits, reports) }
 
     val uiState: StateFlow<ConsolidatedReportUiState> = combine(rawData, recordsData, dateRangeStore.range, _selectedCongregationId) { raw, records, range, selectedCongregationId ->
         val congregationsInScope = scopeFilter?.let { allowed -> raw.congregations.filter { it.id in allowed } } ?: raw.congregations
@@ -152,11 +154,18 @@ class ConsolidatedReportViewModel @Inject constructor(
             .mapNotNull { (assignment, publisher) ->
                 val person = raw.people.firstOrNull { it.id == assignment.personId } ?: return@mapNotNull null
                 val congregationName = congregationsInScope.firstOrNull { it.id == assignment.congregationId }?.name ?: "—"
-                val bibleStudiesCount = records.bibleStudies.count {
-                    it.publisherPersonId == person.id && range.contains(it.createdAt)
+                val bibleStudiesCount = records.pipelinePeople.count {
+                    it.publisherPersonId == person.id && it.pipelineStage == PipelineStage.BIBLE_STUDY && range.contains(it.stageEnteredAt)
                 }
+                // Restrict to people currently in the Return Visit stage —
+                // Bible Study conversations share the same Visit log now
+                // (see PipelineStage) and shouldn't inflate this count.
+                val returnVisitPersonIds = records.pipelinePeople
+                    .filter { it.publisherPersonId == person.id && it.pipelineStage == PipelineStage.RETURN_VISIT }
+                    .map { it.id }
+                    .toSet()
                 val returnVisitsCount = records.visits
-                    .filter { it.publisherPersonId == person.id && range.contains(it.visitDate) }
+                    .filter { it.publisherPersonId == person.id && range.contains(it.visitDate) && it.interestedPersonId in returnVisitPersonIds }
                     .distinctBy { it.interestedPersonId }
                     .size
                 val isPioneer = isPioneerCategory(publisher.category)
@@ -198,7 +207,8 @@ class ConsolidatedReportViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ConsolidatedReportUiState())
 
-    fun bibleStudiesFor(publisherPersonId: String): Flow<List<BibleStudyRecord>> = bibleStudyRepository.observeForPublisher(publisherPersonId)
+    fun bibleStudiesFor(publisherPersonId: String): Flow<List<InterestedPerson>> = interestedPersonRepository.observeAll()
+        .map { list -> list.filter { it.publisherPersonId == publisherPersonId && it.pipelineStage == PipelineStage.BIBLE_STUDY } }
     fun visitsFor(publisherPersonId: String): Flow<List<Visit>> = visitRepository.observeAllForPublisher(publisherPersonId)
     fun preachingRecordsFor(publisherPersonId: String): Flow<List<PreachingTimeRecord>> = preachingTimeRecordRepository.observeForPublisher(publisherPersonId)
 }

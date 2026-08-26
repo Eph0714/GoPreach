@@ -1,7 +1,11 @@
 package com.emfitsolutions.gopreach.ui.screens.home
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -98,6 +102,10 @@ fun AdminHomeScreen(
     // "Consolidated Monthly Report" spec — Service Overseer, Coordinator
     // Elder, Admin (own congregation), and Super-Admin (all congregations).
     val canViewConsolidatedReport = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER
+    // "Forward to Other Congregation" incoming review queue — same viewer set
+    // as the Consolidated Report (Service Overseer is who actually acts on
+    // these, Coordinator Elder/Admin/Super-Admin can see them too).
+    val canViewForwardRequests = canViewConsolidatedReport
     // Control Panel: full access for Super-Admin, own-congregation for Admin (spec §3 permission matrix).
     val canAccessControlPanel = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION
     // User logs: Super-Admin (all) and Admin/Coordinator Elder (own congregation); Regular Elder has no access.
@@ -138,6 +146,25 @@ fun AdminHomeScreen(
     }
     val ownGroupCongregationId = ownGroupAssignment?.congregationId
     val visibleCongregationIds: Set<String>? = if (isSuperAdmin) null else setOfNotNull(ownCongregationId ?: ownGroupCongregationId)
+
+    // "Forward to Other Congregation... The congregation 'Service Overseer'
+    // in the receiving congregation will see a notification bell" spec —
+    // this app has no push backend (see NotificationHelper's doc comment),
+    // so this fires a local notification the moment a *new* pending request
+    // streams in while this Main Form is composed, rather than a persisted
+    // "unseen since last app close" count. The drawer's own live badge (see
+    // GoPreachSidePanelContent/ForwardRequestsScreen) is what surfaces
+    // requests that arrived before this session opened.
+    if (canViewForwardRequests) {
+        ForwardRequestNotifier(congregationIds = visibleCongregationIds)
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
@@ -185,6 +212,7 @@ fun AdminHomeScreen(
                 canEnrollCoordinatorElder = canEnrollCoordinatorElder,
                 canEnrollServiceOverseer = canEnrollServiceOverseer,
                 canViewConsolidatedReport = canViewConsolidatedReport,
+                canViewForwardRequests = canViewForwardRequests,
                 canEnrollRegularElderOrPublisher = canEnrollRegularElderOrPublisher,
                 canManagePublishersAndGroups = canManagePublishersAndGroups,
                 canManageTerritories = canManagePublishersAndGroups,
@@ -341,5 +369,31 @@ fun AdminHomeScreen(
                 }
             }
         }
+    }
+}
+
+/** See the call site's doc comment above — fires one local notification per
+ * app session per new pending count increase, not on the initial load. */
+@Composable
+private fun ForwardRequestNotifier(
+    congregationIds: Set<String>?,
+    viewModel: com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestsViewModel = hiltViewModel(),
+) {
+    val context = LocalContext.current
+    val requestsFlow = remember(congregationIds) { viewModel.pendingRequestsFor(congregationIds) }
+    val requests by requestsFlow.collectAsStateWithLifecycle(initialValue = null)
+    var lastSeenCount by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(requests) {
+        val current = requests ?: return@LaunchedEffect
+        val previous = lastSeenCount
+        if (previous != null && current.size > previous) {
+            com.emfitsolutions.gopreach.notifications.NotificationHelper.notify(
+                context,
+                id = 9100,
+                title = "New Forward Request",
+                text = "A publisher has forwarded a record to your congregation for review.",
+            )
+        }
+        lastSeenCount = current.size
     }
 }

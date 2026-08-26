@@ -3,7 +3,9 @@ package com.emfitsolutions.gopreach
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.emfitsolutions.gopreach.data.sync.ReminderScheduler
 import com.emfitsolutions.gopreach.data.sync.RemoteSyncCoordinator
+import com.emfitsolutions.gopreach.notifications.NotificationHelper
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -24,9 +26,14 @@ class GoPreachApp : Application(), Configuration.Provider {
     @Inject
     lateinit var remoteSyncCoordinator: RemoteSyncCoordinator
 
+    @Inject
+    lateinit var reminderScheduler: ReminderScheduler
+
     override fun onCreate() {
         super.onCreate()
         remoteSyncCoordinator.startAll()
+        NotificationHelper.ensureChannel(this)
+        reminderScheduler.ensureScheduled()
     }
 
     override val workManagerConfiguration: Configuration

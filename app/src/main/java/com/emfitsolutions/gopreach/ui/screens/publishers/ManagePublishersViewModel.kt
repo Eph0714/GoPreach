@@ -8,7 +8,6 @@ import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
-import com.emfitsolutions.gopreach.data.repository.BibleStudyRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
@@ -45,7 +44,6 @@ class ManagePublishersViewModel @Inject constructor(
     private val auditLogRepository: AuditLogRepository,
     private val monthlyReportRepository: MonthlyReportRepository,
     private val interestedPersonRepository: InterestedPersonRepository,
-    private val bibleStudyRepository: BibleStudyRepository,
     groupRepository: GroupRepository,
 ) : ViewModel() {
 
@@ -92,12 +90,13 @@ class ManagePublishersViewModel @Inject constructor(
      * Study Records must not be silently destroyed). */
     suspend fun permanentDeleteBlockReason(publisherPersonId: String): String? {
         val reportCount = monthlyReportRepository.observeAll().first().count { it.publisherPersonId == publisherPersonId }
+        // Covers every pipeline stage — Searching/Return Visit/Bible Study are
+        // all InterestedPerson records now (see PipelineStage), not a
+        // separate Bible Study collection.
         val interestedCount = interestedPersonRepository.observeAll().first().count { it.publisherPersonId == publisherPersonId }
-        val bibleStudyCount = bibleStudyRepository.observeForPublisher(publisherPersonId).first().size
         return when {
             reportCount > 0 -> "This publisher has $reportCount monthly report(s) on file. Use Move to Inactive instead to keep their history."
-            interestedCount > 0 -> "This publisher has $interestedCount interested person record(s) on file. Use Move to Inactive instead."
-            bibleStudyCount > 0 -> "This publisher has $bibleStudyCount Bible study record(s) on file. Use Move to Inactive instead."
+            interestedCount > 0 -> "This publisher has $interestedCount interested person / Bible study record(s) on file. Use Move to Inactive instead."
             else -> null
         }
     }

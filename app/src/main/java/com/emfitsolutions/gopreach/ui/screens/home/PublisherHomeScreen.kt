@@ -1,7 +1,11 @@
 package com.emfitsolutions.gopreach.ui.screens.home
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +22,7 @@ import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.PeopleAlt
+import androidx.compose.material.icons.rounded.PersonSearch
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
@@ -85,6 +90,16 @@ fun PublisherHomeScreen(
     val activity = LocalContext.current as? ComponentActivity
     var showExitConfirm by remember { mutableStateOf(false) }
     BackHandler { showExitConfirm = true }
+
+    // Monthly Report reminder notifications (see ReminderWorker) need this
+    // granted on Android 13+ — asked once here, the Main Form, rather than
+    // buried behind a settings toggle nobody would find.
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     if (showExitConfirm) {
         AlertDialog(
             onDismissRequest = { showExitConfirm = false },
@@ -117,8 +132,9 @@ fun PublisherHomeScreen(
             },
             quickActions = listOf(
                 QuickAction("Report", Icons.Rounded.Assignment) { onNavigate(Destinations.MONTHLY_REPORT) },
-                QuickAction("Bible Study", Icons.AutoMirrored.Rounded.MenuBook) { onNavigate(Destinations.BIBLE_STUDY_RECORD) },
-                QuickAction("Interested", Icons.Rounded.PeopleAlt) { onNavigate(Destinations.INTERESTED_PEOPLE) },
+                QuickAction("Searching", Icons.Rounded.PersonSearch) { onNavigate(Destinations.SEARCHING) },
+                QuickAction("Return Visit", Icons.Rounded.PeopleAlt) { onNavigate(Destinations.RETURN_VISIT) },
+                QuickAction("Bible Study", Icons.AutoMirrored.Rounded.MenuBook) { onNavigate(Destinations.BIBLE_STUDY) },
                 QuickAction("Calendar", Icons.Rounded.CalendarMonth) { onNavigate(Destinations.CALENDAR) },
             ),
         )
@@ -141,8 +157,9 @@ fun PublisherHomeScreen(
 
             DashboardSection("My Ministry") {
                 DashboardTile("Monthly Report", Icons.Rounded.Assignment, { onNavigate(Destinations.MONTHLY_REPORT) })
-                DashboardTile("Bible Study Record", Icons.AutoMirrored.Rounded.MenuBook, { onNavigate(Destinations.BIBLE_STUDY_RECORD) })
-                DashboardTile("Interested People", Icons.Rounded.PeopleAlt, { onNavigate(Destinations.INTERESTED_PEOPLE) })
+                DashboardTile("Searching", Icons.Rounded.PersonSearch, { onNavigate(Destinations.SEARCHING) })
+                DashboardTile("Return Visit", Icons.Rounded.PeopleAlt, { onNavigate(Destinations.RETURN_VISIT) })
+                DashboardTile("Bible Study", Icons.AutoMirrored.Rounded.MenuBook, { onNavigate(Destinations.BIBLE_STUDY) })
                 DashboardTile("Share Location", Icons.Rounded.LocationOn, { onNavigate(Destinations.SHARE_LOCATION) })
                 DashboardTile("Calendar", Icons.Rounded.CalendarMonth, { onNavigate(Destinations.CALENDAR) })
             }
@@ -199,7 +216,7 @@ private fun PublisherStatsSection(
             SquareStatCard(
                 title = "MY BIBLE STUDIES",
                 value = stats.bibleStudiesCount.toString(),
-                onClick = { onNavigate(Destinations.BIBLE_STUDY_RECORD) },
+                onClick = { onNavigate(Destinations.BIBLE_STUDY) },
                 modifier = modifier,
             )
         }
@@ -210,7 +227,7 @@ private fun PublisherStatsSection(
                 SquareStatCard(
                     title = "MY RETURN VISITS",
                     value = stats.returnVisitsCount.toString(),
-                    onClick = { onNavigate(Destinations.INTERESTED_PEOPLE) },
+                    onClick = { onNavigate(Destinations.RETURN_VISIT) },
                     modifier = Modifier.weight(1f),
                 )
             }

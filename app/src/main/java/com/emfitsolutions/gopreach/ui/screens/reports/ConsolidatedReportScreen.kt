@@ -228,7 +228,7 @@ private fun PublisherRecordsDialog(
                 } else {
                     visits.sortedByDescending { it.visitDate }.forEach { visit ->
                         Text(
-                            "• ${dateFormat.format(Date(visit.visitDate))} — ${visit.householderStatus.name.replace('_', ' ')}",
+                            "• ${dateFormat.format(Date(visit.visitDate))} — ${visit.outcome.name.replace('_', ' ')}",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }

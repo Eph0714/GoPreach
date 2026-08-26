@@ -1,0 +1,913 @@
+package com.emfitsolutions.gopreach.ui.screens.pipeline
+
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.RestoreFromTrash
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.location.LatLng
+import com.emfitsolutions.gopreach.data.model.Congregation
+import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
+import com.emfitsolutions.gopreach.data.model.Gender
+import com.emfitsolutions.gopreach.data.model.InterestedPerson
+import com.emfitsolutions.gopreach.data.model.PipelineStage
+import com.emfitsolutions.gopreach.data.model.RecordStatus
+import com.emfitsolutions.gopreach.data.model.SupportingImage
+import com.emfitsolutions.gopreach.data.model.Visit
+import com.emfitsolutions.gopreach.data.model.VisitOutcome
+import com.emfitsolutions.gopreach.ui.components.CoordinatesValue
+import com.emfitsolutions.gopreach.ui.components.DateTimeField
+import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
+import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.ManualCoordinatesDialog
+import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
+import com.emfitsolutions.gopreach.ui.components.SupportingImageSection
+import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private fun PipelineStage.label(): String = when (this) {
+    PipelineStage.SEARCHING -> "Searching"
+    PipelineStage.RETURN_VISIT -> "Return Visit"
+    PipelineStage.BIBLE_STUDY -> "Bible Study"
+}
+
+/** "Visited by" for a Return Visit, "Studied by" for a Bible Study (spec's
+ * own wording for each module's Visit History). */
+private fun PipelineStage.visitorLabel(): String = if (this == PipelineStage.BIBLE_STUDY) "Studied by" else "Visited by"
+
+/**
+ * "Redesign the Publisher Dashboard" spec — one screen for all three
+ * pipeline stages (Searching / Return Visit / Bible Study), since a record at
+ * any of them is the same [InterestedPerson] entity (see [PipelineStage]).
+ * Only [stage] and the derived [PipelineStage.label]/[PipelineStage.visitorLabel]
+ * differ what's shown: full create/edit fields + [FORWARD TO OTHER
+ * CONGREGATION]/[MOVE TO RETURN VISIT] only at Searching; [MOVE TO BIBLE
+ * STUDY] only at Return Visit; visit logging at Return Visit/Bible Study.
+ */
+@Composable
+fun PipelineScreen(
+    publisherPersonId: String,
+    currentPersonId: String,
+    congregationId: String,
+    stage: PipelineStage,
+    canPermanentlyDelete: Boolean,
+    onBack: () -> Unit,
+    viewModel: PipelineViewModel = hiltViewModel(),
+) {
+    var selectedPerson by remember { mutableStateOf<InterestedPerson?>(null) }
+    val current = selectedPerson
+    if (current == null) {
+        PipelineListScreen(
+            publisherPersonId = publisherPersonId,
+            currentPersonId = currentPersonId,
+            congregationId = congregationId,
+            stage = stage,
+            canPermanentlyDelete = canPermanentlyDelete,
+            onBack = onBack,
+            onOpenPerson = { selectedPerson = it },
+            viewModel = viewModel,
+        )
+    } else {
+        val congregationName by remember(current.congregationId) { viewModel.congregationName(current.congregationId) }.collectAsStateWithLifecycle(initialValue = null)
+        PipelinePersonDetailScreen(
+            person = current,
+            currentPersonId = currentPersonId,
+            congregationName = congregationName ?: "—",
+            stage = stage,
+            onBack = { selectedPerson = null },
+            viewModel = viewModel,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PipelineListScreen(
+    publisherPersonId: String,
+    currentPersonId: String,
+    congregationId: String,
+    stage: PipelineStage,
+    canPermanentlyDelete: Boolean,
+    onBack: () -> Unit,
+    onOpenPerson: (InterestedPerson) -> Unit,
+    viewModel: PipelineViewModel,
+) {
+    val peopleFlow = remember(publisherPersonId, stage) { viewModel.peopleFor(publisherPersonId, stage) }
+    val allPeople by peopleFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var showInactive by remember { mutableStateOf(false) }
+    val people = allPeople.filter { showInactive || it.status == RecordStatus.ACTIVE }
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<InterestedPerson?>(null) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stage.label()) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+            )
+        },
+        floatingActionButton = {
+            // New records only ever start in Searching (spec: "the publisher
+            // will record the newly found potential RV or Bible Study" here);
+            // Return Visit/Bible Study only ever gain records via [MOVE TO...]
+            // on an existing Searching/Return Visit record.
+            if (stage == PipelineStage.SEARCHING) {
+                FloatingActionButton(onClick = { showCreateDialog = true }) {
+                    Icon(Icons.Rounded.Add, contentDescription = "New Searching Record")
+                }
+            }
+        },
+    ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = showInactive, onCheckedChange = { showInactive = it })
+                Text("Show Inactive")
+            }
+            if (people.isEmpty()) {
+                Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("No records yet.", style = MaterialTheme.typography.bodyMedium)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(people, key = { it.id }) { person ->
+                        Card(modifier = Modifier.fillMaxWidth().clickable { onOpenPerson(person) }) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column {
+                                    Text(person.name, style = MaterialTheme.typography.titleMedium)
+                                    Text(person.address, style = MaterialTheme.typography.bodySmall)
+                                    if (person.status == RecordStatus.INACTIVE) {
+                                        Text("Inactive", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                    }
+                                    if (person.pendingForwardRequestId != null) {
+                                        ForwardStatusBadge(person = person, viewModel = viewModel)
+                                    }
+                                }
+                                if (person.status == RecordStatus.ACTIVE) {
+                                    IconButton(onClick = { pendingDelete = person }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete") }
+                                } else {
+                                    IconButton(onClick = { viewModel.setStatus(person, RecordStatus.ACTIVE, currentPersonId) }) {
+                                        Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCreateDialog) {
+        PipelinePersonDialog(
+            existingPerson = null,
+            publisherPersonId = publisherPersonId,
+            congregationId = congregationId,
+            currentPersonId = currentPersonId,
+            onSave = { viewModel.save(it) },
+            onDismiss = { showCreateDialog = false },
+            viewModel = viewModel,
+        )
+    }
+
+    val toDelete = pendingDelete
+    if (toDelete != null) {
+        DeleteChoiceDialog(
+            recordLabel = toDelete.name,
+            canPermanentlyDelete = canPermanentlyDelete,
+            onDismiss = { pendingDelete = null },
+            onMoveToInactive = { viewModel.setStatus(toDelete, RecordStatus.INACTIVE, currentPersonId) },
+            onDeletePermanently = { viewModel.permanentlyDelete(toDelete, currentPersonId) },
+        )
+    }
+}
+
+@Composable
+private fun ForwardStatusBadge(person: InterestedPerson, viewModel: PipelineViewModel) {
+    val requestFlow = remember(person.id) { viewModel.forwardRequestFor(person) }
+    val request by requestFlow.collectAsStateWithLifecycle(initialValue = null)
+    val r = request ?: return
+    val (text, color) = when (r.status) {
+        ForwardRequestStatus.PENDING -> "Forward status: Pending (${r.toCongregationNameSnapshot})" to MaterialTheme.colorScheme.tertiary
+        ForwardRequestStatus.ACCEPTED -> "Forward status: Accepted (${r.toCongregationNameSnapshot})" to MaterialTheme.colorScheme.primary
+        ForwardRequestStatus.DECLINED -> "Forward status: Declined" to MaterialTheme.colorScheme.error
+    }
+    Text(text, style = MaterialTheme.typography.bodySmall, color = color)
+}
+
+/** Full Searching-stage create/edit form (spec's field list). A Return
+ * Visit/Bible Study record is opened read/append-only here for the fields
+ * this dialog edits — reached only via [PipelinePersonDetailScreen]'s Edit
+ * action, which every stage still offers for correcting a typo etc. */
+@Composable
+private fun PipelinePersonDialog(
+    existingPerson: InterestedPerson?,
+    publisherPersonId: String,
+    congregationId: String,
+    currentPersonId: String,
+    onSave: (InterestedPerson) -> Unit,
+    onDismiss: () -> Unit,
+    viewModel: PipelineViewModel,
+) {
+    var name by remember { mutableStateOf(existingPerson?.name.orEmpty()) }
+    var spouse by remember { mutableStateOf(existingPerson?.spouse.orEmpty()) }
+    var address by remember { mutableStateOf(existingPerson?.address.orEmpty()) }
+    var children by remember { mutableStateOf(existingPerson?.children.orEmpty()) }
+    var religion by remember { mutableStateOf(existingPerson?.religion.orEmpty()) }
+    var ageText by remember { mutableStateOf(existingPerson?.ageYears?.toString().orEmpty()) }
+    var placeOrigin by remember { mutableStateOf(existingPerson?.placeOrigin.orEmpty()) }
+    var language by remember { mutableStateOf(existingPerson?.language.orEmpty()) }
+    var literaturePlace by remember { mutableStateOf(existingPerson?.literaturePlace.orEmpty()) }
+    var remarks by remember { mutableStateOf(existingPerson?.remarks.orEmpty()) }
+    var notes by remember { mutableStateOf(existingPerson?.notes.orEmpty()) }
+    var gender by remember { mutableStateOf(existingPerson?.gender) }
+    var image by remember { mutableStateOf(existingPerson?.primarySupportingImage) }
+    val originalCoordinates = remember(existingPerson) {
+        existingPerson?.takeIf { it.hasGpsLocation }?.let { CoordinatesValue(it.gpsLat!!, it.gpsLng!!, it.gpsAccuracy) }
+    }
+    var coordinates by remember { mutableStateOf(originalCoordinates) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (existingPerson == null) "New Searching Record" else "Edit Record") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                EditSectionHeader("Personal Information")
+                OutlinedTextField(value = name, onValueChange = { name = it.uppercase() }, label = { Text("Name") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                Row {
+                    Gender.entries.forEach { g ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = gender == g, onClick = { gender = g })
+                            Text(g.name.lowercase().replaceFirstChar { it.uppercase() })
+                        }
+                    }
+                }
+                OutlinedTextField(value = spouse, onValueChange = { spouse = it.uppercase() }, label = { Text("Spouse (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = address, onValueChange = { address = it.uppercase() }, label = { Text("Address") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = children, onValueChange = { children = it.uppercase() }, label = { Text("Children (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = religion, onValueChange = { religion = it.uppercase() }, label = { Text("Religion (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = ageText, onValueChange = { ageText = it.filter { c -> c.isDigit() } }, label = { Text("Age (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = placeOrigin, onValueChange = { placeOrigin = it.uppercase() }, label = { Text("Place Origin (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = language, onValueChange = { language = it.uppercase() }, label = { Text("Language (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = literaturePlace, onValueChange = { literaturePlace = it.uppercase() }, label = { Text("Literature Place (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = remarks, onValueChange = { remarks = it }, label = { Text("Remarks (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("Notes (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+
+                EditSectionHeader("Coordinates (optional)")
+                CoordinatesEditorField(coordinates = coordinates, onChange = { coordinates = it }, viewModel = viewModel)
+
+                EditSectionHeader("Supporting Information")
+                SupportingImageSection(currentImage = image, onImageConfirmed = { image = it }, onClear = { image = null })
+
+                if (existingPerson != null) {
+                    EditSectionHeader("System Information")
+                    ReadOnlyField("Record ID", existingPerson.id)
+                    ReadOnlyField("Status", existingPerson.status.name)
+                    ReadOnlyField("Stage", existingPerson.pipelineStage.label())
+                    ReadOnlyField("Date Created", formatRecordTimestamp(existingPerson.createdAt))
+                    ReadOnlyField("Created By", existingPerson.createdByPersonId.ifBlank { "—" })
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (name.isNotBlank() && address.isNotBlank() && gender != null) {
+                        val coordinatesChanged = coordinates != originalCoordinates
+                        val now = System.currentTimeMillis()
+                        val base = existingPerson ?: InterestedPerson(
+                            publisherPersonId = publisherPersonId,
+                            congregationId = congregationId,
+                            createdAt = now,
+                            createdByPersonId = currentPersonId,
+                            stageEnteredAt = now,
+                        )
+                        onSave(
+                            base.copy(
+                                name = name.trim(),
+                                gender = gender,
+                                spouse = spouse.trim().ifBlank { null },
+                                address = address.trim(),
+                                children = children.trim().ifBlank { null },
+                                religion = religion.trim().ifBlank { null },
+                                ageYears = ageText.toIntOrNull(),
+                                placeOrigin = placeOrigin.trim().ifBlank { null },
+                                language = language.trim().ifBlank { null },
+                                literaturePlace = literaturePlace.trim().ifBlank { null },
+                                remarks = remarks.trim().ifBlank { null },
+                                notes = notes.trim().ifBlank { null },
+                                supportingImages = listOfNotNull(image),
+                                gpsLat = coordinates?.lat,
+                                gpsLng = coordinates?.lng,
+                                gpsAccuracy = coordinates?.accuracyMeters ?: existingPerson?.gpsAccuracy.takeIf { !coordinatesChanged },
+                                gpsCapturedAt = if (coordinatesChanged) coordinates?.let { now } else existingPerson?.gpsCapturedAt,
+                                gpsCapturedBy = if (coordinatesChanged) coordinates?.let { currentPersonId } else existingPerson?.gpsCapturedBy,
+                                gpsUpdatedAt = if (coordinatesChanged) coordinates?.let { now } else existingPerson?.gpsUpdatedAt,
+                            ),
+                        )
+                        onDismiss()
+                    }
+                },
+            ) { Text(if (existingPerson == null) "Add" else "Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun CoordinatesEditorField(coordinates: CoordinatesValue?, onChange: (CoordinatesValue?) -> Unit, viewModel: PipelineViewModel) {
+    val coroutineScope = rememberCoroutineScope()
+    var isCapturing by remember { mutableStateOf(false) }
+    var pendingCapture by remember { mutableStateOf<LatLng?>(null) }
+    var showManualEntry by remember { mutableStateOf(false) }
+    var captureError by remember { mutableStateOf<String?>(null) }
+
+    fun runCapture() {
+        captureError = null
+        isCapturing = true
+        coroutineScope.launch {
+            val result = viewModel.captureCurrentLocation()
+            isCapturing = false
+            if (result == null) captureError = "Could not get a GPS fix. Make sure location is turned on and try again." else pendingCapture = result
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) runCapture() else captureError = "Location permission is required to capture GPS."
+    }
+    fun startCapture() {
+        if (viewModel.hasLocationPermission()) runCapture() else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    val capture = pendingCapture
+    when {
+        capture != null -> Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("New Location Captured", style = MaterialTheme.typography.labelLarge)
+                Text("Latitude: ${"%.6f".format(capture.lat)}", style = MaterialTheme.typography.bodyMedium)
+                Text("Longitude: ${"%.6f".format(capture.lng)}", style = MaterialTheme.typography.bodyMedium)
+                if (capture.accuracyMeters != null) Text("Accuracy: ${capture.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                    TextButton(onClick = { onChange(CoordinatesValue(capture.lat, capture.lng, capture.accuracyMeters)); pendingCapture = null }) { Text("CONFIRM") }
+                    TextButton(onClick = { pendingCapture = null }) { Text("CANCEL") }
+                }
+            }
+        }
+        isCapturing -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(modifier = Modifier.padding(end = 12.dp))
+            Text("Getting current location…")
+        }
+        coordinates != null -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Latitude: ${"%.6f".format(coordinates.lat)}", style = MaterialTheme.typography.bodyMedium)
+            Text("Longitude: ${"%.6f".format(coordinates.lng)}", style = MaterialTheme.typography.bodyMedium)
+            if (coordinates.accuracyMeters != null) Text("Accuracy: ${coordinates.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { startCapture() }) { Text("EDIT LOCATION") }
+                OutlinedButton(onClick = { onChange(null) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("CLEAR") }
+            }
+        }
+        else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { startCapture() }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                Text("CAPTURE CURRENT LOCATION")
+            }
+            OutlinedButton(onClick = { showManualEntry = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                Text("ENTER COORDINATES MANUALLY")
+            }
+        }
+    }
+    if (captureError != null) Text(captureError!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    if (showManualEntry) {
+        ManualCoordinatesDialog(initial = coordinates, onConfirm = { onChange(it); showManualEntry = false }, onDismiss = { showManualEntry = false })
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PipelinePersonDetailScreen(
+    person: InterestedPerson,
+    currentPersonId: String,
+    congregationName: String,
+    stage: PipelineStage,
+    onBack: () -> Unit,
+    viewModel: PipelineViewModel,
+) {
+    LaunchedEffect(person.id) { viewModel.startVisitSync(person.id) }
+    val visitsFlow = remember(person.id) { viewModel.visitsFor(person.id) }
+    val visits by visitsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val livePersonFlow = remember(person.id) {
+        viewModel.peopleFor(person.publisherPersonId, stage).map { list -> list.firstOrNull { it.id == person.id } ?: person }
+    }
+    val livePerson by livePersonFlow.collectAsStateWithLifecycle(initialValue = person)
+    var showAddVisit by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
+    var showForwardDialog by remember { mutableStateOf(false) }
+    var selectedVisit by remember { mutableStateOf<Visit?>(null) }
+    val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
+    val sortedVisits = remember(visits) { visits.sortedByDescending { it.visitDate } }
+    val createdByName by remember(livePerson.createdByPersonId) { viewModel.personName(livePerson.createdByPersonId) }.collectAsStateWithLifecycle(initialValue = null)
+    val forwardRequestFlow = remember(livePerson.pendingForwardRequestId) { viewModel.forwardRequestFor(livePerson) }
+    val forwardRequest by forwardRequestFlow.collectAsStateWithLifecycle(initialValue = null)
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(livePerson.name) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+                actions = { IconButton(onClick = { showEditDialog = true }) { Icon(Icons.Rounded.Edit, contentDescription = "Edit") } },
+            )
+        },
+        floatingActionButton = {
+            // "Add Visit" only applies once there's an actual visit history to
+            // keep — Searching has none yet (spec's own module description).
+            if (stage != PipelineStage.SEARCHING) {
+                FloatingActionButton(onClick = { showAddVisit = true }) { Icon(Icons.Rounded.Add, contentDescription = "Log Visit") }
+            }
+        },
+    ) { padding ->
+        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                EditSectionHeader("Personal Information")
+                Text("Name: ${livePerson.name}", style = MaterialTheme.typography.bodyMedium)
+                Text("Gender: ${livePerson.gender?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                Text("Spouse: ${livePerson.spouse ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                Text("Address: ${livePerson.address}", style = MaterialTheme.typography.bodyMedium)
+                Text("Children: ${livePerson.children ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                Text("Religion: ${livePerson.religion ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                Text("Age: ${livePerson.ageYears ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                Text("Place Origin: ${livePerson.placeOrigin ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                Text("Language: ${livePerson.language ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                Text("Literature Place: ${livePerson.literaturePlace ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                Text("Congregation: $congregationName", style = MaterialTheme.typography.bodyMedium)
+                Text("Remarks: ${livePerson.remarks ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                SupportingImagePreview(livePerson.primarySupportingImage)
+            }
+            item {
+                EditSectionHeader("Location", modifier = Modifier.padding(top = 16.dp))
+                GpsLocationSection(person = livePerson, currentPersonId = currentPersonId, viewModel = viewModel)
+            }
+            item {
+                EditSectionHeader("Notes", modifier = Modifier.padding(top = 16.dp))
+                Text(livePerson.notes ?: "No notes recorded.", style = MaterialTheme.typography.bodyMedium)
+            }
+            // Stage-advance / Forward actions — Searching module's spec:
+            // "Every record saved were having a button next to their names
+            // [MOVE TO RETURN VISIT MODULE, FORWARD TO OTHER CONGREGATION]".
+            if (stage == PipelineStage.SEARCHING) {
+                item {
+                    EditSectionHeader("Actions", modifier = Modifier.padding(top = 16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { viewModel.advanceStage(livePerson, PipelineStage.RETURN_VISIT, currentPersonId) }) {
+                            Text("MOVE TO RETURN VISIT")
+                        }
+                        OutlinedButton(onClick = { showForwardDialog = true }, enabled = forwardRequest?.status != ForwardRequestStatus.PENDING) {
+                            Text("FORWARD TO OTHER CONGREGATION")
+                        }
+                    }
+                    val r = forwardRequest
+                    if (r != null) {
+                        Text(
+                            when (r.status) {
+                                ForwardRequestStatus.PENDING -> "Forward status: Pending — sent to ${r.toCongregationNameSnapshot}"
+                                ForwardRequestStatus.ACCEPTED -> "Forward status: Accepted by ${r.toCongregationNameSnapshot} — assigned to ${r.assignedToPublisherNameSnapshot ?: "—"}"
+                                ForwardRequestStatus.DECLINED -> "Forward status: Declined by ${r.toCongregationNameSnapshot}"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+            } else if (stage == PipelineStage.RETURN_VISIT) {
+                item {
+                    EditSectionHeader("Actions", modifier = Modifier.padding(top = 16.dp))
+                    Button(onClick = { viewModel.advanceStage(livePerson, PipelineStage.BIBLE_STUDY, currentPersonId) }) {
+                        Text("MOVE TO BIBLE STUDY")
+                    }
+                }
+            }
+            if (stage != PipelineStage.SEARCHING) {
+                item { EditSectionHeader("System Information", modifier = Modifier.padding(top = 16.dp))
+                    Text("Date Created: ${formatRecordTimestamp(livePerson.createdAt)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Created By: ${createdByName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                }
+                item { EditSectionHeader("Visit History", modifier = Modifier.padding(top = 16.dp)) }
+                if (sortedVisits.isEmpty()) {
+                    item { Text("No visits logged yet.", style = MaterialTheme.typography.bodySmall) }
+                }
+                itemsIndexed(sortedVisits, key = { _, visit -> visit.id }) { index, visit ->
+                    Card(modifier = Modifier.fillMaxWidth().clickable { selectedVisit = visit }) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(dateFormat.format(Date(visit.visitDate)), style = MaterialTheme.typography.titleSmall)
+                                    if (index == 0) Text("  •  Latest", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                                Text(visit.outcome.name.replace('_', ' '), style = MaterialTheme.typography.bodySmall)
+                                if (visit.topicDiscussed != null) Text("Remarks/Topic: ${visit.topicDiscussed}", style = MaterialTheme.typography.bodySmall)
+                                val visitorName by remember(visit.publisherPersonId) { viewModel.personName(visit.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
+                                Text("${stage.visitorLabel()}: ${visitorName ?: "—"}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            IconButton(onClick = { viewModel.deleteVisit(person.id, visit.id) }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete visit") }
+                        }
+                    }
+                }
+            } else {
+                item { EditSectionHeader("System Information", modifier = Modifier.padding(top = 16.dp))
+                    Text("Date Created: ${formatRecordTimestamp(livePerson.createdAt)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Created By: ${createdByName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+    }
+
+    selectedVisit?.let { visit -> VisitDetailDialog(visit = visit, stage = stage, dateFormat = dateFormat, onDismiss = { selectedVisit = null }, viewModel = viewModel) }
+
+    if (showAddVisit) {
+        AddVisitDialog(
+            interestedPersonId = person.id,
+            publisherPersonId = person.publisherPersonId,
+            currentPersonId = currentPersonId,
+            stage = stage,
+            onSave = { viewModel.saveVisit(it) },
+            onDismiss = { showAddVisit = false },
+        )
+    }
+
+    if (showEditDialog) {
+        PipelinePersonDialog(
+            existingPerson = livePerson,
+            publisherPersonId = person.publisherPersonId,
+            congregationId = livePerson.congregationId,
+            currentPersonId = currentPersonId,
+            onSave = { viewModel.save(it) },
+            onDismiss = { showEditDialog = false },
+            viewModel = viewModel,
+        )
+    }
+
+    if (showForwardDialog) {
+        ForwardToCongregationDialog(
+            person = livePerson,
+            ownCongregationName = congregationName,
+            currentPersonId = currentPersonId,
+            onDismiss = { showForwardDialog = false },
+            viewModel = viewModel,
+        )
+    }
+}
+
+/** "FORWARD TO OTHER CONGREGATION" spec flow — search field over
+ * name/language, filtered client-side (the congregation list is already
+ * app-wide mirrored, and never large enough to warrant a server-side query). */
+@Composable
+private fun ForwardToCongregationDialog(
+    person: InterestedPerson,
+    ownCongregationName: String,
+    currentPersonId: String,
+    onDismiss: () -> Unit,
+    viewModel: PipelineViewModel,
+) {
+    val congregationsFlow = remember(person.congregationId) { viewModel.otherCongregations(person.congregationId) }
+    val congregations by congregationsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val fromPublisherName by remember(person.publisherPersonId) { viewModel.personName(person.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
+    var query by remember { mutableStateOf("") }
+    var selected by remember { mutableStateOf<Congregation?>(null) }
+    val filtered = remember(congregations, query) {
+        if (query.isBlank()) congregations
+        else congregations.filter { c -> c.name.contains(query, ignoreCase = true) || c.languages.any { it.contains(query, ignoreCase = true) } }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Forward to Other Congregation") },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it; selected = null },
+                    label = { Text("Search by congregation name or language") },
+                    singleLine = true,
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                LazyColumn(modifier = Modifier.heightIn(max = 280.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(filtered, key = { it.id }) { c ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth().clickable { selected = c; query = c.name },
+                            colors = if (selected?.id == c.id) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer) else CardDefaults.cardColors(),
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(c.name, style = MaterialTheme.typography.bodyMedium)
+                                if (c.languages.isNotEmpty()) Text(c.languages.joinToString(", "), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                    if (filtered.isEmpty()) item { Text("No matching congregation.", style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val target = selected
+                    if (target != null) {
+                        viewModel.forward(person, target, ownCongregationName, fromPublisherName ?: "—", currentPersonId)
+                        onDismiss()
+                    }
+                },
+                enabled = selected != null,
+            ) { Text("SEND REQUEST") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun SupportingImagePreview(image: SupportingImage?) {
+    if (image == null || image.base64Jpeg.isBlank()) return
+    val bitmap = remember(image.base64Jpeg) {
+        runCatching {
+            val bytes = android.util.Base64.decode(image.base64Jpeg, android.util.Base64.NO_WRAP)
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }.getOrNull()
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "Supporting image",
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(160.dp).clip(RoundedCornerShape(8.dp)),
+            contentScale = ContentScale.Crop,
+        )
+    }
+}
+
+@Composable
+private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String, viewModel: PipelineViewModel) {
+    val coroutineScope = rememberCoroutineScope()
+    var isCapturing by remember { mutableStateOf(false) }
+    var pendingCapture by remember { mutableStateOf<LatLng?>(null) }
+    var captureError by remember { mutableStateOf<String?>(null) }
+    var showClearConfirm by remember { mutableStateOf(false) }
+    var showManualEntry by remember { mutableStateOf(false) }
+
+    fun runCapture() {
+        captureError = null
+        isCapturing = true
+        coroutineScope.launch {
+            val result = viewModel.captureCurrentLocation()
+            isCapturing = false
+            if (result == null) captureError = "Could not get a GPS fix. Make sure location is turned on and try again." else pendingCapture = result
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) runCapture() else captureError = "Location permission is required to capture GPS."
+    }
+    fun startCapture() {
+        if (viewModel.hasLocationPermission()) runCapture() else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    Column(modifier = Modifier.padding(top = 16.dp)) {
+        Text("Interested Person Location", style = MaterialTheme.typography.titleMedium)
+        val capture = pendingCapture
+        when {
+            capture != null -> Card(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("New Location Captured", style = MaterialTheme.typography.titleSmall)
+                    Text("Latitude: ${"%.6f".format(capture.lat)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Longitude: ${"%.6f".format(capture.lng)}", style = MaterialTheme.typography.bodyMedium)
+                    if (capture.accuracyMeters != null) Text("Accuracy: ${capture.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
+                    Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { viewModel.saveGpsLocation(person, capture.lat, capture.lng, capture.accuracyMeters, currentPersonId); pendingCapture = null }) { Text("CONFIRM & SAVE") }
+                        OutlinedButton(onClick = { pendingCapture = null }) { Text("CANCEL") }
+                    }
+                }
+            }
+            isCapturing -> Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.padding(end = 12.dp))
+                Text("Getting current location…")
+            }
+            person.hasGpsLocation -> Card(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text("GPS Location Captured", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp))
+                    }
+                    Text("Latitude: ${"%.6f".format(person.gpsLat)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Longitude: ${"%.6f".format(person.gpsLng)}", style = MaterialTheme.typography.bodyMedium)
+                    if (person.gpsAccuracy != null) Text("Accuracy: ${person.gpsAccuracy.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
+                    if (person.gpsCapturedAt != null) Text("Captured: ${formatRecordTimestamp(person.gpsCapturedAt)}", style = MaterialTheme.typography.bodySmall)
+                    Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { startCapture() }) { Text("EDIT LOCATION") }
+                        OutlinedButton(onClick = { showClearConfirm = true }, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("CLEAR LOCATION") }
+                    }
+                }
+            }
+            else -> Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("No location captured", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button(onClick = { startCapture() }) {
+                    Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                    Text("CAPTURE CURRENT LOCATION")
+                }
+                OutlinedButton(onClick = { showManualEntry = true }) {
+                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                    Text("ENTER COORDINATES MANUALLY")
+                }
+            }
+        }
+        if (captureError != null) Text(captureError!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
+    }
+
+    if (showManualEntry) {
+        ManualCoordinatesDialog(
+            initial = person.takeIf { it.hasGpsLocation }?.let { CoordinatesValue(it.gpsLat!!, it.gpsLng!!, it.gpsAccuracy) },
+            onConfirm = { value -> viewModel.saveGpsLocation(person, value.lat, value.lng, value.accuracyMeters, currentPersonId); showManualEntry = false },
+            onDismiss = { showManualEntry = false },
+        )
+    }
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("Clear GPS Location?") },
+            text = { Text("This will remove the saved GPS coordinates from this record.") },
+            confirmButton = { TextButton(onClick = { viewModel.clearGpsLocation(person, currentPersonId); showClearConfirm = false }) { Text("CLEAR") } },
+            dismissButton = { TextButton(onClick = { showClearConfirm = false }) { Text("CANCEL") } },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddVisitDialog(
+    interestedPersonId: String,
+    publisherPersonId: String,
+    currentPersonId: String,
+    stage: PipelineStage,
+    onSave: (Visit) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var visitDate by remember { mutableStateOf<Long?>(null) }
+    var topic by remember { mutableStateOf("") }
+    var outcome by remember { mutableStateOf(VisitOutcome.NOT_AT_HOME) }
+    var minutesText by remember { mutableStateOf("") }
+    var followUpDate by remember { mutableStateOf<Long?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Log Visit") },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                DateTimeField(label = "Visit Date/Time", valueMillis = visitDate, onValueChange = { visitDate = it })
+                OutlinedTextField(value = topic, onValueChange = { topic = it.uppercase() }, label = { Text("Remarks / Topic Discussed (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                VisitOutcomeDropdown(selected = outcome, onSelected = { outcome = it })
+                OutlinedTextField(value = minutesText, onValueChange = { minutesText = it.filter { c -> c.isDigit() } }, label = { Text("Time Consumed (minutes)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                DateTimeField(label = "Follow-up Date (optional)", valueMillis = followUpDate, onValueChange = { followUpDate = it })
+                if (followUpDate != null) TextButton(onClick = { followUpDate = null }) { Text("Clear Follow-up Date") }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val date = visitDate
+                    val minutes = minutesText.toIntOrNull()
+                    if (date != null && minutes != null) {
+                        onSave(
+                            Visit(
+                                interestedPersonId = interestedPersonId,
+                                visitDate = date,
+                                visitTime = date,
+                                topicDiscussed = topic.trim().ifBlank { null },
+                                outcome = outcome,
+                                timeConsumedMinutes = minutes,
+                                publisherPersonId = publisherPersonId,
+                                followUpDate = followUpDate,
+                                createdAt = System.currentTimeMillis(),
+                                createdByPersonId = currentPersonId,
+                            )
+                        )
+                        onDismiss()
+                    }
+                },
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun VisitDetailDialog(visit: Visit, stage: PipelineStage, dateFormat: SimpleDateFormat, onDismiss: () -> Unit, viewModel: PipelineViewModel) {
+    val visitorName by remember(visit.publisherPersonId) { viewModel.personName(visit.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Visit Details") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ReadOnlyField("Visit Date", dateFormat.format(Date(visit.visitDate)))
+                ReadOnlyField("Status", visit.outcome.name.replace('_', ' '))
+                ReadOnlyField("Time Consumed", "${visit.timeConsumedMinutes / 60}h ${visit.timeConsumedMinutes % 60}m")
+                ReadOnlyField("Remarks / Topic Discussed", visit.topicDiscussed ?: "—")
+                ReadOnlyField(stage.visitorLabel(), visitorName ?: "—")
+                ReadOnlyField("Follow-up Date", visit.followUpDate?.let { dateFormat.format(Date(it)) } ?: "—")
+                ReadOnlyField("Logged", formatRecordTimestamp(visit.createdAt))
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VisitOutcomeDropdown(selected: VisitOutcome, onSelected: (VisitOutcome) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selected.name.replace('_', ' '),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Status") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            VisitOutcome.entries.forEach { s ->
+                DropdownMenuItem(text = { Text(s.name.replace('_', ' ')) }, onClick = { onSelected(s); expanded = false })
+            }
+        }
+    }
+}

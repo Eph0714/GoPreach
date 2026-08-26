@@ -2,9 +2,9 @@ package com.emfitsolutions.gopreach.data.sync
 
 import com.emfitsolutions.gopreach.data.repository.AppSettingsRepository
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
-import com.emfitsolutions.gopreach.data.repository.BibleStudyRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.ElderTitleRepository
+import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
@@ -66,8 +66,8 @@ class RemoteSyncCoordinator @Inject constructor(
     private val elderTitleRepository: ElderTitleRepository,
     private val territoryRepository: TerritoryRepository,
     private val scheduleRepository: ScheduleRepository,
-    private val bibleStudyRepository: BibleStudyRepository,
     private val interestedPersonRepository: InterestedPersonRepository,
+    private val forwardRequestRepository: ForwardRequestRepository,
     private val monthlyReportRepository: MonthlyReportRepository,
     private val auditLogRepository: AuditLogRepository,
     private val appSettingsRepository: AppSettingsRepository,
@@ -102,8 +102,8 @@ class RemoteSyncCoordinator @Inject constructor(
         elderTitleRepository.startRemoteSync().startTracked(uidChanged)
         territoryRepository.startRemoteSync().startTracked(uidChanged)
         scheduleRepository.startRemoteSync().startTracked(uidChanged)
-        bibleStudyRepository.startRemoteSync().startTracked(uidChanged)
         interestedPersonRepository.startRemoteSync().startTracked(uidChanged)
+        forwardRequestRepository.startRemoteSync().startTracked(uidChanged)
         monthlyReportRepository.startRemoteSync().startTracked(uidChanged)
         auditLogRepository.startRemoteSync().startTracked(uidChanged)
         appSettingsRepository.startRemoteSync().startTracked(uidChanged)
