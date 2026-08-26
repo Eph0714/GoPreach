@@ -27,6 +27,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.ui.components.LanguagesTagInput
 import com.emfitsolutions.gopreach.ui.components.rememberUnsavedChangesBackHandler
 
 /** Spec §4.1 — Congregation Master File, Super-Admin only. */
@@ -45,7 +46,7 @@ fun CongregationEnrollmentScreen(
     }
 
     val hasUnsavedChanges = !uiState.saved && (
-        uiState.name.isNotBlank() || uiState.address.isNotBlank() || uiState.code.isNotBlank()
+        uiState.name.isNotBlank() || uiState.address.isNotBlank() || uiState.code.isNotBlank() || uiState.languages.isNotEmpty()
         )
     val guardedBack = rememberUnsavedChangesBackHandler(
         hasUnsavedChanges,
@@ -94,6 +95,12 @@ fun CongregationEnrollmentScreen(
                 label = { Text("Congregation Code (unique)") },
                 singleLine = true,
                 visualTransformation = VisualTransformation.None,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            LanguagesTagInput(
+                languages = uiState.languages,
+                onAdd = viewModel::onAddLanguage,
+                onRemove = viewModel::onRemoveLanguage,
                 modifier = Modifier.fillMaxWidth(),
             )
 

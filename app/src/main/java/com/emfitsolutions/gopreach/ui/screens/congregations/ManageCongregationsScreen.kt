@@ -49,6 +49,7 @@ import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.LanguagesTagInput
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import kotlinx.coroutines.launch
@@ -132,6 +133,9 @@ fun ManageCongregationsScreen(
                                     Text(congregation.name, style = MaterialTheme.typography.titleMedium)
                                     Text(congregation.address, style = MaterialTheme.typography.bodySmall)
                                     Text("Code: ${congregation.code}", style = MaterialTheme.typography.bodySmall)
+                                    if (congregation.languages.isNotEmpty()) {
+                                        Text("Languages: ${congregation.languages.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                                    }
                                     if (congregation.status == RecordStatus.INACTIVE) {
                                         Text("Inactive", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                                     }
@@ -204,6 +208,7 @@ private fun EditCongregationDialog(
     var name by remember { mutableStateOf(congregation.name) }
     var address by remember { mutableStateOf(congregation.address) }
     var code by remember { mutableStateOf(congregation.code) }
+    var languages by remember { mutableStateOf(congregation.languages) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -237,6 +242,12 @@ private fun EditCongregationDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                LanguagesTagInput(
+                    languages = languages,
+                    onAdd = { languages = languages + it },
+                    onRemove = { languages = languages - it },
+                    modifier = Modifier.fillMaxWidth(),
+                )
 
                 EditSectionHeader("System Information")
                 ReadOnlyField("Record ID", congregation.id)
@@ -248,7 +259,7 @@ private fun EditCongregationDialog(
             TextButton(
                 onClick = {
                     if (name.isNotBlank() && address.isNotBlank() && code.isNotBlank()) {
-                        onSave(congregation.copy(name = name.trim(), address = address.trim(), code = code.trim()))
+                        onSave(congregation.copy(name = name.trim(), address = address.trim(), code = code.trim(), languages = languages))
                     }
                 },
             ) { Text("Save Changes") }

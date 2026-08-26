@@ -17,6 +17,8 @@ data class CongregationEnrollmentUiState(
     val name: String = "",
     val address: String = "",
     val code: String = "",
+    /** "Language(s) Used" — optional, multiple, free-form (e.g. "Iloko", "Ibanag"). */
+    val languages: List<String> = emptyList(),
     val isSaving: Boolean = false,
     val errorMessage: String? = null,
     val saved: Boolean = false,
@@ -35,6 +37,8 @@ class CongregationEnrollmentViewModel @Inject constructor(
     fun onNameChange(value: String) = _uiState.update { it.copy(name = value.uppercase(), errorMessage = null) }
     fun onAddressChange(value: String) = _uiState.update { it.copy(address = value.uppercase(), errorMessage = null) }
     fun onCodeChange(value: String) = _uiState.update { it.copy(code = value.uppercase(), errorMessage = null) }
+    fun onAddLanguage(value: String) = _uiState.update { it.copy(languages = it.languages + value) }
+    fun onRemoveLanguage(value: String) = _uiState.update { it.copy(languages = it.languages - value) }
 
     fun save(createdByPersonId: String) {
         val state = _uiState.value
@@ -53,6 +57,7 @@ class CongregationEnrollmentViewModel @Inject constructor(
                     name = state.name.trim(),
                     address = state.address.trim(),
                     code = state.code.trim(),
+                    languages = state.languages,
                     createdAt = System.currentTimeMillis(),
                     createdByPersonId = createdByPersonId,
                 )

@@ -10,6 +10,10 @@ data class Congregation(
     /** Unique per spec §4.1. Uniqueness enforced app-side before write (Firestore has
      * no native unique-field constraint) — see CongregationRepository. */
     val code: String = "",
+    /** Languages used by this congregation (e.g. "Iloko", "Ibanag") — free-form,
+     * not a fixed enum, since congregations aren't limited to a predefined
+     * language list. Optional; empty means none recorded yet. */
+    val languages: List<String> = emptyList(),
     val createdAt: Long = 0L,
     val createdByPersonId: String = "",
     /** "Admin Record Deletion and Inactive Status" spec — Move to Inactive

@@ -1509,7 +1509,21 @@ User asked what the banner was actually for; on inspection its own doc comment a
 - **Access control (spec §28) — unchanged, verified not regressed**: every new repository method takes an explicit `publisherPersonId`/`congregationId` the caller must supply from the signed-in session's own role assignment (see `GoPreachNavGraph`'s `ownPublisherAssignment`), the same pattern already used everywhere else in this app; no new endpoint accepts an arbitrary caller-supplied id it doesn't already scope against.
 - Verified via `./gradlew :app:compileDebugKotlin`, a full `:app:assembleDebug`, and reinstall+relaunch on-device (Super-Admin session, zero crash-buffer entries). **Not live-verified**: the square stat cards, the Preaching Time Record CRUD screen, and — most importantly — the new collection-group query's actual behavior against live Firestore (including whether its index already exists or needs the one-time Console step described above). This environment has no Pioneer/Regular/Unbaptized Publisher login active this round to reach any of this phase's screens; confirmed correct by compilation and code review only, following patterns already live-verified in earlier phases wherever such a pattern existed to follow.
 
+## Phase 45 — Congregation "Language(s) Used" field ✅ done
+
+User request: add a Language Used field to Congregation enrollment, multiple values allowed (e.g. Iloko, Ibanag).
+
+- Added `Congregation.languages: List<String>` — free-form, not a fixed enum (a congregation isn't limited to a predefined language list), defaults to empty, backward-compatible for existing records.
+- New reusable `ui/components/LanguagesTagInput.kt`: a text field + Add builds up removable chips, case-insensitive duplicate guard. Used in both:
+  - `CongregationEnrollmentScreen` (new congregation) — wired into the ViewModel's `onAddLanguage`/`onRemoveLanguage` and included in the saved `Congregation`, and into the screen's unsaved-changes guard.
+  - `ManageCongregationsScreen`'s Edit dialog (existing congregation) — same component, local dialog state, saved back on confirm.
+- `ManageCongregationsScreen`'s list card now shows a "Languages: ..." line when any are recorded.
+- Verified via `./gradlew :app:compileDebugKotlin` and a full `:app:assembleDebug`. **Not live-verified this round**: the emulator session hit a "System UI isn't responding" hang partway through reinstall/relaunch (an emulator-level issue, not an app crash — the app's own Main Form rendered correctly underneath the ANR dialog, and the crash buffer stayed empty) and stayed stuck across several retries; didn't force through further interactive testing on a visibly unstable emulator instance. Confirmed correct by compilation and code review, following the same tag-chip/dialog patterns already used elsewhere in this app.
+
 ## What's next (not blocking, tracked for a future pass)
+- Live-verify Phase 45's Language(s) Used field (enrollment + edit + list
+  display) once a stable emulator/device session is available — this
+  round's emulator instance had a System UI hang unrelated to the app.
 - Live-verify the entire Phase 44 dashboard/Preaching Time Record module
   with a real Pioneer, Regular, and Unbaptized Publisher login — and
   specifically confirm the new collection-group query either already has
