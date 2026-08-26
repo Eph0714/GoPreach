@@ -136,7 +136,12 @@ class CoordinatorElderEnrollmentViewModel @Inject constructor(
             // that's filled in later when an admin places this person into
             // one of a Group's three slots via Manage Groups.
             if (state.isGroupOverseer) {
-                roleAssignmentRepository.save(
+                // saveNow, not save — same reasoning as the primary role
+                // assignment in AuthRepository.createAccountWithTempCredentials:
+                // this new account may sign in on a different device before
+                // this one's next manual sync, and their role should already
+                // be correct the moment they do.
+                roleAssignmentRepository.saveNow(
                     RoleAssignment(
                         personId = credentials.personId,
                         roleType = RoleType.serialize(RoleType.Admin(AdminRole.REGULAR_ELDER)),
@@ -149,7 +154,12 @@ class CoordinatorElderEnrollmentViewModel @Inject constructor(
                 )
             }
             state.publisherCategory?.let { category ->
-                roleAssignmentRepository.save(
+                // saveNow, not save — same reasoning as the primary role
+                // assignment in AuthRepository.createAccountWithTempCredentials:
+                // this new account may sign in on a different device before
+                // this one's next manual sync, and their role should already
+                // be correct the moment they do.
+                roleAssignmentRepository.saveNow(
                     RoleAssignment(
                         personId = credentials.personId,
                         roleType = RoleType.serialize(RoleType.Publisher(category)),

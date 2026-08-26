@@ -138,9 +138,19 @@ class AuthRepository @Inject constructor(
             createdAt = System.currentTimeMillis(),
             createdByPersonId = enrollingPersonId,
         )
-        personRepository.save(finalPerson)
+        // saveNow, not save: this document must exist on the server the
+        // instant this function returns, not whenever someone next taps
+        // "Sync to Server" — the very first thing a freshly enrolled user
+        // does is sign in, almost always on a different device than the one
+        // that enrolled them, and sign-in looks this up straight from
+        // Firestore (see findPersonByUsername). Safe to do synchronously
+        // here specifically because createSecondaryAuthAccount above already
+        // proved this device is online right now. See
+        // OfflineFirestoreRepository.saveNow's doc comment for the full story
+        // of the login failure this fixes.
+        personRepository.saveNow(finalPerson)
         val assignment = roleAssignment(personId)
-        roleAssignmentRepository.save(assignment)
+        roleAssignmentRepository.saveNow(assignment)
         val actionRole = when (val type = assignment.resolvedRoleType()) {
             is RoleType.Admin -> type.role.name
             is RoleType.Publisher -> "PUBLISHER"

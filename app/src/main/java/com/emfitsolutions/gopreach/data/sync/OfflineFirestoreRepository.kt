@@ -6,9 +6,11 @@ import com.emfitsolutions.gopreach.data.local.dao.CacheDao
 import com.emfitsolutions.gopreach.data.local.dao.SyncQueueDao
 import com.emfitsolutions.gopreach.data.model.SyncOperationType
 import com.emfitsolutions.gopreach.data.model.SyncState
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -92,6 +94,44 @@ class OfflineFirestoreRepository @Inject constructor(
                 createdAt = now,
             )
         )
+    }
+
+    /**
+     * Same local-cache write as [save], but also pushes the document straight
+     * to Firestore immediately and marks it synced — for the rare write that
+     * can't wait for the user's next manual "Sync to Server" tap.
+     *
+     * Bug fix: [com.emfitsolutions.gopreach.data.repository.AuthRepository
+     * .createAccountWithTempCredentials] used to only call [save] for the new
+     * account's Person/RoleAssignment documents — fine for this app's normal
+     * "manual sync only" design (spec §17), except a freshly enrolled user's
+     * very next action is almost always signing in **on their own device**,
+     * where [com.emfitsolutions.gopreach.data.repository.AuthRepository
+     * .findPersonByUsername] queries Firestore directly. Until the enrolling
+     * admin's device happened to sync (which could be indefinitely, since
+     * sync is manual-only), that lookup found nothing and every brand-new
+     * account — Coordinator Elder, Service Overseer, Regular Elder,
+     * Publisher, Admin, alike, since they all share that one enrollment
+     * method — failed to log in with "Invalid username or password" despite
+     * correct temp credentials. Only safe to call when the caller already
+     * knows the device is online (i.e. it just made a successful, unrelated
+     * network call itself, as account creation always does) — this is not a
+     * general-purpose replacement for [save].
+     */
+    suspend fun saveNow(firestore: FirebaseFirestore, collectionPath: String, documentId: String, data: Any) {
+        // Cache-first, same as always — this part can't fail in a way that
+        // should stop the caller. The immediate push below is a best-effort
+        // improvement on top of it, not a replacement: if it throws for any
+        // reason (a transient network drop right after the online-only
+        // operation that justified calling this in the first place), the
+        // document is still safely queued and will reach the server on the
+        // next normal sync exactly as it always would have.
+        save(collectionPath, documentId, data)
+        runCatching {
+            firestore.collection(collectionPath).document(documentId).set(data).await()
+            cacheDao.updateSyncState(collectionPath, documentId, SyncState.SYNCED.name)
+            syncQueueDao.removeForDocument(collectionPath, documentId)
+        }
     }
 
     suspend fun delete(collectionPath: String, documentId: String) {

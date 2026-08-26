@@ -34,6 +34,16 @@ class PersonRepository @Inject constructor(
         return withId
     }
 
+    /** Same as [save], but also pushes straight to Firestore immediately —
+     * see [OfflineFirestoreRepository.saveNow] for why this exists
+     * ([AuthRepository.createAccountWithTempCredentials] is its only caller). */
+    suspend fun saveNow(person: Person): Person {
+        val id = person.id.ifBlank { firestore.collection(COLLECTION).document().id }
+        val withId = person.copy(id = id)
+        offline.saveNow(firestore, COLLECTION, id, withId)
+        return withId
+    }
+
     suspend fun delete(personId: String) {
         offline.delete(COLLECTION, personId)
     }

@@ -38,6 +38,19 @@ class RoleAssignmentRepository @Inject constructor(
         offline.save(COLLECTION, id, assignment.copy(id = id))
     }
 
+    /** Same as [save], but also pushes straight to Firestore immediately —
+     * see [OfflineFirestoreRepository.saveNow] for why this exists
+     * ([com.emfitsolutions.gopreach.data.repository.AuthRepository
+     * .createAccountWithTempCredentials] is its only caller). Returns the
+     * resolved assignment (with its generated id, if it didn't already have
+     * one) since the caller needs it right away, unlike [save]'s callers. */
+    suspend fun saveNow(assignment: RoleAssignment): RoleAssignment {
+        val id = assignment.id.ifBlank { firestore.collection(COLLECTION).document().id }
+        val withId = assignment.copy(id = id)
+        offline.saveNow(firestore, COLLECTION, id, withId)
+        return withId
+    }
+
     suspend fun delete(assignmentId: String) {
         offline.delete(COLLECTION, assignmentId)
     }
