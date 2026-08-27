@@ -47,6 +47,7 @@ import com.emfitsolutions.gopreach.ui.screens.preachingtime.PreachingTimeRecordS
 import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MonthlyReportScreen
 import com.emfitsolutions.gopreach.ui.screens.login.LoginScreen
 import com.emfitsolutions.gopreach.ui.screens.publishers.ManagePublishersScreen
+import com.emfitsolutions.gopreach.ui.screens.publisherreports.ManagePublisherReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.reports.ConsolidatedReportScreen
 import com.emfitsolutions.gopreach.ui.screens.reports.ReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.schedules.ManageChatSchedulesScreen
@@ -343,6 +344,17 @@ fun GoPreachNavGraph(
             // does, since neither of those roles should see this report.
             ConsolidatedReportScreen(
                 visibleCongregationIds = if (currentRole == AdminRole.SUPER_ADMIN) null else setOfNotNull(ownCongregationId),
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.MANAGE_PUBLISHER_REPORTS) {
+            // Same access set/scoping as the Consolidated Report above —
+            // Super-Admin/Admin/Coordinator Elder/Service Overseer, own
+            // congregation only for anyone but Super-Admin.
+            ManagePublisherReportsScreen(
+                currentPersonId = currentPersonId,
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
             )
         }

@@ -33,6 +33,8 @@ object Destinations {
     // "MINISTERIAL ACCOUNT" — multiple per congregation allowed.
     const val ENROLL_MINISTERIAL_SERVANT = "enroll_ministerial_servant"
     const val MANAGE_MINISTERIAL_SERVANTS = "manage_ministerial_servants"
+    // "Manage Publisher Report" module.
+    const val MANAGE_PUBLISHER_REPORTS = "manage_publisher_reports"
 
     // Phase 3
     const val CONTROL_PANEL = "control_panel"

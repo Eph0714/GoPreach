@@ -115,6 +115,10 @@ fun AdminHomeScreen(
     // as the Consolidated Report (Service Overseer is who actually acts on
     // these, Coordinator Elder/Admin/Super-Admin can see them too).
     val canViewForwardRequests = canViewConsolidatedReport
+    // "Manage Publisher Report" module — Super-Admin (every congregation),
+    // Admin/Coordinator Elder/Service Overseer (own congregation only); same
+    // access set as the Consolidated Report.
+    val canManagePublisherReports = canViewConsolidatedReport
     // Control Panel: full access for Super-Admin, own-congregation for Admin (spec §3 permission matrix).
     val canAccessControlPanel = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION
     // User logs: Super-Admin (all) and Admin/Coordinator Elder (own congregation); Regular Elder has no access.
@@ -227,6 +231,7 @@ fun AdminHomeScreen(
                 canEnrollServiceOverseer = canEnrollServiceOverseer,
                 canEnrollMinisterialServant = canEnrollMinisterialServant,
                 canViewConsolidatedReport = canViewConsolidatedReport,
+                canManagePublisherReports = canManagePublisherReports,
                 canViewForwardRequests = canViewForwardRequests,
                 canEnrollRegularElderOrPublisher = canEnrollRegularElderOrPublisher,
                 canEnrollPublisher = canEnrollPublisher,

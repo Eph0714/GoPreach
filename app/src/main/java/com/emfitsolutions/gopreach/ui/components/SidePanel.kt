@@ -72,6 +72,7 @@ fun GoPreachSidePanelContent(
     canEnrollServiceOverseer: Boolean,
     canEnrollMinisterialServant: Boolean,
     canViewConsolidatedReport: Boolean,
+    canManagePublisherReports: Boolean,
     canViewForwardRequests: Boolean,
     canEnrollRegularElderOrPublisher: Boolean,
     /** "CREATING PUBLISHER" spec — Service Overseer can also create/manage
@@ -141,6 +142,12 @@ fun GoPreachSidePanelContent(
             add(SideItem("Reports Summary", Icons.Rounded.Assessment, Destinations.REPORTS))
             if (canViewConsolidatedReport) {
                 add(SideItem("Consolidated Report", Icons.Rounded.Assessment, Destinations.CONSOLIDATED_REPORT))
+            }
+            // "Manage Publisher Report" module — same access set as the
+            // Consolidated Report (Super-Admin/Admin/Coordinator Elder/
+            // Service Overseer).
+            if (canManagePublisherReports) {
+                add(SideItem("Publisher Reports", Icons.Rounded.Assessment, Destinations.MANAGE_PUBLISHER_REPORTS))
             }
             if (canViewForwardRequests) {
                 add(SideItem("Forward Requests", Icons.Rounded.SwapHoriz, Destinations.FORWARD_REQUESTS))
