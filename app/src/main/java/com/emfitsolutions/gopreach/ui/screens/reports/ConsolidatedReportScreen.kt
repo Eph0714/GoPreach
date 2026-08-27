@@ -12,8 +12,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Print
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -43,6 +47,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.platform.LocalContext
+import com.emfitsolutions.gopreach.data.export.CsvExporter
+import com.emfitsolutions.gopreach.data.print.ReportPrinter
+import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.charts.StatCard
 import com.emfitsolutions.gopreach.ui.screens.home.isPioneerCategory
@@ -72,12 +80,34 @@ fun ConsolidatedReportScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedPublisherId by remember { mutableStateOf<String?>(null) }
 
+    // "Make all reports have a print preview [and] export as pdf or excel,
+    // put a heading" — same shared ReportTable/CsvExporter/ReportPrinter
+    // shape every other report screen uses.
+    val context = LocalContext.current
+    val reportTable = remember(uiState.visibleEntries, uiState.dateRange) { consolidatedReportTableFor(uiState) }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) {
+            CsvExporter.write(context, uri, reportTable.title, subtitle = null, columns = reportTable.columns, rows = reportTable.rows, totals = reportTable.totals)
+        }
+    }
+    val exportFileName = "gopreach-consolidated-report-${SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())}.csv"
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Consolidated Monthly Report") },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { ReportPrinter.print(context, reportTable) },
+                        enabled = uiState.visibleEntries.isNotEmpty(),
+                    ) { Icon(Icons.Rounded.Print, contentDescription = "Print") }
+                    IconButton(
+                        onClick = { exportLauncher.launch(exportFileName) },
+                        enabled = uiState.visibleEntries.isNotEmpty(),
+                    ) { Icon(Icons.Rounded.Share, contentDescription = "Export as CSV") }
                 },
             )
         },
@@ -161,6 +191,33 @@ fun ConsolidatedReportScreen(
     if (entry != null) {
         PublisherRecordsDialog(entry = entry, viewModel = viewModel, onDismiss = { selectedPublisherId = null })
     }
+}
+
+/** Shared shape for both Print and CSV export — "put a heading" (the title
+ * plus the period line) is baked in here so it's identical for both. */
+private fun consolidatedReportTableFor(uiState: ConsolidatedReportUiState): ReportTable {
+    val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
+    val periodLabel = "${dateFormat.format(Date(uiState.dateRange.startMillis))} - ${dateFormat.format(Date(uiState.dateRange.endMillis))}"
+    return ReportTable(
+        title = "GoPreach Consolidated Monthly Report ($periodLabel)",
+        columns = listOf("Publisher", "Status", "Congregation", "Bible Studies", "Return Visits", "Preaching Hours", "Participated in Ministry"),
+        rows = uiState.visibleEntries.map { entry ->
+            listOf(
+                entry.person.fullName,
+                entry.category.name.replace('_', ' '),
+                entry.congregationName,
+                entry.bibleStudiesCount.toString(),
+                entry.returnVisitsCount.toString(),
+                if (isPioneerCategory(entry.category)) "%.1f".format(Locale.US, entry.preachingHours) else "N/A",
+                if (isPioneerCategory(entry.category)) "N/A" else entry.participatedInMinistry?.let { if (it) "YES" else "NO" } ?: "No report yet",
+            )
+        },
+        totals = listOf(
+            "Total Bible Studies" to uiState.totalBibleStudies.toString(),
+            "Total Preaching Hours" to "%.1f".format(Locale.US, uiState.totalPreachingHours),
+            "Participated in Ministry" to "${uiState.participatedYesCount} / ${uiState.regularPublisherEntries.size}",
+        ),
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Print
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
@@ -50,9 +51,13 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
+import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.QuickDateRange
 import java.text.SimpleDateFormat
@@ -87,6 +92,14 @@ fun ManagePublisherReportsScreen(
     var pendingDelete by remember { mutableStateOf<PublisherReportRow?>(null) }
 
     val reportTitle = remember(uiState.dateRange) { reportTitleFor(uiState.dateRange.startMillis, uiState.dateRange.endMillis, uiState.dateRange.option) }
+    val reportTable = remember(uiState.rows, reportTitle) { publisherReportTable(reportTitle, uiState) }
+
+    val csvExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) {
+            CsvExporter.write(context, uri, reportTable.title, subtitle = null, columns = reportTable.columns, rows = reportTable.rows, totals = reportTable.totals)
+        }
+    }
+    val csvExportFileName = "gopreach-publisher-reports-${SimpleDateFormat("yyyyMMdd", Locale.US).format(java.util.Date())}.csv"
 
     Scaffold(
         topBar = {
@@ -98,13 +111,16 @@ fun ManagePublisherReportsScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = {
-                            ReportPrinter.print(context, reportTitle, uiState.rows, uiState.totalBibleStudies, uiState.totalHoursByPioneers)
-                        },
-                        enabled = uiState.rows.isNotEmpty(),
-                    ) {
+                    // "Print preview" — Android's own print dialog always
+                    // shows a preview before anything prints, and offers
+                    // "Save as PDF" out of the box.
+                    IconButton(onClick = { ReportPrinter.print(context, reportTable) }, enabled = uiState.rows.isNotEmpty()) {
                         Icon(Icons.Rounded.Print, contentDescription = "Print")
+                    }
+                    // "Export as ... excel" — CSV, opens directly in any
+                    // spreadsheet app.
+                    IconButton(onClick = { csvExportLauncher.launch(csvExportFileName) }, enabled = uiState.rows.isNotEmpty()) {
+                        Icon(Icons.Rounded.Share, contentDescription = "Export as CSV")
                     }
                 },
             )
@@ -264,6 +280,35 @@ fun ManagePublisherReportsScreen(
         )
     }
 }
+
+/** Shared shape for both Print and CSV export — one place that decides what
+ * a "Publisher Report" table actually contains, so the two outputs never
+ * drift apart. */
+private fun publisherReportTable(title: String, uiState: ManagePublisherReportsUiState): ReportTable {
+    val rows = uiState.rows.mapIndexed { index, row ->
+        listOf(
+            (index + 1).toString(),
+            row.person.fullName,
+            row.category.name.replace('_', ' '),
+            row.report.bibleStudiesCount.toString(),
+            if (row.isPioneer) formatHoursForExport(row.report.hoursRendered ?: 0.0) else "N/A",
+            if (row.isPioneer) "N/A" else if (row.report.participatedInPreaching == true) "YES" else "NO",
+            row.congregationName,
+        )
+    }
+    return ReportTable(
+        title = title,
+        columns = listOf("#", "Publisher", "Status", "Bible Study", "Hours", "Participate in Preaching", "Congregation"),
+        rows = rows,
+        totals = listOf(
+            "Total Bible Study" to uiState.totalBibleStudies.toString(),
+            "Total Hours by Pioneers" to formatHoursForExport(uiState.totalHoursByPioneers),
+        ),
+    )
+}
+
+private fun formatHoursForExport(value: Double): String =
+    if (value == value.toLong().toDouble()) value.toLong().toString() else "%.1f".format(Locale.US, value)
 
 /** "PUBLISHER MINISTRY REPORT FOR THE MONTH OF AUGUST 2026" when the range is
  * exactly one calendar month (the spec's own example, and this screen's
