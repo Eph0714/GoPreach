@@ -19,13 +19,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +52,7 @@ import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.repository.ThemePreference
 import com.emfitsolutions.gopreach.ui.components.ColorWheelPicker
 import com.emfitsolutions.gopreach.ui.components.EyedropperImagePicker
+import kotlinx.coroutines.launch
 import com.emfitsolutions.gopreach.ui.components.ThemeOptionRow
 import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
 import com.emfitsolutions.gopreach.ui.theme.ThemeColorOption
@@ -147,16 +152,7 @@ fun SettingsScreen(
                 }
             }
 
-            Text("About", style = MaterialTheme.typography.titleMedium)
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
-                    Button(
-                        onClick = updateViewModel::checkManually,
-                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                    ) { Text("Check for Updates") }
-                }
-            }
+            AppVersionSection(updateViewModel = updateViewModel)
         }
     }
 
@@ -170,6 +166,81 @@ fun SettingsScreen(
             onDismiss = { showCustomColorDialog = false },
         )
     }
+}
+
+/**
+ * "Add a details of the newly installed update. Add a link for the updated
+ * apk file after installation so that the user can share the app to
+ * others. Put it inside the Settings / 'App Version' Folder." — replaces
+ * the old plain "About" section. [UpdateViewModel.installedUpdateInfo] is
+ * this device's own update history (see that store's doc comment for why
+ * it can be empty); "Share App" always fetches the current latest release
+ * fresh rather than relying on that history, so it works from a first
+ * install too.
+ */
+@Composable
+private fun AppVersionSection(updateViewModel: UpdateViewModel) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var isSharing by remember { mutableStateOf(false) }
+    var shareError by remember { mutableStateOf<String?>(null) }
+    val installedUpdateInfo = remember { updateViewModel.installedUpdateInfo }
+
+    Text("App Version", style = MaterialTheme.typography.titleMedium)
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
+
+            if (installedUpdateInfo != null && installedUpdateInfo.releaseNotes.isNotBlank()) {
+                Text(
+                    "What's New",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Text(installedUpdateInfo.releaseNotes, style = MaterialTheme.typography.bodySmall)
+            }
+
+            if (shareError != null) {
+                Text(shareError!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+
+            Button(
+                onClick = updateViewModel::checkManually,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            ) { Text("Check for Updates") }
+
+            OutlinedButton(
+                onClick = {
+                    isSharing = true
+                    shareError = null
+                    coroutineScope.launch {
+                        updateViewModel.fetchLatestForShare()
+                            .onSuccess { info -> launchAppShare(context, updateViewModel.shareText(info)) }
+                            .onFailure { shareError = "Couldn't fetch the latest download link. Check your connection and try again." }
+                        isSharing = false
+                    }
+                },
+                enabled = !isSharing,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (isSharing) {
+                    CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
+                } else {
+                    Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                }
+                Text("Share App")
+            }
+        }
+    }
+}
+
+private fun launchAppShare(context: android.content.Context, text: String) {
+    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(android.content.Intent.EXTRA_SUBJECT, "GoPreach")
+        putExtra(android.content.Intent.EXTRA_TEXT, text)
+    }
+    context.startActivity(android.content.Intent.createChooser(intent, "Share GoPreach"))
 }
 
 /** One tappable swatch + label in the Theme Color picker — the swatch itself is

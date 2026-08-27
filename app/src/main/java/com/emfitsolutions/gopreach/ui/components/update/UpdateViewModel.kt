@@ -9,6 +9,8 @@ import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.sync.ConnectivityObserver
 import com.emfitsolutions.gopreach.data.update.ApkDownloader
 import com.emfitsolutions.gopreach.data.update.DownloadEvent
+import com.emfitsolutions.gopreach.data.update.InstalledUpdateInfo
+import com.emfitsolutions.gopreach.data.update.InstalledUpdateInfoStore
 import com.emfitsolutions.gopreach.data.update.UpdateInfo
 import com.emfitsolutions.gopreach.data.update.UpdateInstaller
 import com.emfitsolutions.gopreach.data.update.UpdateManifestRepository
@@ -43,6 +45,7 @@ class UpdateViewModel @Inject constructor(
     private val manifestRepository: UpdateManifestRepository,
     private val downloader: ApkDownloader,
     private val installer: UpdateInstaller,
+    private val installedUpdateInfoStore: InstalledUpdateInfoStore,
     connectivityObserver: ConnectivityObserver,
 ) : ViewModel() {
 
@@ -51,6 +54,15 @@ class UpdateViewModel @Inject constructor(
 
     private var hasAutoChecked = false
     private val currentVersion: String get() = BuildConfig.VERSION_NAME
+
+    /** "Add a details of the newly installed update" — Settings' "App
+     * Version" section. Non-null only when the last update this app
+     * installed *through its own updater* is the version actually running
+     * right now (see [InstalledUpdateInfoStore]'s doc comment for why that
+     * can be null: a fresh install/sideload/Play install has no such
+     * history yet). */
+    val installedUpdateInfo: InstalledUpdateInfo?
+        get() = installedUpdateInfoStore.read()?.takeIf { it.version == currentVersion }
 
     init {
         // "Refresh, Automatic Updates, Offline Sync" spec §12: "When the device
@@ -138,6 +150,18 @@ class UpdateViewModel @Inject constructor(
                 }
                 val apkFile = lastFile ?: throw Exception("Download did not complete")
 
+                // Recorded *before* handing off to the Package Installer —
+                // this is the last point the app is definitely still
+                // running to write it; the process may well be replaced
+                // once installation actually happens.
+                installedUpdateInfoStore.save(
+                    InstalledUpdateInfo(
+                        version = info.version,
+                        releaseNotes = info.releaseNotes,
+                        apkUrl = info.apkUrl,
+                        installedAt = System.currentTimeMillis(),
+                    ),
+                )
                 _state.value = UpdateCheckState.ReadyToInstall(info, apkFile)
             } catch (e: Exception) {
                 Log.w(TAG, "Update failed: ${e.message}", e)
@@ -164,4 +188,13 @@ class UpdateViewModel @Inject constructor(
      * latest APK URL fetched moments ago, never a version baked into the app. */
     fun shareText(info: UpdateInfo): String =
         "GoPreach ${info.version} is now available!\nDownload the latest version here:\n${info.apkUrl}"
+
+    /** "Add a link for the updated apk file after installation so that the
+     * user can share the app to others" — Settings' "Share App" button.
+     * Always fetches fresh from GitHub Releases rather than reusing
+     * [installedUpdateInfo], so it keeps working (and points at the right
+     * link) for a device with no update history yet, and never shares a
+     * stale link if a newer release has shipped since this device last
+     * updated. */
+    suspend fun fetchLatestForShare(): Result<UpdateInfo> = manifestRepository.fetchLatest()
 }
