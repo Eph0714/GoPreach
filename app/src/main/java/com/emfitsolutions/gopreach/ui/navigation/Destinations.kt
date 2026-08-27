@@ -73,6 +73,9 @@ object Destinations {
     // Phase 6
     const val SHARE_LOCATION = "share_location"
     const val CALENDAR = "calendar"
+    // "Find Location" — manual-GPS-entry route finder (walking/driving/
+    // bicycling/transit), Publisher-context.
+    const val FIND_LOCATION = "find_location"
 
     const val SETTINGS = "settings"
 

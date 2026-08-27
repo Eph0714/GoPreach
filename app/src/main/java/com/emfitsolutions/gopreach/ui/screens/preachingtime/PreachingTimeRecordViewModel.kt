@@ -4,29 +4,25 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.PreachingTimeRecord
 import com.emfitsolutions.gopreach.data.model.RecordStatus
-import com.emfitsolutions.gopreach.data.model.Territory
 import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
-import com.emfitsolutions.gopreach.data.repository.TerritoryRepository
 import com.emfitsolutions.gopreach.domain.DateRangeStore
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** "Preaching Time Record Module" spec §12-§15 — Pioneer-only CRUD. */
+/** "Preaching Time Record Module" spec §12-§15 — Pioneer-only CRUD. Territory
+ * is deliberately not part of this screen's Add/Edit form or list display
+ * (product decision: preaching time is reported without a territory) — the
+ * model still carries `territoryId` for any pre-existing records, it's just
+ * never shown or asked for here. */
 @HiltViewModel
 class PreachingTimeRecordViewModel @Inject constructor(
     private val preachingTimeRecordRepository: PreachingTimeRecordRepository,
-    territoryRepository: TerritoryRepository,
     private val dateRangeStore: DateRangeStore,
 ) : ViewModel() {
-
-    val territories: StateFlow<List<Territory>> =
-        territoryRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Spec §15 — shares the same [DateRangeStore] as the Dashboard, so
      * navigating here from a tapped "Preaching Hours" card keeps the range

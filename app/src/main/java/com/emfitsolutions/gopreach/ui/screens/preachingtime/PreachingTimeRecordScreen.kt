@@ -20,10 +20,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.RestoreFromTrash
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,7 +43,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.PreachingTimeRecord
 import com.emfitsolutions.gopreach.data.model.RecordStatus
-import com.emfitsolutions.gopreach.data.model.Territory
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
@@ -71,10 +67,6 @@ fun PreachingTimeRecordScreen(
 ) {
     val recordsFlow = remember(publisherPersonId) { viewModel.recordsFor(publisherPersonId) }
     val allRecords by recordsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val territories by viewModel.territories.collectAsStateWithLifecycle()
-    val ownTerritories = remember(territories, congregationId) {
-        territories.filter { congregationId == null || it.congregationId == congregationId }
-    }
     val dateRange by viewModel.dateRange.collectAsStateWithLifecycle()
 
     var showInactive by remember { mutableStateOf(false) }
@@ -83,15 +75,11 @@ fun PreachingTimeRecordScreen(
     var pendingEdit by remember { mutableStateOf<PreachingTimeRecord?>(null) }
     var pendingDelete by remember { mutableStateOf<PreachingTimeRecord?>(null) }
 
-    val records = remember(allRecords, dateRange, showInactive, searchText, ownTerritories) {
+    val records = remember(allRecords, dateRange, showInactive, searchText) {
         allRecords
             .filter { showInactive || it.status == RecordStatus.ACTIVE }
             .filter { dateRange.contains(it.date) }
-            .filter {
-                searchText.isBlank() ||
-                    it.remarks?.contains(searchText, ignoreCase = true) == true ||
-                    ownTerritories.firstOrNull { t -> t.id == it.territoryId }?.name?.contains(searchText, ignoreCase = true) == true
-            }
+            .filter { searchText.isBlank() || it.remarks?.contains(searchText, ignoreCase = true) == true }
             .sortedByDescending { it.date }
     }
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
@@ -119,7 +107,7 @@ fun PreachingTimeRecordScreen(
             OutlinedTextField(
                 value = searchText,
                 onValueChange = { searchText = it },
-                label = { Text("Search remarks or territory") },
+                label = { Text("Search remarks") },
                 singleLine = true,
                 visualTransformation = VisualTransformation.None,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -150,7 +138,6 @@ fun PreachingTimeRecordScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(records, key = { it.id }) { record ->
-                        val territoryName = ownTerritories.firstOrNull { it.id == record.territoryId }?.name ?: "—"
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -159,7 +146,7 @@ fun PreachingTimeRecordScreen(
                             ) {
                                 Column {
                                     Text(dateFormat.format(Date(record.date)), style = MaterialTheme.typography.titleMedium)
-                                    Text("${"%.2f".format(record.hoursConsumed)} hours · $territoryName", style = MaterialTheme.typography.bodyMedium)
+                                    Text("${"%.2f".format(record.hoursConsumed)} hours", style = MaterialTheme.typography.bodyMedium)
                                     if (record.remarks != null) {
                                         Text(record.remarks, style = MaterialTheme.typography.bodySmall)
                                     }
@@ -194,7 +181,6 @@ fun PreachingTimeRecordScreen(
             existingRecord = null,
             publisherPersonId = publisherPersonId,
             congregationId = congregationId.orEmpty(),
-            territories = ownTerritories,
             onSave = { viewModel.save(it) },
             onDismiss = { showCreateDialog = false },
         )
@@ -206,7 +192,6 @@ fun PreachingTimeRecordScreen(
             existingRecord = toEdit,
             publisherPersonId = publisherPersonId,
             congregationId = congregationId.orEmpty(),
-            territories = ownTerritories,
             onSave = { viewModel.save(it) },
             onDismiss = { pendingEdit = null },
         )
@@ -232,17 +217,15 @@ private fun PreachingTimeRecordDialog(
     existingRecord: PreachingTimeRecord?,
     publisherPersonId: String,
     congregationId: String,
-    territories: List<Territory>,
     onSave: (PreachingTimeRecord) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var date by remember { mutableStateOf(existingRecord?.date?.takeIf { it != 0L } ?: System.currentTimeMillis()) }
     var hoursText by remember { mutableStateOf(existingRecord?.hoursConsumed?.toString().orEmpty()) }
-    var territoryId by remember { mutableStateOf(existingRecord?.territoryId) }
     var remarks by remember { mutableStateOf(existingRecord?.remarks.orEmpty()) }
 
     val hours = hoursText.toDoubleOrNull()
-    val canSave = hours != null && hours > 0.0 && territoryId != null
+    val canSave = hours != null && hours > 0.0
 
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
@@ -262,7 +245,6 @@ private fun PreachingTimeRecordDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                TerritoryDropdown(territories = territories, selectedId = territoryId, onSelected = { territoryId = it })
                 OutlinedTextField(
                     value = remarks,
                     onValueChange = { remarks = it },
@@ -297,7 +279,6 @@ private fun PreachingTimeRecordDialog(
                             base.copy(
                                 date = date,
                                 hoursConsumed = hours!!,
-                                territoryId = territoryId!!,
                                 remarks = remarks.trim().ifBlank { null },
                                 lastEditedByPersonId = if (existingRecord != null) publisherPersonId else base.lastEditedByPersonId,
                                 lastEditedAt = if (existingRecord != null) now else base.lastEditedAt,
@@ -310,36 +291,4 @@ private fun PreachingTimeRecordDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TerritoryDropdown(territories: List<Territory>, selectedId: String?, onSelected: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val selectedName = territories.firstOrNull { it.id == selectedId }?.name ?: ""
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-        OutlinedTextField(
-            value = selectedName,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text("Territory") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth().menuAnchor(),
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            if (territories.isEmpty()) {
-                DropdownMenuItem(text = { Text("No territories available") }, onClick = {}, enabled = false)
-            }
-            territories.forEach { territory ->
-                DropdownMenuItem(
-                    text = { Text(territory.name) },
-                    onClick = {
-                        onSelected(territory.id)
-                        expanded = false
-                    },
-                )
-            }
-        }
-    }
 }

@@ -38,6 +38,7 @@ import com.emfitsolutions.gopreach.ui.screens.enrollment.MinisterialServantEnrol
 import com.emfitsolutions.gopreach.ui.screens.enrollment.PublisherEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.RegularElderEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.ServiceOverseerEnrollmentScreen
+import com.emfitsolutions.gopreach.ui.screens.findlocation.FindLocationScreen
 import com.emfitsolutions.gopreach.ui.screens.groups.ManageGroupsScreen
 import com.emfitsolutions.gopreach.ui.screens.home.AdminHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
@@ -492,6 +493,9 @@ fun GoPreachNavGraph(
                 ownCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (visibleCongregationId ?: ownCongregationId),
                 onBack = { navController.popBackStack() },
             )
+        }
+        composable(Destinations.FIND_LOCATION) {
+            FindLocationScreen(onBack = { navController.popBackStack() })
         }
         composable(Destinations.CALENDAR) {
             val scope = when (currentRole) {

@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.PeopleAlt
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PersonSearch
@@ -66,7 +67,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
-import com.emfitsolutions.gopreach.ui.components.SquareStatCard
+import com.emfitsolutions.gopreach.ui.components.RoundIconActionButton
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 import com.emfitsolutions.gopreach.ui.screens.announcements.ManageAnnouncementsViewModel
@@ -360,6 +361,7 @@ private fun FeatureTileGrid(
         }
         add(Tile("My Calendar", "View Schedule", Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
         add(Tile("Share My Location", "Share Live Location", Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
+        add(Tile("Find Location", "Get Directions", Icons.Rounded.Navigation, Destinations.FIND_LOCATION))
         add(Tile("Announcement", "Latest Updates", Icons.Rounded.Campaign, Destinations.PUBLISHER_ANNOUNCEMENTS, unseenAnnouncements))
     }
 
@@ -449,8 +451,6 @@ private fun PublisherStatsSection(
         // never see that card at all.
         if (isPioneer) viewModel.startVisitSync(publisherPersonId)
     }
-    val statsFlow = remember(publisherPersonId) { viewModel.statsFor(publisherPersonId) }
-    val stats by statsFlow.collectAsStateWithLifecycle()
     val dateRange by viewModel.dateRange.collectAsStateWithLifecycle()
 
     Card(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
@@ -463,48 +463,33 @@ private fun PublisherStatsSection(
         }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        val bibleStudiesCard: @Composable (Modifier) -> Unit = { modifier ->
-            SquareStatCard(
-                title = "MY BIBLE STUDIES",
-                value = stats.bibleStudiesCount.toString(),
-                onClick = { onNavigate(Destinations.BIBLE_STUDY) },
-                modifier = modifier,
-            )
-        }
-
+    // "My Bible Study" / "My Return Visit" / "Preaching Hours" — redesigned
+    // per request as small, colorless round icon buttons (only the icon is
+    // tinted) with the label below the circle, replacing the numeric
+    // SquareStatCard tiles these three used to be.
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+        RoundIconActionButton(
+            label = "My Bible Study",
+            icon = Icons.AutoMirrored.Rounded.MenuBook,
+            onClick = { onNavigate(Destinations.BIBLE_STUDY) },
+        )
         if (isPioneer) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                bibleStudiesCard(Modifier.weight(1f))
-                SquareStatCard(
-                    title = "MY RETURN VISITS",
-                    value = stats.returnVisitsCount.toString(),
-                    onClick = { onNavigate(Destinations.RETURN_VISIT) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                SquareStatCard(
-                    title = "PREACHING HOURS",
-                    value = "%.1f".format(stats.preachingHours),
-                    onClick = { onNavigate(Destinations.PREACHING_TIME_RECORD) },
-                    modifier = Modifier.weight(1f),
-                )
-                // Balances the row so "Preaching Hours" stays the same
-                // square size as every other card instead of stretching to
-                // fill the row alone (spec §5: "consistent dimensions").
-                Box(modifier = Modifier.weight(1f))
-            }
+            RoundIconActionButton(
+                label = "My Return Visit",
+                icon = Icons.Rounded.PeopleAlt,
+                onClick = { onNavigate(Destinations.RETURN_VISIT) },
+            )
+            RoundIconActionButton(
+                label = "Preaching Hours",
+                icon = Icons.Rounded.Timer,
+                onClick = { onNavigate(Destinations.PREACHING_TIME_RECORD) },
+            )
         } else {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                bibleStudiesCard(Modifier.weight(1f))
-                SquareStatCard(
-                    title = "ATTENDED PREACHING",
-                    value = if (stats.attendedPreaching) "YES" else "NO",
-                    onClick = { onNavigate(Destinations.MONTHLY_REPORT) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            RoundIconActionButton(
+                label = "Attended Preaching",
+                icon = Icons.Rounded.Assignment,
+                onClick = { onNavigate(Destinations.MONTHLY_REPORT) },
+            )
         }
     }
 }
