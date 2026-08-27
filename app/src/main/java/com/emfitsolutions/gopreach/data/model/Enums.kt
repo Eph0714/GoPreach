@@ -14,6 +14,19 @@ enum class AdminRole {
      * congregation (see ConsolidatedReportViewModel). */
     SERVICE_OVERSEER,
     REGULAR_ELDER,
+    /** Not an Elder — a distinct appointed position (spec: "MINISTERIAL
+     * ACCOUNT"), enrollable by Super-Admin, Admin (own congregation), and
+     * Coordinator Elder, unlike multiple per congregation are allowed (no
+     * uniqueness constraint, unlike [SERVICE_OVERSEER]'s "at most one").
+     * Its own "Select Role" checkboxes reuse [RegularElderRole.GROUP_SERVANT]/
+     * [RegularElderRole.GROUP_ASSISTANT] via an additional, simultaneous
+     * `Admin(REGULAR_ELDER)` RoleAssignment — the same "extra role on top of
+     * the primary one" pattern already used for Coordinator Elder/Service
+     * Overseer's own Group Overseer checkbox (see
+     * MinisterialServantEnrollmentViewModel) — since a Group's Servant/
+     * Assistant slot is filled the same way regardless of whether the person
+     * is technically an Elder or a Ministerial Servant. */
+    MINISTERIAL_SERVANT,
 
     /**
      * A restricted, externally-facing role (e.g. a real Circuit Overseer, or any

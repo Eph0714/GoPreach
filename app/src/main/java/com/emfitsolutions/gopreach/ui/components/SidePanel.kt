@@ -70,6 +70,7 @@ fun GoPreachSidePanelContent(
     canManageCongregationsAndAdmins: Boolean,
     canEnrollCoordinatorElder: Boolean,
     canEnrollServiceOverseer: Boolean,
+    canEnrollMinisterialServant: Boolean,
     canViewConsolidatedReport: Boolean,
     canViewForwardRequests: Boolean,
     canEnrollRegularElderOrPublisher: Boolean,
@@ -93,6 +94,7 @@ fun GoPreachSidePanelContent(
             if (canManageCongregationsAndAdmins) add(SideItem("Admins", Icons.Rounded.AdminPanelSettings, Destinations.MANAGE_ADMINS))
             if (canEnrollCoordinatorElder) add(SideItem("Coordinator Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_COORDINATOR_ELDERS))
             if (canEnrollServiceOverseer) add(SideItem("Service Overseer", Icons.Rounded.PersonAdd, Destinations.MANAGE_SERVICE_OVERSEERS))
+            if (canEnrollMinisterialServant) add(SideItem("Ministerial Servant", Icons.Rounded.PersonAdd, Destinations.MANAGE_MINISTERIAL_SERVANTS))
             if (canManagePublishersAndGroups) add(SideItem("Groups", Icons.Rounded.Groups, Destinations.MANAGE_GROUPS))
             if (canEnrollRegularElderOrPublisher) add(SideItem("Regular Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_REGULAR_ELDERS))
             // Routes to the Manage Publishers *list* screen (which has its own

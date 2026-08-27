@@ -30,6 +30,9 @@ object Destinations {
     const val ENROLL_SERVICE_OVERSEER = "enroll_service_overseer"
     const val MANAGE_SERVICE_OVERSEERS = "manage_service_overseers"
     const val CONSOLIDATED_REPORT = "consolidated_report"
+    // "MINISTERIAL ACCOUNT" — multiple per congregation allowed.
+    const val ENROLL_MINISTERIAL_SERVANT = "enroll_ministerial_servant"
+    const val MANAGE_MINISTERIAL_SERVANTS = "manage_ministerial_servants"
 
     // Phase 3
     const val CONTROL_PANEL = "control_panel"

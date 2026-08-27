@@ -28,11 +28,13 @@ import com.emfitsolutions.gopreach.ui.screens.congregations.ManageCongregationsS
 import com.emfitsolutions.gopreach.ui.screens.controlpanel.ControlPanelScreen
 import com.emfitsolutions.gopreach.ui.screens.dashboard.DashboardReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.elders.ManageCoordinatorEldersScreen
+import com.emfitsolutions.gopreach.ui.screens.elders.ManageMinisterialServantsScreen
 import com.emfitsolutions.gopreach.ui.screens.elders.ManageRegularEldersScreen
 import com.emfitsolutions.gopreach.ui.screens.elders.ManageServiceOverseersScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.AdminEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.CongregationEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.CoordinatorElderEnrollmentScreen
+import com.emfitsolutions.gopreach.ui.screens.enrollment.MinisterialServantEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.PublisherEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.RegularElderEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.ServiceOverseerEnrollmentScreen
@@ -83,7 +85,7 @@ fun GoPreachNavGraph(
     // instant Compose evaluated this line, right when the Main Form should
     // appear. A malformed assignment is now just skipped instead.
     val ownCongregationId = session.roleAssignments.firstOrNull {
-        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER)
+        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT)
     }?.congregationId
     // A Regular Elder's own group (spec §3: their CRUD/view scope is "own group", not congregation-wide).
     val ownGroupAssignment = session.roleAssignments.firstOrNull {
@@ -183,6 +185,13 @@ fun GoPreachNavGraph(
                 onDone = { navController.popBackStack() },
             )
         }
+        composable(Destinations.ENROLL_MINISTERIAL_SERVANT) {
+            MinisterialServantEnrollmentScreen(
+                currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
+                onDone = { navController.popBackStack() },
+            )
+        }
         composable(Destinations.ENROLL_REGULAR_ELDER) {
             RegularElderEnrollmentScreen(
                 currentPersonId = currentPersonId,
@@ -233,6 +242,17 @@ fun GoPreachNavGraph(
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
                 onAddNew = { navController.navigate(Destinations.ENROLL_SERVICE_OVERSEER) },
+            )
+        }
+        composable(Destinations.MANAGE_MINISTERIAL_SERVANTS) {
+            // Same access set as Service Overseer's own list — Super-Admin,
+            // Admin, and Coordinator Elder — but with no per-congregation cap.
+            ManageMinisterialServantsScreen(
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+                currentPersonId = currentPersonId,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
+                onBack = { navController.popBackStack() },
+                onAddNew = { navController.navigate(Destinations.ENROLL_MINISTERIAL_SERVANT) },
             )
         }
         composable(Destinations.MANAGE_REGULAR_ELDERS) {
@@ -411,7 +431,7 @@ fun GoPreachNavGraph(
         composable(Destinations.CALENDAR) {
             val scope = when (currentRole) {
                 AdminRole.SUPER_ADMIN -> CalendarScope.AdminTrack(congregationId = null, canEditAll = true)
-                AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER ->
+                AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT ->
                     CalendarScope.AdminTrack(congregationId = ownCongregationId, canEditAll = true)
                 AdminRole.REGULAR_ELDER -> CalendarScope.AdminTrack(
                     congregationId = ownGroupAssignment?.congregationId,

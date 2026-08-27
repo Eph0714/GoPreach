@@ -99,6 +99,10 @@ fun AdminHomeScreen(
     // Coordinator Elder *can* create one (same three-role set as Regular
     // Elder/Publisher enrollment above).
     val canEnrollServiceOverseer = canEnrollRegularElderOrPublisher
+    // "MINISTERIAL ACCOUNT" spec — same enroller set as Service Overseer
+    // (Super-Admin/Admin-own-congregation/Coordinator Elder), but with no
+    // per-congregation cap: multiple Ministerial Servants are allowed.
+    val canEnrollMinisterialServant = canEnrollRegularElderOrPublisher
     // "Consolidated Monthly Report" spec — Service Overseer, Coordinator
     // Elder, Admin (own congregation), and Super-Admin (all congregations).
     val canViewConsolidatedReport = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER
@@ -125,7 +129,8 @@ fun AdminHomeScreen(
     // canManagePublishersAndGroups/canEnrollRegularElderOrPublisher/etc.
     // booleans below, which are already Elder-aware).
     val hideMainFormButtons = isSuperAdmin || role == AdminRole.ADMIN_PER_CONGREGATION ||
-        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.REGULAR_ELDER
+        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.REGULAR_ELDER ||
+        role == AdminRole.MINISTERIAL_SERVANT
     // Same scoping GoPreachNavGraph's standalone Dashboard Reports route uses
     // (see its `ownCongregationId ?: ownGroupAssignment?.congregationId`) —
     // reproduced here so the graphical Summary embedded below is scoped
@@ -139,7 +144,7 @@ fun AdminHomeScreen(
     // unparseable RoleAssignment used to crash the app immediately after a
     // correct login instead of just being skipped like it holds no such role.
     val ownCongregationId = session.roleAssignments.firstOrNull {
-        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER)
+        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT)
     }?.congregationId
     val ownGroupAssignment = session.roleAssignments.firstOrNull {
         (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
@@ -211,6 +216,7 @@ fun AdminHomeScreen(
                 canManageCongregationsAndAdmins = isSuperAdmin,
                 canEnrollCoordinatorElder = canEnrollCoordinatorElder,
                 canEnrollServiceOverseer = canEnrollServiceOverseer,
+                canEnrollMinisterialServant = canEnrollMinisterialServant,
                 canViewConsolidatedReport = canViewConsolidatedReport,
                 canViewForwardRequests = canViewForwardRequests,
                 canEnrollRegularElderOrPublisher = canEnrollRegularElderOrPublisher,

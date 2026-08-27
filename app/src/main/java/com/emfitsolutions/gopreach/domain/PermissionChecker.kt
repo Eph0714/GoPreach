@@ -57,6 +57,7 @@ object PermissionChecker {
             AdminRole.COORDINATOR_ELDER,
             AdminRole.SERVICE_OVERSEER,
             AdminRole.REGULAR_ELDER,
+            AdminRole.MINISTERIAL_SERVANT,
             AdminRole.CIRCUIT_OVERSEER,
         ).firstOrNull { it in activeAdminRoles }
     }
