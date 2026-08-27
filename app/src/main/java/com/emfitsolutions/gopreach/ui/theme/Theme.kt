@@ -55,22 +55,26 @@ private fun darkColorsFor(swatch: ThemeColorSwatch): ColorScheme = darkColorSche
  * falling back to the fixed brand palette otherwise, and follows the system
  * light/dark setting. [colorOption] is the user's own per-device accent color
  * choice (Settings screen) — [ThemeColorOption.PURPLE] is the original brand
- * default.
+ * default. [customColor] is only read when [colorOption] is
+ * [ThemeColorOption.CUSTOM] (a color wheel/eyedropper pick), which has no
+ * fixed swatch of its own — see [generateSwatch].
  */
 @Composable
 fun GoPreachTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     colorOption: ThemeColorOption = ThemeColorOption.PURPLE,
+    customColor: Color = PrimaryPurple,
     content: @Composable () -> Unit,
 ) {
+    val swatch = colorOption.swatch ?: generateSwatch(customColor)
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        darkTheme -> darkColorsFor(colorOption.swatch)
-        else -> lightColorsFor(colorOption.swatch)
+        darkTheme -> darkColorsFor(swatch)
+        else -> lightColorsFor(swatch)
     }
 
     MaterialTheme(

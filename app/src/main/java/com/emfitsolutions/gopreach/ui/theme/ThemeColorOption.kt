@@ -8,8 +8,14 @@ import androidx.compose.ui.graphics.Color
  * server or shared with anyone else (same "per-device, not account data"
  * pattern as [com.emfitsolutions.gopreach.data.repository.ThemePreference]
  * light/dark). [PURPLE] is the original brand default and stays first/default.
+ *
+ * [swatch] is null only for [CUSTOM] — a color wheel/eyedropper pick has no
+ * fixed, hand-tuned swatch the way the six presets do; [Theme.kt] derives
+ * one on the fly via [generateSwatch] from
+ * [com.emfitsolutions.gopreach.data.repository.ThemePreferenceRepository]'s
+ * separately-stored custom color instead.
  */
-enum class ThemeColorOption(val label: String, val swatch: ThemeColorSwatch) {
+enum class ThemeColorOption(val label: String, val swatch: ThemeColorSwatch?) {
     PURPLE(
         "Purple",
         ThemeColorSwatch(
@@ -76,4 +82,5 @@ enum class ThemeColorOption(val label: String, val swatch: ThemeColorSwatch) {
             secondaryDark = Color(0xFFF2C2C0),
         ),
     ),
+    CUSTOM("Custom", null),
 }

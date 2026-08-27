@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 
 // GoPreach brand palette — light theme: Purple + White, per explicit user
 // request ("GoPreach App: Purple Brand Logo and Purple/White Theme"). Hue
@@ -48,3 +49,36 @@ data class ThemeColorSwatch(
     val darkContainer: Color,
     val secondaryDark: Color,
 )
+
+/**
+ * "For theme color, let the users select from color wheel... eyedrop a
+ * color" — a picked seed color has no hand-tuned container/secondary/dark
+ * tones the way the six fixed presets above do, so this derives the same
+ * six-role shape from just the one seed, via plain HSV math (no new
+ * dependency — [android.graphics.Color]'s HSV conversion is a platform API,
+ * not a library). [light] is clamped to a value/saturation range that keeps
+ * [Theme.kt]'s hard-coded `onPrimary = Color.White` legible even against a
+ * very pale or very saturated pick — the applied color may differ slightly
+ * from the exact picked pixel for that reason, same trade-off any accent-
+ * color picker with a fixed contrasting label color has to make.
+ */
+fun generateSwatch(seed: Color): ThemeColorSwatch {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(seed.toArgb(), hsv)
+    val hue = hsv[0]
+    val saturation = hsv[1]
+
+    fun tone(sat: Float, value: Float): Color =
+        Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, sat.coerceIn(0f, 1f), value.coerceIn(0f, 1f))))
+
+    return ThemeColorSwatch(
+        // Clamped so white text (Theme.kt's fixed onPrimary) stays readable
+        // regardless of how light or how saturated the original pick was.
+        light = tone(saturation.coerceIn(0.35f, 0.95f), 0.55f),
+        lightContainer = tone(saturation * 0.55f, 0.82f),
+        secondary = tone(saturation * 0.45f, 0.72f),
+        darkBright = tone(saturation * 0.55f, 0.82f),
+        darkContainer = tone(saturation.coerceAtMost(0.85f), 0.32f),
+        secondaryDark = tone(saturation * 0.35f, 0.88f),
+    )
+}
