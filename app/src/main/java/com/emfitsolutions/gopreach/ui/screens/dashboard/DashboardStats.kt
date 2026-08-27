@@ -8,6 +8,7 @@ import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
+import com.emfitsolutions.gopreach.domain.duplicateNameKey
 
 /** One named person behind a KPI card's headline number — spec: tapping "Total
  * Elders" shows e.g. "Henry Canales (Solano Tagalog Congregation)" for each
@@ -34,7 +35,7 @@ fun computeStatMembers(
 ): List<StatMember> {
     val peopleById = people.associateBy { it.id }
     val congregationsById = congregations.associateBy { it.id }
-    return assignments
+    val members = assignments
         .filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId in congregationsById }
         .distinctBy { it.personId to it.congregationId }
         .mapNotNull { assignment ->
@@ -70,6 +71,21 @@ fun computeStatMembers(
                 statLabels = labels,
             )
         }
+
+    // "Check the same name of the elder in a congregation and consider it
+    // as one person" — keeps this drill-down list in lockstep with
+    // [CongregationStats.compute]'s own name-deduped "Total Elders" count
+    // (same reasoning this function's own doc comment already states: the
+    // dialog must always show exactly what the card's number counts).
+    // Publisher-labeled entries are untouched — this app's own person-level
+    // dedup already covers a genuine single Person doc correctly; only
+    // "Total Elders" needed the *additional* same-name-different-Person-doc
+    // rule spelled out here.
+    val (elderMembers, otherMembers) = members.partition { "Total Elders" in it.statLabels }
+    val dedupedElders = elderMembers
+        .groupBy { it.congregationId to it.fullName.trim().uppercase().replace(Regex("\\s+"), " ") }
+        .map { (_, group) -> group.first() }
+    return otherMembers + dedupedElders
 }
 
 /**
@@ -117,6 +133,7 @@ data class CongregationStats(
             congregations: List<Congregation>,
             assignments: List<RoleAssignment>,
             reports: List<MonthlyReport>,
+            people: List<Person> = emptyList(),
         ): List<CongregationStats> = congregations.map { congregation ->
             val active = assignments.filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId == congregation.id }
             // distinctBy personId — a RoleAssignment is one document per role,
@@ -133,10 +150,11 @@ data class CongregationStats(
             }
             // Regular Elders only — Coordinator Elder is deliberately excluded
             // from "Total Elders" (per explicit request), even though it's
-            // also an Elder title; it's an administrative role here.
-            val elderCount = active.filter {
-                (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
-            }.distinctBy { it.personId }.size
+            // also an Elder title; it's an administrative role here. Deduped
+            // by *name*, not just personId — two separate Person docs for the
+            // same real elder (a duplicate enrollment) still share one full
+            // name within a congregation, and personId alone can't catch that.
+            val elderCount = countDistinctElders(active, people)
             val congregationReports = reports.filter { it.congregationId == congregation.id }
             CongregationStats(
                 congregationId = congregation.id,
@@ -175,6 +193,7 @@ data class CongregationStats(
             congregations: List<Congregation>,
             assignments: List<RoleAssignment>,
             reports: List<MonthlyReport>,
+            people: List<Person> = emptyList(),
         ): CongregationStats {
             val congregationIds = congregations.map { it.id }.toSet()
             val active = assignments.filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId in congregationIds }
@@ -185,10 +204,12 @@ data class CongregationStats(
             }
             // Regular Elders only — Coordinator Elder is deliberately excluded
             // from "Total Elders" (per explicit request), even though it's
-            // also an Elder title; it's an administrative role here.
-            val elderCount = active.filter {
-                (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
-            }.distinctBy { it.personId }.size
+            // also an Elder title; it's an administrative role here. Deduped
+            // by name within each congregation — see [compute]'s matching
+            // comment for why personId alone isn't enough.
+            val elderCount = active
+                .groupBy { it.congregationId }
+                .entries.sumOf { (_, congregationAssignments) -> countDistinctElders(congregationAssignments, people) }
             val scopedReports = reports.filter { it.congregationId in congregationIds }
             return CongregationStats(
                 congregationId = "",
@@ -209,4 +230,24 @@ data class CongregationStats(
             )
         }
     }
+}
+
+/** Counts distinct Regular Elders among [assignments] (already filtered to
+ * one congregation/ACTIVE) — first collapsing multiple RoleAssignment docs
+ * for the same personId, then collapsing distinct Person docs that share a
+ * name (see [duplicateNameKey]'s doc comment). Falls back to the bare
+ * personId when [people] doesn't (yet) include a given assignment's person
+ * — e.g. an in-flight sync — so that elder still counts as their own entry
+ * rather than silently vanishing from the total. */
+private fun countDistinctElders(assignments: List<RoleAssignment>, people: List<Person>): Int {
+    val distinctPersonIds = assignments
+        .filter { (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER }
+        .map { it.personId }
+        .distinct()
+    if (people.isEmpty()) return distinctPersonIds.size
+    val peopleById = people.associateBy { it.id }
+    return distinctPersonIds
+        .map { personId -> peopleById[personId]?.duplicateNameKey() ?: personId }
+        .distinct()
+        .size
 }

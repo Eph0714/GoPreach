@@ -116,8 +116,8 @@ class DashboardStatsViewModel @Inject constructor(
             // deliberately left out of this filter.
             val reportsInRange = reports.filter { filters.dateRange.overlapsMonth(it.periodMonth) }
             DashboardStatsUiState(
-                all = CongregationStats.compute(scoped, assignments, reportsInRange).sortedBy { it.congregationName },
-                overallTotal = if (scoped.size > 1) CongregationStats.total(scoped, assignments, reportsInRange) else null,
+                all = CongregationStats.compute(scoped, assignments, reportsInRange, people).sortedBy { it.congregationName },
+                overallTotal = if (scoped.size > 1) CongregationStats.total(scoped, assignments, reportsInRange, people) else null,
                 members = computeStatMembers(scoped, assignments, people),
                 selectedCongregationId = filters.selectedCongregationId,
                 dateRange = filters.dateRange,

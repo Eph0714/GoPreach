@@ -177,6 +177,19 @@ fun ManagePublishersScreen(
                             }
                             Text("Group: ${row.groupName}", style = MaterialTheme.typography.bodySmall)
                             Text("Contact: ${row.person.contact}", style = MaterialTheme.typography.bodySmall)
+                            if (row.possibleDuplicateOf != null) {
+                                // "Check if there are duplicate names,
+                                // evaluate it if they are the same person" —
+                                // a heads-up only; nothing here merges or
+                                // deletes anything automatically. The admin
+                                // reviews both records (Edit/Delete icons
+                                // above) and decides.
+                                Text(
+                                    "⚠ Possible duplicate of \"${row.possibleDuplicateOf}\" — review both records.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
                             if (readOnly) {
                                 ReadOnlyField("Category", row.category.name.replace('_', ' '))
                             } else {

@@ -14,6 +14,8 @@ import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.VisitRepository
+import com.emfitsolutions.gopreach.domain.duplicateNameKey
+import com.emfitsolutions.gopreach.domain.duplicateUsernameKey
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -27,6 +29,13 @@ data class PublisherRow(
     val assignment: RoleAssignment,
     val category: PublisherCategory,
     val groupName: String,
+    /** "Check if there are duplicate names, evaluate it if they are the
+     * same person" — the other publisher's full name, when this row's name
+     * or auto-generated username base (see [duplicateUsernameKey]) matches
+     * another active publisher in the same congregation; null otherwise.
+     * Flagging only — this app has no record-merge tool, so an admin still
+     * decides and acts (edit/permanently delete) themselves. */
+    val possibleDuplicateOf: String? = null,
 )
 
 /**
@@ -60,7 +69,7 @@ class ManagePublishersViewModel @Inject constructor(
 
     fun rowsFor(visibleCongregationId: String?): Flow<List<PublisherRow>> =
         combine(personRepository.observeAll(), roleAssignmentRepository.observeAll(), groups) { people, assignments, groups ->
-            assignments
+            val rows = assignments
                 .filter { it.resolvedRoleType() is RoleType.Publisher }
                 .filter { visibleCongregationId == null || it.congregationId == visibleCongregationId }
                 .mapNotNull { assignment ->
@@ -68,6 +77,21 @@ class ManagePublishersViewModel @Inject constructor(
                     val category = (assignment.resolvedRoleType() as RoleType.Publisher).category
                     val groupName = groups.firstOrNull { it.id == assignment.groupId }?.name ?: "Unassigned"
                     PublisherRow(person, assignment, category, groupName)
+                }
+            // "Check if there are duplicate names... use their username and
+            // password as reference" — matched within the same congregation
+            // only, on either the normalized full name or the auto-generated
+            // username's base (see duplicateUsernameKey's doc comment for
+            // why that's the practical stand-in for "password").
+            rows
+                .map { row ->
+                    val match = rows.firstOrNull { other ->
+                        other.person.id != row.person.id &&
+                            other.assignment.congregationId == row.assignment.congregationId &&
+                            (other.person.duplicateNameKey() == row.person.duplicateNameKey() ||
+                                other.person.duplicateUsernameKey() == row.person.duplicateUsernameKey())
+                    }
+                    if (match != null) row.copy(possibleDuplicateOf = match.person.fullName) else row
                 }
                 .sortedBy { it.person.fullName }
         }
