@@ -147,7 +147,22 @@ fun GoPreachNavGraph(
                     { navController.navigate(Destinations.PUBLISHER_HOME) }
                 } else null,
                 canManageUsers = canManageUsers,
-                onNavigate = { route -> navController.navigate(route) },
+                // Side panel/dashboard-tile navigation always sits directly on
+                // top of the Main Form, never chained onto whichever menu
+                // screen happened to be open before it — tapping Groups then
+                // (without backing out) Publishers used to push both onto the
+                // stack, so Back from Publishers went to Groups, then Back
+                // again all the way past Home to the exit-confirmation/sign-
+                // out path, reading as "closing everything" instead of
+                // returning to the Main Form. popUpTo(ADMIN_HOME) here drops
+                // any such in-between menu screen first, so Back from any one
+                // of them always lands on the Main Form in a single step.
+                onNavigate = { route ->
+                    navController.navigate(route) {
+                        launchSingleTop = true
+                        popUpTo(Destinations.ADMIN_HOME) { inclusive = false }
+                    }
+                },
             )
         }
         composable(Destinations.PUBLISHER_HOME) {
