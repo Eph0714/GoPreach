@@ -220,14 +220,16 @@ class ManageGroupsViewModel @Inject constructor(
         }
     }
 
-    /** Returns a human-readable reason permanent deletion is blocked, or null
-     * if safe — a Group with any Publisher still pointing at it as their
-     * report/schedule scope shouldn't be silently orphaned. */
-    suspend fun permanentDeleteBlockReason(groupId: String): String? {
-        val publisherCount = roleAssignmentRepository.observeAll().first()
+    /** Non-blocking heads-up for the confirmation dialog — Super-Admin's
+     * force-delete is never refused (spec: "Allow the super admin to force
+     * delete record under all modules"); [permanentlyDelete] already clears
+     * every member's groupId back to Unassigned rather than leaving it
+     * dangling, so this is purely informational. */
+    suspend fun permanentDeleteImpactSummary(groupId: String): String? {
+        val memberCount = roleAssignmentRepository.observeAll().first()
             .count { it.groupId == groupId && (it.resolvedRoleType() as? RoleType.Admin)?.role != AdminRole.REGULAR_ELDER }
-        return if (publisherCount > 0) {
-            "This group still has $publisherCount publisher(s) assigned to it. Reassign them first, or use Move to Inactive instead."
+        return if (memberCount > 0) {
+            "This will unassign $memberCount publisher(s) currently in this group (they become Unassigned, not deleted)."
         } else null
     }
 

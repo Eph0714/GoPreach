@@ -78,7 +78,7 @@ fun ManageCongregationsScreen(
     val congregations = allCongregations.filter { showInactive || it.status == RecordStatus.ACTIVE }
     var pendingDelete by remember { mutableStateOf<Congregation?>(null) }
     var pendingEdit by remember { mutableStateOf<Congregation?>(null) }
-    var permanentDeleteBlockReason by remember { mutableStateOf<String?>(null) }
+    var permanentDeleteImpactSummary by remember { mutableStateOf<String?>(null) }
     var permanentDeleteChecked by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
@@ -167,14 +167,14 @@ fun ManageCongregationsScreen(
     val toDelete = pendingDelete
     if (toDelete != null) {
         LaunchedEffect(toDelete.id) {
-            permanentDeleteBlockReason = viewModel.permanentDeleteBlockReason(toDelete.id)
+            permanentDeleteImpactSummary = viewModel.permanentDeleteImpactSummary(toDelete.id)
             permanentDeleteChecked = true
         }
         if (permanentDeleteChecked) {
             DeleteChoiceDialog(
                 recordLabel = toDelete.name,
                 canPermanentlyDelete = canPermanentlyDelete,
-                permanentDeleteBlockedReason = permanentDeleteBlockReason,
+                permanentDeleteImpactSummary = permanentDeleteImpactSummary,
                 onDismiss = { pendingDelete = null; permanentDeleteChecked = false },
                 onMoveToInactive = { viewModel.setStatus(toDelete, RecordStatus.INACTIVE, currentPersonId) },
                 onDeletePermanently = { viewModel.permanentlyDelete(toDelete.id, currentPersonId) },

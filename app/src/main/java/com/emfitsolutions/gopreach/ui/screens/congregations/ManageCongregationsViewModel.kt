@@ -4,10 +4,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.RecordStatus
+import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
+import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
+import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
+import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
+import com.emfitsolutions.gopreach.data.repository.VisitRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +37,10 @@ class ManageCongregationsViewModel @Inject constructor(
     private val groupRepository: GroupRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val auditLogRepository: AuditLogRepository,
+    private val personRepository: PersonRepository,
+    private val monthlyReportRepository: MonthlyReportRepository,
+    private val interestedPersonRepository: InterestedPersonRepository,
+    private val visitRepository: VisitRepository,
 ) : ViewModel() {
 
     val congregations: StateFlow<List<Congregation>> = congregationRepository.observeAll()
@@ -68,22 +77,59 @@ class ManageCongregationsViewModel @Inject constructor(
         }
     }
 
-    /** Returns a human-readable reason the delete is blocked, or null if it's
-     * safe to proceed — checked *before* the second confirmation is ever
-     * shown, and re-checked here (not just trusted from a stale UI list)
-     * since data can change between opening the dialog and confirming it. */
-    suspend fun permanentDeleteBlockReason(congregationId: String): String? {
+    /** Non-blocking heads-up for the confirmation dialog — Super-Admin's
+     * force-delete is never refused (spec: "Allow the super admin to force
+     * delete record under all modules"); [permanentlyDelete] cascades
+     * through everything named here, so this just tells them what's about
+     * to go with it. Null when the congregation is already empty. */
+    suspend fun permanentDeleteImpactSummary(congregationId: String): String? {
         val groupCount = groupRepository.observeAll().first().count { it.congregationId == congregationId }
         val assignmentCount = roleAssignmentRepository.observeAll().first().count { it.congregationId == congregationId }
-        return when {
-            groupCount > 0 -> "This congregation still has $groupCount group(s) assigned to it. Move or delete those first, or use Move to Inactive instead."
-            assignmentCount > 0 -> "This congregation still has $assignmentCount admin/elder/publisher record(s) assigned to it (including inactive ones). Use Move to Inactive instead."
-            else -> null
+        if (groupCount == 0 && assignmentCount == 0) return null
+        val parts = buildList {
+            if (groupCount > 0) add("$groupCount group(s)")
+            if (assignmentCount > 0) add("$assignmentCount admin/elder/publisher record(s) (including inactive ones, and each publisher's monthly reports and interested person/Bible study records)")
         }
+        return "This will also permanently delete " + parts.joinToString(" and ") + "."
     }
 
+    /** Super-Admin-only cascading delete (see [canPermanentlyDelete]):
+     * removes every Group under this congregation, every RoleAssignment
+     * scoped to it (Admin/Elder/Publisher, active or inactive), and — for
+     * each Publisher assignment — that publisher's Monthly Reports and
+     * Interested Person/Bible Study records (with their Visit history), the
+     * same cascade [com.emfitsolutions.gopreach.ui.screens.publishers
+     * .ManagePublishersViewModel.permanentlyDelete] already does for one
+     * publisher at a time. A Person doc is only removed once none of their
+     * RoleAssignments (in *any* congregation) remain. */
     fun permanentlyDelete(congregationId: String, actorPersonId: String) {
         viewModelScope.launch {
+            val groups = groupRepository.observeAll().first().filter { it.congregationId == congregationId }
+            groups.forEach { groupRepository.delete(it.id) }
+
+            val assignments = roleAssignmentRepository.observeAll().first().filter { it.congregationId == congregationId }
+            val touchedPersonIds = mutableSetOf<String>()
+            assignments.forEach { assignment ->
+                if (assignment.resolvedRoleTypeOrNull() is RoleType.Publisher) {
+                    monthlyReportRepository.observeAll().first()
+                        .filter { it.publisherPersonId == assignment.personId && it.congregationId == congregationId }
+                        .forEach { monthlyReportRepository.delete(it.id) }
+                    interestedPersonRepository.observeAll().first()
+                        .filter { it.publisherPersonId == assignment.personId && it.congregationId == congregationId }
+                        .forEach { interestedPerson ->
+                            visitRepository.observeForInterestedPerson(interestedPerson.id).first()
+                                .forEach { visit -> visitRepository.delete(interestedPerson.id, visit.id) }
+                            interestedPersonRepository.delete(interestedPerson.id)
+                        }
+                }
+                roleAssignmentRepository.delete(assignment.id)
+                touchedPersonIds += assignment.personId
+            }
+            touchedPersonIds.forEach { personId ->
+                val remaining = roleAssignmentRepository.observeAll().first().count { it.personId == personId }
+                if (remaining == 0) personRepository.delete(personId)
+            }
+
             congregationRepository.delete(congregationId)
             auditLogRepository.log(
                 actorPersonId = actorPersonId,
@@ -91,6 +137,7 @@ class ManageCongregationsViewModel @Inject constructor(
                 targetType = "Congregation",
                 targetId = congregationId,
                 congregationId = congregationId,
+                details = "cascaded: ${groups.size} group(s), ${assignments.size} role assignment(s)",
             )
         }
     }

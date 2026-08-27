@@ -83,7 +83,7 @@ fun ManageGroupsScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingEdit by remember { mutableStateOf<Group?>(null) }
     var pendingDelete by remember { mutableStateOf<Group?>(null) }
-    var permanentDeleteBlockReason by remember { mutableStateOf<String?>(null) }
+    var permanentDeleteImpactSummary by remember { mutableStateOf<String?>(null) }
     var permanentDeleteChecked by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -226,14 +226,14 @@ fun ManageGroupsScreen(
     val toDelete = pendingDelete
     if (toDelete != null) {
         LaunchedEffect(toDelete.id) {
-            permanentDeleteBlockReason = viewModel.permanentDeleteBlockReason(toDelete.id)
+            permanentDeleteImpactSummary = viewModel.permanentDeleteImpactSummary(toDelete.id)
             permanentDeleteChecked = true
         }
         if (permanentDeleteChecked) {
             DeleteChoiceDialog(
                 recordLabel = toDelete.name,
                 canPermanentlyDelete = canPermanentlyDelete,
-                permanentDeleteBlockedReason = permanentDeleteBlockReason,
+                permanentDeleteImpactSummary = permanentDeleteImpactSummary,
                 onDismiss = { pendingDelete = null; permanentDeleteChecked = false },
                 onMoveToInactive = { viewModel.setStatus(toDelete, RecordStatus.INACTIVE, currentPersonId) },
                 onDeletePermanently = { viewModel.permanentlyDelete(toDelete.id, currentPersonId) },
