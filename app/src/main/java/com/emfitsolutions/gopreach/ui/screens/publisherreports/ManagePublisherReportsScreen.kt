@@ -64,6 +64,11 @@ import java.util.Locale
  * boundary, resolved by the caller from the enrolling session's own role
  * (null means Super-Admin — every congregation); [canPermanentlyDelete] is
  * Super-Admin-only, same convention as every other Manage screen.
+ * [readOnly] hides Edit/Unlock (and Delete, on top of [canPermanentlyDelete])
+ * — a grant-based Circuit Overseer with a report-view permission reaches
+ * this screen but can never edit through it, since firestore.rules blocks
+ * every restricted user's `monthlyReports` write regardless of permission
+ * (see AdminHomeScreen.canManagePublisherReports's doc comment).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,6 +76,7 @@ fun ManagePublisherReportsScreen(
     currentPersonId: String,
     fixedCongregationId: String?,
     canPermanentlyDelete: Boolean,
+    readOnly: Boolean = false,
     onBack: () -> Unit,
     viewModel: ManagePublisherReportsViewModel = hiltViewModel(),
 ) {
@@ -187,15 +193,17 @@ fun ManagePublisherReportsScreen(
                                 ) {
                                     Text(row.person.fullName, style = MaterialTheme.typography.titleMedium)
                                     Row {
-                                        IconButton(onClick = { pendingEdit = row }) {
-                                            Icon(Icons.Rounded.Edit, contentDescription = "Edit report")
-                                        }
-                                        if (row.isLocked) {
-                                            IconButton(onClick = { viewModel.unlock(row.report, currentPersonId) }) {
-                                                Icon(Icons.Rounded.LockOpen, contentDescription = "Unlock for publisher")
+                                        if (!readOnly) {
+                                            IconButton(onClick = { pendingEdit = row }) {
+                                                Icon(Icons.Rounded.Edit, contentDescription = "Edit report")
+                                            }
+                                            if (row.isLocked) {
+                                                IconButton(onClick = { viewModel.unlock(row.report, currentPersonId) }) {
+                                                    Icon(Icons.Rounded.LockOpen, contentDescription = "Unlock for publisher")
+                                                }
                                             }
                                         }
-                                        if (canPermanentlyDelete) {
+                                        if (canPermanentlyDelete && !readOnly) {
                                             IconButton(onClick = { pendingDelete = row }) {
                                                 Icon(Icons.Rounded.Delete, contentDescription = "Delete report")
                                             }

@@ -119,7 +119,13 @@ fun AdminHomeScreen(
     // "MINISTERIAL ACCOUNT" spec — same enroller set as Service Overseer
     // (Super-Admin/Admin-own-congregation/Coordinator Elder), but with no
     // per-congregation cap: multiple Ministerial Servants are allowed.
-    val canEnrollMinisterialServant = canEnrollRegularElderOrPublisher
+    // Ministerial Servant is a RegularElderRole-adjacent AdminRole stored in
+    // the same `roleAssignments` collection Regular Elder is — firestore.rules
+    // gates that whole collection on VIEW_ELDERS/MANAGE_ELDERS regardless of
+    // which AdminRole a given document actually holds, so a grant-based
+    // Circuit Overseer's MANAGE_ELDERS permission already covers this at the
+    // data layer; this just surfaces the matching drawer item too.
+    val canEnrollMinisterialServant = canEnrollRegularElderOrPublisher || Permission.MANAGE_ELDERS in grantPermissions
     // "Consolidated Monthly Report" spec — Service Overseer, Coordinator
     // Elder, Admin (own congregation), and Super-Admin (all congregations).
     val canViewConsolidatedReport = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER
@@ -129,8 +135,17 @@ fun AdminHomeScreen(
     val canViewForwardRequests = canViewConsolidatedReport
     // "Manage Publisher Report" module — Super-Admin (every congregation),
     // Admin/Coordinator Elder/Service Overseer (own congregation only); same
-    // access set as the Consolidated Report.
-    val canManagePublisherReports = canViewConsolidatedReport
+    // access set as the Consolidated Report. A Circuit Overseer with any of
+    // the report-view permissions also reaches it, but always read-only —
+    // see GoPreachNavGraph's MANAGE_PUBLISHER_REPORTS composable, which
+    // computes that separately: firestore.rules blocks every grant holder
+    // from writing `monthlyReports` regardless of permission ("A restricted
+    // user's report access is view-only in every one of the spec's own
+    // worked examples"), so this module can never grant them edit rights,
+    // only viewing/printing.
+    val canManagePublisherReports = canViewConsolidatedReport || grantPermissions.any {
+        it == Permission.VIEW_PUBLISHER_REPORTS || it == Permission.VIEW_GROUP_REPORTS || it == Permission.VIEW_CONGREGATION_REPORTS
+    }
     // Control Panel: full access for Super-Admin, own-congregation for Admin (spec §3 permission matrix).
     val canAccessControlPanel = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION
     // User logs: Super-Admin (all) and Admin/Coordinator Elder (own congregation); Regular Elder has no access.

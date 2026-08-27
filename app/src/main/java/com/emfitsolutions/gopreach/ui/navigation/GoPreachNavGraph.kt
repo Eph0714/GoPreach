@@ -350,11 +350,19 @@ fun GoPreachNavGraph(
         composable(Destinations.MANAGE_PUBLISHER_REPORTS) {
             // Same access set/scoping as the Consolidated Report above —
             // Super-Admin/Admin/Coordinator Elder/Service Overseer, own
-            // congregation only for anyone but Super-Admin.
+            // congregation only for anyone but Super-Admin. A grant-based
+            // Circuit Overseer also reaches this route (see
+            // AdminHomeScreen.canManagePublisherReports) but always
+            // read-only — firestore.rules blocks every restricted user's
+            // `monthlyReports` write regardless of permission.
+            val canEditPublisherReports = currentRole in setOf(
+                AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER,
+            )
             ManagePublisherReportsScreen(
                 currentPersonId = currentPersonId,
                 fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
+                readOnly = !canEditPublisherReports,
                 onBack = { navController.popBackStack() },
             )
         }
