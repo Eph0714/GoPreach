@@ -74,6 +74,10 @@ fun GoPreachSidePanelContent(
     canViewConsolidatedReport: Boolean,
     canViewForwardRequests: Boolean,
     canEnrollRegularElderOrPublisher: Boolean,
+    /** "CREATING PUBLISHER" spec — Service Overseer can also create/manage
+     * Publishers under their own congregation, in addition to everyone
+     * [canEnrollRegularElderOrPublisher] already covers. */
+    canEnrollPublisher: Boolean,
     canManagePublishersAndGroups: Boolean,
     /** "CREATING GROUPS" spec — Coordinator Elder *or* Service Overseer can
      * create a Group under their own congregation, in addition to everyone
@@ -111,7 +115,7 @@ fun GoPreachSidePanelContent(
             // Elder had no way to reach the Publisher list/edit screen at all
             // once the old tile grid (their only other route to it) was
             // hidden for them.
-            if (canEnrollRegularElderOrPublisher) add(SideItem("Publisher", Icons.Rounded.People, Destinations.MANAGE_PUBLISHERS))
+            if (canEnrollPublisher) add(SideItem("Publisher", Icons.Rounded.People, Destinations.MANAGE_PUBLISHERS))
             if (canManageTerritories) add(SideItem("Territories", Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES))
         }
         if (enrollmentItems.isNotEmpty()) add(SideSection("Enrollment", enrollmentItems))

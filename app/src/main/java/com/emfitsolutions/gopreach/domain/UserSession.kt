@@ -47,7 +47,7 @@ data class SessionState(
      * in [com.emfitsolutions.gopreach.data.repository.AuthRepository.signIn]
      * only stops a *new* sign-in attempt). [GoPreachNavGraph] signs the session
      * out the moment this goes true. */
-    val isAccountBlocked: Boolean get() = person != null && !PermissionChecker.isAccountUsable(person)
+    val isAccountBlocked: Boolean get() = person != null && !PermissionChecker.isAccountUsable(person, roleAssignments)
 
     /** Source of truth for whether the forced-password-change flow (spec §4.5)
      * still applies to this signed-in session — survives app restarts, unlike the

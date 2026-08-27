@@ -79,7 +79,17 @@ enum class PublisherCategory {
     AUXILIARY_PIONEER,
     REGULAR_PUBLISHER,
     UNBAPTIZED_PUBLISHER,
+    /** "CREATING PUBLISHER" spec's STATUS list — not regular about reporting
+     * (some months with no report during a 6-month window); the spec's
+     * auto-status note assigns this automatically once that check is wired
+     * up, same as [INACTIVE_PUBLISHER]'s "6 months consecutive" trigger —
+     * also manually selectable here at enrollment/edit in the meantime. */
+    IRREGULAR_PUBLISHER,
     INACTIVE_PUBLISHER,
+    /** "CREATING PUBLISHER" spec's STATUS list — a Publisher under reproof;
+     * distinct from [REMOVED_PUBLISHER], which additionally blocks the
+     * account from signing in at all (see ManagePublishersViewModel). */
+    REPROOF_PUBLISHER,
     REMOVED_PUBLISHER,
 }
 

@@ -4,6 +4,7 @@ import com.emfitsolutions.gopreach.data.model.AccountStatus
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.Permission
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
@@ -104,4 +105,21 @@ object PermissionChecker {
      * exposed here too so any other call site can ask the same question the
      * same way. */
     fun isAccountUsable(person: Person): Boolean = person.accountStatus == AccountStatus.ACTIVE
+
+    /** Overload that also enforces "CREATING PUBLISHER" spec's Removed
+     * Publisher rule: "Remove publisher cannot Open the Publisher's Account
+     * anymore unless the status will be change on any other status other
+     * than Removed Publisher." Someone whose *only* role is a Publisher
+     * category, all of them REMOVED_PUBLISHER, is blocked; anyone who also
+     * holds an active Admin role (Coordinator Elder, etc.) is unaffected —
+     * this rule is about locking the Publisher account itself, not an Admin
+     * account that happens to carry a stale removed category. */
+    fun isAccountUsable(person: Person, roleAssignments: List<RoleAssignment>): Boolean {
+        if (!isAccountUsable(person)) return false
+        if (highestAdminRole(roleAssignments) != null) return true
+        val activeCategories = roleAssignments
+            .filter { it.status == RoleAssignmentStatus.ACTIVE }
+            .mapNotNull { (it.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category }
+        return activeCategories.isEmpty() || activeCategories.any { it != PublisherCategory.REMOVED_PUBLISHER }
+    }
 }

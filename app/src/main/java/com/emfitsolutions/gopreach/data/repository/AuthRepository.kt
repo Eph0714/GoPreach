@@ -15,6 +15,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.firestore.FirebaseFirestore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -66,7 +67,11 @@ class AuthRepository @Inject constructor(
         // Spec §9: a deactivated/suspended account must never sign in again,
         // regardless of what its RoleAssignments say — checked *before* touching
         // Firebase Auth so a disabled account doesn't even get to try.
-        if (!PermissionChecker.isAccountUsable(person)) {
+        // "CREATING PUBLISHER" spec: a Removed Publisher (with no other Admin
+        // role) is blocked the same way — see PermissionChecker's two-arg
+        // isAccountUsable overload.
+        val roleAssignments = roleAssignmentRepository.observeForPerson(person.id).first()
+        if (!PermissionChecker.isAccountUsable(person, roleAssignments)) {
             return AuthResult.Error("This account has been deactivated. Contact your administrator.")
         }
         return try {
@@ -101,7 +106,8 @@ class AuthRepository @Inject constructor(
             ?: return AuthResult.Error("Invalid username or password.")
         val person = personRepository.get(personId)
             ?: return AuthResult.Error("No local data available for this account yet. Connect to the internet at least once, then try again.")
-        if (!PermissionChecker.isAccountUsable(person)) {
+        val roleAssignments = roleAssignmentRepository.observeForPerson(personId).first()
+        if (!PermissionChecker.isAccountUsable(person, roleAssignments)) {
             return AuthResult.Error("This account has been deactivated. Contact your administrator.")
         }
         offlineSessionMarker.save(personId)

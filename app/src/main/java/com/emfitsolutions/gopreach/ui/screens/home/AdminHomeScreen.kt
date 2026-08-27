@@ -95,6 +95,11 @@ fun AdminHomeScreen(
     val isSuperAdmin = role == AdminRole.SUPER_ADMIN
     val canEnrollCoordinatorElder = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION
     val canEnrollRegularElderOrPublisher = canEnrollCoordinatorElder || role == AdminRole.COORDINATOR_ELDER
+    // "CREATING PUBLISHER" spec — Service Overseer can also create/manage
+    // Publishers under their own congregation, on top of everyone
+    // [canEnrollRegularElderOrPublisher] already covers. Kept as its own flag
+    // so Service Overseer doesn't also gain Regular Elder enrollment access.
+    val canEnrollPublisher = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER
     // New Service Overseer role — unlike Coordinator Elder enrollment, a
     // Coordinator Elder *can* create one (same three-role set as Regular
     // Elder/Publisher enrollment above).
@@ -224,6 +229,7 @@ fun AdminHomeScreen(
                 canViewConsolidatedReport = canViewConsolidatedReport,
                 canViewForwardRequests = canViewForwardRequests,
                 canEnrollRegularElderOrPublisher = canEnrollRegularElderOrPublisher,
+                canEnrollPublisher = canEnrollPublisher,
                 canManagePublishersAndGroups = canManagePublishersAndGroups,
                 canManageGroups = canManageGroups,
                 canManageTerritories = canManagePublishersAndGroups,

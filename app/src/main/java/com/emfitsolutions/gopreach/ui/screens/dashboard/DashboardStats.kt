@@ -54,7 +54,9 @@ fun computeStatMembers(
                         PublisherCategory.REGULAR_PIONEER -> add("Regular Pioneers")
                         PublisherCategory.AUXILIARY_PIONEER -> add("Auxiliary Pioneers")
                         PublisherCategory.UNBAPTIZED_PUBLISHER -> add("Unbaptized Publishers")
+                        PublisherCategory.IRREGULAR_PUBLISHER -> add("Irregular Publishers")
                         PublisherCategory.INACTIVE_PUBLISHER -> add("Inactive Publishers")
+                        PublisherCategory.REPROOF_PUBLISHER -> add("Reproof Publishers")
                         PublisherCategory.REMOVED_PUBLISHER -> add("Removed Publishers")
                         PublisherCategory.REGULAR_PUBLISHER -> Unit
                     }

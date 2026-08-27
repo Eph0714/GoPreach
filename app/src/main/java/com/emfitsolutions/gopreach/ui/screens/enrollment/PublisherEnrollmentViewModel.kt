@@ -3,7 +3,6 @@ package com.emfitsolutions.gopreach.ui.screens.enrollment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.Congregation
-import com.emfitsolutions.gopreach.data.model.Gender
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
@@ -28,20 +27,15 @@ import javax.inject.Inject
 data class PublisherEnrollmentUiState(
     val lastName: String = "",
     val firstName: String = "",
-    val middleInitial: String = "",
-    val extensionName: String = "",
     val address: String = "",
-    val gender: Gender? = null,
     val contact: String = "",
-    val contactPerson: String = "",
-    val contactPersonNumber: String = "",
-    val category: PublisherCategory = PublisherCategory.REGULAR_PUBLISHER,
-    /** Super-Admin-only (spec: "Select Congregation When Super-Admin Enrolls a
-     * New Publisher") — narrows [PublisherEnrollmentViewModel.groups] to that
-     * congregation's groups. Anyone scoped to a single fixed congregation
-     * (Admin/Coordinator Elder) never sets this directly; it's derived from
-     * [PublisherEnrollmentViewModel.fixedCongregationId] instead, keeping
-     * their original Group-only workflow unchanged. */
+    val email: String = "",
+    val category: PublisherCategory? = null,
+    /** Super-Admin-only — narrows [PublisherEnrollmentViewModel.groups] to
+     * that congregation's groups. Anyone scoped to a single fixed
+     * congregation (Admin/Coordinator Elder/Service Overseer) never sets
+     * this directly; it's derived from
+     * [PublisherEnrollmentViewModel.fixedCongregationId] instead. */
     val selectedCongregationId: String? = null,
     val selectedGroupId: String? = null,
     val isSaving: Boolean = false,
@@ -50,20 +44,16 @@ data class PublisherEnrollmentUiState(
 )
 
 /**
- * Spec §4.6 — Publisher Master File. Created by Super-Admin, Admin, or
- * Coordinator Elder; the Coordinator Elder maintains the congregation's full
- * file. The group's overseeing Regular Elder ([Group.regularElderPersonId]) comes
- * along with the group choice rather than being picked separately.
+ * "CREATING PUBLISHER" spec — created by Super-Admin, Admin (own
+ * congregation), Coordinator Elder, or Service Overseer (own congregation) —
+ * no per-congregation cap.
  *
- * "Publisher Congregation Assignment" spec — [fixedCongregationId] is the
- * actual scope/security boundary, resolved once by the caller (see
- * GoPreachNavGraph) from the enrolling session's own role, exactly like
- * every other Manage screen's `fixedCongregationId`/`visibleCongregationId`
- * convention: `null` means "Super-Admin, may enroll into any congregation"
- * and shows the Select Congregation field; a real id means "Admin/
- * Coordinator Elder, restricted to this one congregation" and keeps their
- * original Group-only screen — there is no client-side toggle that can
- * widen this, since the value never comes from anywhere but the caller.
+ * [fixedCongregationId] is the actual scope/security boundary, resolved once
+ * by the caller (see GoPreachNavGraph) from the enrolling session's own
+ * role, exactly like every other Manage screen's `fixedCongregationId`/
+ * `visibleCongregationId` convention: `null` means "Super-Admin, may enroll
+ * into any congregation" and shows the Select Congregation field; a real id
+ * means "restricted to this one congregation."
  */
 @HiltViewModel
 class PublisherEnrollmentViewModel @Inject constructor(
@@ -93,13 +83,12 @@ class PublisherEnrollmentViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(PublisherEnrollmentUiState())
     val uiState: StateFlow<PublisherEnrollmentUiState> = _uiState.asStateFlow()
 
-    /** The Group dropdown's actual options — every group when nothing scopes
-     * it yet is deliberately *not* one of them: an Admin/Coordinator Elder is
-     * always scoped ([fixedCongregationId] non-null) so this is immediately
-     * narrowed for them; a Super-Admin only sees groups once they've picked a
-     * Congregation, never every group across every congregation at once
-     * (spec: "must select the Congregation... use this relationship when
-     * determining... Group assignment"). */
+    /** The Group dropdown's actual options — "groups only associated in the
+     * congregation" (spec): every group when nothing scopes it yet is
+     * deliberately *not* one of them — an Admin/Coordinator Elder/Service
+     * Overseer is always scoped ([fixedCongregationId] non-null) so this is
+     * immediately narrowed for them; a Super-Admin only sees groups once
+     * they've picked a Congregation. */
     val groups: StateFlow<List<Group>> = combine(allGroups, _uiState) { all, state ->
         val congregationId = fixedCongregationId ?: state.selectedCongregationId
         if (congregationId == null) emptyList() else all.filter { it.congregationId == congregationId }
@@ -107,14 +96,17 @@ class PublisherEnrollmentViewModel @Inject constructor(
 
     fun onLastNameChange(v: String) = _uiState.update { it.copy(lastName = v.uppercase(), errorMessage = null) }
     fun onFirstNameChange(v: String) = _uiState.update { it.copy(firstName = v.uppercase(), errorMessage = null) }
-    fun onMiddleInitialChange(v: String) = _uiState.update { it.copy(middleInitial = v.uppercase()) }
-    fun onExtensionNameChange(v: String) = _uiState.update { it.copy(extensionName = v.uppercase()) }
     fun onAddressChange(v: String) = _uiState.update { it.copy(address = v.uppercase(), errorMessage = null) }
-    fun onGenderChange(v: Gender) = _uiState.update { it.copy(gender = v, errorMessage = null) }
     fun onContactChange(v: String) = _uiState.update { it.copy(contact = v.uppercase(), errorMessage = null) }
-    fun onContactPersonChange(v: String) = _uiState.update { it.copy(contactPerson = v.uppercase()) }
-    fun onContactPersonNumberChange(v: String) = _uiState.update { it.copy(contactPersonNumber = v.uppercase()) }
-    fun onCategoryChange(v: PublisherCategory) = _uiState.update { it.copy(category = v) }
+    fun onEmailChange(v: String) = _uiState.update { it.copy(email = v, errorMessage = null) }
+
+    /** STATUS is a single choice among all eight categories (spec: checking
+     * one disables and unchecks every other one) — a single nullable field
+     * naturally gives that behavior, same pattern used by every other
+     * enrollment screen's mutually-exclusive checkbox group. */
+    fun onCategoryToggled(category: PublisherCategory, checked: Boolean) = _uiState.update {
+        it.copy(category = if (checked) category else if (it.category == category) null else it.category, errorMessage = null)
+    }
 
     /** Super-Admin only — picking a different Congregation clears whatever
      * Group was already selected, since it almost certainly belonged to the
@@ -136,9 +128,9 @@ class PublisherEnrollmentViewModel @Inject constructor(
             return
         }
         if (state.lastName.isBlank() || state.firstName.isBlank() || state.address.isBlank() ||
-            state.gender == null || state.contact.isBlank() || state.selectedGroupId == null
+            state.selectedGroupId == null || state.category == null
         ) {
-            _uiState.update { it.copy(errorMessage = "Last name, first name, address, gender, contact, and group are required.") }
+            _uiState.update { it.copy(errorMessage = "Last name, first name, address, group, and status are all required.") }
             return
         }
         val group = groups.value.firstOrNull { it.id == state.selectedGroupId }
@@ -151,24 +143,21 @@ class PublisherEnrollmentViewModel @Inject constructor(
             _uiState.update { it.copy(errorMessage = "Selected group not found.") }
             return
         }
+        val category = state.category
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
         viewModelScope.launch {
             val credentials = authRepository.createAccountWithTempCredentials(
                 person = Person(
                     lastName = state.lastName.trim(),
                     firstName = state.firstName.trim(),
-                    middleInitial = state.middleInitial.trim().ifBlank { null },
-                    extensionName = state.extensionName.trim().ifBlank { null },
                     address = state.address.trim(),
-                    gender = state.gender,
                     contact = state.contact.trim(),
-                    contactPerson = state.contactPerson.trim().ifBlank { null },
-                    contactPersonNumber = state.contactPersonNumber.trim().ifBlank { null },
+                    email = state.email.trim().ifBlank { null },
                 ),
                 roleAssignment = { personId ->
                     RoleAssignment(
                         personId = personId,
-                        roleType = RoleType.serialize(RoleType.Publisher(state.category)),
+                        roleType = RoleType.serialize(RoleType.Publisher(category)),
                         congregationId = group.congregationId,
                         groupId = group.id,
                         status = RoleAssignmentStatus.ACTIVE,
