@@ -249,6 +249,22 @@ fun AdminHomeScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
+    // Navigation-Compose restores this composable's saved DrawerState
+    // (rememberDrawerState is itself Saveable) when returning here from a
+    // side-panel-opened screen — including, occasionally, still mid-"Open"
+    // if the animated drawerState.close() below got cancelled by
+    // navigating away before its animation finished (this composable's own
+    // coroutineScope is torn down the moment Compose Navigation swaps in
+    // the destination screen). That left the drawer springing back open on
+    // its own the next time the Main Form was shown, which read as "the
+    // back button closes the entire side panel" — the drawer visibly
+    // slamming open, then shut, instead of a plain Back to the Main Form.
+    // Snapping closed unconditionally on every (re)composition removes
+    // that race outright rather than depending on the animation's timing.
+    LaunchedEffect(Unit) {
+        drawerState.snapTo(DrawerValue.Closed)
+    }
+
     // "Back Button and Page Navigation" spec §6/§7 — this is the Main Form
     // (root/home screen): the drawer, if open, must close on Back *before*
     // anything else (never navigate away or exit while it's open), and Back
