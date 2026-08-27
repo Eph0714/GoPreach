@@ -36,7 +36,10 @@ import androidx.compose.ui.unit.dp
  * that scoping decision). [permanentDeleteBlockedReason], when non-null,
  * replaces the second step's delete button with an explanation instead —
  * used when a relationship check (spec §4) found dependent records that
- * would otherwise be silently destroyed.
+ * would otherwise be silently destroyed. [permanentDeleteImpactSummary],
+ * when non-null, is purely informational — appended to the second step's
+ * message to name what else gets cascaded away — and never disables the
+ * Delete Permanently button the way [permanentDeleteBlockedReason] does.
  */
 @Composable
 fun DeleteChoiceDialog(
@@ -46,6 +49,7 @@ fun DeleteChoiceDialog(
     onMoveToInactive: () -> Unit,
     onDeletePermanently: () -> Unit,
     permanentDeleteBlockedReason: String? = null,
+    permanentDeleteImpactSummary: String? = null,
 ) {
     var showPermanentConfirm by remember { mutableStateOf(false) }
 
@@ -85,7 +89,10 @@ fun DeleteChoiceDialog(
             text = {
                 Text(
                     permanentDeleteBlockedReason
-                        ?: "This action cannot be undone. All associated information that is permitted to be permanently deleted will be removed.",
+                        ?: listOfNotNull(
+                            "This action cannot be undone. All associated information that is permitted to be permanently deleted will be removed.",
+                            permanentDeleteImpactSummary,
+                        ).joinToString(" "),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             },

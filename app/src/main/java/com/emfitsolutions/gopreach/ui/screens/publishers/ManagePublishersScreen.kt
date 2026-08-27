@@ -85,7 +85,7 @@ fun ManagePublishersScreen(
     var lookupTarget by remember { mutableStateOf<Person?>(null) }
     var pendingEdit by remember { mutableStateOf<PublisherRow?>(null) }
     var pendingDelete by remember { mutableStateOf<PublisherRow?>(null) }
-    var permanentDeleteBlockReason by remember { mutableStateOf<String?>(null) }
+    var permanentDeleteImpactSummary by remember { mutableStateOf<String?>(null) }
     var permanentDeleteChecked by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -210,14 +210,14 @@ fun ManagePublishersScreen(
     val toDelete = pendingDelete
     if (toDelete != null) {
         LaunchedEffect(toDelete.person.id) {
-            permanentDeleteBlockReason = viewModel.permanentDeleteBlockReason(toDelete.person.id)
+            permanentDeleteImpactSummary = viewModel.permanentDeleteImpactSummary(toDelete.person.id)
             permanentDeleteChecked = true
         }
         if (permanentDeleteChecked) {
             DeleteChoiceDialog(
                 recordLabel = toDelete.person.fullName,
                 canPermanentlyDelete = canPermanentlyDelete,
-                permanentDeleteBlockedReason = permanentDeleteBlockReason,
+                permanentDeleteImpactSummary = permanentDeleteImpactSummary,
                 onDismiss = { pendingDelete = null; permanentDeleteChecked = false },
                 onMoveToInactive = { viewModel.changeCategory(toDelete, PublisherCategory.REMOVED_PUBLISHER, currentPersonId) },
                 onDeletePermanently = { viewModel.permanentlyDelete(toDelete, currentPersonId) },
