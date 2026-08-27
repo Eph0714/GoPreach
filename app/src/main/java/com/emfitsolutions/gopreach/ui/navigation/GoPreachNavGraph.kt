@@ -44,6 +44,7 @@ import com.emfitsolutions.gopreach.ui.screens.home.AdminHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestsScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineScreen
+import com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsScreen
 import com.emfitsolutions.gopreach.ui.screens.preachingtime.PreachingTimeRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MonthlyReportScreen
 import com.emfitsolutions.gopreach.ui.screens.login.LoginScreen
@@ -377,7 +378,11 @@ fun GoPreachNavGraph(
             )
             ManagePublisherReportsScreen(
                 currentPersonId = currentPersonId,
-                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+                // Falls back to a Regular Elder's own group's congregation
+                // (see MANAGE_ANNOUNCEMENTS above for the same fix/reasoning
+                // — `ownCongregationId` alone is null for them, and null
+                // here means "every congregation").
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 readOnly = !canEditPublisherReports,
                 onBack = { navController.popBackStack() },
@@ -385,10 +390,25 @@ fun GoPreachNavGraph(
         }
         composable(Destinations.MANAGE_ANNOUNCEMENTS) {
             // "Announcement Module" — Super-Admin (any congregation), Admin/
-            // Coordinator Elder (own congregation only).
+            // Coordinator Elder (own congregation only) can create/edit/
+            // delete. The notification balloon's "New Announcement [All]"
+            // item also deep-links Service Overseer/Regular Elder/
+            // Ministerial Servant here now — same screen, but read-only for
+            // them, since they were never in the managing set (matches
+            // AnnouncementsScreen's Publisher `readOnly = true` usage below).
+            val canManageAnnouncementsHere = currentRole in setOf(
+                AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER,
+            )
             AnnouncementsScreen(
                 currentPersonId = currentPersonId,
-                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+                // Falls back to the Regular Elder's own group's congregation
+                // (see `ownGroupAssignment` above) — `ownCongregationId`
+                // alone is null for them, and null here means "every
+                // congregation," which would leak every other congregation's
+                // announcements to a Regular Elder now that this route is
+                // reachable read-only from the notification balloon.
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
+                readOnly = !canManageAnnouncementsHere,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -444,11 +464,28 @@ fun GoPreachNavGraph(
             )
         }
         composable(Destinations.FORWARD_REQUESTS) {
-            // Same access set as enrolling a Service Overseer (spec) — Super-
-            // Admin sees every congregation's queue, everyone else only their
-            // own congregation's.
+            // Super-Admin/Admin/Coordinator Elder/Service Overseer keep full
+            // Accept/Decline/Assign access, own congregation only for anyone
+            // but Super-Admin. Regular Elder/Ministerial Servant also reach
+            // this now (the notification balloon's "Incoming approval
+            // request for transfer [All]" item), but view-only — same
+            // "widen visibility, never widen approval authority" call as
+            // Manage Publisher Reports/Announcements above.
+            val canActOnForwardRequests = currentRole in setOf(
+                AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER,
+            )
             ForwardRequestsScreen(
-                congregationIds = if (currentRole == AdminRole.SUPER_ADMIN) null else setOfNotNull(ownCongregationId),
+                congregationIds = if (currentRole == AdminRole.SUPER_ADMIN) null else setOfNotNull(ownCongregationId ?: ownGroupAssignment?.congregationId),
+                currentPersonId = currentPersonId,
+                readOnly = !canActOnForwardRequests,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.PUBLISHER_FORWARD_REQUESTS) {
+            // A Publisher's own "FORWARD TO OTHER PUBLISHER" incoming queue —
+            // scoped to themselves, not their congregation (see
+            // PublisherForwardRequestsViewModel.incomingRequestsFor).
+            PublisherForwardRequestsScreen(
                 currentPersonId = currentPersonId,
                 onBack = { navController.popBackStack() },
             )

@@ -65,10 +65,12 @@ import com.emfitsolutions.gopreach.ui.components.DashboardHero
 import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
 import com.emfitsolutions.gopreach.ui.components.GoPreachSidePanelContent
+import com.emfitsolutions.gopreach.ui.components.NotificationBell
 import com.emfitsolutions.gopreach.ui.components.QuickAction
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 import com.emfitsolutions.gopreach.ui.screens.dashboard.DashboardStatsContent
+import com.emfitsolutions.gopreach.ui.screens.notifications.NotificationCenterViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -88,11 +90,13 @@ fun AdminHomeScreen(
     canManageUsers: Boolean,
     onNavigate: (String) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
+    notificationCenterViewModel: NotificationCenterViewModel = hiltViewModel(),
 ) {
     val session by viewModel.state.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val pendingSyncCount by viewModel.pendingSyncCount.collectAsStateWithLifecycle()
     val role = PermissionChecker.highestAdminRole(session.roleAssignments)
+    val currentPersonId = session.person?.id.orEmpty()
 
     val isSuperAdmin = role == AdminRole.SUPER_ADMIN
     // "REDESIGN THE CIRCUIT OVERSEER AND OTHER USER DASHBOARD" spec —
@@ -133,10 +137,15 @@ fun AdminHomeScreen(
     // "Consolidated Monthly Report" spec — Service Overseer, Coordinator
     // Elder, Admin (own congregation), and Super-Admin (all congregations).
     val canViewConsolidatedReport = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER
-    // "Forward to Other Congregation" incoming review queue — same viewer set
-    // as the Consolidated Report (Service Overseer is who actually acts on
-    // these, Coordinator Elder/Admin/Super-Admin can see them too).
-    val canViewForwardRequests = canViewConsolidatedReport
+    // "Forward to Other Congregation" incoming review queue — Super-Admin/
+    // Admin/Coordinator Elder/Service Overseer keep full Accept/Decline/
+    // Assign access (same viewer set as the Consolidated Report); Regular
+    // Elder/Ministerial Servant also see it now (notification balloon spec:
+    // "Incoming approval request for transfer [All]"), but strictly
+    // view-only — see GoPreachNavGraph's FORWARD_REQUESTS composable, which
+    // computes that separately and is the actual enforcement (this flag only
+    // decides whether the drawer/balloon offer the screen at all).
+    val canViewForwardRequests = canViewConsolidatedReport || role == AdminRole.REGULAR_ELDER || role == AdminRole.MINISTERIAL_SERVANT
     // "Manage Publisher Report" module — Super-Admin (every congregation),
     // Admin/Coordinator Elder/Service Overseer (own congregation only); same
     // access set as the Consolidated Report. A Circuit Overseer with any of
@@ -147,9 +156,15 @@ fun AdminHomeScreen(
     // user's report access is view-only in every one of the spec's own
     // worked examples"), so this module can never grant them edit rights,
     // only viewing/printing.
-    val canManagePublisherReports = canViewConsolidatedReport || grantPermissions.any {
-        it == Permission.VIEW_PUBLISHER_REPORTS || it == Permission.VIEW_GROUP_REPORTS || it == Permission.VIEW_CONGREGATION_REPORTS
-    }
+    // Regular Elder/Ministerial Servant also reach this now (notification
+    // balloon spec: "Incoming Publisher Monthly Reports [Not for
+    // Publisher]") — same "widen visibility, not authority" call as
+    // [canViewForwardRequests] above; GoPreachNavGraph's `canEditPublisherReports`
+    // already excludes both of them, so they land here read-only.
+    val canManagePublisherReports = canViewConsolidatedReport || role == AdminRole.REGULAR_ELDER || role == AdminRole.MINISTERIAL_SERVANT ||
+        grantPermissions.any {
+            it == Permission.VIEW_PUBLISHER_REPORTS || it == Permission.VIEW_GROUP_REPORTS || it == Permission.VIEW_CONGREGATION_REPORTS
+        }
     // Control Panel: full access for Super-Admin, own-congregation for Admin (spec §3 permission matrix).
     val canAccessControlPanel = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION
     // User logs: Super-Admin (all) and Admin/Coordinator Elder (own congregation); Regular Elder has no access.
@@ -239,6 +254,26 @@ fun AdminHomeScreen(
         ForwardRequestNotifier(congregationIds = visibleCongregationIds)
     }
 
+    // Unified notification balloon (spec: "Add a notification balloon for
+    // Service Overseer, Elders, Admin, publisher and super admin") — every
+    // admin-track role except a grant-based Circuit Overseer (not named in
+    // the spec's role list; their own scope model is entirely different).
+    // [visibleCongregationIds] is the exact same scoping this screen already
+    // uses everywhere else ("Admin, Elder, Ministerial... can only see the
+    // notification within their congregation, however the super admin can
+    // see all congregation notification"). Monthly Report items only appear
+    // for a role that already has [canManagePublisherReports] — the balloon
+    // surfaces existing access, it never grants new access of its own.
+    val showNotificationBell = role != AdminRole.CIRCUIT_OVERSEER
+    val notificationItemsFlow = remember(visibleCongregationIds, canManagePublisherReports) {
+        notificationCenterViewModel.itemsForAdmin(visibleCongregationIds, canManagePublisherReports)
+    }
+    val notificationItems by notificationItemsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val notificationUnseenFlow = remember(notificationItemsFlow, currentPersonId) {
+        notificationCenterViewModel.unseenCountFor(notificationItemsFlow, currentPersonId)
+    }
+    val notificationUnseenCount by notificationUnseenFlow.collectAsStateWithLifecycle(initialValue = 0)
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -272,12 +307,22 @@ fun AdminHomeScreen(
     // confirmation rather than silently closing GoPreach — Compose Navigation
     // has nothing left to pop to at this destination, so an unguarded Back
     // would finish the Activity immediately with no chance to back out.
+    //
+    // Uses [DrawerState.targetValue], not [DrawerState.isOpen] (which reads
+    // `currentValue`, only updated once the open animation *finishes*) — a
+    // Back press during the brief window while the drawer is still animating
+    // open used to read as "drawer closed," so it fell through to the
+    // exit-confirmation dialog instead of just dismissing the side menu the
+    // user was still looking at. `targetValue` flips the instant `.open()`
+    // is called, so Back reliably just closes the side menu the whole time
+    // it's open or opening, never skipping past it to "Exit GoPreach?".
     val activity = LocalContext.current as? ComponentActivity
     var showExitConfirm by remember { mutableStateOf(false) }
-    BackHandler(enabled = drawerState.isOpen) {
+    val drawerOpenOrOpening = drawerState.targetValue == DrawerValue.Open
+    BackHandler(enabled = drawerOpenOrOpening) {
         coroutineScope.launch { drawerState.close() }
     }
-    BackHandler(enabled = !drawerState.isOpen) {
+    BackHandler(enabled = !drawerOpenOrOpening) {
         showExitConfirm = true
     }
     if (showExitConfirm) {
@@ -362,6 +407,14 @@ fun AdminHomeScreen(
                         }
                     },
                     topEndAction = {
+                        if (showNotificationBell) {
+                            NotificationBell(
+                                items = notificationItems,
+                                unseenCount = notificationUnseenCount,
+                                onOpen = { notificationCenterViewModel.markAllSeen(currentPersonId) },
+                                onItemClick = { onNavigate(it.route) },
+                            )
+                        }
                         IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
                             Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
                         }

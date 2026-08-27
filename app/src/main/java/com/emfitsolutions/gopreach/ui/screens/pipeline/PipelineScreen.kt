@@ -67,10 +67,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.location.LatLng
 import com.emfitsolutions.gopreach.data.model.Congregation
+import com.emfitsolutions.gopreach.data.model.ForwardRequest
 import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
 import com.emfitsolutions.gopreach.data.model.Gender
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
+import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PipelineStage
+import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.SupportingImage
 import com.emfitsolutions.gopreach.data.model.Visit
@@ -104,9 +107,13 @@ private fun PipelineStage.visitorLabel(): String = if (this == PipelineStage.BIB
  * pipeline stages (Searching / Return Visit / Bible Study), since a record at
  * any of them is the same [InterestedPerson] entity (see [PipelineStage]).
  * Only [stage] and the derived [PipelineStage.label]/[PipelineStage.visitorLabel]
- * differ what's shown: full create/edit fields + [FORWARD TO OTHER
- * CONGREGATION]/[MOVE TO RETURN VISIT] only at Searching; [MOVE TO BIBLE
- * STUDY] only at Return Visit; visit logging at Return Visit/Bible Study.
+ * differ what's shown: full create/edit fields + [MOVE TO RETURN VISIT] only
+ * at Searching; [MOVE TO BIBLE STUDY] only at Return Visit; visit logging at
+ * Return Visit/Bible Study. [FORWARD TO OTHER CONGREGATION] is available at
+ * every stage; [FORWARD TO OTHER PUBLISHER] (same-congregation hand-off,
+ * accept/decline by the target publisher, no Service Overseer step) is
+ * available at Return Visit and Bible Study — the two stages the spec names
+ * for it.
  */
 @Composable
 fun PipelineScreen(
@@ -213,6 +220,9 @@ private fun PipelineListScreen(
                                     if (person.pendingForwardRequestId != null) {
                                         ForwardStatusBadge(person = person, viewModel = viewModel)
                                     }
+                                    if (person.pendingPublisherForwardRequestId != null) {
+                                        PublisherForwardStatusBadge(person = person, viewModel = viewModel)
+                                    }
                                 }
                                 if (person.status == RecordStatus.ACTIVE) {
                                     IconButton(onClick = { pendingDelete = person }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete") }
@@ -261,6 +271,19 @@ private fun ForwardStatusBadge(person: InterestedPerson, viewModel: PipelineView
     val (text, color) = when (r.status) {
         ForwardRequestStatus.PENDING -> "Forward status: Pending (${r.toCongregationNameSnapshot})" to MaterialTheme.colorScheme.tertiary
         ForwardRequestStatus.ACCEPTED -> "Forward status: Accepted (${r.toCongregationNameSnapshot})" to MaterialTheme.colorScheme.primary
+        ForwardRequestStatus.DECLINED -> "Forward status: Declined" to MaterialTheme.colorScheme.error
+    }
+    Text(text, style = MaterialTheme.typography.bodySmall, color = color)
+}
+
+@Composable
+private fun PublisherForwardStatusBadge(person: InterestedPerson, viewModel: PipelineViewModel) {
+    val requestFlow = remember(person.id) { viewModel.publisherForwardRequestFor(person) }
+    val request by requestFlow.collectAsStateWithLifecycle(initialValue = null)
+    val r = request ?: return
+    val (text, color) = when (r.status) {
+        ForwardRequestStatus.PENDING -> "Forward status: Pending (${r.toPublisherNameSnapshot})" to MaterialTheme.colorScheme.tertiary
+        ForwardRequestStatus.ACCEPTED -> "Forward status: Accepted (${r.toPublisherNameSnapshot})" to MaterialTheme.colorScheme.primary
         ForwardRequestStatus.DECLINED -> "Forward status: Declined" to MaterialTheme.colorScheme.error
     }
     Text(text, style = MaterialTheme.typography.bodySmall, color = color)
@@ -477,12 +500,15 @@ private fun PipelinePersonDetailScreen(
     var showAddVisit by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var showForwardDialog by remember { mutableStateOf(false) }
+    var showForwardToPublisherDialog by remember { mutableStateOf(false) }
     var selectedVisit by remember { mutableStateOf<Visit?>(null) }
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
     val sortedVisits = remember(visits) { visits.sortedByDescending { it.visitDate } }
     val createdByName by remember(livePerson.createdByPersonId) { viewModel.personName(livePerson.createdByPersonId) }.collectAsStateWithLifecycle(initialValue = null)
     val forwardRequestFlow = remember(livePerson.pendingForwardRequestId) { viewModel.forwardRequestFor(livePerson) }
     val forwardRequest by forwardRequestFlow.collectAsStateWithLifecycle(initialValue = null)
+    val publisherForwardRequestFlow = remember(livePerson.pendingPublisherForwardRequestId) { viewModel.publisherForwardRequestFor(livePerson) }
+    val publisherForwardRequest by publisherForwardRequestFlow.collectAsStateWithLifecycle(initialValue = null)
 
     Scaffold(
         topBar = {
@@ -528,6 +554,9 @@ private fun PipelinePersonDetailScreen(
             // Stage-advance / Forward actions — Searching module's spec:
             // "Every record saved were having a button next to their names
             // [MOVE TO RETURN VISIT MODULE, FORWARD TO OTHER CONGREGATION]".
+            // "FORWARD TO OTHER CONGREGATION" (same [ForwardRequest] flow) is
+            // offered at every stage; "FORWARD TO OTHER PUBLISHER" only at
+            // Return Visit/Bible Study, per spec.
             if (stage == PipelineStage.SEARCHING) {
                 item {
                     EditSectionHeader("Actions", modifier = Modifier.padding(top = 16.dp))
@@ -539,24 +568,41 @@ private fun PipelinePersonDetailScreen(
                             Text("FORWARD TO OTHER CONGREGATION")
                         }
                     }
-                    val r = forwardRequest
-                    if (r != null) {
-                        Text(
-                            when (r.status) {
-                                ForwardRequestStatus.PENDING -> "Forward status: Pending — sent to ${r.toCongregationNameSnapshot}"
-                                ForwardRequestStatus.ACCEPTED -> "Forward status: Accepted by ${r.toCongregationNameSnapshot} — assigned to ${r.assignedToPublisherNameSnapshot ?: "—"}"
-                                ForwardRequestStatus.DECLINED -> "Forward status: Declined by ${r.toCongregationNameSnapshot}"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
+                    ForwardStatusLine(forwardRequest)
                 }
             } else if (stage == PipelineStage.RETURN_VISIT) {
                 item {
                     EditSectionHeader("Actions", modifier = Modifier.padding(top = 16.dp))
-                    Button(onClick = { viewModel.advanceStage(livePerson, PipelineStage.BIBLE_STUDY, currentPersonId) }) {
-                        Text("MOVE TO BIBLE STUDY")
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { viewModel.advanceStage(livePerson, PipelineStage.BIBLE_STUDY, currentPersonId) }) {
+                            Text("MOVE TO BIBLE STUDY")
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { showForwardDialog = true }, enabled = forwardRequest?.status != ForwardRequestStatus.PENDING) {
+                                Text("FORWARD TO OTHER CONGREGATION")
+                            }
+                            OutlinedButton(onClick = { showForwardToPublisherDialog = true }, enabled = publisherForwardRequest?.status != ForwardRequestStatus.PENDING) {
+                                Text("FORWARD TO OTHER PUBLISHER")
+                            }
+                        }
+                        ForwardStatusLine(forwardRequest)
+                        PublisherForwardStatusLine(publisherForwardRequest)
+                    }
+                }
+            } else {
+                item {
+                    EditSectionHeader("Actions", modifier = Modifier.padding(top = 16.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { showForwardDialog = true }, enabled = forwardRequest?.status != ForwardRequestStatus.PENDING) {
+                                Text("FORWARD TO OTHER CONGREGATION")
+                            }
+                            OutlinedButton(onClick = { showForwardToPublisherDialog = true }, enabled = publisherForwardRequest?.status != ForwardRequestStatus.PENDING) {
+                                Text("FORWARD TO OTHER PUBLISHER")
+                            }
+                        }
+                        ForwardStatusLine(forwardRequest)
+                        PublisherForwardStatusLine(publisherForwardRequest)
                     }
                 }
             }
@@ -629,6 +675,41 @@ private fun PipelinePersonDetailScreen(
             viewModel = viewModel,
         )
     }
+
+    if (showForwardToPublisherDialog) {
+        ForwardToPublisherDialog(
+            person = livePerson,
+            currentPersonId = currentPersonId,
+            onDismiss = { showForwardToPublisherDialog = false },
+            viewModel = viewModel,
+        )
+    }
+}
+
+@Composable
+private fun ForwardStatusLine(r: ForwardRequest?) {
+    if (r == null) return
+    Text(
+        when (r.status) {
+            ForwardRequestStatus.PENDING -> "Forward to congregation: Pending — sent to ${r.toCongregationNameSnapshot}"
+            ForwardRequestStatus.ACCEPTED -> "Forward to congregation: Accepted by ${r.toCongregationNameSnapshot} — assigned to ${r.assignedToPublisherNameSnapshot ?: "—"}"
+            ForwardRequestStatus.DECLINED -> "Forward to congregation: Declined by ${r.toCongregationNameSnapshot}"
+        },
+        style = MaterialTheme.typography.bodySmall,
+    )
+}
+
+@Composable
+private fun PublisherForwardStatusLine(r: PublisherForwardRequest?) {
+    if (r == null) return
+    Text(
+        when (r.status) {
+            ForwardRequestStatus.PENDING -> "Forward to publisher: Pending — sent to ${r.toPublisherNameSnapshot}"
+            ForwardRequestStatus.ACCEPTED -> "Forward to publisher: Accepted by ${r.toPublisherNameSnapshot}"
+            ForwardRequestStatus.DECLINED -> "Forward to publisher: Declined by ${r.toPublisherNameSnapshot}"
+        },
+        style = MaterialTheme.typography.bodySmall,
+    )
 }
 
 /** "FORWARD TO OTHER CONGREGATION" spec flow — search field over
@@ -687,6 +768,71 @@ private fun ForwardToCongregationDialog(
                     val target = selected
                     if (target != null) {
                         viewModel.forward(person, target, ownCongregationName, fromPublisherName ?: "—", currentPersonId)
+                        onDismiss()
+                    }
+                },
+                enabled = selected != null,
+            ) { Text("SEND REQUEST") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** "FORWARD TO OTHER PUBLISHER" spec flow — search field over publisher
+ * name, scoped to the record's own congregation (this flow never crosses
+ * congregations); the receiving publisher themselves accepts/declines it
+ * (see [PublisherForwardRequestsScreen]), so there's no "assign to" step
+ * here — picking who to send it to *is* the whole dialog. */
+@Composable
+private fun ForwardToPublisherDialog(
+    person: InterestedPerson,
+    currentPersonId: String,
+    onDismiss: () -> Unit,
+    viewModel: PipelineViewModel,
+) {
+    val publishersFlow = remember(person.congregationId, person.publisherPersonId) {
+        viewModel.otherPublishers(person.congregationId, person.publisherPersonId)
+    }
+    val publishers by publishersFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val fromPublisherName by remember(person.publisherPersonId) { viewModel.personName(person.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
+    var query by remember { mutableStateOf("") }
+    var selected by remember { mutableStateOf<Person?>(null) }
+    val filtered = remember(publishers, query) {
+        if (query.isBlank()) publishers else publishers.filter { it.fullName.contains(query, ignoreCase = true) }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Forward to Other Publisher") },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it; selected = null },
+                    label = { Text("Search by publisher name") },
+                    singleLine = true,
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                LazyColumn(modifier = Modifier.heightIn(max = 280.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(filtered, key = { it.id }) { p ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth().clickable { selected = p; query = p.fullName },
+                            colors = if (selected?.id == p.id) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer) else CardDefaults.cardColors(),
+                        ) {
+                            Text(p.fullName, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(12.dp))
+                        }
+                    }
+                    if (filtered.isEmpty()) item { Text("No other publisher available in your congregation.", style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val target = selected
+                    if (target != null) {
+                        viewModel.forwardToPublisher(person, target, fromPublisherName ?: "—", currentPersonId)
                         onDismiss()
                     }
                 },

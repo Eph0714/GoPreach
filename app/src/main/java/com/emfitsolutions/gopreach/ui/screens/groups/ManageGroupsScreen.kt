@@ -275,9 +275,13 @@ private fun GroupDialog(
             viewModel.availableEldersFor(congregationId, RegularElderRole.GROUP_SERVANT, setOfNotNull(overseer?.id, assistant?.id))
         } else kotlinx.coroutines.flow.flowOf(emptyList())
     }.collectAsStateWithLifecycle(initialValue = emptyList())
+    // "'Group Assistant' can be browse from Publishers Record" — unlike
+    // Overseer/Servant (Elder-only above), this candidate list also includes
+    // active Publishers, not just Regular Elders (see
+    // ManageGroupsViewModel.availableAssistantCandidatesFor).
     val assistantCandidates by remember(congregationId, overseer, servant) {
         if (congregationId != null) {
-            viewModel.availableEldersFor(congregationId, RegularElderRole.GROUP_ASSISTANT, setOfNotNull(overseer?.id, servant?.id))
+            viewModel.availableAssistantCandidatesFor(congregationId, setOfNotNull(overseer?.id, servant?.id))
         } else kotlinx.coroutines.flow.flowOf(emptyList())
     }.collectAsStateWithLifecycle(initialValue = emptyList())
 
@@ -288,12 +292,12 @@ private fun GroupDialog(
     if (!preselected && (overseerCandidates.isNotEmpty() || servantCandidates.isNotEmpty() || assistantCandidates.isNotEmpty())) {
         overseer = overseerCandidates.firstOrNull { it.id == existingGroup?.overseerPersonId }
         servant = servantCandidates.firstOrNull { it.id == existingGroup?.servantPersonId }
-        assistant = assistantCandidates.firstOrNull { it.id == existingGroup?.assistantPersonId }
+        assistant = assistantCandidates.firstOrNull { it.person.id == existingGroup?.assistantPersonId }?.person
         preselected = true
     }
 
     val legacyElderName = existingGroup?.regularElderPersonId?.let { legacyId ->
-        (overseerCandidates + servantCandidates + assistantCandidates).firstOrNull { it.id == legacyId }?.fullName
+        (overseerCandidates + servantCandidates + assistantCandidates.map { it.person }).firstOrNull { it.id == legacyId }?.fullName
     }
 
     // "[ADD MEMBERS] Browse from Publishers Record" — every active Publisher
@@ -354,9 +358,9 @@ private fun GroupDialog(
                     selected = servant,
                     onSelected = { servant = it },
                 )
-                ElderRoleDropdown(
+                AssistantRoleDropdown(
                     label = RegularElderRole.GROUP_ASSISTANT.displayLabel(),
-                    elders = assistantCandidates,
+                    candidates = assistantCandidates,
                     selected = assistant,
                     onSelected = { assistant = it },
                 )
@@ -500,6 +504,46 @@ private fun ElderRoleDropdown(label: String, elders: List<Person>, selected: Per
                     text = { Text(elder.fullName) },
                     onClick = {
                         onSelected(elder)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** Group Assistant's own picker — "'Group Assistant' can be browse from
+ * Publishers Record": [candidates] mixes Regular Elders and Publishers (see
+ * [ManageGroupsViewModel.availableAssistantCandidatesFor]), so each option is
+ * labeled "(Elder)"/"(Publisher)" to keep which pool a name came from clear —
+ * the only real difference from [ElderRoleDropdown] otherwise. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AssistantRoleDropdown(label: String, candidates: List<PersonCandidate>, selected: Person?, onSelected: (Person?) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selected?.fullName ?: "",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("None") },
+                onClick = {
+                    onSelected(null)
+                    expanded = false
+                },
+            )
+            candidates.forEach { candidate ->
+                DropdownMenuItem(
+                    text = { Text("${candidate.person.fullName} (${if (candidate.isElder) "Elder" else "Publisher"})") },
+                    onClick = {
+                        onSelected(candidate.person)
                         expanded = false
                     },
                 )

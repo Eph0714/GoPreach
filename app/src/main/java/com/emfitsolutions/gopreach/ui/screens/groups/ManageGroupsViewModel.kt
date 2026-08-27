@@ -23,6 +23,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** One candidate for the Group Assistant dropdown — [isElder] distinguishes
+ * a Regular Elder candidate (from [ManageGroupsViewModel.availableEldersFor])
+ * from a Publisher one (browsed from the Publishers Record), since the two
+ * pools are merged into one list for that dropdown. */
+data class PersonCandidate(val person: Person, val isElder: Boolean)
+
 data class GroupRow(
     val group: Group,
     val overseerName: String?,
@@ -81,6 +87,31 @@ class ManageGroupsViewModel @Inject constructor(
                 .mapNotNull { assignment -> people.firstOrNull { it.id == assignment.personId } }
         }
 
+    /** "'Group Assistant' can be browse from Publishers Record" — unlike
+     * Overseer/Servant (Elder-only), the Assistant slot can also be filled by
+     * any active Publisher in [congregationId], not just a Regular Elder.
+     * [PersonCandidate.isElder] is what [ElderRoleDropdown] uses to show
+     * "(Elder)"/"(Publisher)" next to each name, since the merged list would
+     * otherwise be ambiguous about which pool a given name came from. */
+    fun availableAssistantCandidatesFor(congregationId: String, excludePersonIds: Set<String> = emptySet()): Flow<List<PersonCandidate>> =
+        combine(
+            availableEldersFor(congregationId, RegularElderRole.GROUP_ASSISTANT, excludePersonIds),
+            personRepository.observeAll(),
+            roleAssignmentRepository.observeAll(),
+        ) { elders, people, assignments ->
+            val publishers = assignments
+                .filter { assignment ->
+                    assignment.status == RoleAssignmentStatus.ACTIVE &&
+                        assignment.congregationId == congregationId &&
+                        assignment.resolvedRoleTypeOrNull() is RoleType.Publisher &&
+                        assignment.personId !in excludePersonIds
+                }
+                .mapNotNull { assignment -> people.firstOrNull { it.id == assignment.personId } }
+            (elders.map { PersonCandidate(it, isElder = true) } + publishers.map { PersonCandidate(it, isElder = false) })
+                .distinctBy { it.person.id }
+                .sortedBy { it.person.fullName }
+        }
+
     /** Every active Publisher (any category) in [congregationId] — the pool
      * ADD MEMBERS browses. [MemberCandidate.currentGroupName] tells the UI
      * whether checking one here would transfer them off a different group. */
@@ -109,7 +140,15 @@ class ManageGroupsViewModel @Inject constructor(
      * single group but it can be transferred to other group from time to
      * time"). Runs as one coroutine so the group's real id (assigned on
      * first save, for a brand-new group) exists before members are written
-     * against it. */
+     * against it.
+     *
+     * Re-reads each candidate's RoleAssignment fresh *after* [saveGroupAndSyncElders]
+     * runs, rather than trusting [candidates]' own pre-save snapshot — now that
+     * a Publisher can fill the Group Assistant slot too ("'Group Assistant'
+     * can be browse from Publishers Record"), that sync may have just changed
+     * the very same Publisher's `groupId` this loop is about to compare
+     * against and possibly overwrite; a stale snapshot here would silently
+     * undo that assistant-slot assignment the instant this loop ran. */
     fun saveWithMembers(
         group: Group,
         candidates: List<MemberCandidate>,
@@ -118,13 +157,15 @@ class ManageGroupsViewModel @Inject constructor(
     ) {
         viewModelScope.launch {
             val saved = saveGroupAndSyncElders(group)
+            val freshAssignments = roleAssignmentRepository.observeAll().first()
             candidates.forEach { candidate ->
+                val current = freshAssignments.firstOrNull { it.id == candidate.assignment.id } ?: candidate.assignment
                 val shouldBeMember = candidate.person.id in selectedMemberPersonIds
-                val isAlreadyMember = candidate.assignment.groupId == saved.id
+                val isAlreadyMember = current.groupId == saved.id
                 if (shouldBeMember == isAlreadyMember) return@forEach
                 val newGroupId = if (shouldBeMember) saved.id else null
                 roleAssignmentRepository.save(
-                    candidate.assignment.copy(
+                    current.copy(
                         groupId = newGroupId,
                         lastEditedByPersonId = actorPersonId,
                         lastEditedAt = System.currentTimeMillis(),
@@ -177,11 +218,11 @@ class ManageGroupsViewModel @Inject constructor(
 
         suspend fun sync(role: RegularElderRole, oldPersonId: String?, newPersonId: String?) {
             if (oldPersonId == newPersonId) {
-                if (newPersonId != null) setElderGroup(newPersonId, saved.id, role)
+                if (newPersonId != null) setPersonGroup(newPersonId, saved.id, role)
                 return
             }
-            if (oldPersonId != null) setElderGroup(oldPersonId, null, null)
-            if (newPersonId != null) setElderGroup(newPersonId, saved.id, role)
+            if (oldPersonId != null) setPersonGroup(oldPersonId, null, null)
+            if (newPersonId != null) setPersonGroup(newPersonId, saved.id, role)
         }
 
         sync(RegularElderRole.GROUP_OVERSEER, previous?.overseerPersonId, saved.overseerPersonId)
@@ -190,16 +231,28 @@ class ManageGroupsViewModel @Inject constructor(
         return saved
     }
 
-    /** [role] is only written when non-null (assigning) — clearing an Elder from a
-     * slot (role = null alongside groupId = null) leaves their regularElderRole
-     * as history rather than wiping it, since they may be re-added to the same
-     * role in a different Group later. */
-    private suspend fun setElderGroup(personId: String, groupId: String?, role: RegularElderRole?) {
+    /** [role] is only written when non-null (assigning), and only onto an
+     * actual Regular Elder's assignment — clearing an Elder from a slot
+     * (role = null alongside groupId = null) leaves their regularElderRole as
+     * history rather than wiping it, since they may be re-added to the same
+     * role in a different Group later. Also handles a Publisher filling the
+     * Group Assistant slot ("'Group Assistant' can be browse from Publishers
+     * Record") — their own RoleAssignment.groupId is kept in sync exactly
+     * like a regular ADD MEMBERS pick ([saveWithMembers]) would, just driven
+     * from this role slot instead; [regularElderRole] is never written onto a
+     * Publisher's assignment, since that field only has meaning for an Elder. */
+    private suspend fun setPersonGroup(personId: String, groupId: String?, role: RegularElderRole?) {
         val assignment = roleAssignmentRepository.observeForPerson(personId).first()
-            .firstOrNull { (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER }
-            ?: return
+            .firstOrNull { assignment ->
+                val roleType = assignment.resolvedRoleTypeOrNull()
+                (roleType as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER || roleType is RoleType.Publisher
+            } ?: return
+        val isElder = (assignment.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
         roleAssignmentRepository.save(
-            assignment.copy(groupId = groupId, regularElderRole = role ?: assignment.regularElderRole),
+            assignment.copy(
+                groupId = groupId,
+                regularElderRole = if (isElder) (role ?: assignment.regularElderRole) else assignment.regularElderRole,
+            ),
         )
     }
 
@@ -243,7 +296,7 @@ class ManageGroupsViewModel @Inject constructor(
             if (group != null) {
                 listOfNotNull(group.overseerPersonId, group.servantPersonId, group.assistantPersonId, group.regularElderPersonId)
                     .distinct()
-                    .forEach { setElderGroup(it, null, null) }
+                    .forEach { setPersonGroup(it, null, null) }
             }
             roleAssignmentRepository.observeAll().first()
                 .filter { it.groupId == groupId }

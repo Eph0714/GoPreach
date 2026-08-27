@@ -8,17 +8,25 @@ import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.ForwardRequest
 import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
+import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PipelineStage
+import com.emfitsolutions.gopreach.data.model.PublisherCategory
+import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.data.model.RecordStatus
+import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
+import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.model.Visit
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
+import com.emfitsolutions.gopreach.data.repository.PublisherForwardRequestRepository
+import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.VisitRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -38,7 +46,9 @@ class PipelineViewModel @Inject constructor(
     private val locationTracker: LocationTracker,
     private val personRepository: PersonRepository,
     private val forwardRequestRepository: ForwardRequestRepository,
+    private val publisherForwardRequestRepository: PublisherForwardRequestRepository,
     private val congregationRepository: CongregationRepository,
+    private val roleAssignmentRepository: RoleAssignmentRepository,
 ) : ViewModel() {
 
     fun personName(personId: String): Flow<String?> =
@@ -147,6 +157,15 @@ class PipelineViewModel @Inject constructor(
     fun forwardRequestFor(person: InterestedPerson): Flow<ForwardRequest?> = forwardRequestRepository.observeAll()
         .map { list -> person.pendingForwardRequestId?.let { id -> list.firstOrNull { it.id == id } } }
 
+    /** Every cross-congregation forward [publisherPersonId] has ever sent —
+     * "there will be a notification for the Service Overseer and the
+     * Publisher for the status of the request" (Return Visit forward spec):
+     * used by the sending publisher's own Home screen notifier to catch an
+     * Accept/Decline outcome, the same way [PublisherForwardRequestsViewModel
+     * .outgoingRequestsFor] does for the same-congregation flow. */
+    fun outgoingForwardRequestsFor(publisherPersonId: String): Flow<List<ForwardRequest>> =
+        forwardRequestRepository.observeAll().map { list -> list.filter { it.fromPublisherPersonId == publisherPersonId } }
+
     fun forward(
         person: InterestedPerson,
         toCongregation: Congregation,
@@ -176,6 +195,60 @@ class PipelineViewModel @Inject constructor(
                 targetType = "InterestedPerson",
                 targetId = person.id,
                 details = "${person.name} -> ${toCongregation.name}",
+            )
+        }
+    }
+
+    /** "FORWARD TO OTHER PUBLISHER" spec flow — every other active,
+     * non-removed publisher in [congregationId] (same congregation only —
+     * this flow never crosses congregations), excluding the sender
+     * themselves. */
+    fun otherPublishers(congregationId: String, excludePersonId: String): Flow<List<Person>> = combine(
+        roleAssignmentRepository.observeAll(),
+        personRepository.observeAll(),
+    ) { assignments, people ->
+        assignments
+            .filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId == congregationId && it.personId != excludePersonId }
+            .mapNotNull { (it.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.let { p -> it to p } }
+            .filter { (_, publisher) -> publisher.category != PublisherCategory.REMOVED_PUBLISHER }
+            .mapNotNull { (assignment, _) -> people.firstOrNull { it.id == assignment.personId } }
+            .distinctBy { it.id }
+            .sortedBy { it.fullName }
+    }
+
+    /** Live status of [person]'s most recent same-congregation forward
+     * attempt, if any — mirrors [forwardRequestFor] for the "FORWARD TO
+     * OTHER PUBLISHER" flow. */
+    fun publisherForwardRequestFor(person: InterestedPerson): Flow<PublisherForwardRequest?> = publisherForwardRequestRepository.observeAll()
+        .map { list -> person.pendingPublisherForwardRequestId?.let { id -> list.firstOrNull { it.id == id } } }
+
+    fun forwardToPublisher(
+        person: InterestedPerson,
+        toPublisher: Person,
+        fromPublisherName: String,
+        actorPersonId: String,
+    ) {
+        viewModelScope.launch {
+            val request = publisherForwardRequestRepository.save(
+                PublisherForwardRequest(
+                    interestedPersonId = person.id,
+                    personNameSnapshot = person.name,
+                    congregationId = person.congregationId,
+                    fromPublisherPersonId = person.publisherPersonId,
+                    fromPublisherNameSnapshot = fromPublisherName,
+                    toPublisherPersonId = toPublisher.id,
+                    toPublisherNameSnapshot = toPublisher.fullName,
+                    status = ForwardRequestStatus.PENDING,
+                    requestedAt = System.currentTimeMillis(),
+                )
+            )
+            interestedPersonRepository.save(person.copy(pendingPublisherForwardRequestId = request.id))
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "FORWARD_INTERESTED_PERSON_TO_PUBLISHER",
+                targetType = "InterestedPerson",
+                targetId = person.id,
+                details = "${person.name} -> ${toPublisher.fullName}",
             )
         }
     }

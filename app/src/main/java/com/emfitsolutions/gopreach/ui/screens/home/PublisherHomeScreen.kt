@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Forward
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Assignment
@@ -37,7 +38,6 @@ import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -67,10 +67,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
+import com.emfitsolutions.gopreach.ui.components.NotificationBell
 import com.emfitsolutions.gopreach.ui.components.RoundIconActionButton
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 import com.emfitsolutions.gopreach.ui.screens.announcements.ManageAnnouncementsViewModel
+import com.emfitsolutions.gopreach.ui.screens.notifications.NotificationCenterViewModel
 
 /**
  * Landing point for the Ministry Report App / Publisher context (spec §5.2).
@@ -100,6 +102,9 @@ fun PublisherHomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
     dashboardViewModel: PublisherDashboardViewModel = hiltViewModel(),
     announcementsViewModel: ManageAnnouncementsViewModel = hiltViewModel(),
+    publisherForwardViewModel: com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsViewModel = hiltViewModel(),
+    pipelineViewModel: com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineViewModel = hiltViewModel(),
+    notificationCenterViewModel: NotificationCenterViewModel = hiltViewModel(),
 ) {
     val session by viewModel.state.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
@@ -123,6 +128,28 @@ fun PublisherHomeScreen(
         announcementsViewModel.unseenCountFor(ownPublisherAssignment?.congregationId, currentPersonId)
     }
     val unseenAnnouncements by unseenAnnouncementsFlow.collectAsStateWithLifecycle(initialValue = 0)
+
+    // Unified notification balloon (spec: transfer requests, announcements,
+    // calendar schedule — no Monthly Report category for a Publisher) —
+    // congregation-scoped to this Publisher's own congregation, never "all".
+    val notificationItemsFlow = remember(ownPublisherAssignment?.congregationId, currentPersonId) {
+        notificationCenterViewModel.itemsForPublisher(currentPersonId, ownPublisherAssignment?.congregationId)
+    }
+    val notificationItems by notificationItemsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val notificationUnseenFlow = remember(notificationItemsFlow, currentPersonId) {
+        notificationCenterViewModel.unseenCountFor(notificationItemsFlow, currentPersonId)
+    }
+    val notificationUnseenCount by notificationUnseenFlow.collectAsStateWithLifecycle(initialValue = 0)
+
+    // "FORWARD TO OTHER PUBLISHER" — this Publisher's own incoming queue
+    // count, for the "Forwarded to Me" tile's badge (same pattern as the
+    // Announcement badge above).
+    val incomingForwardsFlow = remember(currentPersonId) { publisherForwardViewModel.incomingRequestsFor(currentPersonId) }
+    val incomingForwards by incomingForwardsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    if (currentPersonId.isNotBlank()) {
+        PublisherForwardNotifier(currentPersonId = currentPersonId, viewModel = publisherForwardViewModel)
+        ForwardToCongregationSenderNotifier(currentPersonId = currentPersonId, viewModel = pipelineViewModel)
+    }
 
     // "Back Button and Page Navigation" spec §7 — this is the Main Form for the
     // Publisher context; there's nothing left in the nav stack to pop to here,
@@ -159,8 +186,10 @@ fun PublisherHomeScreen(
                 categoryLabel = category?.displayLabel(),
                 isOnline = isOnline,
                 pendingSyncCount = pendingSyncCount,
-                unseenAnnouncements = unseenAnnouncements,
-                onOpenAnnouncements = { onNavigate(Destinations.PUBLISHER_ANNOUNCEMENTS) },
+                notificationItems = notificationItems,
+                notificationUnseenCount = notificationUnseenCount,
+                onOpenNotifications = { notificationCenterViewModel.markAllSeen(currentPersonId) },
+                onNotificationClick = onNavigate,
                 onOpenSettings = { onNavigate(Destinations.SETTINGS) },
                 onSignOut = viewModel::signOut,
             )
@@ -181,6 +210,7 @@ fun PublisherHomeScreen(
                 FeatureTileGrid(
                     isPioneer = isPioneer,
                     unseenAnnouncements = unseenAnnouncements,
+                    pendingPublisherForwards = incomingForwards.size,
                     onNavigate = onNavigate,
                 )
 
@@ -234,8 +264,10 @@ private fun PublisherWelcomeHeader(
     categoryLabel: String?,
     isOnline: Boolean,
     pendingSyncCount: Int,
-    unseenAnnouncements: Int,
-    onOpenAnnouncements: () -> Unit,
+    notificationItems: List<com.emfitsolutions.gopreach.ui.screens.notifications.NotificationItem>,
+    notificationUnseenCount: Int,
+    onOpenNotifications: () -> Unit,
+    onNotificationClick: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -256,14 +288,16 @@ private fun PublisherWelcomeHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End,
             ) {
-                // "Announcement Module" — the notification balloon; opening
-                // it marks everything currently in scope seen (see
-                // AnnouncementsScreen's LaunchedEffect).
-                IconButton(onClick = onOpenAnnouncements) {
-                    BadgedBox(badge = { if (unseenAnnouncements > 0) Badge { Text(unseenAnnouncements.toString()) } }) {
-                        Icon(Icons.Rounded.Campaign, contentDescription = "Announcements", tint = Color.White)
-                    }
-                }
+                // Unified notification balloon — transfer requests,
+                // announcements, calendar schedule; opening it marks
+                // everything currently in scope seen (see
+                // NotificationCenterViewModel.markAllSeen).
+                NotificationBell(
+                    items = notificationItems,
+                    unseenCount = notificationUnseenCount,
+                    onOpen = onOpenNotifications,
+                    onItemClick = { onNotificationClick(it.route) },
+                )
                 IconButton(onClick = onOpenSettings) {
                     Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
                 }
@@ -347,6 +381,7 @@ private fun FeatureTile(
 private fun FeatureTileGrid(
     isPioneer: Boolean,
     unseenAnnouncements: Int,
+    pendingPublisherForwards: Int,
     onNavigate: (String) -> Unit,
 ) {
     data class Tile(val title: String, val subtitle: String, val icon: ImageVector, val route: String, val badge: Int = 0)
@@ -356,6 +391,8 @@ private fun FeatureTileGrid(
         add(Tile("Searching", "Find Interested Ones", Icons.Rounded.PersonSearch, Destinations.SEARCHING))
         add(Tile("Return Visit", "Record & Follow-up", Icons.Rounded.PeopleAlt, Destinations.RETURN_VISIT))
         add(Tile("Bible Study", "View & Manage", Icons.AutoMirrored.Rounded.MenuBook, Destinations.BIBLE_STUDY))
+        // "FORWARD TO OTHER PUBLISHER" — this Publisher's own incoming queue.
+        add(Tile("Forwarded to Me", "Accept or Decline", Icons.AutoMirrored.Rounded.Forward, Destinations.PUBLISHER_FORWARD_REQUESTS, pendingPublisherForwards))
         if (isPioneer) {
             add(Tile("My Total Hours", "Track Preaching Hours", Icons.Rounded.Timer, Destinations.PREACHING_TIME_RECORD))
         }
@@ -491,5 +528,93 @@ private fun PublisherStatsSection(
                 onClick = { onNavigate(Destinations.MONTHLY_REPORT) },
             )
         }
+    }
+}
+
+/** "FORWARD TO OTHER PUBLISHER" spec flow — fires one local notification per
+ * app session per new pending count increase for records forwarded *to* this
+ * Publisher, and one per outcome (Accept/Decline) landing on a request this
+ * Publisher *sent* — same "one notification per session per new count"
+ * pattern as AdminHomeScreen's ForwardRequestNotifier for the cross-
+ * congregation flow. */
+@Composable
+private fun PublisherForwardNotifier(
+    currentPersonId: String,
+    viewModel: com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsViewModel,
+) {
+    val context = LocalContext.current
+
+    val incomingFlow = remember(currentPersonId) { viewModel.incomingRequestsFor(currentPersonId) }
+    val incoming by incomingFlow.collectAsStateWithLifecycle(initialValue = null)
+    var lastIncomingCount by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(incoming) {
+        val current = incoming ?: return@LaunchedEffect
+        val previous = lastIncomingCount
+        if (previous != null && current.size > previous) {
+            com.emfitsolutions.gopreach.notifications.NotificationHelper.notify(
+                context,
+                id = 9200,
+                title = "Record Forwarded to You",
+                text = "Another publisher forwarded a Bible Study/Return Visit record to you.",
+            )
+        }
+        lastIncomingCount = current.size
+    }
+
+    val outgoingFlow = remember(currentPersonId) { viewModel.outgoingRequestsFor(currentPersonId) }
+    val outgoing by outgoingFlow.collectAsStateWithLifecycle(initialValue = null)
+    var lastOutgoingStatuses by remember { mutableStateOf<Map<String, com.emfitsolutions.gopreach.data.model.ForwardRequestStatus>?>(null) }
+    LaunchedEffect(outgoing) {
+        val current = outgoing ?: return@LaunchedEffect
+        val previousStatuses = lastOutgoingStatuses
+        if (previousStatuses != null) {
+            current.forEach { request ->
+                val wasPending = previousStatuses[request.id] == com.emfitsolutions.gopreach.data.model.ForwardRequestStatus.PENDING
+                if (wasPending && request.status != com.emfitsolutions.gopreach.data.model.ForwardRequestStatus.PENDING) {
+                    com.emfitsolutions.gopreach.notifications.NotificationHelper.notify(
+                        context,
+                        id = 9200 + request.id.hashCode(),
+                        title = "Forward Request Update",
+                        text = "${request.personNameSnapshot} was ${request.status.name.lowercase()} by ${request.toPublisherNameSnapshot}.",
+                    )
+                }
+            }
+        }
+        lastOutgoingStatuses = current.associate { it.id to it.status }
+    }
+}
+
+/** "Forward to Other Congregation" spec flow (Return Visit's own wording:
+ * "there will be a notification for the Service Overseer and the Publisher
+ * for the status of the request") — notifies the *sending* publisher once
+ * one of their own cross-congregation forwards is Accepted/Declined; the
+ * Service Overseer side of this is already covered by AdminHomeScreen's
+ * ForwardRequestNotifier. */
+@Composable
+private fun ForwardToCongregationSenderNotifier(
+    currentPersonId: String,
+    viewModel: com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineViewModel,
+) {
+    val context = LocalContext.current
+    val outgoingFlow = remember(currentPersonId) { viewModel.outgoingForwardRequestsFor(currentPersonId) }
+    val outgoing by outgoingFlow.collectAsStateWithLifecycle(initialValue = null)
+    var lastStatuses by remember { mutableStateOf<Map<String, com.emfitsolutions.gopreach.data.model.ForwardRequestStatus>?>(null) }
+    LaunchedEffect(outgoing) {
+        val current = outgoing ?: return@LaunchedEffect
+        val previousStatuses = lastStatuses
+        if (previousStatuses != null) {
+            current.forEach { request ->
+                val wasPending = previousStatuses[request.id] == com.emfitsolutions.gopreach.data.model.ForwardRequestStatus.PENDING
+                if (wasPending && request.status != com.emfitsolutions.gopreach.data.model.ForwardRequestStatus.PENDING) {
+                    com.emfitsolutions.gopreach.notifications.NotificationHelper.notify(
+                        context,
+                        id = 9300 + request.id.hashCode(),
+                        title = "Forward Request Update",
+                        text = "${request.personNameSnapshot} was ${request.status.name.lowercase()} by ${request.toCongregationNameSnapshot}.",
+                    )
+                }
+            }
+        }
+        lastStatuses = current.associate { it.id to it.status }
     }
 }

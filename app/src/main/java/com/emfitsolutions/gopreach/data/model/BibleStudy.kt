@@ -118,6 +118,14 @@ data class InterestedPerson(
      * reads this id to show a live "Forward status: Pending/Accepted/Declined"
      * without a separate per-person lookup table. */
     val pendingForwardRequestId: String? = null,
+    /** Same idea as [pendingForwardRequestId], for the same-congregation
+     * "FORWARD TO OTHER PUBLISHER" flow (see [PublisherForwardRequest]) —
+     * points at the most recent one for this person, `null` meaning never
+     * forwarded to another publisher (or the sender cleared/acknowledged the
+     * outcome). The two forward mechanisms are independent: a record can
+     * have a pending request of each kind at once, though the UI only offers
+     * one action at a time per kind (see PipelineScreen). */
+    val pendingPublisherForwardRequestId: String? = null,
 ) {
     val primarySupportingImage: SupportingImage? get() = supportingImages.firstOrNull()
     val hasGpsLocation: Boolean get() = gpsLat != null && gpsLng != null
@@ -187,4 +195,39 @@ data class ForwardRequest(
      * congregation the record was assigned to. */
     val assignedToPublisherPersonId: String? = null,
     val assignedToPublisherNameSnapshot: String? = null,
+)
+
+/**
+ * "FORWARD TO OTHER PUBLISHER" spec flow — a same-congregation hand-off
+ * request for one [InterestedPerson] (a Bible Study or Return Visit record),
+ * directly between two publishers with no Service Overseer step: the sending
+ * publisher already picked exactly who should receive it, so there's no
+ * "assign to a publisher" step the way [ForwardRequest]'s cross-congregation
+ * flow needs — only the receiving publisher themselves can [ACCEPT]/[DECLINE]
+ * it. Name snapshots are captured at request time for the same reason
+ * [ForwardRequest]'s are (see its doc comment).
+ *
+ * Admin/Elders/Super-Admin/Service Overseer can see these (read-only, scoped
+ * to their own congregation via [congregationId]) alongside the cross-
+ * congregation queue in [com.emfitsolutions.gopreach.ui.screens.pipeline
+ * .ForwardRequestsScreen] — they never act on one; only the target publisher
+ * does.
+ *
+ * Firestore collection: `publisherForwardRequests/{publisherForwardRequestId}`
+ */
+data class PublisherForwardRequest(
+    @DocumentId val id: String = "",
+    val interestedPersonId: String = "",
+    val personNameSnapshot: String = "",
+    /** Unchanged by this flow (both publishers are always in the same
+     * congregation) — kept here anyway so Admin/Elder visibility can scope
+     * the exact same way [ForwardRequest.toCongregationId] already does. */
+    val congregationId: String = "",
+    val fromPublisherPersonId: String = "",
+    val fromPublisherNameSnapshot: String = "",
+    val toPublisherPersonId: String = "",
+    val toPublisherNameSnapshot: String = "",
+    val status: ForwardRequestStatus = ForwardRequestStatus.PENDING,
+    val requestedAt: Long = 0L,
+    val respondedAt: Long? = null,
 )

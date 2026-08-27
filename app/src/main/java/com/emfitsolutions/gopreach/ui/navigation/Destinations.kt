@@ -69,6 +69,8 @@ object Destinations {
     const val BIBLE_STUDY = "bible_study"
     // Service Overseer's incoming "Forward to Other Congregation" review queue.
     const val FORWARD_REQUESTS = "forward_requests"
+    // A Publisher's own incoming "FORWARD TO OTHER PUBLISHER" review queue.
+    const val PUBLISHER_FORWARD_REQUESTS = "publisher_forward_requests"
 
     // Phase 6
     const val SHARE_LOCATION = "share_location"

@@ -36,22 +36,37 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.ForwardRequest
+import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 
 /** "Forward to Other Congregation" spec flow — the receiving Service
  * Overseer's (also Coordinator Elder/Admin/Super-Admin) incoming review
- * queue: full record details, [ACCEPT] (then Assign to Publisher) / [DECLINE]. */
+ * queue: full record details, [ACCEPT] (then Assign to Publisher) / [DECLINE].
+ * Also lists same-congregation "FORWARD TO OTHER PUBLISHER" requests
+ * read-only below it — every role "can also see this," per spec, but only
+ * the target publisher ever acts on that one.
+ *
+ * [readOnly] widens *visibility* of this whole screen to Regular Elder/
+ * Ministerial Servant (the notification balloon's "Incoming approval request
+ * for transfer [All]" item) without widening *approval authority* — they see
+ * the same request details Service Overseer/Coordinator Elder/Admin/
+ * Super-Admin do, just with [ACCEPT]/[DECLINE] replaced by a plain [CLOSE]. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ForwardRequestsScreen(
     congregationIds: Set<String>?,
     currentPersonId: String,
+    readOnly: Boolean = false,
     onBack: () -> Unit,
     viewModel: ForwardRequestsViewModel = hiltViewModel(),
+    publisherForwardViewModel: PublisherForwardRequestsViewModel = hiltViewModel(),
 ) {
     val requestsFlow = remember(congregationIds) { viewModel.pendingRequestsFor(congregationIds) }
     val requests by requestsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val publisherRequestsFlow = remember(congregationIds) { publisherForwardViewModel.requestsFor(congregationIds) }
+    val publisherRequests by publisherRequestsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var selected by remember { mutableStateOf<ForwardRequest?>(null) }
 
     Scaffold(
@@ -62,9 +77,9 @@ fun ForwardRequestsScreen(
             )
         },
     ) { padding ->
-        if (requests.isEmpty()) {
+        if (requests.isEmpty() && publisherRequests.isEmpty()) {
             Column(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("No pending forward requests.", style = MaterialTheme.typography.bodyMedium)
+                Text("No forward requests.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyColumn(
@@ -72,14 +87,23 @@ fun ForwardRequestsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(requests, key = { it.id }) { request ->
-                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                            Text(request.personNameSnapshot, style = MaterialTheme.typography.titleMedium)
-                            Text("From: ${request.fromPublisherNameSnapshot} · ${request.fromCongregationNameSnapshot}", style = MaterialTheme.typography.bodySmall)
-                            Text("Requested: ${formatRecordTimestamp(request.requestedAt)}", style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = { selected = request }) { Text("REVIEW") }
+                if (requests.isNotEmpty()) {
+                    item { Text("To Other Congregation", style = MaterialTheme.typography.titleSmall) }
+                    items(requests, key = { it.id }) { request ->
+                        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                                Text(request.personNameSnapshot, style = MaterialTheme.typography.titleMedium)
+                                Text("From: ${request.fromPublisherNameSnapshot} · ${request.fromCongregationNameSnapshot}", style = MaterialTheme.typography.bodySmall)
+                                Text("Requested: ${formatRecordTimestamp(request.requestedAt)}", style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = { selected = request }) { Text(if (readOnly) "VIEW" else "REVIEW") }
+                            }
                         }
+                    }
+                }
+                if (publisherRequests.isNotEmpty()) {
+                    item { Text("To Other Publisher (view only)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp)) }
+                    items(publisherRequests, key = { it.id }) { request ->
+                        PublisherForwardRequestRow(request)
                     }
                 }
             }
@@ -90,6 +114,7 @@ fun ForwardRequestsScreen(
         ReviewForwardRequestDialog(
             request = request,
             currentPersonId = currentPersonId,
+            readOnly = readOnly,
             onDismiss = { selected = null },
             onDecline = {
                 viewModel.decline(request, currentPersonId)
@@ -100,11 +125,29 @@ fun ForwardRequestsScreen(
     }
 }
 
+@Composable
+private fun PublisherForwardRequestRow(request: PublisherForwardRequest) {
+    val (statusText, statusColor) = when (request.status) {
+        ForwardRequestStatus.PENDING -> "Pending" to MaterialTheme.colorScheme.tertiary
+        ForwardRequestStatus.ACCEPTED -> "Accepted" to MaterialTheme.colorScheme.primary
+        ForwardRequestStatus.DECLINED -> "Declined" to MaterialTheme.colorScheme.error
+    }
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(request.personNameSnapshot, style = MaterialTheme.typography.titleMedium)
+            Text("From: ${request.fromPublisherNameSnapshot} → ${request.toPublisherNameSnapshot}", style = MaterialTheme.typography.bodySmall)
+            Text("Requested: ${formatRecordTimestamp(request.requestedAt)}", style = MaterialTheme.typography.bodySmall)
+            Text("Status: $statusText", style = MaterialTheme.typography.bodySmall, color = statusColor)
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReviewForwardRequestDialog(
     request: ForwardRequest,
     currentPersonId: String,
+    readOnly: Boolean,
     onDismiss: () -> Unit,
     onDecline: () -> Unit,
     viewModel: ForwardRequestsViewModel,
@@ -113,6 +156,25 @@ private fun ReviewForwardRequestDialog(
     val publishers by publishersFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var assigning by remember { mutableStateOf(false) }
     var selectedPublisher by remember { mutableStateOf<Person?>(null) }
+
+    if (readOnly) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Forward Request") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("FORWARD REQUEST FROM:", style = MaterialTheme.typography.labelLarge)
+                    Text("Publisher Name: ${request.fromPublisherNameSnapshot}")
+                    Text("Congregation: ${request.fromCongregationNameSnapshot}")
+                    Text("—".repeat(20), style = MaterialTheme.typography.bodySmall)
+                    Text("Name: ${request.personNameSnapshot}")
+                    Text("Status: Pending", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                }
+            },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("CLOSE") } },
+        )
+        return
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
