@@ -116,6 +116,10 @@ fun AdminHomeScreen(
     val canViewUserLogs = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION || role == AdminRole.COORDINATOR_ELDER
     // Publishers/Groups: Super-Admin/Admin/Coordinator Elder only (spec §3 permission matrix — Regular Elder ❌).
     val canManagePublishersAndGroups = canViewUserLogs
+    // "CREATING GROUPS" spec — Service Overseer can also create/manage
+    // Groups under their own congregation, same as Coordinator Elder,
+    // without gaining the wider Publisher-management access above.
+    val canManageGroups = canManagePublishersAndGroups || role == AdminRole.SERVICE_OVERSEER
     // "Elder Dashboard Consistent with Admin/Super-Admin Dashboard" spec §1 —
     // every admin-track role (including both Elder roles) now navigates
     // through the same Side Panel-driven Main Form; the old tile-grid body
@@ -221,6 +225,7 @@ fun AdminHomeScreen(
                 canViewForwardRequests = canViewForwardRequests,
                 canEnrollRegularElderOrPublisher = canEnrollRegularElderOrPublisher,
                 canManagePublishersAndGroups = canManagePublishersAndGroups,
+                canManageGroups = canManageGroups,
                 canManageTerritories = canManagePublishersAndGroups,
                 canAccessControlPanel = canAccessControlPanel,
                 isSuperAdmin = isSuperAdmin,

@@ -206,6 +206,7 @@ fun ManageGroupsScreen(
         GroupDialog(
             fixedCongregationId = fixedCongregationId,
             existingGroup = null,
+            currentPersonId = currentPersonId,
             viewModel = viewModel,
             onDismiss = { showCreateDialog = false },
         )
@@ -216,6 +217,7 @@ fun ManageGroupsScreen(
         GroupDialog(
             fixedCongregationId = fixedCongregationId,
             existingGroup = toEditGroup,
+            currentPersonId = currentPersonId,
             viewModel = viewModel,
             onDismiss = { pendingEdit = null },
         )
@@ -245,6 +247,7 @@ fun ManageGroupsScreen(
 private fun GroupDialog(
     fixedCongregationId: String?,
     existingGroup: Group?,
+    currentPersonId: String,
     viewModel: ManageGroupsViewModel,
     onDismiss: () -> Unit,
 ) {
@@ -291,6 +294,22 @@ private fun GroupDialog(
 
     val legacyElderName = existingGroup?.regularElderPersonId?.let { legacyId ->
         (overseerCandidates + servantCandidates + assistantCandidates).firstOrNull { it.id == legacyId }?.fullName
+    }
+
+    // "[ADD MEMBERS] Browse from Publishers Record" — every active Publisher
+    // in this congregation, checkbox-selectable. Selection starts from
+    // whoever is already assigned to this Group (empty for a brand-new one,
+    // since it has no id — and therefore no members — yet); [membersPreselected]
+    // is the same "wait for the candidate list, then pre-fill once" pattern
+    // [preselected] above already uses for the three Elder role dropdowns.
+    val memberCandidates by remember(congregationId) {
+        if (congregationId != null) viewModel.membersFor(congregationId) else kotlinx.coroutines.flow.flowOf(emptyList())
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
+    var checkedMemberIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var membersPreselected by remember { mutableStateOf(existingGroup == null) }
+    if (!membersPreselected && memberCandidates.isNotEmpty()) {
+        checkedMemberIds = memberCandidates.filter { it.assignment.groupId == existingGroup?.id }.map { it.person.id }.toSet()
+        membersPreselected = true
     }
 
     AlertDialog(
@@ -342,6 +361,46 @@ private fun GroupDialog(
                     onSelected = { assistant = it },
                 )
 
+                if (congregationId != null) {
+                    EditSectionHeader("Members")
+                    if (memberCandidates.isEmpty()) {
+                        Text(
+                            "No publishers enrolled in this congregation yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    } else {
+                        Text(
+                            "A publisher can only belong to one group at a time — checking someone already in another group transfers them here.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        memberCandidates.forEach { candidate ->
+                            val checked = candidate.person.id in checkedMemberIds
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = { isChecked ->
+                                        checkedMemberIds = if (isChecked) {
+                                            checkedMemberIds + candidate.person.id
+                                        } else {
+                                            checkedMemberIds - candidate.person.id
+                                        }
+                                    },
+                                )
+                                Column {
+                                    Text(candidate.person.fullName)
+                                    if (candidate.currentGroupName != null && candidate.currentGroupName != existingGroup?.name) {
+                                        Text(
+                                            "Currently in: ${candidate.currentGroupName}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.secondary,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (existingGroup != null) {
                     EditSectionHeader("System Information")
                     ReadOnlyField("Record ID", existingGroup.id)
@@ -354,8 +413,8 @@ private fun GroupDialog(
             TextButton(
                 onClick = {
                     if (name.isNotBlank() && congregationId != null) {
-                        viewModel.save(
-                            Group(
+                        viewModel.saveWithMembers(
+                            group = Group(
                                 id = existingGroup?.id ?: "",
                                 congregationId = congregationId,
                                 name = name.trim(),
@@ -364,7 +423,10 @@ private fun GroupDialog(
                                 servantPersonId = servant?.id,
                                 assistantPersonId = assistant?.id,
                                 createdAt = existingGroup?.createdAt ?: System.currentTimeMillis(),
-                            )
+                            ),
+                            candidates = memberCandidates,
+                            selectedMemberPersonIds = checkedMemberIds,
+                            actorPersonId = currentPersonId,
                         )
                         onDismiss()
                     }

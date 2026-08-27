@@ -75,6 +75,12 @@ fun GoPreachSidePanelContent(
     canViewForwardRequests: Boolean,
     canEnrollRegularElderOrPublisher: Boolean,
     canManagePublishersAndGroups: Boolean,
+    /** "CREATING GROUPS" spec — Coordinator Elder *or* Service Overseer can
+     * create a Group under their own congregation, in addition to everyone
+     * [canManagePublishersAndGroups] already covers (Super-Admin/Admin/
+     * Coordinator Elder). Service Overseer gets Groups specifically, not the
+     * wider Publisher-management access. */
+    canManageGroups: Boolean,
     canManageTerritories: Boolean,
     canAccessControlPanel: Boolean,
     isSuperAdmin: Boolean,
@@ -95,7 +101,7 @@ fun GoPreachSidePanelContent(
             if (canEnrollCoordinatorElder) add(SideItem("Coordinator Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_COORDINATOR_ELDERS))
             if (canEnrollServiceOverseer) add(SideItem("Service Overseer", Icons.Rounded.PersonAdd, Destinations.MANAGE_SERVICE_OVERSEERS))
             if (canEnrollMinisterialServant) add(SideItem("Ministerial Servant", Icons.Rounded.PersonAdd, Destinations.MANAGE_MINISTERIAL_SERVANTS))
-            if (canManagePublishersAndGroups) add(SideItem("Groups", Icons.Rounded.Groups, Destinations.MANAGE_GROUPS))
+            if (canManageGroups) add(SideItem("Groups", Icons.Rounded.Groups, Destinations.MANAGE_GROUPS))
             if (canEnrollRegularElderOrPublisher) add(SideItem("Regular Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_REGULAR_ELDERS))
             // Routes to the Manage Publishers *list* screen (which has its own
             // onAddNew FAB into ENROLL_PUBLISHER), matching every other entry

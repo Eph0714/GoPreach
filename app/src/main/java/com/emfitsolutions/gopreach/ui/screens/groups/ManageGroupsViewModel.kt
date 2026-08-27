@@ -8,6 +8,7 @@ import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
+import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
@@ -27,6 +28,18 @@ data class GroupRow(
     val overseerName: String?,
     val servantName: String?,
     val assistantName: String?,
+)
+
+/** One Publisher candidate for the "[ADD MEMBERS] Browse from Publishers
+ * Record" section of the Group dialog — [currentGroupName] is non-null when
+ * they're already a member of some *other* group, so the UI can make clear
+ * that checking them here transfers them off it (spec: "A publisher can only
+ * be assign in a single group but it can be transferred to other group from
+ * time to time"). */
+data class MemberCandidate(
+    val person: Person,
+    val assignment: RoleAssignment,
+    val currentGroupName: String?,
 )
 
 /** Spec §3 — "CRUD Groups"; each Group needs exactly one Elder in each of three
@@ -68,6 +81,67 @@ class ManageGroupsViewModel @Inject constructor(
                 .mapNotNull { assignment -> people.firstOrNull { it.id == assignment.personId } }
         }
 
+    /** Every active Publisher (any category) in [congregationId] — the pool
+     * ADD MEMBERS browses. [MemberCandidate.currentGroupName] tells the UI
+     * whether checking one here would transfer them off a different group. */
+    fun membersFor(congregationId: String): Flow<List<MemberCandidate>> =
+        combine(personRepository.observeAll(), roleAssignmentRepository.observeAll(), groupRepository.observeAll()) { people, assignments, groups ->
+            assignments
+                .filter { assignment ->
+                    assignment.status == RoleAssignmentStatus.ACTIVE &&
+                        assignment.congregationId == congregationId &&
+                        assignment.resolvedRoleTypeOrNull() is RoleType.Publisher
+                }
+                .mapNotNull { assignment ->
+                    val person = people.firstOrNull { it.id == assignment.personId } ?: return@mapNotNull null
+                    val currentGroupName = groups.firstOrNull { it.id == assignment.groupId }?.name
+                    MemberCandidate(person, assignment, currentGroupName)
+                }
+                .sortedBy { it.person.fullName }
+        }
+
+    /** Saves the Group and its three Elder role slots (via [save]'s existing
+     * logic), then applies the ADD MEMBERS section's checkbox changes:
+     * [selectedMemberPersonIds] is who should end up assigned to this group
+     * once saving is done — everyone else in [candidates] currently assigned
+     * here gets cleared instead, and a checked Publisher already on a
+     * *different* group is simply moved (spec: "can only be assign in a
+     * single group but it can be transferred to other group from time to
+     * time"). Runs as one coroutine so the group's real id (assigned on
+     * first save, for a brand-new group) exists before members are written
+     * against it. */
+    fun saveWithMembers(
+        group: Group,
+        candidates: List<MemberCandidate>,
+        selectedMemberPersonIds: Set<String>,
+        actorPersonId: String,
+    ) {
+        viewModelScope.launch {
+            val saved = saveGroupAndSyncElders(group)
+            candidates.forEach { candidate ->
+                val shouldBeMember = candidate.person.id in selectedMemberPersonIds
+                val isAlreadyMember = candidate.assignment.groupId == saved.id
+                if (shouldBeMember == isAlreadyMember) return@forEach
+                val newGroupId = if (shouldBeMember) saved.id else null
+                roleAssignmentRepository.save(
+                    candidate.assignment.copy(
+                        groupId = newGroupId,
+                        lastEditedByPersonId = actorPersonId,
+                        lastEditedAt = System.currentTimeMillis(),
+                    )
+                )
+                auditLogRepository.log(
+                    actorPersonId = actorPersonId,
+                    action = "CHANGE_PUBLISHER_GROUP",
+                    targetType = "Person",
+                    targetId = candidate.person.id,
+                    congregationId = candidate.assignment.congregationId,
+                    details = "group: ${candidate.currentGroupName ?: "Unassigned"} -> ${if (shouldBeMember) saved.name else "Unassigned"}",
+                )
+            }
+        }
+    }
+
     fun rowsFor(congregationId: String?): Flow<List<GroupRow>> =
         combine(groupRepository.observeAll(), personRepository.observeAll()) { groups, people ->
             groups
@@ -90,23 +164,30 @@ class ManageGroupsViewModel @Inject constructor(
      * Anyone *removed* from a slot (replaced, or cleared) has their groupId
      * cleared too, so they don't keep seeing a group they're no longer on. */
     fun save(group: Group) {
-        viewModelScope.launch {
-            val previous = if (group.id.isNotBlank()) groupRepository.observeAll().first().firstOrNull { it.id == group.id } else null
-            val saved = groupRepository.save(group)
+        viewModelScope.launch { saveGroupAndSyncElders(group) }
+    }
 
-            suspend fun sync(role: RegularElderRole, oldPersonId: String?, newPersonId: String?) {
-                if (oldPersonId == newPersonId) {
-                    if (newPersonId != null) setElderGroup(newPersonId, saved.id, role)
-                    return
-                }
-                if (oldPersonId != null) setElderGroup(oldPersonId, null, null)
+    /** The suspend core [save] wraps — factored out so [saveWithMembers] can
+     * run it and the ADD MEMBERS sync in the same coroutine, one after the
+     * other, instead of two independently-launched writes racing each other
+     * for a brand-new Group's freshly-assigned id. */
+    private suspend fun saveGroupAndSyncElders(group: Group): Group {
+        val previous = if (group.id.isNotBlank()) groupRepository.observeAll().first().firstOrNull { it.id == group.id } else null
+        val saved = groupRepository.save(group)
+
+        suspend fun sync(role: RegularElderRole, oldPersonId: String?, newPersonId: String?) {
+            if (oldPersonId == newPersonId) {
                 if (newPersonId != null) setElderGroup(newPersonId, saved.id, role)
+                return
             }
-
-            sync(RegularElderRole.GROUP_OVERSEER, previous?.overseerPersonId, saved.overseerPersonId)
-            sync(RegularElderRole.GROUP_SERVANT, previous?.servantPersonId, saved.servantPersonId)
-            sync(RegularElderRole.GROUP_ASSISTANT, previous?.assistantPersonId, saved.assistantPersonId)
+            if (oldPersonId != null) setElderGroup(oldPersonId, null, null)
+            if (newPersonId != null) setElderGroup(newPersonId, saved.id, role)
         }
+
+        sync(RegularElderRole.GROUP_OVERSEER, previous?.overseerPersonId, saved.overseerPersonId)
+        sync(RegularElderRole.GROUP_SERVANT, previous?.servantPersonId, saved.servantPersonId)
+        sync(RegularElderRole.GROUP_ASSISTANT, previous?.assistantPersonId, saved.assistantPersonId)
+        return saved
     }
 
     /** [role] is only written when non-null (assigning) — clearing an Elder from a
