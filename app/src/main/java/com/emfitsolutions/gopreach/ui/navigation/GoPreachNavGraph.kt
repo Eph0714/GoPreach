@@ -452,19 +452,29 @@ fun GoPreachNavGraph(
             )
         }
         composable(Destinations.SHARE_LOCATION) {
-            // Spec §6.1 scoping: Super-Admin sees everyone; Admin/Coordinator Elder their
-            // congregation; Regular Elder and Publisher their own group.
-            val (visibleCongregationId, visibleGroupId) = when {
-                currentRole == AdminRole.SUPER_ADMIN -> null to null
-                currentRole == AdminRole.ADMIN_PER_CONGREGATION || currentRole == AdminRole.COORDINATOR_ELDER -> ownCongregationId to null
-                currentRole == AdminRole.REGULAR_ELDER -> ownGroupAssignment?.congregationId to ownGroupAssignment?.groupId
-                else -> ownPublisherAssignment?.congregationId to ownPublisherAssignment?.groupId
+            // "SHARE LOCATION SETTINGS" spec — Super-Admin sees/configures
+            // every congregation; Admin/Service Overseer/Coordinator Elder/
+            // Regular Elder their own congregation (widened from "own group"
+            // for Regular Elder — the new spec's access list says "Own
+            // Congregation" for elders); a Publisher sees every other
+            // Publisher sharing within their own congregation too ("All
+            // Other Publisher in their congregation can see" — widened from
+            // "own group only").
+            val visibleCongregationId = when (currentRole) {
+                AdminRole.SUPER_ADMIN -> null
+                AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER -> ownCongregationId
+                AdminRole.REGULAR_ELDER -> ownGroupAssignment?.congregationId
+                else -> ownPublisherAssignment?.congregationId
             }
+            val canManageLocationSettings = currentRole == AdminRole.SUPER_ADMIN || currentRole in setOf(
+                AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.REGULAR_ELDER,
+            )
             ShareLocationScreen(
                 currentPersonId = currentPersonId,
                 visibleCongregationId = visibleCongregationId,
-                visibleGroupId = visibleGroupId,
                 canShareOwnLocation = ownPublisherAssignment != null,
+                canManageLocationSettings = canManageLocationSettings,
+                ownCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (visibleCongregationId ?: ownCongregationId),
                 onBack = { navController.popBackStack() },
             )
         }

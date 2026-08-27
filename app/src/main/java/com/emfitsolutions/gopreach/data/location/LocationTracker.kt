@@ -4,14 +4,21 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Geocoder
+import android.os.Build
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.resume
 
 data class LatLng(val lat: Double, val lng: Double, val accuracyMeters: Float?)
 
@@ -37,5 +44,29 @@ class LocationTracker @Inject constructor(
         val request = CurrentLocationRequest.Builder().setPriority(Priority.PRIORITY_BALANCED_POWER_ACCURACY).build()
         val location = client.getCurrentLocation(request, null).await() ?: return null
         return LatLng(location.latitude, location.longitude, location.accuracy)
+    }
+
+    /** "Shared Location Reports" spec — the human-readable "Location" line
+     * next to each record's raw coordinates, via Android's own on-device
+     * [Geocoder] (no API key/new dependency, same "no new dependency"
+     * philosophy this app already follows elsewhere). Returns null on any
+     * failure (no network, no geocoder backend on this device, nothing
+     * found) — callers show the coordinates alone in that case rather than
+     * blocking on an address that may never resolve. */
+    suspend fun reverseGeocode(lat: Double, lng: Double): String? = withContext(Dispatchers.IO) {
+        if (!Geocoder.isPresent()) return@withContext null
+        runCatching {
+            val geocoder = Geocoder(context, Locale.getDefault())
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                suspendCancellableCoroutine { cont ->
+                    geocoder.getFromLocation(lat, lng, 1) { addresses ->
+                        cont.resume(addresses.firstOrNull()?.getAddressLine(0))
+                    }
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                geocoder.getFromLocation(lat, lng, 1)?.firstOrNull()?.getAddressLine(0)
+            }
+        }.getOrNull()
     }
 }

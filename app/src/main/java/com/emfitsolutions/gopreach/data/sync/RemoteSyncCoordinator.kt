@@ -8,6 +8,7 @@ import com.emfitsolutions.gopreach.data.repository.ElderTitleRepository
 import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
+import com.emfitsolutions.gopreach.data.repository.LocationSharingSettingsRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
@@ -76,6 +77,7 @@ class RemoteSyncCoordinator @Inject constructor(
     private val userAccessGrantRepository: UserAccessGrantRepository,
     private val preachingTimeRecordRepository: PreachingTimeRecordRepository,
     private val announcementRepository: AnnouncementRepository,
+    private val locationSharingSettingsRepository: LocationSharingSettingsRepository,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     private var started = false
@@ -113,5 +115,6 @@ class RemoteSyncCoordinator @Inject constructor(
         userAccessGrantRepository.startRemoteSync().startTracked(uidChanged)
         preachingTimeRecordRepository.startRemoteSync().startTracked(uidChanged)
         announcementRepository.startRemoteSync().startTracked(uidChanged)
+        locationSharingSettingsRepository.startRemoteSync().startTracked(uidChanged)
     }
 }
