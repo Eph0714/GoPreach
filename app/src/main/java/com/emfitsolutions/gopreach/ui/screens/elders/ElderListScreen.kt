@@ -69,6 +69,11 @@ fun ElderListScreen(
     onSetActive: (ElderRow, Boolean) -> Unit,
     onEdit: (ElderRow, Person) -> Unit,
     onPermanentlyDelete: (ElderRow) -> Unit,
+    /** Overrides the default Personal-Information-only [EditElderDialog]
+     * with a richer one (e.g. Service Overseer's roles-and-congregation
+     * editor) — null (the default) keeps every other caller's existing
+     * edit dialog exactly as it was. */
+    editDialogContent: (@Composable (row: ElderRow, onDismiss: () -> Unit) -> Unit)? = null,
 ) {
     var showInactive by remember { mutableStateOf(false) }
     val visibleRows = rows.filter { showInactive || it.isActive }
@@ -171,15 +176,19 @@ fun ElderListScreen(
 
     val toEdit = pendingEdit
     if (toEdit != null) {
-        EditElderDialog(
-            row = toEdit,
-            scopeLabel = scopeLabel,
-            onSave = { updated ->
-                onEdit(toEdit, updated)
-                pendingEdit = null
-            },
-            onDismiss = { pendingEdit = null },
-        )
+        if (editDialogContent != null) {
+            editDialogContent(toEdit) { pendingEdit = null }
+        } else {
+            EditElderDialog(
+                row = toEdit,
+                scopeLabel = scopeLabel,
+                onSave = { updated ->
+                    onEdit(toEdit, updated)
+                    pendingEdit = null
+                },
+                onDismiss = { pendingEdit = null },
+            )
+        }
     }
 
     val toDeactivate = pendingDeactivate
