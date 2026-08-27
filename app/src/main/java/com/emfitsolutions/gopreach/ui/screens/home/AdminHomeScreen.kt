@@ -57,7 +57,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.AdminRole
+import com.emfitsolutions.gopreach.data.model.Permission
 import com.emfitsolutions.gopreach.data.model.RoleType
+import com.emfitsolutions.gopreach.data.model.ScopeType
 import com.emfitsolutions.gopreach.domain.PermissionChecker
 import com.emfitsolutions.gopreach.ui.components.DashboardHero
 import com.emfitsolutions.gopreach.ui.components.DashboardSection
@@ -93,13 +95,23 @@ fun AdminHomeScreen(
     val role = PermissionChecker.highestAdminRole(session.roleAssignments)
 
     val isSuperAdmin = role == AdminRole.SUPER_ADMIN
+    // "REDESIGN THE CIRCUIT OVERSEER AND OTHER USER DASHBOARD" spec —
+    // Circuit Overseer (and any other future grant-based restricted role)
+    // carries no built-in access of its own (see AdminRole.CIRCUIT_OVERSEER's
+    // doc comment); every capability they have comes from their own
+    // UserAccessGrant instead. Checked by permission only, not scope, here —
+    // this only decides whether a drawer item is *offered at all*; the
+    // screen it opens, and firestore.rules underneath it, still enforce the
+    // grant's actual congregation/group scope on every read and write.
+    val grantPermissions = session.grant?.resolvedPermissions.orEmpty()
     val canEnrollCoordinatorElder = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION
     val canEnrollRegularElderOrPublisher = canEnrollCoordinatorElder || role == AdminRole.COORDINATOR_ELDER
     // "CREATING PUBLISHER" spec — Service Overseer can also create/manage
     // Publishers under their own congregation, on top of everyone
     // [canEnrollRegularElderOrPublisher] already covers. Kept as its own flag
     // so Service Overseer doesn't also gain Regular Elder enrollment access.
-    val canEnrollPublisher = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER
+    val canEnrollPublisher = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER ||
+        Permission.MANAGE_PUBLISHERS in grantPermissions
     // New Service Overseer role — unlike Coordinator Elder enrollment, a
     // Coordinator Elder *can* create one (same three-role set as Regular
     // Elder/Publisher enrollment above).
@@ -128,7 +140,14 @@ fun AdminHomeScreen(
     // "CREATING GROUPS" spec — Service Overseer can also create/manage
     // Groups under their own congregation, same as Coordinator Elder,
     // without gaining the wider Publisher-management access above.
-    val canManageGroups = canManagePublishersAndGroups || role == AdminRole.SERVICE_OVERSEER
+    val canManageGroups = canManagePublishersAndGroups || role == AdminRole.SERVICE_OVERSEER ||
+        Permission.MANAGE_GROUPS in grantPermissions
+    // Drawer-only widening of the Regular Elder item for a grant-based
+    // Circuit Overseer — deliberately *not* folded into
+    // [canEnrollRegularElderOrPublisher] itself, since that flag also drives
+    // Service Overseer/Ministerial Servant enrollment and the Consolidated
+    // Report below, none of which MANAGE_ELDERS implies.
+    val canManageRegularEldersForDrawer = canEnrollRegularElderOrPublisher || Permission.MANAGE_ELDERS in grantPermissions
     // "Elder Dashboard Consistent with Admin/Super-Admin Dashboard" spec §1 —
     // every admin-track role (including both Elder roles) now navigates
     // through the same Side Panel-driven Main Form; the old tile-grid body
@@ -141,9 +160,14 @@ fun AdminHomeScreen(
     // drawer (see GoPreachSidePanelContent, already gated by the same
     // canManagePublishersAndGroups/canEnrollRegularElderOrPublisher/etc.
     // booleans below, which are already Elder-aware).
+    // "REDESIGN THE CIRCUIT OVERSEER AND OTHER USER DASHBOARD" spec: "Make the
+    // Dashboard and main form the same as the admin user" — Circuit Overseer
+    // (and any other future grant-based restricted role) gets the same
+    // drawer+stats shell as every built-in Admin-track role, instead of the
+    // old tile-grid layout it was still stuck on.
     val hideMainFormButtons = isSuperAdmin || role == AdminRole.ADMIN_PER_CONGREGATION ||
         role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.REGULAR_ELDER ||
-        role == AdminRole.MINISTERIAL_SERVANT
+        role == AdminRole.MINISTERIAL_SERVANT || role == AdminRole.CIRCUIT_OVERSEER
     // Same scoping GoPreachNavGraph's standalone Dashboard Reports route uses
     // (see its `ownCongregationId ?: ownGroupAssignment?.congregationId`) —
     // reproduced here so the graphical Summary embedded below is scoped
@@ -163,7 +187,26 @@ fun AdminHomeScreen(
         (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
     }
     val ownGroupCongregationId = ownGroupAssignment?.congregationId
-    val visibleCongregationIds: Set<String>? = if (isSuperAdmin) null else setOfNotNull(ownCongregationId ?: ownGroupCongregationId)
+    // A Circuit Overseer has no congregationId of their own to fall back to
+    // (see AdminRole.CIRCUIT_OVERSEER's doc comment) — without this, the
+    // `else` branch below would resolve to an *empty* set for them (not
+    // "all"), silently showing zero congregations' worth of data on their
+    // own dashboard. Their real scope lives on the grant instead: null (no
+    // filter) for ALL_CONGREGATIONS, or the exact congregation list for
+    // SELECTED_CONGREGATIONS. A SELECTED_GROUPS grant has no congregation-
+    // level scope to derive here, so it stays empty rather than guessing.
+    val grantScopeCongregationIds: Set<String>? = session.grant?.let { grant ->
+        when (grant.resolvedScopeType) {
+            ScopeType.ALL_CONGREGATIONS -> null
+            ScopeType.SELECTED_CONGREGATIONS -> grant.scopeCongregationIds.toSet()
+            ScopeType.SELECTED_GROUPS -> emptySet()
+        }
+    }
+    val visibleCongregationIds: Set<String>? = when {
+        isSuperAdmin -> null
+        role == AdminRole.CIRCUIT_OVERSEER -> grantScopeCongregationIds
+        else -> setOfNotNull(ownCongregationId ?: ownGroupCongregationId)
+    }
 
     // "Forward to Other Congregation... The congregation 'Service Overseer'
     // in the receiving congregation will see a notification bell" spec —
@@ -233,7 +276,7 @@ fun AdminHomeScreen(
                 canViewConsolidatedReport = canViewConsolidatedReport,
                 canManagePublisherReports = canManagePublisherReports,
                 canViewForwardRequests = canViewForwardRequests,
-                canEnrollRegularElderOrPublisher = canEnrollRegularElderOrPublisher,
+                canEnrollRegularElderOrPublisher = canManageRegularEldersForDrawer,
                 canEnrollPublisher = canEnrollPublisher,
                 canManagePublishersAndGroups = canManagePublishersAndGroups,
                 canManageGroups = canManageGroups,
