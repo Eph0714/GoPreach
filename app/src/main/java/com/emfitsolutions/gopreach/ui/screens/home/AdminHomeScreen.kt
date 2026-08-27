@@ -126,6 +126,10 @@ fun AdminHomeScreen(
     // Circuit Overseer's MANAGE_ELDERS permission already covers this at the
     // data layer; this just surfaces the matching drawer item too.
     val canEnrollMinisterialServant = canEnrollRegularElderOrPublisher || Permission.MANAGE_ELDERS in grantPermissions
+    // "Announcement Module" — Super-Admin (any congregation), Admin/
+    // Coordinator Elder (own congregation only). No Service Overseer/
+    // Ministerial Servant per the spec's explicit access list.
+    val canManageAnnouncements = canEnrollRegularElderOrPublisher
     // "Consolidated Monthly Report" spec — Service Overseer, Coordinator
     // Elder, Admin (own congregation), and Super-Admin (all congregations).
     val canViewConsolidatedReport = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER
@@ -288,6 +292,7 @@ fun AdminHomeScreen(
                 canEnrollCoordinatorElder = canEnrollCoordinatorElder,
                 canEnrollServiceOverseer = canEnrollServiceOverseer,
                 canEnrollMinisterialServant = canEnrollMinisterialServant,
+                canManageAnnouncements = canManageAnnouncements,
                 canViewConsolidatedReport = canViewConsolidatedReport,
                 canManagePublisherReports = canManagePublisherReports,
                 canViewForwardRequests = canViewForwardRequests,

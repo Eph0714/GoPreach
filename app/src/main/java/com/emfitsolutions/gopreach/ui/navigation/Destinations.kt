@@ -35,6 +35,9 @@ object Destinations {
     const val MANAGE_MINISTERIAL_SERVANTS = "manage_ministerial_servants"
     // "Manage Publisher Report" module.
     const val MANAGE_PUBLISHER_REPORTS = "manage_publisher_reports"
+    // "Announcement Module".
+    const val MANAGE_ANNOUNCEMENTS = "manage_announcements"
+    const val PUBLISHER_ANNOUNCEMENTS = "publisher_announcements"
 
     // Phase 3
     const val CONTROL_PANEL = "control_panel"

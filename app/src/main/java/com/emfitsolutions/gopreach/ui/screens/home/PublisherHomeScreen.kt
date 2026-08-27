@@ -20,12 +20,15 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.PeopleAlt
 import androidx.compose.material.icons.rounded.PersonSearch
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +48,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleType
+import com.emfitsolutions.gopreach.ui.screens.announcements.ManageAnnouncementsViewModel
 import com.emfitsolutions.gopreach.ui.components.DashboardHero
 import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
@@ -70,6 +74,7 @@ fun PublisherHomeScreen(
     onNavigate: (String) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
     dashboardViewModel: PublisherDashboardViewModel = hiltViewModel(),
+    announcementsViewModel: ManageAnnouncementsViewModel = hiltViewModel(),
 ) {
     val session by viewModel.state.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
@@ -78,10 +83,18 @@ fun PublisherHomeScreen(
     // resolvedRoleTypeOrNull() (never throws) — this runs unconditionally on
     // every Main Form composition, same reasoning as AdminHomeScreen/
     // GoPreachNavGraph's own role resolution.
-    val category = remember(session.roleAssignments) {
-        session.roleAssignments.firstNotNullOfOrNull { (it.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category }
+    val ownPublisherAssignment = remember(session.roleAssignments) {
+        session.roleAssignments.firstOrNull { it.resolvedRoleTypeOrNull() is RoleType.Publisher }
     }
+    val category = (ownPublisherAssignment?.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category
     val isPioneer = isPioneerCategory(category)
+
+    // "Announcement Module" — the notification balloon's unseen count, scoped
+    // to this Publisher's own congregation.
+    val unseenAnnouncementsFlow = remember(ownPublisherAssignment?.congregationId, currentPersonId) {
+        announcementsViewModel.unseenCountFor(ownPublisherAssignment?.congregationId, currentPersonId)
+    }
+    val unseenAnnouncements by unseenAnnouncementsFlow.collectAsStateWithLifecycle(initialValue = 0)
 
     // "Back Button and Page Navigation" spec §7 — this is the Main Form for the
     // Publisher context; there's nothing left in the nav stack to pop to here,
@@ -122,6 +135,17 @@ fun PublisherHomeScreen(
                 // top-right corner, rather than requiring a scroll down to
                 // the bottom of the tile grid to sign out.
                 Row {
+                    // "Announcement Module" — the notification balloon at
+                    // the Main Form's upper right; opening it marks
+                    // everything currently in scope seen (see
+                    // AnnouncementsScreen's LaunchedEffect).
+                    IconButton(onClick = { onNavigate(Destinations.PUBLISHER_ANNOUNCEMENTS) }) {
+                        BadgedBox(
+                            badge = { if (unseenAnnouncements > 0) Badge { Text(unseenAnnouncements.toString()) } },
+                        ) {
+                            Icon(Icons.Rounded.Campaign, contentDescription = "Announcements", tint = Color.White)
+                        }
+                    }
                     IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
                         Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
                     }

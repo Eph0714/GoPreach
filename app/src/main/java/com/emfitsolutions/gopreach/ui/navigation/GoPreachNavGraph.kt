@@ -47,6 +47,7 @@ import com.emfitsolutions.gopreach.ui.screens.preachingtime.PreachingTimeRecordS
 import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MonthlyReportScreen
 import com.emfitsolutions.gopreach.ui.screens.login.LoginScreen
 import com.emfitsolutions.gopreach.ui.screens.publishers.ManagePublishersScreen
+import com.emfitsolutions.gopreach.ui.screens.announcements.AnnouncementsScreen
 import com.emfitsolutions.gopreach.ui.screens.publisherreports.ManagePublisherReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.reports.ConsolidatedReportScreen
 import com.emfitsolutions.gopreach.ui.screens.reports.ReportsScreen
@@ -363,6 +364,25 @@ fun GoPreachNavGraph(
                 fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 readOnly = !canEditPublisherReports,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.MANAGE_ANNOUNCEMENTS) {
+            // "Announcement Module" — Super-Admin (any congregation), Admin/
+            // Coordinator Elder (own congregation only).
+            AnnouncementsScreen(
+                currentPersonId = currentPersonId,
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.PUBLISHER_ANNOUNCEMENTS) {
+            // A Publisher's own read-only notification list — scoped to
+            // their own congregation, opening it marks the badge seen.
+            AnnouncementsScreen(
+                currentPersonId = currentPersonId,
+                fixedCongregationId = ownPublisherAssignment?.congregationId,
+                readOnly = true,
                 onBack = { navController.popBackStack() },
             )
         }

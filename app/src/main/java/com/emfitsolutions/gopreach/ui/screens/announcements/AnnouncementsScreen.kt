@@ -1,0 +1,377 @@
+package com.emfitsolutions.gopreach.ui.screens.announcements
+
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import com.emfitsolutions.gopreach.data.model.Announcement
+import com.emfitsolutions.gopreach.data.model.Congregation
+import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+
+/**
+ * "Announcement Module" — one screen for both sides:
+ * [readOnly] false is the Super-Admin/Admin/Coordinator Elder management
+ * view (Add/Edit/Delete, FAB to create); true is a Publisher's own
+ * notification list (view-only, opening it marks every announcement in
+ * scope "seen" — see [ManageAnnouncementsViewModel.markSeen]).
+ * [fixedCongregationId] is the security boundary, resolved by the caller
+ * (null means Super-Admin — every congregation).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AnnouncementsScreen(
+    currentPersonId: String,
+    fixedCongregationId: String?,
+    readOnly: Boolean = false,
+    onBack: () -> Unit,
+    viewModel: ManageAnnouncementsViewModel = hiltViewModel(),
+) {
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+    val rowsFlow = remember(fixedCongregationId) { viewModel.rowsFor(fixedCongregationId) }
+    val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var pendingEdit by remember { mutableStateOf<Announcement?>(null) }
+    var pendingDelete by remember { mutableStateOf<Announcement?>(null) }
+    var viewingDetail by remember { mutableStateOf<Announcement?>(null) }
+
+    // A Publisher opening their own notification list — mark everything
+    // currently in scope as seen, clearing the Main Form's badge.
+    LaunchedEffect(readOnly, currentPersonId) {
+        if (readOnly) viewModel.markSeen(currentPersonId)
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Announcements") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+        floatingActionButton = {
+            if (!readOnly) {
+                FloatingActionButton(onClick = { showCreateDialog = true }) {
+                    Icon(Icons.Rounded.Add, contentDescription = "New Announcement")
+                }
+            }
+        },
+    ) { padding ->
+        if (rows.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    if (readOnly) "No announcements yet." else "No announcements yet. Tap + to add one.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(rows, key = { it.id }) { announcement ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(announcement.title, style = MaterialTheme.typography.titleMedium)
+                                if (!readOnly) {
+                                    Row {
+                                        IconButton(onClick = { pendingEdit = announcement }) {
+                                            Icon(Icons.Rounded.Edit, contentDescription = "Edit announcement")
+                                        }
+                                        IconButton(onClick = { pendingDelete = announcement }) {
+                                            Icon(Icons.Rounded.Delete, contentDescription = "Delete announcement")
+                                        }
+                                    }
+                                }
+                            }
+                            if (announcement.imageUrl != null) {
+                                AsyncImage(
+                                    model = announcement.imageUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxWidth().height(140.dp),
+                                )
+                            }
+                            Text(
+                                announcement.details,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 3,
+                            )
+                            Text(
+                                formatRecordTimestamp(announcement.createdAt),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(
+                                onClick = { viewingDetail = announcement },
+                                modifier = Modifier.align(Alignment.End),
+                            ) { Text("Open") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCreateDialog) {
+        AnnouncementDialog(
+            existing = null,
+            fixedCongregationId = fixedCongregationId,
+            congregations = congregations,
+            currentPersonId = currentPersonId,
+            viewModel = viewModel,
+            onDismiss = { showCreateDialog = false },
+        )
+    }
+    val toEdit = pendingEdit
+    if (toEdit != null) {
+        AnnouncementDialog(
+            existing = toEdit,
+            fixedCongregationId = fixedCongregationId,
+            congregations = congregations,
+            currentPersonId = currentPersonId,
+            viewModel = viewModel,
+            onDismiss = { pendingEdit = null },
+        )
+    }
+    val toDelete = pendingDelete
+    if (toDelete != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete Announcement?") },
+            text = { Text("\"${toDelete.title}\" will be permanently deleted. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.delete(toDelete, currentPersonId); pendingDelete = null }) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+        )
+    }
+    val toView = viewingDetail
+    if (toView != null) {
+        AlertDialog(
+            onDismissRequest = { viewingDetail = null },
+            title = { Text(toView.title) },
+            text = {
+                Column(
+                    modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (toView.imageUrl != null) {
+                        AsyncImage(
+                            model = toView.imageUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    Text(toView.details, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        formatRecordTimestamp(toView.createdAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { viewingDetail = null }) { Text("Close") } },
+        )
+    }
+}
+
+/** Create/edit dialog — [existing] null means creating new. Image upload
+ * always happens as part of the same Save (see
+ * [ManageAnnouncementsViewModel.saveWithImage]'s doc comment for why a
+ * brand-new announcement can't upload an image before its first save). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AnnouncementDialog(
+    existing: Announcement?,
+    fixedCongregationId: String?,
+    congregations: List<Congregation>,
+    currentPersonId: String,
+    viewModel: ManageAnnouncementsViewModel,
+    onDismiss: () -> Unit,
+) {
+    var title by remember { mutableStateOf(existing?.title ?: "") }
+    var details by remember { mutableStateOf(existing?.details ?: "") }
+    var pickedCongregationId by remember { mutableStateOf(existing?.congregationId ?: fixedCongregationId) }
+    var pickedImageUri by remember { mutableStateOf<Uri?>(null) }
+    var removeImage by remember { mutableStateOf(false) }
+
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            pickedImageUri = uri
+            removeImage = false
+        }
+    }
+
+    val hasImageToShow = pickedImageUri != null || (existing?.imageUrl != null && !removeImage)
+    val congregationId = fixedCongregationId ?: pickedCongregationId
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (existing == null) "New Announcement" else "Edit Announcement") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (fixedCongregationId == null) {
+                    CongregationPickerDropdown(
+                        congregations = congregations,
+                        selectedId = pickedCongregationId,
+                        onSelected = { pickedCongregationId = it },
+                    )
+                }
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Announcement Title") },
+                    singleLine = true,
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = details,
+                    onValueChange = { details = it },
+                    label = { Text("Announcement Details") },
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp),
+                )
+
+                Text("Image (optional)", style = MaterialTheme.typography.labelLarge)
+                if (hasImageToShow) {
+                    AsyncImage(
+                        model = pickedImageUri ?: existing?.imageUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxWidth().height(140.dp),
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { pickImage.launch("image/*") }, modifier = Modifier.weight(1f)) {
+                        Text(if (hasImageToShow) "Replace Image" else "Add Image")
+                    }
+                    if (hasImageToShow) {
+                        OutlinedButton(
+                            onClick = { pickedImageUri = null; removeImage = true },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Remove Image") }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (title.isNotBlank() && details.isNotBlank() && congregationId != null) {
+                        viewModel.saveWithImage(
+                            announcement = Announcement(
+                                id = existing?.id ?: "",
+                                congregationId = congregationId,
+                                title = title.trim(),
+                                details = details.trim(),
+                                imageUrl = existing?.imageUrl,
+                                createdByPersonId = existing?.createdByPersonId ?: currentPersonId,
+                                createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+                            ),
+                            pickedImageUri = pickedImageUri,
+                            removeImage = removeImage,
+                            actorPersonId = currentPersonId,
+                        )
+                        onDismiss()
+                    }
+                },
+            ) { Text(if (existing == null) "Create" else "Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CongregationPickerDropdown(congregations: List<Congregation>, selectedId: String?, onSelected: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: ""
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selectedName,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Congregation") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            congregations.forEach { congregation ->
+                DropdownMenuItem(
+                    text = { Text(congregation.name) },
+                    onClick = { onSelected(congregation.id); expanded = false },
+                )
+            }
+        }
+    }
+}

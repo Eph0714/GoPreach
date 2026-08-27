@@ -15,6 +15,7 @@ import androidx.compose.material.icons.rounded.Assessment
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Groups
@@ -71,6 +72,7 @@ fun GoPreachSidePanelContent(
     canEnrollCoordinatorElder: Boolean,
     canEnrollServiceOverseer: Boolean,
     canEnrollMinisterialServant: Boolean,
+    canManageAnnouncements: Boolean,
     canViewConsolidatedReport: Boolean,
     canManagePublisherReports: Boolean,
     canViewForwardRequests: Boolean,
@@ -106,6 +108,7 @@ fun GoPreachSidePanelContent(
             if (canEnrollCoordinatorElder) add(SideItem("Coordinator Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_COORDINATOR_ELDERS))
             if (canEnrollServiceOverseer) add(SideItem("Service Overseer", Icons.Rounded.PersonAdd, Destinations.MANAGE_SERVICE_OVERSEERS))
             if (canEnrollMinisterialServant) add(SideItem("Ministerial Servant", Icons.Rounded.PersonAdd, Destinations.MANAGE_MINISTERIAL_SERVANTS))
+            if (canManageAnnouncements) add(SideItem("Announcements", Icons.Rounded.Campaign, Destinations.MANAGE_ANNOUNCEMENTS))
             if (canManageGroups) add(SideItem("Groups", Icons.Rounded.Groups, Destinations.MANAGE_GROUPS))
             if (canEnrollRegularElderOrPublisher) add(SideItem("Regular Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_REGULAR_ELDERS))
             // Routes to the Manage Publishers *list* screen (which has its own
