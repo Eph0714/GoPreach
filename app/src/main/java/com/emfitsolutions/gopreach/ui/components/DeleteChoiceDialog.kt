@@ -1,8 +1,6 @@
 package com.emfitsolutions.gopreach.ui.components
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
@@ -96,23 +94,24 @@ fun DeleteChoiceDialog(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             },
-            // Both buttons live in this one slot, centered as a group, rather than
-            // the default confirm/dismiss split (confirm right, dismiss left) —
-            // Cancel reads as the safer of the two actions here, so it's centered
-            // rather than pushed off to the corner.
+            // Both buttons live in this one slot, stacked and centered, rather
+            // than the default confirm/dismiss split (confirm right, dismiss
+            // left) — Delete Permanently on top, Cancel/Close beneath it at
+            // bottom center, so the safer action reads as the deliberate,
+            // separate last step it is rather than a same-row afterthought.
             confirmButton = {
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    TextButton(onClick = { if (permanentDeleteBlockedReason != null) onDismiss() else showPermanentConfirm = false }) {
-                        Text(if (permanentDeleteBlockedReason != null) "Close" else "Cancel")
-                    }
                     if (permanentDeleteBlockedReason == null) {
-                        Button(
-                            onClick = { onDeletePermanently(); onDismiss() },
-                            modifier = Modifier.padding(start = 8.dp),
-                        ) { Text("Delete Permanently") }
+                        Button(onClick = { onDeletePermanently(); onDismiss() }) { Text("Delete Permanently") }
+                    }
+                    TextButton(
+                        onClick = { if (permanentDeleteBlockedReason != null) onDismiss() else showPermanentConfirm = false },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) {
+                        Text(if (permanentDeleteBlockedReason != null) "Close" else "Cancel")
                     }
                 }
             },
