@@ -50,6 +50,17 @@ class AuditLogRepository @Inject constructor(
 
     suspend fun delete(entryId: String) = offline.delete(COLLECTION, entryId)
 
+    /** "Select all user logs and delete it permanently" — Super-Admin only
+     * (enforced by the calling screen's visibility, same as [delete]). Loops
+     * [delete] rather than a Firestore batch write since every write here is
+     * already local-first/instant (see [OfflineFirestoreRepository]'s own
+     * doc comments) — there's no latency win a batch would buy back, and this
+     * keeps the same single code path (and its own error handling) that a
+     * single-entry delete already goes through. */
+    suspend fun deleteAll(entryIds: Collection<String>) {
+        entryIds.forEach { delete(it) }
+    }
+
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, AuditLogEntry::class.java) { it.id }
 }

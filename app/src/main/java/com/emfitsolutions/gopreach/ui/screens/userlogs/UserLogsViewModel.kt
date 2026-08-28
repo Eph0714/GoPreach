@@ -40,4 +40,13 @@ class UserLogsViewModel @Inject constructor(
     fun delete(entryId: String) {
         viewModelScope.launch { auditLogRepository.delete(entryId) }
     }
+
+    /** "Select all user log AND DELETE IT PERMANENTLY" — bulk counterpart to
+     * [delete]; same Super-Admin-only visibility gate, enforced by the
+     * screen. [entryIds] is exactly the set the screen currently has
+     * selected/checked, not re-derived here, so this only ever deletes what
+     * the admin actually confirmed. */
+    fun deleteAll(entryIds: Collection<String>) {
+        viewModelScope.launch { auditLogRepository.deleteAll(entryIds) }
+    }
 }
