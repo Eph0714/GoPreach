@@ -343,6 +343,7 @@ private fun AnnouncementDialog(
                             pickedImageUri = pickedImageUri,
                             removeImage = removeImage,
                             actorPersonId = currentPersonId,
+                            onImageUploadFailed = { showToast("Saved, but the image failed to upload. Try attaching it again.") },
                         )
                         showToast(if (existing == null) "Announcement posted." else "Announcement saved.")
                         onDismiss()

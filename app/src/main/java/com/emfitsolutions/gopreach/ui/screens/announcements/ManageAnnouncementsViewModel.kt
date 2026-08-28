@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.announcements
 
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.Announcement
@@ -18,6 +19,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+private const val TAG = "ManageAnnouncementsVM"
 
 /**
  * "Announcement Module" — Super-Admin/Admin/Coordinator Elder manage
@@ -66,26 +69,47 @@ class ManageAnnouncementsViewModel @Inject constructor(
         pickedImageUri: Uri?,
         removeImage: Boolean,
         actorPersonId: String,
+        onImageUploadFailed: (() -> Unit)? = null,
     ) {
         val isNew = announcement.id.isBlank()
         viewModelScope.launch {
-            var saved = announcementRepository.save(
-                announcement.copy(lastEditedByPersonId = actorPersonId, lastEditedAt = System.currentTimeMillis()),
-            )
-            if (pickedImageUri != null) {
-                val url = announcementRepository.uploadImage(saved.id, pickedImageUri)
-                saved = announcementRepository.save(saved.copy(imageUrl = url))
-            } else if (removeImage && saved.imageUrl != null) {
-                announcementRepository.deleteImage(saved.id)
-                saved = announcementRepository.save(saved.copy(imageUrl = null))
+            // Bug fix ("the form closes if you attach an image on saving"):
+            // uploadImage()/deleteImage() hit Firebase Storage over the
+            // network (unlike save(), which is local-first and effectively
+            // never throws — see OfflineFirestoreRepository's own doc
+            // comments) — a flaky connection, an expired auth token, or a
+            // revoked content:// read grant on [pickedImageUri] all throw
+            // here. Left uncaught, that exception propagated out of this
+            // coroutine with nothing downstream to catch it, which crashes
+            // the whole app process — not just this dialog — exactly the
+            // "form closes" symptom reported. The text fields were already
+            // saved successfully by this point (the dialog itself dismisses
+            // immediately on tapping Save, independent of this coroutine —
+            // see AnnouncementDialog), so on an image failure we keep that
+            // save and just let the caller know the image didn't attach,
+            // instead of taking the whole app down with it.
+            try {
+                var saved = announcementRepository.save(
+                    announcement.copy(lastEditedByPersonId = actorPersonId, lastEditedAt = System.currentTimeMillis()),
+                )
+                if (pickedImageUri != null) {
+                    val url = announcementRepository.uploadImage(saved.id, pickedImageUri)
+                    saved = announcementRepository.save(saved.copy(imageUrl = url))
+                } else if (removeImage && saved.imageUrl != null) {
+                    announcementRepository.deleteImage(saved.id)
+                    saved = announcementRepository.save(saved.copy(imageUrl = null))
+                }
+                auditLogRepository.log(
+                    actorPersonId = actorPersonId,
+                    action = if (isNew) "CREATE_ANNOUNCEMENT" else "EDIT_ANNOUNCEMENT",
+                    targetType = "Announcement",
+                    targetId = saved.id,
+                    congregationId = saved.congregationId,
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Announcement image upload/removal failed", e)
+                onImageUploadFailed?.invoke()
             }
-            auditLogRepository.log(
-                actorPersonId = actorPersonId,
-                action = if (isNew) "CREATE_ANNOUNCEMENT" else "EDIT_ANNOUNCEMENT",
-                targetType = "Announcement",
-                targetId = saved.id,
-                congregationId = saved.congregationId,
-            )
         }
     }
 
