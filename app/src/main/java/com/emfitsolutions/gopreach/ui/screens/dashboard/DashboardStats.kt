@@ -97,10 +97,24 @@ fun computeStatMembers(
         }
 
     val members = labelsByPersonCongregation.mapNotNull { (key, labels) ->
-        val person = peopleById[key.personId] ?: return@mapNotNull null
         val congregation = congregationsById[key.congregationId] ?: return@mapNotNull null
+        // Bug fix ("Total Elders shows 9 on the card but only 7 names in the
+        // drill-down, same inconsistency on other cards"): this used to bail
+        // out of the whole entry with `?: return@mapNotNull null` whenever
+        // `peopleById` didn't (yet) have the assignment's person — e.g. an
+        // in-flight sync, or an ACTIVE assignment left pointing at a Person
+        // doc that was since deleted. [countDistinctAdmins] (the function
+        // that produces the headline number) deliberately does NOT do that —
+        // it falls back to the bare personId and still counts that person as
+        // their own entry (see its own doc comment) — so any assignment
+        // missing its Person doc was silently counted on the card but never
+        // rendered in this list, and the two totals drifted apart purely
+        // based on which people docs happened to be loaded. Fixed by keeping
+        // the entry with a placeholder name instead of dropping it, so the
+        // dialog's row count always matches the card's number exactly.
+        val fullName = peopleById[key.personId]?.fullName ?: "Unknown member (ID: ${key.personId})"
         StatMember(
-            fullName = person.fullName,
+            fullName = fullName,
             congregationId = congregation.id,
             congregationName = congregation.name,
             statLabels = labels,
