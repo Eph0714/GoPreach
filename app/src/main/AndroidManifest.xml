@@ -31,6 +31,11 @@
          notifications/BootCompletedReceiver.kt). -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Share Location while Preaching (data/location/LocationSharingService.kt):
+         keeps publishing fixes after the Publisher leaves the Share Location
+         screen, not just while it happens to stay open. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
     <application
         android:name=".GoPreachApp"
         android:allowBackup="true"
@@ -81,6 +86,12 @@
             android:name=".notifications.AlarmRingService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!-- Share Location while Preaching — see LocationSharingService.kt's doc comment. -->
+        <service
+            android:name=".data.location.LocationSharingService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
         <activity
             android:name=".MainActivity"

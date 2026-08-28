@@ -27,7 +27,26 @@ data class StatMember(
 )
 
 /** Companion to [CongregationStats.compute] — same scoped/deduplicated
- * ACTIVE-assignment data, but resolved into named people instead of counts. */
+ * ACTIVE-assignment data, but resolved into named people instead of counts.
+ *
+ * Bug fix ("Total Elders shows 9 on the card but only 4 names in the
+ * drill-down, same inconsistency on other cards"): this used to
+ * `distinctBy { personId to congregationId }` *before* even looking at each
+ * assignment's role — but a person routinely holds more than one ACTIVE
+ * [RoleAssignment] document in the same congregation at once (e.g. a
+ * separate Coordinator Elder doc and a separate Publisher doc, or a
+ * Coordinator Elder doc plus a second Regular Elder doc from also being a
+ * Group Overseer). `distinctBy` kept only whichever one of those documents
+ * happened to come first and silently discarded the label(s) the others
+ * would have contributed — so a real elder who also had, say, a Publisher
+ * doc could vanish from "Total Elders"' list entirely (or vice versa for
+ * "Total Publishers"/its category breakdowns) purely based on iteration
+ * order, while [CongregationStats.compute]'s own count — built the correct
+ * way, filtering to the relevant role *first* — never had that flaw. Fixed
+ * by processing every assignment individually and merging labels per
+ * (person, congregation) by union, so nobody's role ever gets dropped just
+ * because they hold more than one assignment doc.
+ */
 fun computeStatMembers(
     congregations: List<Congregation>,
     assignments: List<RoleAssignment>,
@@ -35,12 +54,14 @@ fun computeStatMembers(
 ): List<StatMember> {
     val peopleById = people.associateBy { it.id }
     val congregationsById = congregations.associateBy { it.id }
-    val members = assignments
+
+    data class PersonCongregationKey(val personId: String, val congregationId: String)
+    val labelsByPersonCongregation = mutableMapOf<PersonCongregationKey, MutableSet<String>>()
+
+    assignments
         .filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId in congregationsById }
-        .distinctBy { it.personId to it.congregationId }
-        .mapNotNull { assignment ->
-            val person = peopleById[assignment.personId] ?: return@mapNotNull null
-            val congregation = congregationsById[assignment.congregationId] ?: return@mapNotNull null
+        .forEach { assignment ->
+            val congregationId = assignment.congregationId ?: return@forEach
             val labels: Set<String> = when (val role = assignment.resolvedRoleType()) {
                 is RoleType.Admin -> when (role.role) {
                     // "Total Elders" counts Coordinator Elder, Regular Elder,
@@ -70,14 +91,21 @@ fun computeStatMembers(
                     }
                 }
             }
-            if (labels.isEmpty()) return@mapNotNull null
-            StatMember(
-                fullName = person.fullName,
-                congregationId = congregation.id,
-                congregationName = congregation.name,
-                statLabels = labels,
-            )
+            if (labels.isEmpty()) return@forEach
+            val key = PersonCongregationKey(assignment.personId, congregationId)
+            labelsByPersonCongregation.getOrPut(key) { mutableSetOf() }.addAll(labels)
         }
+
+    val members = labelsByPersonCongregation.mapNotNull { (key, labels) ->
+        val person = peopleById[key.personId] ?: return@mapNotNull null
+        val congregation = congregationsById[key.congregationId] ?: return@mapNotNull null
+        StatMember(
+            fullName = person.fullName,
+            congregationId = congregation.id,
+            congregationName = congregation.name,
+            statLabels = labels,
+        )
+    }
 
     // "Check the same name of the elder in a congregation and consider it
     // as one person" — keeps this drill-down list in lockstep with
@@ -87,11 +115,15 @@ fun computeStatMembers(
     // number counts). Publisher-labeled entries are untouched — this app's
     // own person-level dedup already covers a genuine single Person doc
     // correctly; only these two Admin-role counts needed the *additional*
-    // same-name-different-Person-doc rule spelled out here.
+    // same-name-different-Person-doc rule spelled out here. Same label-union
+    // fix as above applies here too: two duplicate-Person-doc entries for
+    // the same name might hold different roles (e.g. one enrolled as
+    // Coordinator Elder, a duplicate doc separately enrolled as Ministerial
+    // Servant) — merge their labels rather than keeping only the first one's.
     val (adminMembers, otherMembers) = members.partition { "Total Elders" in it.statLabels || "Total Ministerial" in it.statLabels }
     val dedupedAdmins = adminMembers
         .groupBy { it.congregationId to it.fullName.trim().uppercase().replace(Regex("\\s+"), " ") }
-        .map { (_, group) -> group.first() }
+        .map { (_, group) -> group.first().copy(statLabels = group.flatMap { it.statLabels }.toSet()) }
     return otherMembers + dedupedAdmins
 }
 

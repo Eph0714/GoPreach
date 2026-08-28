@@ -63,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.flow.collect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleType
@@ -526,11 +527,14 @@ private fun PublisherStatsSection(
     viewModel: PublisherDashboardViewModel,
 ) {
     LaunchedEffect(publisherPersonId) {
-        // Only Pioneers' "My Return Visits" card needs the cross-Interested-
-        // Person collection-group listener; starting it for every Publisher
-        // would just be wasted reads for Regular/Unbaptized publishers, who
-        // never see that card at all.
-        if (isPioneer) viewModel.startVisitSync(publisherPersonId)
+        // "My Return Visit" is shown to every Publisher now, not just
+        // Pioneers (see below) — so this listener needs to start
+        // unconditionally too, or a Regular/Unbaptized Publisher's card
+        // would just show a stuck 0. Also a pre-existing bug fix:
+        // startVisitSync() returns a cold Flow — must be collected, or the
+        // underlying Firestore listener never actually registers, so a
+        // Return Visit logged on another device would never show up here.
+        viewModel.startVisitSync(publisherPersonId).collect {}
     }
     val statsFlow = remember(publisherPersonId) { viewModel.statsFor(publisherPersonId) }
     val stats by statsFlow.collectAsStateWithLifecycle()
@@ -562,14 +566,18 @@ private fun PublisherStatsSection(
             onClick = { onNavigate(Destinations.BIBLE_STUDY) },
             modifier = Modifier.weight(1f),
         )
+        // "My Return Visit" — shown to every Publisher, not just Pioneers
+        // (a Return Visit record isn't Pioneer-exclusive; any Publisher can
+        // have one). This used to be gated behind `isPioneer`, which is why
+        // a Regular/Unbaptized Publisher never saw it at all.
+        RoundIconActionButton(
+            label = "My Return Visit",
+            value = stats.returnVisitsCount.toString(),
+            icon = Icons.Rounded.PeopleAlt,
+            onClick = { onNavigate(Destinations.RETURN_VISIT) },
+            modifier = Modifier.weight(1f),
+        )
         if (isPioneer) {
-            RoundIconActionButton(
-                label = "My Return Visit",
-                value = stats.returnVisitsCount.toString(),
-                icon = Icons.Rounded.PeopleAlt,
-                onClick = { onNavigate(Destinations.RETURN_VISIT) },
-                modifier = Modifier.weight(1f),
-            )
             RoundIconActionButton(
                 label = "Preaching Hours",
                 value = "%.1f".format(stats.preachingHours),

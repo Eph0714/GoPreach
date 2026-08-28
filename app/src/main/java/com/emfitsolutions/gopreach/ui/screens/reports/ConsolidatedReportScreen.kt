@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.flow.collect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
 import com.emfitsolutions.gopreach.data.export.CsvExporter
@@ -76,7 +77,9 @@ fun ConsolidatedReportScreen(
     LaunchedEffect(visibleCongregationIds) { viewModel.restrictTo(visibleCongregationIds) }
     // Started only while this screen is open — see VisitRepository's doc
     // comment on why this isn't an app-wide listener.
-    LaunchedEffect(Unit) { viewModel.startVisitSync() }
+    // Bug fix: startVisitSync() returns a cold Flow — must be collected or
+    // the underlying Firestore listener never actually registers.
+    LaunchedEffect(Unit) { viewModel.startVisitSync().collect {} }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedPublisherId by remember { mutableStateOf<String?>(null) }
 

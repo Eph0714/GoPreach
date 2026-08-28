@@ -30,7 +30,6 @@ import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PersonAdd
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
@@ -438,6 +437,12 @@ fun AdminHomeScreen(
                         }
                     },
                     topEndAction = {
+                        // "Remove the setting from the main form... put the
+                        // notification bell on the upper right side of the
+                        // form next to user image" — the gear icon used to
+                        // sit here between the two; Settings itself is still
+                        // reachable from the profile menu (see
+                        // ProfileMenuButton's onOpenSettings doc comment).
                         if (showNotificationBell) {
                             NotificationBell(
                                 items = notificationItems,
@@ -446,15 +451,13 @@ fun AdminHomeScreen(
                                 onItemClick = { onNavigate(it.route) },
                             )
                         }
-                        IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
-                            Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
-                        }
                         ProfileMenuButton(
                             fullName = session.person?.fullName ?: "—",
                             roleLabel = role?.name?.replace('_', ' ') ?: "GoPreach Admin",
                             profileImageUrl = session.person?.profileImageUrl,
                             onImagePicked = viewModel::updateProfileImage,
                             onSignOut = viewModel::signOut,
+                            onOpenSettings = { onNavigate(Destinations.SETTINGS) },
                         )
                     },
                     quickActions = if (hideMainFormButtons) {

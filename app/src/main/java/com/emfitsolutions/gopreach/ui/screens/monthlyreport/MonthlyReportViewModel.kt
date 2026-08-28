@@ -16,10 +16,32 @@ import kotlinx.coroutines.launch
 import java.util.Calendar
 import javax.inject.Inject
 
+/** Midnight on the 1st of whichever month [monthsAgo] months before the
+ * current one — 0 = this month, 1 = last month. Shared by every "which
+ * period does this belong to" computation in this file so they can never
+ * drift out of sync with each other. */
+private fun monthStart(monthsAgo: Int): Long = Calendar.getInstance().apply {
+    add(Calendar.MONTH, -monthsAgo)
+    set(Calendar.DAY_OF_MONTH, 1)
+    set(Calendar.HOUR_OF_DAY, 0)
+    set(Calendar.MINUTE, 0)
+    set(Calendar.SECOND, 0)
+    set(Calendar.MILLISECOND, 0)
+}.timeInMillis
+
+private fun currentMonthStart(): Long = monthStart(0)
+private fun previousMonthStart(): Long = monthStart(1)
+
+private fun daysUntilMonthEnd(): Int {
+    val cal = Calendar.getInstance()
+    return cal.getActualMaximum(Calendar.DAY_OF_MONTH) - cal.get(Calendar.DAY_OF_MONTH)
+}
+
 data class MonthlyReportUiState(
     val category: PublisherCategory? = null,
     val congregationId: String? = null,
     val existingReport: MonthlyReport? = null,
+    val selectedPeriodMonth: Long = currentMonthStart(),
     val bibleStudiesCount: String = "0",
     val hoursRendered: String = "0",
     val participatedInPreaching: Boolean = false,
@@ -33,21 +55,25 @@ data class MonthlyReportUiState(
     val isLocked: Boolean get() = existingReport?.status == ReportStatus.SUBMITTED
 
     /** "Submission of report is done each month... available 2 days before
-     * the end of each month" spec — true only inside that window. Checked
-     * against the device clock, not [existingReport], so it stays correct
-     * across the month-boundary reset described by the same spec item
-     * ("available again in the following month using the same logic") with
-     * no extra state to track: a new month means a new [periodMonth] anyway,
-     * so `existingReport` for *this* period simply won't exist yet. */
-    val canSubmitWindow: Boolean get() = daysUntilMonthEnd() <= 2
+     * the end of each month" spec — this restriction only makes sense for
+     * the *current*, still-in-progress month (spec: "refer to the
+     * restriction of sending a report for the current month"). "Select
+     * Month to Report" — the publisher can also report for the recent
+     * (previous, already fully elapsed) month; nothing is left to wait for
+     * there, so it's always open. Checked against the device clock, not
+     * [existingReport], so it stays correct across the month-boundary reset
+     * with no extra state to track. */
+    val canSubmitWindow: Boolean get() = selectedPeriodMonth != currentMonthStart() || daysUntilMonthEnd() <= 2
 }
 
-private fun daysUntilMonthEnd(): Int {
-    val cal = Calendar.getInstance()
-    return cal.getActualMaximum(Calendar.DAY_OF_MONTH) - cal.get(Calendar.DAY_OF_MONTH)
-}
-
-/** Spec §5.2 — monthly ministry report, required fields vary by [PublisherCategory]. */
+/** Spec §5.2 — monthly ministry report, required fields vary by [PublisherCategory].
+ *
+ * "Select Month to Report" — a publisher may submit for the current month
+ * (subject to [MonthlyReportUiState.canSubmitWindow]'s last-2-days rule) or
+ * the one just before it, and nothing earlier or later than that: [availableMonths]
+ * is exactly those two periods, so the dropdown itself is the enforcement —
+ * there's no way to even construct a request for a month outside that range.
+ */
 @HiltViewModel
 class MonthlyReportViewModel @Inject constructor(
     private val monthlyReportRepository: MonthlyReportRepository,
@@ -57,37 +83,44 @@ class MonthlyReportViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(MonthlyReportUiState())
     val uiState: StateFlow<MonthlyReportUiState> = _uiState
 
-    private val periodMonth: Long = Calendar.getInstance().apply {
-        set(Calendar.DAY_OF_MONTH, 1)
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
-    }.timeInMillis
+    private val _selectedPeriodMonth = MutableStateFlow(currentMonthStart())
+
+    /** "Recent month, but not earlier than [and never later than] the
+     * current month" — the previous month first (oldest to newest), the
+     * current month last. */
+    val availableMonths: List<Long> = listOf(previousMonthStart(), currentMonthStart())
 
     fun load(publisherPersonId: String) {
         viewModelScope.launch {
             combine(
                 roleAssignmentRepository.observeForPerson(publisherPersonId),
                 monthlyReportRepository.observeAll(),
-            ) { assignments, reports ->
+                _selectedPeriodMonth,
+            ) { assignments, reports, selectedPeriodMonth ->
                 val publisherAssignment = assignments.firstOrNull { it.resolvedRoleType() is RoleType.Publisher }
                 val category = (publisherAssignment?.resolvedRoleType() as? RoleType.Publisher)?.category
                 val existing = reports.firstOrNull {
-                    it.publisherPersonId == publisherPersonId && it.periodMonth == periodMonth
+                    it.publisherPersonId == publisherPersonId && it.periodMonth == selectedPeriodMonth
                 }
-                Triple(category, publisherAssignment?.congregationId, existing)
-            }.collect { (category, congregationId, existing) ->
-                _uiState.value = MonthlyReportUiState(
+                MonthlyReportUiState(
                     category = category,
-                    congregationId = congregationId,
+                    congregationId = publisherAssignment?.congregationId,
                     existingReport = existing,
+                    selectedPeriodMonth = selectedPeriodMonth,
                     bibleStudiesCount = (existing?.bibleStudiesCount ?: 0).toString(),
                     hoursRendered = (existing?.hoursRendered ?: 0.0).toString(),
                     participatedInPreaching = existing?.participatedInPreaching ?: false,
                 )
-            }
+            }.collect { _uiState.value = it }
         }
+    }
+
+    /** Switching the selected month re-populates the form from whatever
+     * report (if any) already exists for that period — same as opening the
+     * screen fresh for it, so a publisher who already submitted last
+     * month's report sees it (locked) instead of a blank form. */
+    fun onMonthSelected(periodMonth: Long) {
+        _selectedPeriodMonth.value = periodMonth
     }
 
     fun onBibleStudiesChange(value: String) = update { it.copy(bibleStudiesCount = value.filter { c -> c.isDigit() }) }
@@ -110,7 +143,7 @@ class MonthlyReportViewModel @Inject constructor(
                 publisherPersonId = publisherPersonId,
                 congregationId = state.congregationId ?: "",
                 category = state.category ?: PublisherCategory.REGULAR_PUBLISHER,
-                periodMonth = periodMonth,
+                periodMonth = state.selectedPeriodMonth,
                 bibleStudiesCount = state.bibleStudiesCount.toIntOrNull() ?: 0,
                 hoursRendered = if (isPioneer(state.category)) state.hoursRendered.toDoubleOrNull() ?: 0.0 else null,
                 participatedInPreaching = if (!isPioneer(state.category)) state.participatedInPreaching else null,

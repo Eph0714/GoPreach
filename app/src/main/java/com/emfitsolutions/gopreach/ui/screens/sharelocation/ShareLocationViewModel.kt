@@ -1,8 +1,10 @@
 package com.emfitsolutions.gopreach.ui.screens.sharelocation
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.location.LatLng
+import com.emfitsolutions.gopreach.data.location.LocationSharingService
 import com.emfitsolutions.gopreach.data.location.LocationTracker
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
@@ -19,16 +21,16 @@ import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.SharedLocationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -53,18 +55,17 @@ data class MyLocationState(
  * [rowsFor]'s congregation filter); a publisher additionally shares their
  * own live position here while preaching.
  *
- * "SHARE LOCATION SETTINGS" spec — [toggleSharing] enforces the configured
- * per-congregation [LocationSharingSettings.sharingDurationMinutes] (auto-
- * stop) and [LocationSharingSettings.accuracyRadiusMeters] (a fix worse than
- * this is never published — the old, still-accurate-enough position stays
- * shown until a good one arrives).
- *
- * Updates happen on a foreground timer while this screen is open, rather than a
- * background/foreground service — a reasonable first pass for "share while
- * preaching," with continuous background tracking as a natural follow-up.
+ * "SHARE LOCATION SETTINGS" spec — the configured per-congregation
+ * [LocationSharingSettings.sharingDurationMinutes] (auto-stop) and
+ * [LocationSharingSettings.accuracyRadiusMeters] (a fix worse than this is
+ * never published) are enforced inside [LocationSharingService] itself, not
+ * here — see that class's doc comment for why the actual sharing loop lives
+ * in a foreground Service rather than this ViewModel: it needs to keep
+ * running after the Publisher leaves this screen.
  */
 @HiltViewModel
 class ShareLocationViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val sharedLocationRepository: SharedLocationRepository,
     private val personRepository: PersonRepository,
     private val locationTracker: LocationTracker,
@@ -78,21 +79,21 @@ class ShareLocationViewModel @Inject constructor(
     val congregations: StateFlow<List<Congregation>> =
         congregationRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _isSharing = MutableStateFlow(false)
-    val isSharing: StateFlow<Boolean> = _isSharing
+    /** Bug fix: this used to be a plain `MutableStateFlow(false)` local to
+     * this ViewModel, which reset to false every time the screen (and this
+     * ViewModel) got recreated — so leaving Share Location and reopening it
+     * always showed the toggle unchecked, even while sharing was still
+     * genuinely active. Now derived from the actual persisted/synced
+     * [SharedLocation] doc — the same source of truth every *other*
+     * publisher's row on this screen already reads from — so it reflects
+     * reality regardless of when or how the screen is reopened. */
+    fun isSharingFor(publisherPersonId: String): Flow<Boolean> =
+        sharedLocationRepository.observeFor(publisherPersonId).map { it?.isSharing == true }
 
     /** Last coordinates successfully fetched this session — reused by
-     * [toggleSharing]'s "stop" path so turning sharing off doesn't clobber the
-     * last-known position with a zeroed-out one. */
-    private var lastFix: SharedLocation? = null
-
-    /** "Share Location – Show Current Coordinates" spec §1 — the signed-in
-     * user's own current position, independent of whether they're actively
-     * *sharing* it with anyone (those are two different questions: "where am
-     * I" vs. "is my group allowed to see where I am"). Populated by
-     * [refreshMyLocation] and, while actively sharing, by every tick of the
-     * same fix [toggleSharing]'s loop already captures — no second GPS poll
-     * needed just to keep this in sync. */
+     * [refreshMyLocation] and updated live from [SharedLocation] rows this
+     * device published, so "My Current Location" stays current without a
+     * second GPS poll of its own while actively sharing. */
     private val _myLocation = MutableStateFlow<MyLocationState?>(null)
     val myLocation: StateFlow<MyLocationState?> = _myLocation.asStateFlow()
 
@@ -109,6 +110,18 @@ class ShareLocationViewModel @Inject constructor(
             val fix = locationTracker.getCurrentLocation()
             _isRefreshing.value = false
             if (fix != null) _myLocation.value = MyLocationState(fix, System.currentTimeMillis())
+        }
+    }
+
+    /** Keeps "My Current Location" in sync with whatever [LocationSharingService]
+     * just published for this publisher, without a second GPS poll. */
+    fun observeOwnSharedLocation(publisherPersonId: String) {
+        viewModelScope.launch {
+            sharedLocationRepository.observeFor(publisherPersonId).collectLatest { location ->
+                if (location != null && location.isSharing) {
+                    _myLocation.value = MyLocationState(LatLng(location.lat, location.lng, location.accuracyMeters), location.updatedAt)
+                }
+            }
         }
     }
 
@@ -172,54 +185,13 @@ class ShareLocationViewModel @Inject constructor(
         }
     }
 
+    /** Starts/stops [LocationSharingService] — see that class's doc comment
+     * for why the actual sharing loop lives there now instead of here. */
     fun toggleSharing(enabled: Boolean, publisherPersonId: String, congregationId: String?, groupId: String?) {
-        _isSharing.value = enabled
         if (enabled) {
-            viewModelScope.launch {
-                val settings = congregationId?.let { locationSharingSettingsRepository.currentFor(it) }
-                    ?: LocationSharingSettings.defaultsFor(congregationId.orEmpty())
-                val durationMillis = settings.sharingDurationMinutes * 60_000L
-                val startedAt = System.currentTimeMillis()
-                while (isActive && _isSharing.value) {
-                    if (System.currentTimeMillis() - startedAt >= durationMillis) {
-                        // "The publisher can share their location [N] min only
-                        // and it will automatically stop" — the configured
-                        // window elapsed; stop exactly like the manual toggle
-                        // does, so the UI (bound to isSharing) reflects it.
-                        toggleSharing(false, publisherPersonId, congregationId, groupId)
-                        break
-                    }
-                    val fix = locationTracker.getCurrentLocation()
-                    if (fix != null) {
-                        _myLocation.value = MyLocationState(fix, System.currentTimeMillis())
-                        // "Accuracy Radius: 5 mtrs" — a fix worse than the
-                        // configured radius is never published; the
-                        // previously-shared (still valid) position stays
-                        // visible to others until a good-enough fix arrives.
-                        val meetsAccuracy = fix.accuracyMeters == null || fix.accuracyMeters <= settings.accuracyRadiusMeters
-                        if (meetsAccuracy) {
-                            val location = SharedLocation(
-                                publisherPersonId = publisherPersonId,
-                                congregationId = congregationId.orEmpty(),
-                                groupId = groupId,
-                                lat = fix.lat,
-                                lng = fix.lng,
-                                accuracyMeters = fix.accuracyMeters,
-                                isSharing = true,
-                                updatedAt = System.currentTimeMillis(),
-                            )
-                            lastFix = location
-                            sharedLocationRepository.update(location)
-                        }
-                    }
-                    delay(30_000)
-                }
-            }
+            LocationSharingService.start(context, publisherPersonId, congregationId, groupId)
         } else {
-            viewModelScope.launch {
-                val fallback = SharedLocation(publisherPersonId = publisherPersonId, congregationId = congregationId.orEmpty(), groupId = groupId)
-                sharedLocationRepository.stopSharing(publisherPersonId, lastFix ?: fallback)
-            }
+            LocationSharingService.stop(context)
         }
     }
 }

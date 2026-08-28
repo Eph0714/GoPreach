@@ -92,6 +92,7 @@ import com.emfitsolutions.gopreach.ui.components.ManualCoordinatesDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.SupportingImageSection
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -502,7 +503,11 @@ private fun PipelinePersonDetailScreen(
     onBack: () -> Unit,
     viewModel: PipelineViewModel,
 ) {
-    LaunchedEffect(person.id) { viewModel.startVisitSync(person.id) }
+    // Bug fix: startVisitSync() returns a cold Flow (a callbackFlow wrapping
+    // the actual Firestore listener registration) — calling it without
+    // collecting is a no-op, the listener never actually registers. Must be
+    // .collect()ed to do anything.
+    LaunchedEffect(person.id) { viewModel.startVisitSync(person.id).collect {} }
     val visitsFlow = remember(person.id) { viewModel.visitsFor(person.id) }
     val visits by visitsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val livePersonFlow = remember(person.id) {

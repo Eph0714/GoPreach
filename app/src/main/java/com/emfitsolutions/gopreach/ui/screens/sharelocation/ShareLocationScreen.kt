@@ -87,7 +87,9 @@ fun ShareLocationScreen(
     viewModel: ShareLocationViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
-    val isSharing by viewModel.isSharing.collectAsStateWithLifecycle()
+    val isSharingFlow = remember(currentPersonId) { viewModel.isSharingFor(currentPersonId) }
+    val isSharing by isSharingFlow.collectAsStateWithLifecycle(initialValue = false)
+    LaunchedEffect(currentPersonId) { viewModel.observeOwnSharedLocation(currentPersonId) }
     val myLocation by viewModel.myLocation.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }

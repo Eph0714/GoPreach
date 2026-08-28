@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -45,6 +46,14 @@ import coil.compose.AsyncImage
  * a circular photo (or a blank placeholder icon when [profileImageUrl] is
  * null) that opens a menu showing the signed-in person's name and role,
  * then [View Profile Image] / [Update Profile Image] / [Log Out].
+ *
+ * [onOpenSettings] — non-null only where the caller removed the separate
+ * top-bar Settings icon (Admin-track Main Forms: "remove the setting from
+ * the main form... put the notification bell on the upper right side next
+ * to user image" — the gear icon used to sit between the bell and this
+ * avatar). Rather than dropping the Settings screen (theme, notification
+ * sound, app version/updates) entirely, it moves in here so it's still one
+ * tap away, just off the top bar itself.
  */
 @Composable
 fun ProfileMenuButton(
@@ -55,6 +64,7 @@ fun ProfileMenuButton(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
+    onOpenSettings: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var showViewImage by remember { mutableStateOf(false) }
@@ -87,6 +97,13 @@ fun ProfileMenuButton(
                 leadingIcon = { Icon(Icons.Rounded.PhotoCamera, contentDescription = null) },
                 onClick = { expanded = false; pickImage.launch("image/*") },
             )
+            if (onOpenSettings != null) {
+                DropdownMenuItem(
+                    text = { Text("Settings") },
+                    leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
+                    onClick = { expanded = false; onOpenSettings() },
+                )
+            }
             HorizontalDivider()
             DropdownMenuItem(
                 text = { Text("Log Out") },

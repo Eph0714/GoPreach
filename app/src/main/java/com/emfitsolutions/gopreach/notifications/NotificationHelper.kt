@@ -14,6 +14,7 @@ import com.emfitsolutions.gopreach.R
 
 const val REMINDERS_CHANNEL_ID = "gopreach_reminders"
 const val CALENDAR_ALARM_CHANNEL_ID = "gopreach_calendar_alarms"
+const val LOCATION_SHARING_CHANNEL_ID = "gopreach_location_sharing"
 
 /**
  * Local-only notifications (no push backend yet — see BUILD_PLAN.md's
@@ -50,6 +51,15 @@ object NotificationHelper {
             manager.createNotificationChannel(
                 NotificationChannel(CALENDAR_ALARM_CHANNEL_ID, "Calendar Alarms", NotificationManager.IMPORTANCE_HIGH).apply {
                     description = "Calendar event alarms"
+                    setSound(null, null)
+                    enableVibration(false)
+                }
+            )
+        }
+        if (manager.getNotificationChannel(LOCATION_SHARING_CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(LOCATION_SHARING_CHANNEL_ID, "Location Sharing", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Ongoing status while your location is being shared"
                     setSound(null, null)
                     enableVibration(false)
                 }
