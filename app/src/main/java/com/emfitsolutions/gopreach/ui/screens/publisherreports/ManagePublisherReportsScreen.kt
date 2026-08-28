@@ -60,6 +60,7 @@ import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.QuickDateRange
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -90,6 +91,7 @@ fun ManagePublisherReportsScreen(
     val context = LocalContext.current
     var pendingEdit by remember { mutableStateOf<PublisherReportRow?>(null) }
     var pendingDelete by remember { mutableStateOf<PublisherReportRow?>(null) }
+    val showToast = rememberActionToast()
 
     val reportTitle = remember(uiState.dateRange) { reportTitleFor(uiState.dateRange.startMillis, uiState.dateRange.endMillis, uiState.dateRange.option) }
     val reportTable = remember(uiState.rows, reportTitle) { publisherReportTable(reportTitle, uiState) }
@@ -261,6 +263,7 @@ fun ManagePublisherReportsScreen(
             onDismiss = { pendingEdit = null },
             onSave = { bibleStudies, hours, participated ->
                 viewModel.updateReport(toEdit.report, bibleStudies, hours, participated, currentPersonId)
+                showToast("Report saved.")
             },
         )
     }
@@ -272,7 +275,7 @@ fun ManagePublisherReportsScreen(
             title = { Text("Permanently Delete Report?") },
             text = { Text("This will permanently delete ${toDelete.person.fullName}'s report for this period. This action cannot be undone.") },
             confirmButton = {
-                TextButton(onClick = { viewModel.permanentlyDelete(toDelete.report, currentPersonId); pendingDelete = null }) {
+                TextButton(onClick = { viewModel.permanentlyDelete(toDelete.report, currentPersonId); showToast("Report deleted."); pendingDelete = null }) {
                     Text("Delete Permanently")
                 }
             },

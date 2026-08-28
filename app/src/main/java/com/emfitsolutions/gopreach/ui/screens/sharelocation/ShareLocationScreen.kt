@@ -59,6 +59,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.LocationSharingSettings
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -298,6 +299,7 @@ private fun LocationSharingSettingsDialog(
 
     var durationText by remember(congregationId, settings.sharingDurationMinutes) { mutableStateOf(settings.sharingDurationMinutes.toString()) }
     var accuracyText by remember(congregationId, settings.accuracyRadiusMeters) { mutableStateOf(settings.accuracyRadiusMeters.toString()) }
+    val showToast = rememberActionToast()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -356,6 +358,7 @@ private fun LocationSharingSettingsDialog(
                             ),
                             currentPersonId,
                         )
+                        showToast("Location sharing settings saved.")
                         onDismiss()
                     }
                 },

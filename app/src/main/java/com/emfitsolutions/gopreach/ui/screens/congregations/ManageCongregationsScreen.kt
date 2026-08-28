@@ -52,6 +52,7 @@ import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.LanguagesTagInput
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import kotlinx.coroutines.launch
 
 /** Spec §3/§5.1 — Manage Congregation Master File, Super-Admin only.
@@ -81,6 +82,7 @@ fun ManageCongregationsScreen(
     var permanentDeleteImpactSummary by remember { mutableStateOf<String?>(null) }
     var permanentDeleteChecked by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val showToast = rememberActionToast()
 
     Scaffold(
         topBar = {
@@ -150,7 +152,7 @@ fun ManageCongregationsScreen(
                                                 Icon(Icons.Rounded.Delete, contentDescription = "Delete")
                                             }
                                         } else {
-                                            IconButton(onClick = { viewModel.setStatus(congregation, RecordStatus.ACTIVE, currentPersonId) }) {
+                                            IconButton(onClick = { viewModel.setStatus(congregation, RecordStatus.ACTIVE, currentPersonId); showToast("\"${congregation.name}\" reactivated.") }) {
                                                 Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
                                             }
                                         }
@@ -188,6 +190,7 @@ fun ManageCongregationsScreen(
             congregation = toEdit,
             onSave = { updated ->
                 viewModel.update(updated, currentPersonId)
+                showToast("\"${updated.name}\" saved.")
                 pendingEdit = null
             },
             onDismiss = { pendingEdit = null },

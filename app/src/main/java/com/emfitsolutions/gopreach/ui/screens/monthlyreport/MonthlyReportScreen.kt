@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
 /**
  * Spec §5.2 — monthly ministry report. Shows only the fields required for the
@@ -53,6 +54,11 @@ fun MonthlyReportScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(publisherPersonId) { viewModel.load(publisherPersonId) }
+
+    val showToast = rememberActionToast()
+    LaunchedEffect(uiState.saved) {
+        if (uiState.saved) showToast("Monthly report submitted.")
+    }
 
     val isPioneer = uiState.category == PublisherCategory.REGULAR_PIONEER || uiState.category == PublisherCategory.AUXILIARY_PIONEER
     val effectivelyLocked = uiState.isLocked && !allowEditWhenLocked

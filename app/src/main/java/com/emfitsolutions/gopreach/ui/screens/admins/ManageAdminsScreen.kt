@@ -50,6 +50,7 @@ import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
 /** Spec §3/§5.1 — Manage Admins, Super-Admin only. "Move to Inactive" deactivates
  * rather than erases the record — an inactive Admin can be restored, and their
@@ -70,6 +71,7 @@ fun ManageAdminsScreen(
     var lookupTarget by remember { mutableStateOf<Person?>(null) }
     var pendingEdit by remember { mutableStateOf<AdminRow?>(null) }
     var pendingDeactivate by remember { mutableStateOf<AdminRow?>(null) }
+    val showToast = rememberActionToast()
 
     Scaffold(
         topBar = {
@@ -163,6 +165,7 @@ fun ManageAdminsScreen(
             row = toEdit,
             onSave = { updated ->
                 viewModel.updatePerson(updated)
+                showToast("\"${updated.fullName}\" saved.")
                 pendingEdit = null
             },
             onDismiss = { pendingEdit = null },

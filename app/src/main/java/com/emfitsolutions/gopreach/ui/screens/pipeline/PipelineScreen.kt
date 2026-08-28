@@ -451,8 +451,8 @@ private fun CoordinatesEditorField(coordinates: CoordinatesValue?, onChange: (Co
                 Text("Longitude: ${"%.6f".format(capture.lng)}", style = MaterialTheme.typography.bodyMedium)
                 if (capture.accuracyMeters != null) Text("Accuracy: ${capture.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
-                    TextButton(onClick = { onChange(CoordinatesValue(capture.lat, capture.lng, capture.accuracyMeters)); pendingCapture = null }) { Text("CONFIRM") }
-                    TextButton(onClick = { pendingCapture = null }) { Text("CANCEL") }
+                    TextButton(onClick = { onChange(CoordinatesValue(capture.lat, capture.lng, capture.accuracyMeters)); pendingCapture = null }) { Text("Confirm") }
+                    TextButton(onClick = { pendingCapture = null }) { Text("Cancel") }
                 }
             }
         }
@@ -465,18 +465,18 @@ private fun CoordinatesEditorField(coordinates: CoordinatesValue?, onChange: (Co
             Text("Longitude: ${"%.6f".format(coordinates.lng)}", style = MaterialTheme.typography.bodyMedium)
             if (coordinates.accuracyMeters != null) Text("Accuracy: ${coordinates.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { startCapture() }) { Text("EDIT LOCATION") }
-                OutlinedButton(onClick = { onChange(null) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("CLEAR") }
+                OutlinedButton(onClick = { startCapture() }) { Text("Edit Location") }
+                OutlinedButton(onClick = { onChange(null) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Clear") }
             }
         }
         else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { startCapture() }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                Text("CAPTURE CURRENT LOCATION")
+                Text("Capture Current Location")
             }
             OutlinedButton(onClick = { showManualEntry = true }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                Text("ENTER COORDINATES MANUALLY")
+                Text("Enter Coordinates Manually")
             }
         }
     }

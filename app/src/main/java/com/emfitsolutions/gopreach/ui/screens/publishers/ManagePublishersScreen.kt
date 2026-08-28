@@ -58,6 +58,7 @@ import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
 /** Spec §3/§5.1 — Manage Publishers (all categories).
  * [canPermanentlyDelete] is Super-Admin-only, per the "Admin Record Deletion"
@@ -85,6 +86,7 @@ fun ManagePublishersScreen(
     var lookupTarget by remember { mutableStateOf<Person?>(null) }
     var pendingEdit by remember { mutableStateOf<PublisherRow?>(null) }
     var pendingDelete by remember { mutableStateOf<PublisherRow?>(null) }
+    val showToast = rememberActionToast()
     var permanentDeleteImpactSummary by remember { mutableStateOf<String?>(null) }
     var permanentDeleteChecked by remember { mutableStateOf(false) }
 
@@ -168,7 +170,12 @@ fun ManagePublishersScreen(
                                                 Icon(Icons.Rounded.Delete, contentDescription = "Delete")
                                             }
                                         } else {
-                                            IconButton(onClick = { viewModel.changeCategory(row, PublisherCategory.REGULAR_PUBLISHER, currentPersonId) }) {
+                                            IconButton(
+                                                onClick = {
+                                                    viewModel.changeCategory(row, PublisherCategory.REGULAR_PUBLISHER, currentPersonId)
+                                                    showToast("\"${row.person.fullName}\" reactivated.")
+                                                },
+                                            ) {
                                                 Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
                                             }
                                         }
@@ -267,6 +274,7 @@ private fun EditPublisherDialog(
     var contactPersonNumber by remember { mutableStateOf(row.person.contactPersonNumber.orEmpty()) }
     var category by remember { mutableStateOf(row.category) }
     var groupId by remember { mutableStateOf(row.assignment.groupId) }
+    val showToast = rememberActionToast()
 
     val groupsFlow = remember(row.assignment.congregationId) { viewModel.groupsFor(row.assignment.congregationId) }
     val groups by groupsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -390,6 +398,7 @@ private fun EditPublisherDialog(
                         )
                         if (category != row.category) viewModel.changeCategory(row, category, currentPersonId)
                         if (groupId != row.assignment.groupId) viewModel.changeGroup(row, groupId, currentPersonId)
+                        showToast("\"${row.person.fullName}\" saved.")
                         onDismiss()
                     }
                 },

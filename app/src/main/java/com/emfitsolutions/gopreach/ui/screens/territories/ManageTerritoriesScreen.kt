@@ -46,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Territory
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
 /** Spec §3/§5.1 — Territory Master File. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -61,6 +62,7 @@ fun ManageTerritoriesScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingEdit by remember { mutableStateOf<Territory?>(null) }
     var pendingDelete by remember { mutableStateOf<Territory?>(null) }
+    val showToast = rememberActionToast()
 
     Scaffold(
         topBar = {
@@ -132,7 +134,7 @@ fun ManageTerritoriesScreen(
             existingTerritory = null,
             congregations = congregations,
             allGroups = groups,
-            onSave = { viewModel.save(it) },
+            onSave = { viewModel.save(it); showToast("Territory added.") },
             onDismiss = { showCreateDialog = false },
         )
     }
@@ -144,7 +146,7 @@ fun ManageTerritoriesScreen(
             existingTerritory = toEditTerritory,
             congregations = congregations,
             allGroups = groups,
-            onSave = { viewModel.save(it) },
+            onSave = { viewModel.save(it); showToast("Territory saved.") },
             onDismiss = { pendingEdit = null },
         )
     }
@@ -157,6 +159,7 @@ fun ManageTerritoriesScreen(
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(toDelete.id)
+                    showToast("\"${toDelete.name}\" deleted.")
                     pendingDelete = null
                 }) { Text("Delete") }
             },

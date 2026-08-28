@@ -57,6 +57,7 @@ import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.displayLabel
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
 /** Spec: "CRUD Groups" — each Group needs exactly one Elder in each of three
  * roles (Overseer/Servant/Assistant), not the single Elder this used to allow.
@@ -252,6 +253,7 @@ private fun GroupDialog(
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf(existingGroup?.name ?: "") }
+    val showToast = rememberActionToast()
     val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
     var pickedCongregation by remember(congregations) {
         mutableStateOf(congregations.firstOrNull { it.id == existingGroup?.congregationId })
@@ -432,6 +434,7 @@ private fun GroupDialog(
                             selectedMemberPersonIds = checkedMemberIds,
                             actorPersonId = currentPersonId,
                         )
+                        showToast(if (existingGroup == null) "Group added." else "Group saved.")
                         onDismiss()
                     }
                 },

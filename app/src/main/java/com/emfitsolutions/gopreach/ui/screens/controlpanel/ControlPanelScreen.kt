@@ -23,7 +23,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -32,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.emfitsolutions.gopreach.data.repository.ThemePreference
 import com.emfitsolutions.gopreach.ui.components.ThemeOptionRow
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
 /**
  * Control Panel — Super-Admin only (spec §5.1). Logo upload/replace lands here
@@ -54,6 +59,13 @@ fun ControlPanelScreen(
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) viewModel.uploadLogo(uri, currentPersonId)
+    }
+
+    val showToast = rememberActionToast()
+    var wasUploading by remember { mutableStateOf(false) }
+    LaunchedEffect(uiState.isUploading, uiState.errorMessage) {
+        if (wasUploading && !uiState.isUploading && uiState.errorMessage == null) showToast("Logo updated.")
+        wasUploading = uiState.isUploading
     }
 
     Scaffold(

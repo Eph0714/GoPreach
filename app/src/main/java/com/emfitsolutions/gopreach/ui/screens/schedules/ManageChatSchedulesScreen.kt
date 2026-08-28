@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Schedule
 import com.emfitsolutions.gopreach.data.model.ScheduleKind
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -66,6 +67,7 @@ fun ManageChatSchedulesScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingEdit by remember { mutableStateOf<Schedule?>(null) }
     var pendingDelete by remember { mutableStateOf<Schedule?>(null) }
+    val showToast = rememberActionToast()
     val dateFormat = remember { SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()) }
 
     Scaffold(
@@ -140,7 +142,7 @@ fun ManageChatSchedulesScreen(
             congregationId = visibleCongregationId,
             groupId = visibleGroupId,
             existingSchedule = null,
-            onSave = { viewModel.save(it) },
+            onSave = { viewModel.save(it); showToast("Chat schedule added.") },
             onDismiss = { showCreateDialog = false },
         )
     }
@@ -152,7 +154,7 @@ fun ManageChatSchedulesScreen(
             congregationId = visibleCongregationId,
             groupId = visibleGroupId,
             existingSchedule = toEditSchedule,
-            onSave = { viewModel.save(it) },
+            onSave = { viewModel.save(it); showToast("Chat schedule saved.") },
             onDismiss = { pendingEdit = null },
         )
     }
@@ -166,6 +168,7 @@ fun ManageChatSchedulesScreen(
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(toDelete.id)
+                    showToast("\"${toDelete.title}\" deleted.")
                     pendingDelete = null
                 }) { Text("Delete") }
             },

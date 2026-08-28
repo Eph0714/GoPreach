@@ -47,6 +47,7 @@ import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 import com.emfitsolutions.gopreach.ui.components.displayLabel
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 
 /** Shared list UI for [ManageCoordinatorEldersScreen] and [ManageRegularEldersScreen] —
@@ -80,6 +81,7 @@ fun ElderListScreen(
     var lookupTarget by remember { mutableStateOf<Person?>(null) }
     var pendingEdit by remember { mutableStateOf<ElderRow?>(null) }
     var pendingDeactivate by remember { mutableStateOf<ElderRow?>(null) }
+    val showToast = rememberActionToast()
 
     Scaffold(
         topBar = {
@@ -157,7 +159,7 @@ fun ElderListScreen(
                                         Icon(Icons.Rounded.Delete, contentDescription = "Delete")
                                     }
                                 } else {
-                                    IconButton(onClick = { onSetActive(row, true) }) {
+                                    IconButton(onClick = { onSetActive(row, true); showToast("\"${row.person.fullName}\" reactivated.") }) {
                                         Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Restore")
                                     }
                                 }
@@ -184,6 +186,7 @@ fun ElderListScreen(
                 scopeLabel = scopeLabel,
                 onSave = { updated ->
                     onEdit(toEdit, updated)
+                    showToast("\"${updated.fullName}\" saved.")
                     pendingEdit = null
                 },
                 onDismiss = { pendingEdit = null },

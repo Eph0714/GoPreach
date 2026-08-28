@@ -48,6 +48,7 @@ import com.emfitsolutions.gopreach.ui.components.DateTimeField
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -74,6 +75,7 @@ fun PreachingTimeRecordScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingEdit by remember { mutableStateOf<PreachingTimeRecord?>(null) }
     var pendingDelete by remember { mutableStateOf<PreachingTimeRecord?>(null) }
+    val showToast = rememberActionToast()
 
     val records = remember(allRecords, dateRange, showInactive, searchText) {
         allRecords
@@ -163,7 +165,7 @@ fun PreachingTimeRecordScreen(
                                             Icon(Icons.Rounded.Delete, contentDescription = "Delete")
                                         }
                                     } else {
-                                        IconButton(onClick = { viewModel.setStatus(record, RecordStatus.ACTIVE) }) {
+                                        IconButton(onClick = { viewModel.setStatus(record, RecordStatus.ACTIVE); showToast("Record reactivated.") }) {
                                             Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
                                         }
                                     }
@@ -181,7 +183,7 @@ fun PreachingTimeRecordScreen(
             existingRecord = null,
             publisherPersonId = publisherPersonId,
             congregationId = congregationId.orEmpty(),
-            onSave = { viewModel.save(it) },
+            onSave = { viewModel.save(it); showToast("Record added.") },
             onDismiss = { showCreateDialog = false },
         )
     }
@@ -192,7 +194,7 @@ fun PreachingTimeRecordScreen(
             existingRecord = toEdit,
             publisherPersonId = publisherPersonId,
             congregationId = congregationId.orEmpty(),
-            onSave = { viewModel.save(it) },
+            onSave = { viewModel.save(it); showToast("Record saved.") },
             onDismiss = { pendingEdit = null },
         )
     }

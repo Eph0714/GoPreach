@@ -54,6 +54,7 @@ import coil.compose.AsyncImage
 import com.emfitsolutions.gopreach.data.model.Announcement
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
 /**
  * "Announcement Module" — one screen for both sides:
@@ -80,6 +81,7 @@ fun AnnouncementsScreen(
     var pendingEdit by remember { mutableStateOf<Announcement?>(null) }
     var pendingDelete by remember { mutableStateOf<Announcement?>(null) }
     var viewingDetail by remember { mutableStateOf<Announcement?>(null) }
+    val showToast = rememberActionToast()
 
     // A Publisher opening their own notification list — mark everything
     // currently in scope as seen, clearing the Main Form's badge.
@@ -202,7 +204,7 @@ fun AnnouncementsScreen(
             title = { Text("Delete Announcement?") },
             text = { Text("\"${toDelete.title}\" will be permanently deleted. This cannot be undone.") },
             confirmButton = {
-                TextButton(onClick = { viewModel.delete(toDelete, currentPersonId); pendingDelete = null }) {
+                TextButton(onClick = { viewModel.delete(toDelete, currentPersonId); showToast("\"${toDelete.title}\" deleted."); pendingDelete = null }) {
                     Text("Delete")
                 }
             },
@@ -259,6 +261,7 @@ private fun AnnouncementDialog(
     var pickedCongregationId by remember { mutableStateOf(existing?.congregationId ?: fixedCongregationId) }
     var pickedImageUri by remember { mutableStateOf<Uri?>(null) }
     var removeImage by remember { mutableStateOf(false) }
+    val showToast = rememberActionToast()
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
@@ -341,6 +344,7 @@ private fun AnnouncementDialog(
                             removeImage = removeImage,
                             actorPersonId = currentPersonId,
                         )
+                        showToast(if (existing == null) "Announcement posted." else "Announcement saved.")
                         onDismiss()
                     }
                 },

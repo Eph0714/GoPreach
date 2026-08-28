@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Schedule
 import com.emfitsolutions.gopreach.data.model.ScheduleKind
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -66,6 +67,7 @@ fun CalendarScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingEdit by remember { mutableStateOf<Schedule?>(null) }
     var pendingDelete by remember { mutableStateOf<Schedule?>(null) }
+    val showToast = rememberActionToast()
     val dateFormat = remember { SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()) }
     val isPublisherScope = scope is CalendarScope.Publisher
 
@@ -142,7 +144,7 @@ fun CalendarScreen(
             currentPersonId = currentPersonId,
             scope = scope,
             existingEvent = null,
-            onSave = { viewModel.save(it) },
+            onSave = { viewModel.save(it); showToast("Event added.") },
             onDismiss = { showCreateDialog = false },
         )
     }
@@ -153,7 +155,7 @@ fun CalendarScreen(
             currentPersonId = currentPersonId,
             scope = scope,
             existingEvent = toEditEvent,
-            onSave = { viewModel.save(it) },
+            onSave = { viewModel.save(it); showToast("Event saved.") },
             onDismiss = { pendingEdit = null },
         )
     }
@@ -167,6 +169,7 @@ fun CalendarScreen(
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(toDelete.id)
+                    showToast("\"${toDelete.title}\" deleted.")
                     pendingDelete = null
                 }) { Text("Delete") }
             },

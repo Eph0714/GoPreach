@@ -41,6 +41,7 @@ import com.emfitsolutions.gopreach.data.repository.TempCredentials
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.ShareableSetupLink
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
 /**
  * One form for both [ADD] and [Edit] (spec §4/§8) — Role+Permission+Scope, not
@@ -66,8 +67,12 @@ fun AddEditUserScreen(
     LaunchedEffect(targetPersonId) {
         if (targetPersonId != null) viewModel.loadForEdit(targetPersonId)
     }
+    val showToast = rememberActionToast()
     LaunchedEffect(uiState.saveCompleted) {
-        if (uiState.saveCompleted && uiState.isEditMode) onDone()
+        if (uiState.saveCompleted && uiState.isEditMode) {
+            showToast("User saved.")
+            onDone()
+        }
     }
 
     if (uiState.savedResult != null) {
