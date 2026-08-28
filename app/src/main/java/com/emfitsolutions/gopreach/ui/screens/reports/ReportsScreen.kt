@@ -17,11 +17,15 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -29,6 +33,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,10 +42,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.export.CsvExporter
+import com.emfitsolutions.gopreach.data.model.Congregation
+import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
@@ -50,6 +58,12 @@ import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/** "For Admin, Elders and Service overseer select [All Group, Per Group]
+ * filter in report" — [PER_GROUP] additionally needs one Group actually
+ * picked (see [ReportsScreen]'s own `selectedGroupId`); [ALL_GROUPS] shows
+ * every Group's section combined, same as before this filter existed. */
+private enum class GroupFilterMode { ALL_GROUPS, PER_GROUP }
 
 private fun PublisherCategory.displayLabel(): String = name.replace('_', ' ')
     .lowercase().split(' ').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
@@ -69,14 +83,40 @@ fun ReportsScreen(
     onBack: () -> Unit,
     viewModel: ReportsViewModel = hiltViewModel(),
 ) {
-    // A Regular Elder (any of the three Group roles — Overseer/Servant/Assistant)
-    // has both a group and a congregation to view: their own Group's Publisher
-    // Report, and their whole Congregation's. Anyone else scoped to just a
-    // congregation (or to everything, as Super-Admin) never sees this toggle —
-    // there's nothing narrower to switch away from.
-    var showCongregationWide by remember { mutableStateOf(false) }
-    val canToggleScope = visibleCongregationId != null && visibleGroupId != null
-    val effectiveGroupId = if (canToggleScope && showCongregationWide) null else visibleGroupId
+    // "Select a congregation for Super Admin" — visibleCongregationId is
+    // only ever null for Super-Admin (every other role is already fixed to
+    // their own congregation upstream in GoPreachNavGraph, the actual
+    // security boundary); this screen-local pick just narrows Super-Admin's
+    // own already-unrestricted view, the same convention ManagePublishers
+    // Screen's own CongregationFilterDropdown already uses. `null` here
+    // means "All Congregations," same default as before this filter
+    // existed.
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val effectiveCongregationId = visibleCongregationId ?: congregationFilter
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+
+    // "For Admin, Elders and Service overseer select [All Group, Per Group]
+    // filter" — generalizes the old Regular-Elder-only "My Group/My
+    // Congregation" toggle into a picker every role scoped to one
+    // congregation can use, not just Regular Elder. Defaults to PER_GROUP
+    // pre-selected to [visibleGroupId] when the caller provided one (a
+    // Regular Elder's own group — the same default the old toggle already
+    // gave them), ALL_GROUPS otherwise.
+    var groupFilterMode by remember { mutableStateOf(if (visibleGroupId != null) GroupFilterMode.PER_GROUP else GroupFilterMode.ALL_GROUPS) }
+    var selectedGroupId by remember { mutableStateOf(visibleGroupId) }
+    val groupsFlow = remember(effectiveCongregationId) { viewModel.groupsFor(effectiveCongregationId) }
+    val groups by groupsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    // "All Congregations" (no single congregation chosen yet) has no single
+    // Group list to filter by — Per Group only makes sense once exactly one
+    // congregation is in view.
+    val canFilterByGroup = effectiveCongregationId != null
+    val effectiveGroupId = if (canFilterByGroup && groupFilterMode == GroupFilterMode.PER_GROUP) selectedGroupId else null
+    // Falling back to "All Congregations" (Super-Admin) drops any Per Group
+    // pick along with it — there's no single Group list to have kept it
+    // pointed at.
+    LaunchedEffect(canFilterByGroup) {
+        if (!canFilterByGroup) groupFilterMode = GroupFilterMode.ALL_GROUPS
+    }
 
     // "Main Form Date Range Filtering" spec §7/§4/§8 — This Month by default
     // (calculated live from the current date), shared with the Dashboard's
@@ -86,16 +126,16 @@ fun ReportsScreen(
     // [DateRangeFilterBar] below — nothing extra needed here for that.
     val dateRange by viewModel.dateRange.collectAsStateWithLifecycle()
 
-    val rowsFlow = remember(visibleCongregationId, effectiveGroupId, dateRange) {
-        viewModel.rowsFor(visibleCongregationId, effectiveGroupId, dateRange)
+    val rowsFlow = remember(effectiveCongregationId, effectiveGroupId, dateRange) {
+        viewModel.rowsFor(effectiveCongregationId, effectiveGroupId, dateRange)
     }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     // "Group the record by Group" — the same rows above, bucketed into
     // sections with their own Overseer/Servant/Assistant header and a
     // per-group summary total.
-    val sectionsFlow = remember(visibleCongregationId, effectiveGroupId, dateRange) {
-        viewModel.groupedRowsFor(visibleCongregationId, effectiveGroupId, dateRange)
+    val sectionsFlow = remember(effectiveCongregationId, effectiveGroupId, dateRange) {
+        viewModel.groupedRowsFor(effectiveCongregationId, effectiveGroupId, dateRange)
     }
     val sections by sectionsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
@@ -165,18 +205,49 @@ fun ReportsScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-        if (canToggleScope) {
+        // "Select a congregation for Super Admin" — the only role that ever
+        // reaches this screen with visibleCongregationId == null.
+        if (visibleCongregationId == null) {
+            ReportsCongregationDropdown(
+                congregations = congregations,
+                selectedId = congregationFilter,
+                onSelected = { newCongregationId ->
+                    congregationFilter = newCongregationId
+                    // A Group picked under the previous congregation almost
+                    // never belongs to the new one — reset rather than leave
+                    // Per Group silently pointed at a stale/foreign Group.
+                    selectedGroupId = null
+                    groupFilterMode = GroupFilterMode.ALL_GROUPS
+                },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+        // "For Admin, Elders and Service overseer select [All Group, Per
+        // Group] filter in report" — Super-Admin gets it too, once they've
+        // narrowed to one congregation above (canFilterByGroup); there's
+        // nothing role-specific about which of the four groups within a
+        // congregation someone may look at once they can already see that
+        // whole congregation's combined report.
+        if (canFilterByGroup) {
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                 SegmentedButton(
-                    selected = !showCongregationWide,
-                    onClick = { showCongregationWide = false },
+                    selected = groupFilterMode == GroupFilterMode.ALL_GROUPS,
+                    onClick = { groupFilterMode = GroupFilterMode.ALL_GROUPS },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                ) { Text("My Group") }
+                ) { Text("All Groups") }
                 SegmentedButton(
-                    selected = showCongregationWide,
-                    onClick = { showCongregationWide = true },
+                    selected = groupFilterMode == GroupFilterMode.PER_GROUP,
+                    onClick = { groupFilterMode = GroupFilterMode.PER_GROUP },
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                ) { Text("My Congregation") }
+                ) { Text("Per Group") }
+            }
+            if (groupFilterMode == GroupFilterMode.PER_GROUP) {
+                ReportsGroupDropdown(
+                    groups = groups,
+                    selectedGroupId = selectedGroupId,
+                    onSelected = { selectedGroupId = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
             }
         }
         DateRangeFilterBar(
@@ -218,6 +289,72 @@ fun ReportsScreen(
                 }
             }
         }
+        }
+    }
+}
+
+/** "Select a congregation for Super Admin" — same shape
+ * ManagePublishersScreen's own CongregationFilterDropdown already uses;
+ * `null` selection means "All Congregations" (this screen's original,
+ * unfiltered default). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReportsCongregationDropdown(
+    congregations: List<Congregation>,
+    selectedId: String?,
+    onSelected: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: "All Congregations"
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+        OutlinedTextField(
+            value = selectedName,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Congregation") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("All Congregations") }, onClick = { onSelected(null); expanded = false })
+            congregations.forEach { c ->
+                DropdownMenuItem(text = { Text(c.name) }, onClick = { onSelected(c.id); expanded = false })
+            }
+        }
+    }
+}
+
+/** "Per Group" — which Group, within whichever congregation is currently in
+ * view, to narrow the report down to. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReportsGroupDropdown(
+    groups: List<Group>,
+    selectedGroupId: String?,
+    onSelected: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = groups.firstOrNull { it.id == selectedGroupId }?.name ?: "Select a Group"
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+        OutlinedTextField(
+            value = selectedName,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Group") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (groups.isEmpty()) {
+                DropdownMenuItem(text = { Text("No groups yet") }, onClick = {}, enabled = false)
+            }
+            groups.forEach { g ->
+                DropdownMenuItem(text = { Text(g.name) }, onClick = { onSelected(g.id); expanded = false })
+            }
         }
     }
 }

@@ -1,9 +1,13 @@
 package com.emfitsolutions.gopreach.ui.screens.reports
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.model.Congregation
+import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleType
+import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
@@ -13,8 +17,11 @@ import com.emfitsolutions.gopreach.domain.DateRangeStore
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
 data class PublisherReportRow(
@@ -83,6 +90,7 @@ class ReportsViewModel @Inject constructor(
     private val monthlyReportRepository: MonthlyReportRepository,
     private val interestedPersonRepository: InterestedPersonRepository,
     private val groupRepository: GroupRepository,
+    private val congregationRepository: CongregationRepository,
     private val dateRangeStore: DateRangeStore,
 ) : ViewModel() {
 
@@ -91,6 +99,22 @@ class ReportsViewModel @Inject constructor(
      * silently resets back to a default the user didn't choose. */
     val dateRange: StateFlow<DateRange> = dateRangeStore.range
     fun setDateRange(range: DateRange) = dateRangeStore.set(range)
+
+    /** "Select a congregation for Super Admin" — the screen only shows this
+     * picker when it's actually reached with no fixed congregation (i.e.
+     * Super-Admin; every other role is already scoped upstream in
+     * GoPreachNavGraph and has nothing to pick from). */
+    val congregations: StateFlow<List<Congregation>> =
+        congregationRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** "For Admin, Elders and Service overseer select [All Group, Per Group]
+     * filter" — every Group within [congregationId] (`null` → none, so the
+     * picker starts empty rather than showing every congregation's groups
+     * at once before a congregation is actually chosen/known). */
+    fun groupsFor(congregationId: String?): Flow<List<Group>> =
+        groupRepository.observeAll().map { groups ->
+            if (congregationId == null) emptyList() else groups.filter { it.congregationId == congregationId }.sortedBy { it.name }
+        }
 
     /** [visibleGroupId] narrows further for a Regular Elder (own group only, spec
      * §3 permission matrix); leave null for congregation-wide or all-congregations roles. */
