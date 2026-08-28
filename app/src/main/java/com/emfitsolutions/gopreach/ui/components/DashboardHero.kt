@@ -60,7 +60,21 @@ fun DashboardHero(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (leadingAction != null) leadingAction()
                 }
-                topEndAction()
+                // Bug fix: [topEndAction] can emit more than one composable
+                // (the notification bell *and* the profile menu button) —
+                // invoking it bare here made each of those a direct sibling
+                // of the outer Row, so Arrangement.SpaceBetween spread all
+                // three top-level children (leading action, bell, profile
+                // button) evenly across the full width instead of grouping
+                // the two trailing ones together — the bell landed in the
+                // middle of the header instead of next to the profile
+                // picture at the right edge. Wrapping the call in its own
+                // Row makes everything [topEndAction] emits count as a
+                // single trailing child, so SpaceBetween only ever sees two
+                // groups: leading (left) and trailing (right).
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    topEndAction()
+                }
             }
 
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
