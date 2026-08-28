@@ -122,14 +122,22 @@ fun ReportsScreen(
                     }
                 },
                 actions = {
-                    // Print preview — Android's own print dialog always shows
-                    // one before anything prints, and offers "Save as PDF"
-                    // out of the box.
-                    IconButton(onClick = { ReportPrinter.print(context, reportTable) }, enabled = rows.isNotEmpty()) {
-                        Icon(Icons.Rounded.Print, contentDescription = "Print")
+                    // Bug fix ("I cannot see export to excel or pdf in
+                    // Reports Summary"): these were `enabled = rows.isNotEmpty()`
+                    // — a disabled IconButton's icon renders at reduced alpha,
+                    // and on this TopAppBar's colors that read as "not there
+                    // at all" rather than "there but dimmed," especially for
+                    // whichever congregation/date range/scope happened to
+                    // have zero submitted reports (the default landing state
+                    // for plenty of sessions). Always enabled now — printing
+                    // or exporting with nothing to show just produces a
+                    // heading-only PDF/CSV, which is a harmless, valid
+                    // result, not something worth hiding the buttons over.
+                    IconButton(onClick = { ReportPrinter.print(context, reportTable) }) {
+                        Icon(Icons.Rounded.Print, contentDescription = "Print / Export as PDF")
                     }
-                    IconButton(onClick = { exportLauncher.launch(exportFileName) }, enabled = rows.isNotEmpty()) {
-                        Icon(Icons.Rounded.Share, contentDescription = "Export as CSV")
+                    IconButton(onClick = { exportLauncher.launch(exportFileName) }) {
+                        Icon(Icons.Rounded.Share, contentDescription = "Export as Excel (CSV)")
                     }
                 },
             )
