@@ -26,6 +26,11 @@ import javax.inject.Inject
 
 data class PublisherReportRow(
     val person: Person,
+    /** The publisher's *current* category (their RoleAssignment right now)
+     * — what the row's own "Status" column shows, a present-tense "who is
+     * this person" label. Deliberately **not** what [hoursByReportCategory]
+     * sums by; see that field's own doc comment for why those two need to
+     * stay independent. */
     val category: PublisherCategory,
     val totalBibleStudies: Int,
     val totalHours: Double,
@@ -38,6 +43,23 @@ data class PublisherReportRow(
      * month attended counts as "attended this period"), and false wins over
      * a report that left the field unset. */
     val attendedPreaching: Boolean?,
+    /** Bug fix ("total hours of regular pioneer is not correct in pdf
+     * report"): hours actually reported, grouped by *that report's own*
+     * [com.emfitsolutions.gopreach.data.model.MonthlyReport.category]
+     * snapshot — not by [category] above. A publisher who was a Regular
+     * Pioneer in July but is a Regular Publisher by the time this report is
+     * viewed/exported still had those July hours logged as a Regular
+     * Pioneer; attributing them to [category] (their *current* standing)
+     * instead silently moved that person's hours into whichever category
+     * they happen to hold today, over- or under-counting both categories'
+     * "Total Hours for..." summary the moment anyone's category ever
+     * changes. [GroupReportSection.categoryHours] sums from this map, the
+     * same "snapshot what mattered at the time" [MonthlyReport.category]
+     * itself already exists for — matching how
+     * [com.emfitsolutions.gopreach.ui.screens.dashboard.CongregationStats
+     * .compute]'s own regularPioneerHours/auxiliaryPioneerHours already
+     * filter by the report's category, not the assignment's. */
+    val hoursByReportCategory: Map<PublisherCategory, Double>,
 )
 
 /** One Group's worth of the Publisher Report — "Group the record by Group"
@@ -60,14 +82,19 @@ data class GroupReportSection(
      * example happens to show). */
     val categoryCounts: Map<PublisherCategory, Int> get() = rows.groupingBy { it.category }.eachCount()
 
-    /** "TOTAL HOURS FOR REGULAR PIONEER / AUXILIARY PIONEER" — only Pioneer
-     * categories carry hours at all (see [MonthlyReport]'s own table); a
-     * category with no rows or all-zero hours is simply absent from this
-     * map rather than shown as a spurious 0. */
+    /** "TOTAL HOURS FOR REGULAR PIONEER / AUXILIARY PIONEER" — summed from
+     * each row's [PublisherReportRow.hoursByReportCategory] (what was
+     * actually reported under that category), not from rows filtered by
+     * their *current* [PublisherReportRow.category] — see that field's own
+     * doc comment for why those two can disagree. Only Pioneer categories
+     * carry hours at all (see [MonthlyReport]'s own table); a category with
+     * no hours reported is simply absent from this map rather than shown as
+     * a spurious 0. */
     val categoryHours: Map<PublisherCategory, Double> get() = rows
-        .filter { it.category == PublisherCategory.REGULAR_PIONEER || it.category == PublisherCategory.AUXILIARY_PIONEER }
-        .groupBy { it.category }
-        .mapValues { (_, groupRows) -> groupRows.sumOf { it.totalHours } }
+        .flatMap { it.hoursByReportCategory.entries }
+        .filter { it.key == PublisherCategory.REGULAR_PIONEER || it.key == PublisherCategory.AUXILIARY_PIONEER }
+        .groupBy({ it.key }, { it.value })
+        .mapValues { (_, hours) -> hours.sum() }
 }
 
 /**
@@ -233,6 +260,12 @@ class ReportsViewModel @Inject constructor(
                 totalHours = personReports.sumOf { it.hoursRendered ?: 0.0 },
                 totalInterestedPeople = personInterested.size,
                 attendedPreaching = attendedPreaching,
+                // Bug fix ("total hours of regular pioneer is not correct"):
+                // grouped by each report's own category snapshot, not the
+                // person's current one — see the field's own doc comment.
+                hoursByReportCategory = personReports
+                    .groupBy { it.category }
+                    .mapValues { (_, reportsForCategory) -> reportsForCategory.sumOf { it.hoursRendered ?: 0.0 } },
             )
         }
 }
