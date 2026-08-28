@@ -60,6 +60,11 @@ data class PublisherReportRow(
      * .compute]'s own regularPioneerHours/auxiliaryPioneerHours already
      * filter by the report's category, not the assignment's. */
     val hoursByReportCategory: Map<PublisherCategory, Double>,
+    /** "Separate the Auxiliary and Regular Pioneer Bible Study" — same
+     * "attribute to the report's own category snapshot, not the publisher's
+     * current one" fix as [hoursByReportCategory], applied to
+     * bibleStudiesCount too. */
+    val bibleStudiesByReportCategory: Map<PublisherCategory, Int>,
 )
 
 /** One Group's worth of the Publisher Report — "Group the record by Group"
@@ -86,6 +91,10 @@ data class GroupReportSection(
      * [categoryHours] (the shared extension) for how this is derived from
      * each row's *reported* category rather than its current one. */
     val categoryHours: Map<PublisherCategory, Double> get() = rows.categoryHours()
+
+    /** "Separate the Auxiliary and Regular Pioneer... Bible Study" — see
+     * [categoryBibleStudies] (the shared extension). */
+    val categoryBibleStudies: Map<PublisherCategory, Int> get() = rows.categoryBibleStudies()
 }
 
 /** "Edit the Report. Separate the Total report of Regular Pioneers and
@@ -104,6 +113,14 @@ fun List<PublisherReportRow>.categoryHours(): Map<PublisherCategory, Double> = f
     .filter { it.key == PublisherCategory.REGULAR_PIONEER || it.key == PublisherCategory.AUXILIARY_PIONEER }
     .groupBy({ it.key }, { it.value })
     .mapValues { (_, hours) -> hours.sum() }
+
+/** See [PublisherReportRow.bibleStudiesByReportCategory]'s doc comment — same
+ * "sum by the report's own category, not the publisher's current one" fix as
+ * [categoryHours], applied to Bible Studies. */
+fun List<PublisherReportRow>.categoryBibleStudies(): Map<PublisherCategory, Int> = flatMap { it.bibleStudiesByReportCategory.entries }
+    .filter { it.key == PublisherCategory.REGULAR_PIONEER || it.key == PublisherCategory.AUXILIARY_PIONEER }
+    .groupBy({ it.key }, { it.value })
+    .mapValues { (_, counts) -> counts.sum() }
 
 /**
  * Spec §5.1 — "View publisher records/reports": Bible studies, interested
@@ -274,6 +291,9 @@ class ReportsViewModel @Inject constructor(
                 hoursByReportCategory = personReports
                     .groupBy { it.category }
                     .mapValues { (_, reportsForCategory) -> reportsForCategory.sumOf { it.hoursRendered ?: 0.0 } },
+                bibleStudiesByReportCategory = personReports
+                    .groupBy { it.category }
+                    .mapValues { (_, reportsForCategory) -> reportsForCategory.sumOf { it.bibleStudiesCount } },
             )
         }
 }

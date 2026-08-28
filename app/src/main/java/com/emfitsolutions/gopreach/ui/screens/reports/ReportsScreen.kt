@@ -273,12 +273,17 @@ fun ReportsScreen(
             ) {
                 item {
                     // "Separate the Total report of Regular Pioneers and
-                    // Auxiliary Pioneer" — the combined "Hours" line below
-                    // used to fold every category's hours into one figure;
-                    // these two extra lines call out each Pioneer
-                    // category's own total explicitly, at the congregation-
-                    // wide level, the same way each Group's own section
-                    // already breaks them out (see GroupReportCard).
+                    // Auxiliary Pioneer" / "Separate the Auxiliary and
+                    // Regular Pioneer Bible Study and Total Report" — the
+                    // combined Bible Studies/Hours lines above used to fold
+                    // every category into one figure; these extra lines call
+                    // out each Pioneer category's own publisher count, Bible
+                    // Study total, and Hours total explicitly, at the
+                    // congregation-wide "General Summary" level, the same
+                    // way each Group's own section already breaks them out
+                    // (see GroupReportCard).
+                    val countsByCategory = rows.categoryCounts()
+                    val bibleStudiesByCategory = rows.categoryBibleStudies()
                     val hoursByCategory = rows.categoryHours()
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -290,6 +295,22 @@ fun ReportsScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                            Text(
+                                "Total Regular Pioneer: ${countsByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                "Total Auxiliary Pioneer: ${countsByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                "Total Bible Studies for Regular Pioneer: ${bibleStudiesByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                "Total Bible Studies for Auxiliary Pioneer: ${bibleStudiesByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
                             Text(
                                 "Total Hours for Regular Pioneer: ${"%.1f".format(hoursByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0.0)}",
                                 style = MaterialTheme.typography.bodyMedium,
@@ -423,6 +444,12 @@ private fun GroupReportCard(
             section.categoryCounts.entries.sortedBy { it.key.displayLabel() }.forEach { (category, count) ->
                 Text("Total ${category.displayLabel()}: $count", style = MaterialTheme.typography.bodySmall)
             }
+            // "Separate the Auxiliary and Regular Pioneer Bible Study" — same
+            // per-category breakdown Hours already had, now for Bible
+            // Studies too.
+            section.categoryBibleStudies.entries.sortedBy { it.key.displayLabel() }.forEach { (category, count) ->
+                Text("Total Bible Studies for ${category.displayLabel()}: $count", style = MaterialTheme.typography.bodySmall)
+            }
             section.categoryHours.entries.sortedBy { it.key.displayLabel() }.forEach { (category, hours) ->
                 Text("Total Hours for ${category.displayLabel()}: ${"%.1f".format(hours)}", style = MaterialTheme.typography.bodySmall)
             }
@@ -470,16 +497,21 @@ private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateR
         section.categoryCounts.entries.sortedBy { it.key.displayLabel() }.forEach { (category, count) ->
             rows += listOf("Total ${category.displayLabel()}", count.toString(), "", "", "")
         }
+        section.categoryBibleStudies.entries.sortedBy { it.key.displayLabel() }.forEach { (category, count) ->
+            rows += listOf("Total Bible Studies for ${category.displayLabel()}", count.toString(), "", "", "")
+        }
         section.categoryHours.entries.sortedBy { it.key.displayLabel() }.forEach { (category, hours) ->
             rows += listOf("Total Hours for ${category.displayLabel()}", "%.1f".format(hours), "", "", "")
         }
         rows += listOf("", "", "", "", "")
     }
     val allRows = sections.flatMap { it.rows }
-    // "Separate the Total report of Regular Pioneers and Auxiliary Pioneer"
-    // — called out as their own totals line, same as the on-screen "All
-    // Publishers" card, instead of folding into the single combined "Hours"
-    // total below.
+    // "Separate the Total report of Regular Pioneers and Auxiliary
+    // Pioneer"/"...Bible Study and Total Report" — called out as their own
+    // totals lines, same as the on-screen "All Publishers" card, instead of
+    // folding into the single combined Bible Studies/Hours totals below.
+    val countsByCategory = allRows.categoryCounts()
+    val bibleStudiesByCategory = allRows.categoryBibleStudies()
     val hoursByCategory = allRows.categoryHours()
     return ReportTable(
         title = "GoPreach Publisher Reports ($periodLabel)",
@@ -488,6 +520,10 @@ private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateR
         totals = listOf(
             "Bible Studies" to allRows.sumOf { it.totalBibleStudies }.toString(),
             "Hours" to "%.1f".format(allRows.sumOf { it.totalHours }),
+            "Total Regular Pioneer" to (countsByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0).toString(),
+            "Total Auxiliary Pioneer" to (countsByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0).toString(),
+            "Total Bible Studies for Regular Pioneer" to (bibleStudiesByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0).toString(),
+            "Total Bible Studies for Auxiliary Pioneer" to (bibleStudiesByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0).toString(),
             "Total Hours for Regular Pioneer" to "%.1f".format(hoursByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0.0),
             "Total Hours for Auxiliary Pioneer" to "%.1f".format(hoursByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0.0),
         ),

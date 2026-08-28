@@ -8,10 +8,14 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.repository.ThemePreference
 import com.emfitsolutions.gopreach.data.repository.ThemePreferenceRepository
@@ -66,6 +70,28 @@ class MainActivity : FragmentActivity() {
                     // signed in yet — "Application Starts -> Check Update Server" per spec.
                     val updateViewModel: UpdateViewModel = hiltViewModel(this@MainActivity)
                     LaunchedEffect(Unit) { updateViewModel.checkOnAppStart() }
+
+                    // Bug fix ("auto update available is not working"): a
+                    // process staying alive across many background/
+                    // foreground cycles (by far the most common way this app
+                    // is actually used) never re-ran checkOnAppStart above
+                    // (once per process) and could easily go a long time
+                    // without an actual connectivity transition either — so
+                    // it could sit on an old version for hours/days with no
+                    // automatic re-check at all. This is a single-Activity
+                    // app, so the Activity's own lifecycle IS the app's
+                    // foreground/background lifecycle — ON_START here means
+                    // "the app just came to the foreground," including every
+                    // time after the very first launch.
+                    val lifecycleOwner = LocalLifecycleOwner.current
+                    DisposableEffect(lifecycleOwner) {
+                        val observer = LifecycleEventObserver { _, event ->
+                            if (event == Lifecycle.Event.ON_START) updateViewModel.checkOnAppForeground()
+                        }
+                        lifecycleOwner.lifecycle.addObserver(observer)
+                        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                    }
+
                     UpdateHost(updateViewModel)
                 }
             }

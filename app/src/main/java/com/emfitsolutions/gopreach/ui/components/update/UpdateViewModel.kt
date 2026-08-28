@@ -54,8 +54,33 @@ class UpdateViewModel @Inject constructor(
     private val _state = MutableStateFlow<UpdateCheckState>(UpdateCheckState.Idle)
     val state: StateFlow<UpdateCheckState> = _state.asStateFlow()
 
-    private var hasAutoChecked = false
+    /** Bug fix ("auto update available is not working"): [checkOnAppStart]
+     * only ever fires once per *process*, and the offline→online trigger
+     * below only fires on an actual connectivity transition — neither one
+     * fires just from the user backgrounding and re-foregrounding the app,
+     * which is by far the most common way a phone is actually used
+     * (process death, the only thing that would re-run [checkOnAppStart],
+     * is comparatively rare while the app stays resident in memory). A
+     * device that's continuously online could go a long time — hours,
+     * sometimes days — between real automatic checks, which read as "auto
+     * update available is not working" even though a genuinely newer
+     * release existed the whole time. [checkOnAppForeground] (wired from
+     * MainActivity's own Activity lifecycle — a single-Activity app, so
+     * that's equivalent to "the app just came to the foreground") adds that
+     * missing trigger; every automatic path now funnels through
+     * [maybeAutoCheck] so they share one throttle instead of each needing
+     * its own guard, and don't hammer GitHub's 60-requests/hour
+     * unauthenticated rate limit on rapid app-switching. */
+    private var lastAutoCheckAtMillis = 0L
+    private val autoCheckThrottleMillis = java.util.concurrent.TimeUnit.MINUTES.toMillis(15)
     private val currentVersion: String get() = BuildConfig.VERSION_NAME
+
+    private fun maybeAutoCheck() {
+        val now = System.currentTimeMillis()
+        if (now - lastAutoCheckAtMillis < autoCheckThrottleMillis) return
+        lastAutoCheckAtMillis = now
+        check(silent = true)
+    }
 
     /** "Add a details of the newly installed update" — Settings' "App
      * Version" section. Non-null only when the last update this app
@@ -79,7 +104,7 @@ class UpdateViewModel @Inject constructor(
             .onEach { online ->
                 val previouslyOffline = wasOnline == false
                 wasOnline = online
-                if (online && previouslyOffline) check(silent = true)
+                if (online && previouslyOffline) maybeAutoCheck()
             }
             .launchIn(viewModelScope)
     }
@@ -88,11 +113,13 @@ class UpdateViewModel @Inject constructor(
      * surfaces anything when an update genuinely exists, so a fresh launch
      * that's already current shows nothing at all (spec: don't repeatedly
      * annoy the user with unnecessary notifications). */
-    fun checkOnAppStart() {
-        if (hasAutoChecked) return
-        hasAutoChecked = true
-        check(silent = true)
-    }
+    fun checkOnAppStart() = maybeAutoCheck()
+
+    /** Called every time the app returns to the foreground (see
+     * [lastAutoCheckAtMillis]'s doc comment for why this trigger was
+     * missing) — throttled the same way every other automatic trigger is,
+     * so switching back to GoPreach repeatedly doesn't re-check every time. */
+    fun checkOnAppForeground() = maybeAutoCheck()
 
     /** Called from Settings' "Check for Updates" — always shows a result,
      * including the explicit "GoPreach is up to date" message. */
