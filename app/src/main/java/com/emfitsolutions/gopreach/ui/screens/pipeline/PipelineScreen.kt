@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -22,11 +23,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.Forward
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.RestoreFromTrash
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -79,6 +83,7 @@ import com.emfitsolutions.gopreach.data.model.SupportingImage
 import com.emfitsolutions.gopreach.data.model.Visit
 import com.emfitsolutions.gopreach.data.model.VisitOutcome
 import com.emfitsolutions.gopreach.ui.components.CoordinatesValue
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
@@ -169,6 +174,7 @@ private fun PipelineListScreen(
     val people = allPeople.filter { showInactive || it.status == RecordStatus.ACTIVE }
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<InterestedPerson?>(null) }
+    val showToast = rememberActionToast()
 
     Scaffold(
         topBar = {
@@ -227,7 +233,7 @@ private fun PipelineListScreen(
                                 if (person.status == RecordStatus.ACTIVE) {
                                     IconButton(onClick = { pendingDelete = person }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete") }
                                 } else {
-                                    IconButton(onClick = { viewModel.setStatus(person, RecordStatus.ACTIVE, currentPersonId) }) {
+                                    IconButton(onClick = { viewModel.setStatus(person, RecordStatus.ACTIVE, currentPersonId); showToast("\"${person.name}\" reactivated.") }) {
                                         Icon(Icons.Rounded.RestoreFromTrash, contentDescription = "Reactivate")
                                     }
                                 }
@@ -245,7 +251,7 @@ private fun PipelineListScreen(
             publisherPersonId = publisherPersonId,
             congregationId = congregationId,
             currentPersonId = currentPersonId,
-            onSave = { viewModel.save(it) },
+            onSave = { viewModel.save(it); showToast("Record added.") },
             onDismiss = { showCreateDialog = false },
             viewModel = viewModel,
         )
@@ -509,6 +515,7 @@ private fun PipelinePersonDetailScreen(
     val forwardRequest by forwardRequestFlow.collectAsStateWithLifecycle(initialValue = null)
     val publisherForwardRequestFlow = remember(livePerson.pendingPublisherForwardRequestId) { viewModel.publisherForwardRequestFor(livePerson) }
     val publisherForwardRequest by publisherForwardRequestFlow.collectAsStateWithLifecycle(initialValue = null)
+    val showToast = rememberActionToast()
 
     Scaffold(
         topBar = {
@@ -556,55 +563,23 @@ private fun PipelinePersonDetailScreen(
             // [MOVE TO RETURN VISIT MODULE, FORWARD TO OTHER CONGREGATION]".
             // "FORWARD TO OTHER CONGREGATION" (same [ForwardRequest] flow) is
             // offered at every stage; "FORWARD TO OTHER PUBLISHER" only at
-            // Return Visit/Bible Study, per spec.
-            if (stage == PipelineStage.SEARCHING) {
-                item {
-                    EditSectionHeader("Actions", modifier = Modifier.padding(top = 16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { viewModel.advanceStage(livePerson, PipelineStage.RETURN_VISIT, currentPersonId) }) {
-                            Text("MOVE TO RETURN VISIT")
-                        }
-                        OutlinedButton(onClick = { showForwardDialog = true }, enabled = forwardRequest?.status != ForwardRequestStatus.PENDING) {
-                            Text("FORWARD TO OTHER CONGREGATION")
-                        }
-                    }
-                    ForwardStatusLine(forwardRequest)
-                }
-            } else if (stage == PipelineStage.RETURN_VISIT) {
-                item {
-                    EditSectionHeader("Actions", modifier = Modifier.padding(top = 16.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { viewModel.advanceStage(livePerson, PipelineStage.BIBLE_STUDY, currentPersonId) }) {
-                            Text("MOVE TO BIBLE STUDY")
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { showForwardDialog = true }, enabled = forwardRequest?.status != ForwardRequestStatus.PENDING) {
-                                Text("FORWARD TO OTHER CONGREGATION")
-                            }
-                            OutlinedButton(onClick = { showForwardToPublisherDialog = true }, enabled = publisherForwardRequest?.status != ForwardRequestStatus.PENDING) {
-                                Text("FORWARD TO OTHER PUBLISHER")
-                            }
-                        }
-                        ForwardStatusLine(forwardRequest)
-                        PublisherForwardStatusLine(publisherForwardRequest)
-                    }
-                }
-            } else {
-                item {
-                    EditSectionHeader("Actions", modifier = Modifier.padding(top = 16.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { showForwardDialog = true }, enabled = forwardRequest?.status != ForwardRequestStatus.PENDING) {
-                                Text("FORWARD TO OTHER CONGREGATION")
-                            }
-                            OutlinedButton(onClick = { showForwardToPublisherDialog = true }, enabled = publisherForwardRequest?.status != ForwardRequestStatus.PENDING) {
-                                Text("FORWARD TO OTHER PUBLISHER")
-                            }
-                        }
-                        ForwardStatusLine(forwardRequest)
-                        PublisherForwardStatusLine(publisherForwardRequest)
-                    }
-                }
+            // Return Visit/Bible Study, per spec. Stacked full-width buttons
+            // (not side-by-side) — two long labels in one Row used to overflow
+            // past the screen edge on a normal phone width, which read as
+            // "not presentable."
+            item {
+                EditSectionHeader("Actions", modifier = Modifier.padding(top = 16.dp))
+                PipelineActionButtons(
+                    stage = stage,
+                    forwardRequest = forwardRequest,
+                    publisherForwardRequest = publisherForwardRequest,
+                    onAdvanceStage = { newStage ->
+                        viewModel.advanceStage(livePerson, newStage, currentPersonId)
+                        showToast("Moved to ${newStage.label()}.")
+                    },
+                    onShowForwardDialog = { showForwardDialog = true },
+                    onShowForwardToPublisherDialog = { showForwardToPublisherDialog = true },
+                )
             }
             if (stage != PipelineStage.SEARCHING) {
                 item { EditSectionHeader("System Information", modifier = Modifier.padding(top = 16.dp))
@@ -628,7 +603,7 @@ private fun PipelinePersonDetailScreen(
                                 val visitorName by remember(visit.publisherPersonId) { viewModel.personName(visit.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
                                 Text("${stage.visitorLabel()}: ${visitorName ?: "—"}", style = MaterialTheme.typography.bodySmall)
                             }
-                            IconButton(onClick = { viewModel.deleteVisit(person.id, visit.id) }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete visit") }
+                            IconButton(onClick = { viewModel.deleteVisit(person.id, visit.id); showToast("Visit deleted.") }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete visit") }
                         }
                     }
                 }
@@ -649,7 +624,7 @@ private fun PipelinePersonDetailScreen(
             publisherPersonId = person.publisherPersonId,
             currentPersonId = currentPersonId,
             stage = stage,
-            onSave = { viewModel.saveVisit(it) },
+            onSave = { viewModel.saveVisit(it); showToast("Visit logged.") },
             onDismiss = { showAddVisit = false },
         )
     }
@@ -660,7 +635,7 @@ private fun PipelinePersonDetailScreen(
             publisherPersonId = person.publisherPersonId,
             congregationId = livePerson.congregationId,
             currentPersonId = currentPersonId,
-            onSave = { viewModel.save(it) },
+            onSave = { viewModel.save(it); showToast("Record saved.") },
             onDismiss = { showEditDialog = false },
             viewModel = viewModel,
         )
@@ -683,6 +658,57 @@ private fun PipelinePersonDetailScreen(
             onDismiss = { showForwardToPublisherDialog = false },
             viewModel = viewModel,
         )
+    }
+}
+
+/** The Actions section's buttons — stacked full-width, each with a leading
+ * icon and a mixed-case label, rather than the previous side-by-side
+ * ALL-CAPS buttons ("FORWARD TO OTHER CONGREGATION" next to "FORWARD TO
+ * OTHER PUBLISHER" in one Row) that overflowed past the screen edge on a
+ * normal phone width. */
+@Composable
+private fun PipelineActionButtons(
+    stage: PipelineStage,
+    forwardRequest: ForwardRequest?,
+    publisherForwardRequest: PublisherForwardRequest?,
+    onAdvanceStage: (PipelineStage) -> Unit,
+    onShowForwardDialog: () -> Unit,
+    onShowForwardToPublisherDialog: () -> Unit,
+) {
+    val iconModifier = Modifier.size(18.dp).padding(end = 8.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        val nextStage = when (stage) {
+            PipelineStage.SEARCHING -> PipelineStage.RETURN_VISIT
+            PipelineStage.RETURN_VISIT -> PipelineStage.BIBLE_STUDY
+            PipelineStage.BIBLE_STUDY -> null
+        }
+        if (nextStage != null) {
+            Button(onClick = { onAdvanceStage(nextStage) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null, modifier = iconModifier)
+                Text("Move to ${nextStage.label()}")
+            }
+        }
+        OutlinedButton(
+            onClick = onShowForwardDialog,
+            enabled = forwardRequest?.status != ForwardRequestStatus.PENDING,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = iconModifier)
+            Text("Forward to Other Congregation")
+        }
+        // "FORWARD TO OTHER PUBLISHER" only at Return Visit/Bible Study, per spec.
+        if (stage != PipelineStage.SEARCHING) {
+            OutlinedButton(
+                onClick = onShowForwardToPublisherDialog,
+                enabled = publisherForwardRequest?.status != ForwardRequestStatus.PENDING,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.AutoMirrored.Rounded.Forward, contentDescription = null, modifier = iconModifier)
+                Text("Forward to Other Publisher")
+            }
+        }
+        ForwardStatusLine(forwardRequest)
+        PublisherForwardStatusLine(publisherForwardRequest)
     }
 }
 
@@ -732,6 +758,7 @@ private fun ForwardToCongregationDialog(
         if (query.isBlank()) congregations
         else congregations.filter { c -> c.name.contains(query, ignoreCase = true) || c.languages.any { it.contains(query, ignoreCase = true) } }
     }
+    val showToast = rememberActionToast()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -768,11 +795,12 @@ private fun ForwardToCongregationDialog(
                     val target = selected
                     if (target != null) {
                         viewModel.forward(person, target, ownCongregationName, fromPublisherName ?: "—", currentPersonId)
+                        showToast("Forward request sent to ${target.name}.")
                         onDismiss()
                     }
                 },
                 enabled = selected != null,
-            ) { Text("SEND REQUEST") }
+            ) { Text("Send Request") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -800,6 +828,7 @@ private fun ForwardToPublisherDialog(
     val filtered = remember(publishers, query) {
         if (query.isBlank()) publishers else publishers.filter { it.fullName.contains(query, ignoreCase = true) }
     }
+    val showToast = rememberActionToast()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -833,11 +862,12 @@ private fun ForwardToPublisherDialog(
                     val target = selected
                     if (target != null) {
                         viewModel.forwardToPublisher(person, target, fromPublisherName ?: "—", currentPersonId)
+                        showToast("Forward request sent to ${target.fullName}.")
                         onDismiss()
                     }
                 },
                 enabled = selected != null,
-            ) { Text("SEND REQUEST") }
+            ) { Text("Send Request") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -870,6 +900,7 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
     var captureError by remember { mutableStateOf<String?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
     var showManualEntry by remember { mutableStateOf(false) }
+    val showToast = rememberActionToast()
 
     fun runCapture() {
         captureError = null
@@ -899,8 +930,14 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
                     Text("Longitude: ${"%.6f".format(capture.lng)}", style = MaterialTheme.typography.bodyMedium)
                     if (capture.accuracyMeters != null) Text("Accuracy: ${capture.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
                     Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { viewModel.saveGpsLocation(person, capture.lat, capture.lng, capture.accuracyMeters, currentPersonId); pendingCapture = null }) { Text("CONFIRM & SAVE") }
-                        OutlinedButton(onClick = { pendingCapture = null }) { Text("CANCEL") }
+                        Button(
+                            onClick = {
+                                viewModel.saveGpsLocation(person, capture.lat, capture.lng, capture.accuracyMeters, currentPersonId)
+                                showToast("Location saved.")
+                                pendingCapture = null
+                            },
+                        ) { Text("Confirm & Save") }
+                        OutlinedButton(onClick = { pendingCapture = null }) { Text("Cancel") }
                     }
                 }
             }
@@ -919,8 +956,8 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
                     if (person.gpsAccuracy != null) Text("Accuracy: ${person.gpsAccuracy.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
                     if (person.gpsCapturedAt != null) Text("Captured: ${formatRecordTimestamp(person.gpsCapturedAt)}", style = MaterialTheme.typography.bodySmall)
                     Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { startCapture() }) { Text("EDIT LOCATION") }
-                        OutlinedButton(onClick = { showClearConfirm = true }, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("CLEAR LOCATION") }
+                        OutlinedButton(onClick = { startCapture() }) { Text("Edit Location") }
+                        OutlinedButton(onClick = { showClearConfirm = true }, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Clear Location") }
                     }
                 }
             }
@@ -928,11 +965,11 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
                 Text("No location captured", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(onClick = { startCapture() }) {
                     Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text("CAPTURE CURRENT LOCATION")
+                    Text("Capture Current Location")
                 }
                 OutlinedButton(onClick = { showManualEntry = true }) {
                     Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text("ENTER COORDINATES MANUALLY")
+                    Text("Enter Coordinates Manually")
                 }
             }
         }
@@ -942,7 +979,11 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
     if (showManualEntry) {
         ManualCoordinatesDialog(
             initial = person.takeIf { it.hasGpsLocation }?.let { CoordinatesValue(it.gpsLat!!, it.gpsLng!!, it.gpsAccuracy) },
-            onConfirm = { value -> viewModel.saveGpsLocation(person, value.lat, value.lng, value.accuracyMeters, currentPersonId); showManualEntry = false },
+            onConfirm = { value ->
+                viewModel.saveGpsLocation(person, value.lat, value.lng, value.accuracyMeters, currentPersonId)
+                showToast("Location saved.")
+                showManualEntry = false
+            },
             onDismiss = { showManualEntry = false },
         )
     }
@@ -951,8 +992,16 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
             onDismissRequest = { showClearConfirm = false },
             title = { Text("Clear GPS Location?") },
             text = { Text("This will remove the saved GPS coordinates from this record.") },
-            confirmButton = { TextButton(onClick = { viewModel.clearGpsLocation(person, currentPersonId); showClearConfirm = false }) { Text("CLEAR") } },
-            dismissButton = { TextButton(onClick = { showClearConfirm = false }) { Text("CANCEL") } },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearGpsLocation(person, currentPersonId)
+                        showToast("Location cleared.")
+                        showClearConfirm = false
+                    },
+                ) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { showClearConfirm = false }) { Text("Cancel") } },
         )
     }
 }

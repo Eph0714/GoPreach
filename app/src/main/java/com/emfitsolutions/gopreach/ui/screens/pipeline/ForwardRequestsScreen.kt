@@ -40,6 +40,7 @@ import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
 /** "Forward to Other Congregation" spec flow — the receiving Service
  * Overseer's (also Coordinator Elder/Admin/Super-Admin) incoming review
@@ -68,6 +69,7 @@ fun ForwardRequestsScreen(
     val publisherRequestsFlow = remember(congregationIds) { publisherForwardViewModel.requestsFor(congregationIds) }
     val publisherRequests by publisherRequestsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var selected by remember { mutableStateOf<ForwardRequest?>(null) }
+    val showToast = rememberActionToast()
 
     Scaffold(
         topBar = {
@@ -95,7 +97,7 @@ fun ForwardRequestsScreen(
                                 Text(request.personNameSnapshot, style = MaterialTheme.typography.titleMedium)
                                 Text("From: ${request.fromPublisherNameSnapshot} · ${request.fromCongregationNameSnapshot}", style = MaterialTheme.typography.bodySmall)
                                 Text("Requested: ${formatRecordTimestamp(request.requestedAt)}", style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = { selected = request }) { Text(if (readOnly) "VIEW" else "REVIEW") }
+                                TextButton(onClick = { selected = request }) { Text(if (readOnly) "View" else "Review") }
                             }
                         }
                     }
@@ -118,8 +120,10 @@ fun ForwardRequestsScreen(
             onDismiss = { selected = null },
             onDecline = {
                 viewModel.decline(request, currentPersonId)
+                showToast("Forward request declined.")
                 selected = null
             },
+            onAccepted = { assignedTo -> showToast("Accepted — assigned to ${assignedTo.fullName}.") },
             viewModel = viewModel,
         )
     }
@@ -150,6 +154,7 @@ private fun ReviewForwardRequestDialog(
     readOnly: Boolean,
     onDismiss: () -> Unit,
     onDecline: () -> Unit,
+    onAccepted: (Person) -> Unit,
     viewModel: ForwardRequestsViewModel,
 ) {
     val publishersFlow = remember(request.toCongregationId) { viewModel.assignablePublishers(request.toCongregationId) }
@@ -171,7 +176,7 @@ private fun ReviewForwardRequestDialog(
                     Text("Status: Pending", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
                 }
             },
-            confirmButton = { TextButton(onClick = onDismiss) { Text("CLOSE") } },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
         )
         return
     }
@@ -187,7 +192,7 @@ private fun ReviewForwardRequestDialog(
                 Text("—".repeat(20), style = MaterialTheme.typography.bodySmall)
                 Text("Name: ${request.personNameSnapshot}")
                 if (!assigning) {
-                    Text("To assign this record to a publisher in your congregation, tap ACCEPT.", style = MaterialTheme.typography.bodySmall)
+                    Text("To assign this record to a publisher in your congregation, tap Accept.", style = MaterialTheme.typography.bodySmall)
                 } else {
                     Text("Assign to:", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
                     var expanded by remember { mutableStateOf(false) }
@@ -214,24 +219,26 @@ private fun ReviewForwardRequestDialog(
         },
         confirmButton = {
             if (!assigning) {
-                TextButton(onClick = { assigning = true }) { Text("ACCEPT") }
+                TextButton(onClick = { assigning = true }) { Text("Accept") }
             } else {
                 TextButton(
                     onClick = {
                         val publisher = selectedPublisher
                         if (publisher != null) {
                             viewModel.accept(request, publisher, currentPersonId)
+                            onAccepted(publisher)
                             onDismiss()
                         }
                     },
-                ) { Text("SAVE") }
+                    enabled = selectedPublisher != null,
+                ) { Text("Confirm") }
             }
         },
         dismissButton = {
             if (!assigning) {
-                TextButton(onClick = onDecline) { Text("DECLINE") }
+                TextButton(onClick = onDecline) { Text("Decline") }
             } else {
-                TextButton(onClick = { assigning = false; selectedPublisher = null }) { Text("BACK") }
+                TextButton(onClick = { assigning = false; selectedPublisher = null }) { Text("Back") }
             }
         },
     )

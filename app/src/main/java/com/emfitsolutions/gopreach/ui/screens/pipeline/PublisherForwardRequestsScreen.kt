@@ -33,6 +33,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
 /** "FORWARD TO OTHER PUBLISHER" spec flow — the *receiving* publisher's
  * "Forwarded to Me" queue: full record details, [ACCEPT]/[DECLINE] directly
@@ -47,6 +48,7 @@ fun PublisherForwardRequestsScreen(
     val requestsFlow = remember(currentPersonId) { viewModel.incomingRequestsFor(currentPersonId) }
     val requests by requestsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var selected by remember { mutableStateOf<PublisherForwardRequest?>(null) }
+    val showToast = rememberActionToast()
 
     Scaffold(
         topBar = {
@@ -72,7 +74,7 @@ fun PublisherForwardRequestsScreen(
                             Text(request.personNameSnapshot, style = MaterialTheme.typography.titleMedium)
                             Text("From: ${request.fromPublisherNameSnapshot}", style = MaterialTheme.typography.bodySmall)
                             Text("Requested: ${formatRecordTimestamp(request.requestedAt)}", style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = { selected = request }) { Text("REVIEW") }
+                            TextButton(onClick = { selected = request }) { Text("Review") }
                         }
                     }
                 }
@@ -97,12 +99,24 @@ fun PublisherForwardRequestsScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.accept(request, currentPersonId); selected = null }) { Text("ACCEPT") }
+                TextButton(
+                    onClick = {
+                        viewModel.accept(request, currentPersonId)
+                        showToast("Accepted — added to your own record.")
+                        selected = null
+                    },
+                ) { Text("Accept") }
             },
             dismissButton = {
                 Row {
-                    TextButton(onClick = { viewModel.decline(request, currentPersonId); selected = null }) { Text("DECLINE") }
-                    TextButton(onClick = { selected = null }) { Text("CLOSE") }
+                    TextButton(
+                        onClick = {
+                            viewModel.decline(request, currentPersonId)
+                            showToast("Forward request declined.")
+                            selected = null
+                        },
+                    ) { Text("Decline") }
+                    TextButton(onClick = { selected = null }) { Text("Close") }
                 }
             },
         )

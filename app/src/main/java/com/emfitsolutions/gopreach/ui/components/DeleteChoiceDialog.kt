@@ -50,6 +50,7 @@ fun DeleteChoiceDialog(
     permanentDeleteImpactSummary: String? = null,
 ) {
     var showPermanentConfirm by remember { mutableStateOf(false) }
+    val showToast = rememberActionToast()
 
     if (!showPermanentConfirm) {
         AlertDialog(
@@ -65,7 +66,7 @@ fun DeleteChoiceDialog(
             confirmButton = {
                 Column(horizontalAlignment = Alignment.End) {
                     Button(
-                        onClick = { onMoveToInactive(); onDismiss() },
+                        onClick = { onMoveToInactive(); showToast("\"$recordLabel\" moved to Inactive."); onDismiss() },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Move to Inactive") }
                     if (canPermanentlyDelete) {
@@ -105,7 +106,9 @@ fun DeleteChoiceDialog(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     if (permanentDeleteBlockedReason == null) {
-                        Button(onClick = { onDeletePermanently(); onDismiss() }) { Text("Delete Permanently") }
+                        Button(
+                            onClick = { onDeletePermanently(); showToast("\"$recordLabel\" permanently deleted."); onDismiss() },
+                        ) { Text("Delete Permanently") }
                     }
                     TextButton(
                         onClick = { if (permanentDeleteBlockedReason != null) onDismiss() else showPermanentConfirm = false },
