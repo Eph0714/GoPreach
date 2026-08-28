@@ -16,9 +16,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Print
+import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -454,13 +454,13 @@ fun DashboardReportsScreen(
                             onClick = { reportTable?.let { ReportPrinter.print(context, it) } },
                             enabled = reportTable != null,
                         ) {
-                            Icon(Icons.Rounded.Print, contentDescription = "Print / Export as PDF")
+                            Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Export as PDF")
                         }
                         IconButton(
                             onClick = { exportLauncher.launch(exportFileName) },
                             enabled = reportTable != null,
                         ) {
-                            Icon(Icons.Rounded.Share, contentDescription = "Export as Excel (CSV)")
+                            Icon(Icons.Rounded.TableChart, contentDescription = "Export as Excel (CSV)")
                         }
                     }
                 },

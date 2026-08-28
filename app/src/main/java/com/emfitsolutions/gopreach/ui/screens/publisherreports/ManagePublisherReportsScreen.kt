@@ -18,9 +18,9 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.LockOpen
-import androidx.compose.material.icons.rounded.Print
+import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
@@ -134,12 +134,12 @@ fun ManagePublisherReportsScreen(
                     // renders at reduced alpha, which on this TopAppBar read
                     // as "not there at all." Always enabled now.
                     IconButton(onClick = { ReportPrinter.print(context, reportTable) }) {
-                        Icon(Icons.Rounded.Print, contentDescription = "Print / Export as PDF")
+                        Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Export as PDF")
                     }
                     // "Export as ... excel" — CSV, opens directly in any
                     // spreadsheet app.
                     IconButton(onClick = { csvExportLauncher.launch(csvExportFileName) }) {
-                        Icon(Icons.Rounded.Share, contentDescription = "Export as Excel (CSV)")
+                        Icon(Icons.Rounded.TableChart, contentDescription = "Export as Excel (CSV)")
                     }
                 },
             )

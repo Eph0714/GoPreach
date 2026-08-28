@@ -51,18 +51,43 @@ class UpdateManifestRepository @Inject constructor(
             val connection = URL(manifestUrl).openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
             connection.setRequestProperty("Accept", "application/vnd.github+json")
+            // GitHub's REST API documents this as a hard requirement — a
+            // request with no (or an unrecognized) User-Agent can be
+            // rejected outright. HttpURLConnection's own JVM-default
+            // User-Agent isn't guaranteed to satisfy that on every Android
+            // build, so this is set explicitly rather than left to chance —
+            // a request silently rejected here is exactly what "automatic
+            // detection of new update is not working" looks like from the
+            // user's side (nothing is shown either way; see [Idle]'s
+            // handling below for why a failed *check* stays silent).
+            connection.setRequestProperty("User-Agent", "GoPreach-Android")
             connection.connectTimeout = 15_000
             connection.readTimeout = 15_000
 
-            if (connection.responseCode !in 200..299) {
-                return@withContext Result.failure(Exception("Update check failed (HTTP ${connection.responseCode})"))
+            val responseCode = connection.responseCode
+            if (responseCode !in 200..299) {
+                // GitHub's unauthenticated REST API is capped at 60
+                // requests/hour per IP; exceeding it returns 403 with
+                // X-RateLimit-Remaining: 0. Called out specifically (rather
+                // than folded into the generic HTTP-error message below) so
+                // it's diagnosable from a logcat capture instead of looking
+                // identical to every other kind of failure.
+                val rateLimited = responseCode == 403 && connection.getHeaderField("X-RateLimit-Remaining") == "0"
+                val message = if (rateLimited) {
+                    "Update check failed: GitHub API rate limit exceeded (resets hourly)"
+                } else {
+                    val errorBody = runCatching { connection.errorStream?.bufferedReader()?.use { it.readText() } }.getOrNull()
+                    "Update check failed (HTTP $responseCode)${errorBody?.let { ": $it" } ?: ""}"
+                }
+                Log.e(TAG, message)
+                return@withContext Result.failure(Exception(message))
             }
 
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val release = gson.fromJson(body, GithubRelease::class.java)
             // The APK asset — the one non-source-code file GitHub attaches to the release.
             val asset = release.assets.firstOrNull { it.name.endsWith(".apk") }
-                ?: return@withContext Result.failure(Exception("Latest release has no APK asset"))
+                ?: return@withContext Result.failure(Exception("Latest release has no APK asset").also { Log.e(TAG, it.message ?: "") })
 
             Result.success(
                 UpdateInfo(
@@ -74,7 +99,14 @@ class UpdateManifestRepository @Inject constructor(
                 )
             )
         } catch (e: Exception) {
-            Log.w(TAG, "Update check failed: ${e.message}")
+            // Log.e, not Log.w — a silent [UpdateViewModel.check] drops this
+            // straight to Idle with no UI of any kind (by design: don't
+            // surface a transient network blip as an error dialog), which
+            // means this log line is the *only* place the actual cause is
+            // ever recorded. It was a warning before, easy to miss/filter
+            // out of a real logcat capture while diagnosing exactly this
+            // "not working" report.
+            Log.e(TAG, "Update check failed", e)
             Result.failure(e)
         }
     }
