@@ -2,12 +2,15 @@ package com.emfitsolutions.gopreach.ui.screens.publishers
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
+import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
+import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
@@ -57,9 +60,19 @@ class ManagePublishersViewModel @Inject constructor(
     private val interestedPersonRepository: InterestedPersonRepository,
     private val visitRepository: VisitRepository,
     groupRepository: GroupRepository,
+    congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
     private val groups: Flow<List<Group>> = groupRepository.observeAll()
+
+    /** "In enrolling publisher record for superadmin, show a dropdown to
+     * select a congregation as filter" — every active congregation, for the
+     * Super-Admin-only filter dropdown in [ManagePublishersScreen] (Admin/
+     * Coordinator Elder are already scoped to their own single congregation
+     * upstream via [rowsFor]'s own `visibleCongregationId`, so this is never
+     * shown to them at all). */
+    val congregations: Flow<List<Congregation>> =
+        congregationRepository.observeAll().map { list -> list.filter { it.status == RecordStatus.ACTIVE }.sortedBy { it.name } }
 
     /** For the Edit Publisher dialog's Group dropdown — every Group in this
      * publisher's own congregation (a Publisher can only ever belong to a

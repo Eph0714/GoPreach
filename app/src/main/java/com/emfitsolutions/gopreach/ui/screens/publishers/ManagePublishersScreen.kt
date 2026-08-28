@@ -49,6 +49,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Gender
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
@@ -79,7 +80,13 @@ fun ManagePublishersScreen(
     onAddNew: () -> Unit,
     viewModel: ManagePublishersViewModel = hiltViewModel(),
 ) {
-    val rowsFlow = remember(visibleCongregationId) { viewModel.rowsFor(visibleCongregationId) }
+    // Super-Admin only (visibleCongregationId == null from the caller) — an
+    // Admin/Coordinator Elder is already scoped to their own single
+    // congregation upstream, so there's nothing for them to filter.
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val effectiveCongregationId = visibleCongregationId ?: congregationFilter
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
+    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
     val allRows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showInactive by remember { mutableStateOf(false) }
     val rows = allRows.filter { showInactive || it.category != PublisherCategory.REMOVED_PUBLISHER }
@@ -122,6 +129,14 @@ fun ManagePublishersScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            if (visibleCongregationId == null) {
+                CongregationFilterDropdown(
+                    congregations = congregations,
+                    selectedId = congregationFilter,
+                    onSelected = { congregationFilter = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -406,6 +421,39 @@ private fun EditPublisherDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** "In enrolling publisher record for superadmin, show a dropdown to select
+ * a congregation as filter" — Super-Admin-only (see the `visibleCongregationId
+ * == null` gate at the call site); narrows the list to one congregation,
+ * "All Congregations" (the default) showing every one at once same as before. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CongregationFilterDropdown(
+    congregations: List<Congregation>,
+    selectedId: String?,
+    onSelected: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: "All Congregations"
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+        OutlinedTextField(
+            value = selectedName,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Congregation") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("All Congregations") }, onClick = { onSelected(null); expanded = false })
+            congregations.forEach { c ->
+                DropdownMenuItem(text = { Text(c.name) }, onClick = { onSelected(c.id); expanded = false })
+            }
+        }
+    }
 }
 
 /** Every Group in this publisher's own congregation, plus "Unassigned"

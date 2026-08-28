@@ -439,7 +439,15 @@ fun GoPreachNavGraph(
                 currentPersonId = currentPersonId,
                 congregationId = ownPublisherAssignment?.congregationId.orEmpty(),
                 stage = PipelineStage.SEARCHING,
-                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
+                // "Allow the publisher to permanently delete their own
+                // Return Visit/Bible Study/Searching record" — these three
+                // routes only ever show the signed-in session's own records
+                // (publisherPersonId = currentPersonId above, no elder-
+                // viewing-another-publisher path exists for them), so
+                // `ownPublisherAssignment != null` here safely means "this
+                // is my own record," same as Super-Admin's existing
+                // unrestricted access.
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN || ownPublisherAssignment != null,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -449,7 +457,7 @@ fun GoPreachNavGraph(
                 currentPersonId = currentPersonId,
                 congregationId = ownPublisherAssignment?.congregationId.orEmpty(),
                 stage = PipelineStage.RETURN_VISIT,
-                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN || ownPublisherAssignment != null,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -459,7 +467,7 @@ fun GoPreachNavGraph(
                 currentPersonId = currentPersonId,
                 congregationId = ownPublisherAssignment?.congregationId.orEmpty(),
                 stage = PipelineStage.BIBLE_STUDY,
-                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
+                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN || ownPublisherAssignment != null,
                 onBack = { navController.popBackStack() },
             )
         }

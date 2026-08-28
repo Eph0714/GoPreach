@@ -507,6 +507,8 @@ private fun PublisherStatsSection(
         // never see that card at all.
         if (isPioneer) viewModel.startVisitSync(publisherPersonId)
     }
+    val statsFlow = remember(publisherPersonId) { viewModel.statsFor(publisherPersonId) }
+    val stats by statsFlow.collectAsStateWithLifecycle()
     val dateRange by viewModel.dateRange.collectAsStateWithLifecycle()
 
     Card(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
@@ -519,16 +521,18 @@ private fun PublisherStatsSection(
         }
     }
 
-    // "My Bible Study" / "My Return Visit" / "Preaching Hours" — redesigned
-    // per request as small, colorless round icon buttons (only the icon is
-    // tinted) with the label below the circle, replacing the numeric
-    // SquareStatCard tiles these three used to be. Each gets weight(1f) so
-    // its label is actually width-constrained to its own share of the row —
-    // without it, a longer label (e.g. "Attended Preaching") has no width to
-    // wrap/ellipsize against and just pushes the row wider than the screen.
+    // "My Bible Study" / "My Return Visit" / "Preaching Hours" — small,
+    // colorless round icon buttons (only the icon is tinted) with the label
+    // below the circle; each live count/value is shown right next to its
+    // label, per request, rather than inside the circle. Each button gets
+    // weight(1f) so its label is actually width-constrained to its own share
+    // of the row — without it, a longer label (e.g. "Attended Preaching")
+    // has no width to wrap/ellipsize against and just pushes the row wider
+    // than the screen.
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
         RoundIconActionButton(
             label = "My Bible Study",
+            value = stats.bibleStudiesCount.toString(),
             icon = Icons.AutoMirrored.Rounded.MenuBook,
             onClick = { onNavigate(Destinations.BIBLE_STUDY) },
             modifier = Modifier.weight(1f),
@@ -536,12 +540,14 @@ private fun PublisherStatsSection(
         if (isPioneer) {
             RoundIconActionButton(
                 label = "My Return Visit",
+                value = stats.returnVisitsCount.toString(),
                 icon = Icons.Rounded.PeopleAlt,
                 onClick = { onNavigate(Destinations.RETURN_VISIT) },
                 modifier = Modifier.weight(1f),
             )
             RoundIconActionButton(
                 label = "Preaching Hours",
+                value = "%.1f".format(stats.preachingHours),
                 icon = Icons.Rounded.Timer,
                 onClick = { onNavigate(Destinations.PREACHING_TIME_RECORD) },
                 modifier = Modifier.weight(1f),
@@ -549,6 +555,7 @@ private fun PublisherStatsSection(
         } else {
             RoundIconActionButton(
                 label = "Attended Preaching",
+                value = if (stats.attendedPreaching) "Yes" else "No",
                 icon = Icons.Rounded.Assignment,
                 onClick = { onNavigate(Destinations.MONTHLY_REPORT) },
                 modifier = Modifier.weight(1f),
