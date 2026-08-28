@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.home
 
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.repository.AuthRepository
@@ -15,6 +16,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+private const val TAG = "HomeViewModel"
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -37,12 +40,26 @@ class HomeViewModel @Inject constructor(
     /** "Update Profile Image" — the top-right profile menu, every role. Reads
      * the signed-in session's own current [state] rather than taking a
      * `Person` parameter, so a caller can't accidentally pass a stale/wrong
-     * copy from a previous composition. */
-    fun updateProfileImage(imageUri: Uri) {
+     * copy from a previous composition.
+     *
+     * Bug fix ("error in attaching image in all modules... allow the app to
+     * save image"): [PersonRepository.uploadProfileImage] hits Firebase
+     * Storage over the network — a flaky connection, an expired auth token,
+     * or a revoked content:// read grant on [imageUri] can all throw here.
+     * Left uncaught inside this coroutine, that exception had nothing
+     * downstream to catch it and crashed the whole app process, exactly the
+     * pattern already fixed for Announcements' image attach (see
+     * ManageAnnouncementsViewModel.saveWithImage's doc comment). */
+    fun updateProfileImage(imageUri: Uri, onImageUploadFailed: (() -> Unit)? = null) {
         val person = state.value.person ?: return
         viewModelScope.launch {
-            val url = personRepository.uploadProfileImage(person.id, imageUri)
-            personRepository.save(person.copy(profileImageUrl = url))
+            try {
+                val url = personRepository.uploadProfileImage(person.id, imageUri)
+                personRepository.save(person.copy(profileImageUrl = url))
+            } catch (e: Exception) {
+                Log.e(TAG, "Profile image upload failed", e)
+                onImageUploadFailed?.invoke()
+            }
         }
     }
 

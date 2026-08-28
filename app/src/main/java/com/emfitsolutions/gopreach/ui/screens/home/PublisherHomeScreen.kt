@@ -72,6 +72,7 @@ import com.emfitsolutions.gopreach.ui.components.NotificationBell
 import com.emfitsolutions.gopreach.ui.components.ProfileMenuButton
 import com.emfitsolutions.gopreach.ui.components.RoundIconActionButton
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 import com.emfitsolutions.gopreach.ui.screens.announcements.ManageAnnouncementsViewModel
 import com.emfitsolutions.gopreach.ui.screens.notifications.NotificationCenterViewModel
@@ -111,6 +112,7 @@ fun PublisherHomeScreen(
     val session by viewModel.state.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val pendingSyncCount by viewModel.pendingSyncCount.collectAsStateWithLifecycle()
+    val showToast = rememberActionToast()
     val currentPersonId = session.person?.id.orEmpty()
     // resolvedRoleTypeOrNull() (never throws) — this runs unconditionally on
     // every Main Form composition, same reasoning as AdminHomeScreen/
@@ -203,7 +205,11 @@ fun PublisherHomeScreen(
                 onOpenNotifications = { notificationCenterViewModel.markAllSeen(currentPersonId) },
                 onNotificationClick = onNavigate,
                 onOpenSettings = { onNavigate(Destinations.SETTINGS) },
-                onImagePicked = viewModel::updateProfileImage,
+                onImagePicked = { uri ->
+                    viewModel.updateProfileImage(uri, onImageUploadFailed = {
+                        showToast("Profile image failed to upload. Try again.")
+                    })
+                },
                 onSignOut = viewModel::signOut,
             )
 

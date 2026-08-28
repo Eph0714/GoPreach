@@ -69,6 +69,7 @@ import com.emfitsolutions.gopreach.ui.components.NotificationBell
 import com.emfitsolutions.gopreach.ui.components.ProfileMenuButton
 import com.emfitsolutions.gopreach.ui.components.QuickAction
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 import com.emfitsolutions.gopreach.ui.screens.dashboard.DashboardStatsContent
 import com.emfitsolutions.gopreach.ui.screens.notifications.NotificationCenterViewModel
@@ -291,6 +292,7 @@ fun AdminHomeScreen(
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
+    val showToast = rememberActionToast()
 
     // "Back should return only to the navigation menu" — set right before a
     // drawer item's own onNavigate/onSwitchToPublisher/onSignOut closes the
@@ -455,7 +457,11 @@ fun AdminHomeScreen(
                             fullName = session.person?.fullName ?: "—",
                             roleLabel = role?.name?.replace('_', ' ') ?: "GoPreach Admin",
                             profileImageUrl = session.person?.profileImageUrl,
-                            onImagePicked = viewModel::updateProfileImage,
+                            onImagePicked = { uri ->
+                                viewModel.updateProfileImage(uri, onImageUploadFailed = {
+                                    showToast("Profile image failed to upload. Try again.")
+                                })
+                            },
                             onSignOut = viewModel::signOut,
                             onOpenSettings = { onNavigate(Destinations.SETTINGS) },
                         )
