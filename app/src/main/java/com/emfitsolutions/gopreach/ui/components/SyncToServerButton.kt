@@ -124,12 +124,14 @@ class ManualSyncViewModel @Inject constructor(
 
 /**
  * The Main Form's primary, explicit "[ SYNC TO SERVER ]" action — kept
- * completely independent of Refresh and of app-update checking (spec §18):
- * this is the *only* thing that ever uploads this device's pending local
- * changes, and only when the user taps it. While a sync is running, the
- * button's own label shows real, measured progress ("SYNCING 47%", spec §6)
- * computed from actual completed/total operations, and is disabled so a
- * second tap can't start an overlapping run (spec §8).
+ * completely independent of Refresh and of app-update checking (spec §18).
+ * The app also syncs automatically now whenever internet/mobile data is
+ * available (see [com.emfitsolutions.gopreach.data.sync.SyncScheduler
+ * .ensureAutomaticSyncStarted]); this button is the tracked, user-visible
+ * path — the one that shows real, measured progress ("SYNCING 47%", spec
+ * §6) computed from actual completed/total operations, and is disabled so a
+ * second tap can't start an overlapping run (spec §8) — not the only thing
+ * that ever uploads a pending change anymore.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

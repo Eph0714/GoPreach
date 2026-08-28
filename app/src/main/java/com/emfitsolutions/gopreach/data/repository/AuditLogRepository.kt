@@ -14,7 +14,16 @@ private const val COLLECTION = "auditLog"
 
 /** Spec §3 — "user logs": view/export for Super-Admin (all) and Admin/Coordinator
  * Elder (own congregation, via [AuditLogEntry.congregationId]); delete is
- * Super-Admin only, enforced by the calling screen's visibility. */
+ * Super-Admin only, enforced by the calling screen's visibility.
+ *
+ * "Do not include user logs in server synchronization" — [log] writes stay
+ * local-only (see [OfflineFirestoreRepository.saveLocalOnly]'s own doc
+ * comment): a fresh entry this device creates is never enqueued for upload,
+ * so it can't be picked up by either the manual "Sync to Server" button or
+ * the app's automatic background sync. [observeAll]/[startRemoteSync] are
+ * unchanged and keep *downloading* other devices' already-synced entries —
+ * this is specifically about this device never pushing its own new log
+ * activity up, not about hiding what other admins have already logged. */
 @Singleton
 class AuditLogRepository @Inject constructor(
     private val offline: OfflineFirestoreRepository,
@@ -32,7 +41,7 @@ class AuditLogRepository @Inject constructor(
         details: String? = null,
     ) {
         val id = firestore.collection(COLLECTION).document().id
-        offline.save(
+        offline.saveLocalOnly(
             COLLECTION,
             id,
             AuditLogEntry(

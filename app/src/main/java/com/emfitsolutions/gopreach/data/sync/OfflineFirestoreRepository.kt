@@ -20,13 +20,15 @@ import javax.inject.Singleton
  * all CRUD app-wide" requirement (spec §6.5) is implemented once, not per feature.
  *
  * Write path: save to the local cache immediately (state PENDING) and enqueue the
- * operation — that's it. Per the "Manual Sync Requirement" (spec §17: "Do not
- * automatically upload the user's locally created/edited data merely because a
- * network connection becomes available"), this never itself asks [SyncScheduler]
- * to run; the queued row just sits there, tracked by a "pending sync" indicator
- * ([SyncQueueDao.observePendingCount]), until the user explicitly taps
+ * operation — that's it. This method itself never asks [SyncScheduler] to run;
+ * the queued row just sits there, tracked by a "pending sync" indicator
+ * ([SyncQueueDao.observePendingCount]), until something actually flushes the
+ * queue — either the user explicitly tapping
  * [com.emfitsolutions.gopreach.ui.components.SyncToServerButton] (or the older
- * [com.emfitsolutions.gopreach.ui.components.SyncStatusButton]/pull-to-refresh).
+ * [com.emfitsolutions.gopreach.ui.components.SyncStatusButton]/pull-to-refresh),
+ * or [SyncScheduler.ensureAutomaticSyncStarted]'s own automatic
+ * connectivity/periodic triggers — this per-write path doesn't need to know
+ * or care which one eventually does it.
  *
  * Read path: callers observe the local cache (always available offline); the cache
  * itself is kept current by Firestore snapshot listeners set up per collection where
@@ -144,6 +146,32 @@ class OfflineFirestoreRepository @Inject constructor(
                 operationType = SyncOperationType.DELETE.name,
                 payloadJson = null,
                 createdAt = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    /** Cache-only write that — unlike [save] — never enqueues a pending
+     * upload at all, not even one that just sits there until the next sync.
+     * "Do not include user logs in server synchronization": used
+     * **exclusively** by [com.emfitsolutions.gopreach.data.repository
+     * .AuditLogRepository.log] so a fresh audit-log entry never becomes
+     * something either the manual "Sync to Server" button or the automatic
+     * background sync ([SyncScheduler.ensureAutomaticSyncStarted]) would
+     * push to Firestore — it stays on this device, full stop. Marked
+     * PENDING like [save] (not SYNCED — that would misleadingly claim this
+     * document actually reached the server, which it never will via this
+     * path) purely so [SyncQueueDao.observePendingCount]'s indicator still
+     * reflects reality if anything ever inspects this row directly; it's
+     * simply never placed in the upload queue in the first place, which is
+     * what actually keeps it out of every sync run. */
+    suspend fun <T> saveLocalOnly(collectionPath: String, documentId: String, data: T) {
+        cacheDao.upsert(
+            CachedDocumentEntity(
+                collectionPath = collectionPath,
+                documentId = documentId,
+                payloadJson = gson.toJson(data),
+                syncState = SyncState.PENDING.name,
+                updatedAt = System.currentTimeMillis(),
             )
         )
     }
