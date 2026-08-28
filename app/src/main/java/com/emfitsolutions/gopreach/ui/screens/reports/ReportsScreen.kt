@@ -303,6 +303,22 @@ fun ReportsScreen(
                                 "Total Auxiliary Pioneer: ${countsByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0}",
                                 style = MaterialTheme.typography.bodyMedium,
                             )
+                            // "Include the total number of Regular
+                            // Publisher, Unbaptized Publisher to every group
+                            // summary and grand total summary" — each
+                            // Group's own section already listed these (its
+                            // categoryCounts loop covers every category
+                            // present, not just Pioneers); this grand total
+                            // card only had the two Pioneer counts explicitly
+                            // called out, so these two were missing here.
+                            Text(
+                                "Total Regular Publisher: ${countsByCategory[PublisherCategory.REGULAR_PUBLISHER] ?: 0}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                "Total Unbaptized Publisher: ${countsByCategory[PublisherCategory.UNBAPTIZED_PUBLISHER] ?: 0}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
                             Text(
                                 "Total Bible Studies for Regular Pioneer: ${bibleStudiesByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0}",
                                 style = MaterialTheme.typography.bodyMedium,
@@ -522,6 +538,13 @@ private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateR
             "Hours" to "%.1f".format(allRows.sumOf { it.totalHours }),
             "Total Regular Pioneer" to (countsByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0).toString(),
             "Total Auxiliary Pioneer" to (countsByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0).toString(),
+            // "Include the total number of Regular Publisher, Unbaptized
+            // Publisher to every group summary and grand total summary" —
+            // each Group's own SUMMARY TOTAL block above already listed
+            // these via categoryCounts; this overall totals row only had
+            // the two Pioneer counts explicitly called out.
+            "Total Regular Publisher" to (countsByCategory[PublisherCategory.REGULAR_PUBLISHER] ?: 0).toString(),
+            "Total Unbaptized Publisher" to (countsByCategory[PublisherCategory.UNBAPTIZED_PUBLISHER] ?: 0).toString(),
             "Total Bible Studies for Regular Pioneer" to (bibleStudiesByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0).toString(),
             "Total Bible Studies for Auxiliary Pioneer" to (bibleStudiesByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0).toString(),
             "Total Hours for Regular Pioneer" to "%.1f".format(hoursByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0.0),
