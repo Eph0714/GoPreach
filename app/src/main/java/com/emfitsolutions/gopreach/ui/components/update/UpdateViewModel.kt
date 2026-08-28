@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.BuildConfig
+import com.emfitsolutions.gopreach.data.repository.AuthRepository
 import com.emfitsolutions.gopreach.data.sync.ConnectivityObserver
 import com.emfitsolutions.gopreach.data.update.ApkDownloader
 import com.emfitsolutions.gopreach.data.update.DownloadEvent
@@ -46,6 +47,7 @@ class UpdateViewModel @Inject constructor(
     private val downloader: ApkDownloader,
     private val installer: UpdateInstaller,
     private val installedUpdateInfoStore: InstalledUpdateInfoStore,
+    private val authRepository: AuthRepository,
     connectivityObserver: ConnectivityObserver,
 ) : ViewModel() {
 
@@ -162,6 +164,21 @@ class UpdateViewModel @Inject constructor(
                         installedAt = System.currentTimeMillis(),
                     ),
                 )
+                // Bug fix: an update install replaces the APK but never
+                // touches app data — Firebase Auth's persisted session (see
+                // UserSession's doc comment: "survives process death, no
+                // separate remember-me needed") survived right through it,
+                // so relaunching after the install silently landed back on
+                // whoever's dashboard was open before, with no login prompt
+                // at all ("the app logs in automatically even without user
+                // intervention after the update"). Signing out here, right
+                // before handing off to the Package Installer, means the
+                // next launch — whether the OS auto-reopens the app or the
+                // user taps Open — lands on the Login screen instead. The
+                // biometric "remember me" shortcut (CredentialStore) is
+                // untouched, so it's still one fingerprint tap away, not a
+                // full re-type of the password.
+                authRepository.signOut()
                 _state.value = UpdateCheckState.ReadyToInstall(info, apkFile)
             } catch (e: Exception) {
                 Log.w(TAG, "Update failed: ${e.message}", e)

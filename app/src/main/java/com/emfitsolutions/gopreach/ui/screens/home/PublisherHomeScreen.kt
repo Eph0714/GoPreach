@@ -210,6 +210,31 @@ fun PublisherHomeScreen(
                 modifier = Modifier.fillMaxSize().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                // "Sync to Server" moved to the top of the form (was at the
+                // bottom, past the stats/tiles/switch-account content, where
+                // it was easy to miss) — now the first thing the Publisher
+                // sees below the header.
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Keep Your Data Safe",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Text(
+                            "Sync your data regularly to keep your information secure.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        SyncToServerButton()
+                    }
+                }
+
                 if (currentPersonId.isNotBlank()) {
                     PublisherStatsSection(
                         publisherPersonId = currentPersonId,
@@ -236,27 +261,6 @@ fun PublisherHomeScreen(
                             Icon(Icons.Rounded.SwapHoriz, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Text("Switch to Admin App", style = MaterialTheme.typography.titleSmall)
                         }
-                    }
-                }
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "Keep Your Data Safe",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                        Text(
-                            "Sync your data regularly to keep your information secure.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                        SyncToServerButton()
                     }
                 }
             }
