@@ -98,23 +98,24 @@ fun computeStatMembers(
 
     val members = labelsByPersonCongregation.mapNotNull { (key, labels) ->
         val congregation = congregationsById[key.congregationId] ?: return@mapNotNull null
-        // Bug fix ("Total Elders shows 9 on the card but only 7 names in the
-        // drill-down, same inconsistency on other cards"): this used to bail
-        // out of the whole entry with `?: return@mapNotNull null` whenever
-        // `peopleById` didn't (yet) have the assignment's person — e.g. an
-        // in-flight sync, or an ACTIVE assignment left pointing at a Person
-        // doc that was since deleted. [countDistinctAdmins] (the function
-        // that produces the headline number) deliberately does NOT do that —
-        // it falls back to the bare personId and still counts that person as
-        // their own entry (see its own doc comment) — so any assignment
-        // missing its Person doc was silently counted on the card but never
-        // rendered in this list, and the two totals drifted apart purely
-        // based on which people docs happened to be loaded. Fixed by keeping
-        // the entry with a placeholder name instead of dropping it, so the
-        // dialog's row count always matches the card's number exactly.
-        val fullName = peopleById[key.personId]?.fullName ?: "Unknown member (ID: ${key.personId})"
+        // "Delete all unknown member in Total Elders, do not include them in
+        // the count" — an ACTIVE RoleAssignment whose Person doc doesn't
+        // exist (yet, or ever again — a deleted Person left an orphaned
+        // assignment behind) is skipped here, not shown as a placeholder
+        // "Unknown member" row. [countDistinctAdmins]/[CongregationStats]'s
+        // publisher counting below now applies the exact same
+        // person-must-exist requirement, so this list and the card's number
+        // agree by construction — neither one counts what the other can't
+        // show a real name for. See that function's doc comment for the
+        // full history (this used to go the other way: counting orphans
+        // in the number while dropping them from this list, which is where
+        // the "9 on the card but 7 names" mismatch came from in the first
+        // place — then a placeholder-name fix that made both agree but on
+        // the *wrong* side, still counting entries nobody could identify;
+        // this is the third and correct fix: neither side counts them).
+        val person = peopleById[key.personId] ?: return@mapNotNull null
         StatMember(
-            fullName = fullName,
+            fullName = person.fullName,
             congregationId = congregation.id,
             congregationName = congregation.name,
             statLabels = labels,
@@ -194,6 +195,7 @@ data class CongregationStats(
             reports: List<MonthlyReport>,
             people: List<Person> = emptyList(),
         ): List<CongregationStats> = congregations.map { congregation ->
+            val peopleById = people.associateBy { it.id }
             val active = assignments.filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId == congregation.id }
             // distinctBy personId — a RoleAssignment is one document per role,
             // not one per person, so if the same person ever ends up with more
@@ -201,8 +203,10 @@ data class CongregationStats(
             // enrollment, or a promotion flow that added a new assignment
             // instead of converting the old one), counting assignments directly
             // over-counts real, distinct people. This was a real, confirmed bug
-            // (reported: "3 elders shown, only 2 actually enrolled").
-            val publisherAssignments = active.filter { it.resolvedRoleType() is RoleType.Publisher }
+            // (reported: "3 elders shown, only 2 actually enrolled"). Also
+            // requires the Person doc to actually exist — same "don't count
+            // an unknown member" rule [countDistinctAdmins] applies.
+            val publisherAssignments = active.filter { it.resolvedRoleType() is RoleType.Publisher && it.personId in peopleById }
                 .distinctBy { it.personId }
             fun countOf(category: PublisherCategory) = publisherAssignments.count {
                 (it.resolvedRoleType() as RoleType.Publisher).category == category
@@ -258,9 +262,10 @@ data class CongregationStats(
             reports: List<MonthlyReport>,
             people: List<Person> = emptyList(),
         ): CongregationStats {
+            val peopleById = people.associateBy { it.id }
             val congregationIds = congregations.map { it.id }.toSet()
             val active = assignments.filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId in congregationIds }
-            val publisherAssignments = active.filter { it.resolvedRoleType() is RoleType.Publisher }
+            val publisherAssignments = active.filter { it.resolvedRoleType() is RoleType.Publisher && it.personId in peopleById }
                 .distinctBy { it.personId }
             fun countOf(category: PublisherCategory) = publisherAssignments.count {
                 (it.resolvedRoleType() as RoleType.Publisher).category == category
@@ -321,20 +326,21 @@ private val MINISTERIAL_ROLES = setOf(AdminRole.MINISTERIAL_SERVANT)
  * say, both a Coordinator Elder assignment and a separate Regular Elder
  * assignment from also being a Group Overseer counts once, not twice), then
  * collapsing distinct Person docs that share a name (see [duplicateNameKey]'s
- * doc comment). Falls back to the bare personId when [people] doesn't (yet)
- * include a given assignment's person — e.g. an in-flight sync — so that
- * person still counts as their own entry rather than silently vanishing from
- * the total. Shared by both "Total Elders" ([ELDER_ROLES]) and "Total
- * Ministerial" ([MINISTERIAL_ROLES]) — same counting rules, different role set. */
+ * doc comment). An assignment whose Person doc isn't in [people] — in-flight
+ * sync, or an ACTIVE assignment orphaned by a since-deleted Person — is
+ * excluded entirely rather than counted under a placeholder: "delete all
+ * unknown member in Total Elders, do not include them in the count" (see
+ * [computeStatMembers]'s matching doc comment, which applies the identical
+ * rule to the drill-down list this number's dialog shows, so the two can
+ * never drift apart again in either direction). Shared by both "Total
+ * Elders" ([ELDER_ROLES]) and "Total Ministerial" ([MINISTERIAL_ROLES]) —
+ * same counting rules, different role set. */
 private fun countDistinctAdmins(assignments: List<RoleAssignment>, people: List<Person>, roles: Set<AdminRole>): Int {
-    val distinctPersonIds = assignments
-        .filter { (it.resolvedRoleType() as? RoleType.Admin)?.role in roles }
-        .map { it.personId }
-        .distinct()
-    if (people.isEmpty()) return distinctPersonIds.size
     val peopleById = people.associateBy { it.id }
-    return distinctPersonIds
-        .map { personId -> peopleById[personId]?.duplicateNameKey() ?: personId }
+    return assignments
+        .filter { (it.resolvedRoleType() as? RoleType.Admin)?.role in roles }
+        .mapNotNull { peopleById[it.personId] }
+        .map { it.duplicateNameKey() }
         .distinct()
         .size
 }

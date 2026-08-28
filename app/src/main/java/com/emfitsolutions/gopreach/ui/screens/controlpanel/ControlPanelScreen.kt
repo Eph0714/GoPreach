@@ -67,6 +67,11 @@ fun ControlPanelScreen(
         if (wasUploading && !uiState.isUploading && uiState.errorMessage == null) showToast("Logo updated.")
         wasUploading = uiState.isUploading
     }
+    LaunchedEffect(uiState.orphanCleanupResult) {
+        val count = uiState.orphanCleanupResult ?: return@LaunchedEffect
+        showToast(if (count == 0) "No orphaned records found." else "Removed $count orphaned record${if (count == 1) "" else "s"}.")
+        viewModel.orphanCleanupResultShown()
+    }
 
     Scaffold(
         topBar = {
@@ -136,6 +141,26 @@ fun ControlPanelScreen(
                     ThemeOptionRow("System default", ThemePreference.SYSTEM, theme, viewModel::setTheme)
                     ThemeOptionRow("Light", ThemePreference.LIGHT, theme, viewModel::setTheme)
                     ThemeOptionRow("Dark", ThemePreference.DARK, theme, viewModel::setTheme)
+                }
+            }
+
+            if (canManageLogo) {
+                Text("Data Maintenance", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Permanently deletes any Elder/Publisher/Ministerial role record left over from a " +
+                        "deleted person — these no longer count toward Total Elders or any other dashboard " +
+                        "card, but removing them here clears them out for good.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Button(
+                    onClick = { viewModel.cleanUpOrphanedRoleAssignments(currentPersonId) },
+                    enabled = !uiState.isCleaningUpOrphans,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (uiState.isCleaningUpOrphans) {
+                        CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp).size(20.dp))
+                    }
+                    Text("Clean Up Orphaned Role Records")
                 }
             }
         }
