@@ -1,12 +1,15 @@
 package com.emfitsolutions.gopreach.data.repository
 
+import android.net.Uri
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
 import com.emfitsolutions.gopreach.data.sync.mirrorFirestoreCollection
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -21,6 +24,7 @@ private const val COLLECTION = "people"
 class PersonRepository @Inject constructor(
     private val offline: OfflineFirestoreRepository,
     private val firestore: FirebaseFirestore,
+    private val storage: FirebaseStorage,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     fun observeAll(): Flow<List<Person>> = offline.observeCollection(COLLECTION)
@@ -46,6 +50,16 @@ class PersonRepository @Inject constructor(
 
     suspend fun delete(personId: String) {
         offline.delete(COLLECTION, personId)
+    }
+
+    /** Profile-menu avatar upload — one fixed Storage path per person (a
+     * re-upload simply overwrites it), same pattern
+     * [AnnouncementRepository.uploadImage] already uses. Returns the
+     * download URL; the caller saves it onto [Person.profileImageUrl]. */
+    suspend fun uploadProfileImage(personId: String, imageUri: Uri): String {
+        val ref = storage.reference.child("people/$personId/profile")
+        ref.putFile(imageUri).await()
+        return ref.downloadUrl.await().toString()
     }
 
     /** Mirrors server-side Person changes into the local cache; call once per

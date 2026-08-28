@@ -49,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -66,6 +67,7 @@ import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
 import com.emfitsolutions.gopreach.ui.components.GoPreachSidePanelContent
 import com.emfitsolutions.gopreach.ui.components.NotificationBell
+import com.emfitsolutions.gopreach.ui.components.ProfileMenuButton
 import com.emfitsolutions.gopreach.ui.components.QuickAction
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
@@ -273,6 +275,13 @@ fun AdminHomeScreen(
         notificationCenterViewModel.unseenCountFor(notificationItemsFlow, currentPersonId)
     }
     val notificationUnseenCount by notificationUnseenFlow.collectAsStateWithLifecycle(initialValue = 0)
+    com.emfitsolutions.gopreach.ui.components.NewItemNotifier(
+        items = notificationItemsFlow,
+        onlyCategories = setOf(
+            com.emfitsolutions.gopreach.data.repository.NotificationCategory.ANNOUNCEMENT,
+            com.emfitsolutions.gopreach.data.repository.NotificationCategory.CALENDAR_SCHEDULE,
+        ),
+    )
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
@@ -284,6 +293,16 @@ fun AdminHomeScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
 
+    // "Back should return only to the navigation menu" — set right before a
+    // drawer item's own onNavigate/onSwitchToPublisher/onSignOut closes the
+    // drawer and navigates away; survives that trip (rememberSaveable, tied
+    // to this destination's own backstack entry) so the LaunchedEffect below
+    // can tell "just came back from a screen the side menu opened" apart
+    // from every other way of landing on this Main Form (first sign-in,
+    // switching from Publisher context, etc.), which should still show the
+    // plain dashboard, not the menu snapping back open uninvited.
+    var reopenDrawerOnReturn by rememberSaveable { mutableStateOf(false) }
+
     // Navigation-Compose restores this composable's saved DrawerState
     // (rememberDrawerState is itself Saveable) when returning here from a
     // side-panel-opened screen — including, occasionally, still mid-"Open"
@@ -294,10 +313,18 @@ fun AdminHomeScreen(
     // its own the next time the Main Form was shown, which read as "the
     // back button closes the entire side panel" — the drawer visibly
     // slamming open, then shut, instead of a plain Back to the Main Form.
-    // Snapping closed unconditionally on every (re)composition removes
-    // that race outright rather than depending on the animation's timing.
+    // Snapping closed unconditionally on every (re)composition removed that
+    // race outright — now refined to *reopen* instead, but only on the one
+    // path (`reopenDrawerOnReturn`) that means "the user tapped Back on a
+    // screen the drawer itself opened," so it reads as "Back just returns
+    // to the menu" rather than closing it entirely.
     LaunchedEffect(Unit) {
-        drawerState.snapTo(DrawerValue.Closed)
+        if (reopenDrawerOnReturn) {
+            reopenDrawerOnReturn = false
+            drawerState.open()
+        } else {
+            drawerState.snapTo(DrawerValue.Closed)
+        }
     }
 
     // "Back Button and Page Navigation" spec §6/§7 — this is the Main Form
@@ -370,6 +397,9 @@ fun AdminHomeScreen(
                     { coroutineScope.launch { drawerState.close() }; switchAction() }
                 },
                 onNavigate = { route ->
+                    // Tapping Back on whatever this opens should return to
+                    // the side menu, not the plain dashboard underneath it.
+                    reopenDrawerOnReturn = true
                     coroutineScope.launch { drawerState.close() }
                     onNavigate(route)
                 },
@@ -396,6 +426,7 @@ fun AdminHomeScreen(
             },
         ) {
             Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                com.emfitsolutions.gopreach.ui.components.AlarmRingingBanner()
                 DashboardHero(
                     greetingName = session.person?.firstName?.takeIf { it.isNotBlank() } ?: "there",
                     roleLabel = role?.name?.replace('_', ' ') ?: "GoPreach Admin",
@@ -418,6 +449,13 @@ fun AdminHomeScreen(
                         IconButton(onClick = { onNavigate(Destinations.SETTINGS) }) {
                             Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
                         }
+                        ProfileMenuButton(
+                            fullName = session.person?.fullName ?: "—",
+                            roleLabel = role?.name?.replace('_', ' ') ?: "GoPreach Admin",
+                            profileImageUrl = session.person?.profileImageUrl,
+                            onImagePicked = viewModel::updateProfileImage,
+                            onSignOut = viewModel::signOut,
+                        )
                     },
                     quickActions = if (hideMainFormButtons) {
                         emptyList()

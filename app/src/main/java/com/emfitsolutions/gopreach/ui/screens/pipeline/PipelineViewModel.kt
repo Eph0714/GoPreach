@@ -24,8 +24,12 @@ import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.PublisherForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.VisitRepository
+import android.util.Log
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -51,6 +55,18 @@ class PipelineViewModel @Inject constructor(
     private val roleAssignmentRepository: RoleAssignmentRepository,
 ) : ViewModel() {
 
+    /** Bug fix: [save] used to let any exception from the repository/Room/
+     * Gson layer propagate out of its `viewModelScope.launch` uncaught —
+     * exactly the pattern documented in [com.emfitsolutions.gopreach.data
+     * .sync.mirrorFirestoreCollection]'s crash fix, which kills the whole
+     * process rather than just failing the one save. A record with a large
+     * supporting photo attached is the case most likely to trip a layer like
+     * that, which is what made this reproduce as "the app closes when I
+     * click Create or Save" for records with a photo. Now caught and
+     * reported here instead. */
+    private val _errorEvents = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val errorEvents: SharedFlow<String> = _errorEvents.asSharedFlow()
+
     fun personName(personId: String): Flow<String?> =
         personRepository.observeAll().map { people -> people.firstOrNull { it.id == personId }?.fullName }
 
@@ -65,7 +81,13 @@ class PipelineViewModel @Inject constructor(
             .map { list -> list.filter { it.publisherPersonId == publisherPersonId && it.pipelineStage == stage } }
 
     fun save(person: InterestedPerson) {
-        viewModelScope.launch { interestedPersonRepository.save(person) }
+        viewModelScope.launch {
+            runCatching { interestedPersonRepository.save(person) }
+                .onFailure { e ->
+                    Log.e("PipelineViewModel", "Failed to save Interested Person record", e)
+                    _errorEvents.emit("Could not save the record: ${e.message ?: "unknown error"}")
+                }
+        }
     }
 
     fun setStatus(person: InterestedPerson, status: RecordStatus, actorPersonId: String) {

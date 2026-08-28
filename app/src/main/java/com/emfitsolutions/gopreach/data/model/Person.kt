@@ -25,6 +25,14 @@ data class Person(
     val gpsLng: Double? = null,
     val email: String? = null,
 
+    /** The profile-menu avatar shown at the top-right of the Admin/Publisher
+     * Main Form for every role (Super-Admin, Admin, Coordinator/Regular
+     * Elder, Publisher, ...) — uploaded to Firebase Storage at
+     * `people/{personId}/profile`, same "no new dependency" pattern
+     * [AnnouncementRepository]'s own image upload already uses. `null`
+     * means never uploaded — the avatar falls back to a blank icon. */
+    val profileImageUrl: String? = null,
+
     // Login — attaches to the Person, not to any one role (spec §3).
     val username: String = "",
     // Explicit @PropertyName: Firestore's Kotlin-bean reflection mishandles

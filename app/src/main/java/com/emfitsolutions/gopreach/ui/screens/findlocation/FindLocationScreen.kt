@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,19 +17,25 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.DirectionsBike
 import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DirectionsBus
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -46,8 +53,11 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
+import com.emfitsolutions.gopreach.data.model.SavedLocation
 import com.emfitsolutions.gopreach.ui.components.RoundIconActionButton
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
 /** A way to get to the destination — mirrors Google Maps' own `travelmode`
  * values, covering both "by walking" and "different kinds of vehicle" (car,
@@ -75,14 +85,21 @@ private enum class TravelMode(val label: String, val icon: ImageVector, val trav
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FindLocationScreen(
+    currentPersonId: String,
     onBack: () -> Unit,
     viewModel: FindLocationViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val showToast = rememberActionToast()
     var latText by remember { mutableStateOf("") }
     var lngText by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<SavedLocation?>(null) }
+
+    val savedLocationsFlow = remember(currentPersonId) { viewModel.savedLocationsFor(currentPersonId) }
+    val savedLocations by savedLocationsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     fun submit() {
         val lat = latText.trim().toDoubleOrNull()
@@ -170,6 +187,10 @@ fun FindLocationScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        OutlinedButton(onClick = { showSaveDialog = true }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            Icon(Icons.Rounded.Save, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                            Text("Save Location")
+                        }
                     }
                 }
 
@@ -191,8 +212,110 @@ fun FindLocationScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+
+            if (savedLocations.isNotEmpty()) {
+                HorizontalDivider()
+                Text("Saved Locations", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                savedLocations.forEach { saved ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text(saved.remarks.ifBlank { "Saved Location" }, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                Text(formatCoordinatesDms(saved.lat, saved.lng), style = MaterialTheme.typography.bodySmall)
+                            }
+                            Row {
+                                TextButton(onClick = {
+                                    latText = saved.lat.toString()
+                                    lngText = saved.lng.toString()
+                                    destination = saved.lat to saved.lng
+                                    errorText = null
+                                }) { Text("Use") }
+                                IconButton(onClick = { pendingDelete = saved }) {
+                                    Icon(Icons.Rounded.Delete, contentDescription = "Delete saved location")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
+
+    val destinationForSave = destination
+    if (showSaveDialog && destinationForSave != null) {
+        SaveLocationDialog(
+            lat = destinationForSave.first,
+            lng = destinationForSave.second,
+            onSave = { remarks ->
+                viewModel.saveLocation(currentPersonId, destinationForSave.first, destinationForSave.second, remarks)
+                showToast("Location saved.")
+                showSaveDialog = false
+            },
+            onCancel = { showSaveDialog = false },
+        )
+    }
+
+    val toDelete = pendingDelete
+    if (toDelete != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete Saved Location?") },
+            text = { Text("This removes \"${toDelete.remarks.ifBlank { "this location" }}\" from your saved locations.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteSavedLocation(toDelete.id)
+                    showToast("Saved location deleted.")
+                    pendingDelete = null
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/**
+ * "Result Found: Coordinate: Lat/Lng, Remarks: [ ], [Save] [Cancel]" — the
+ * spec's exact worked example, shown right after a destination is found. The
+ * remark is required (spec's example is descriptive, not optional — an
+ * unlabeled saved coordinate is useless in a list of many).
+ */
+@Composable
+private fun SaveLocationDialog(
+    lat: Double,
+    lng: Double,
+    onSave: (remarks: String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var remarks by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Result Found") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Coordinate: ${formatCoordinatesDms(lat, lng)}", style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(
+                    value = remarks,
+                    onValueChange = { remarks = it },
+                    label = { Text("Remarks") },
+                    placeholder = { Text("e.g. House of Emilio Aguinaldo") },
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(remarks) }, enabled = remarks.isNotBlank()) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+    )
 }
 
 /** Launches Google Maps (falling back to any browser if the app isn't

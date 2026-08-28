@@ -14,6 +14,7 @@ import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
 import com.emfitsolutions.gopreach.data.repository.PublisherForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
+import com.emfitsolutions.gopreach.data.repository.SavedLocationRepository
 import com.emfitsolutions.gopreach.data.repository.ScheduleRepository
 import com.emfitsolutions.gopreach.data.repository.SharedLocationRepository
 import com.emfitsolutions.gopreach.data.repository.TerritoryRepository
@@ -23,10 +24,13 @@ import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -80,16 +84,31 @@ class RemoteSyncCoordinator @Inject constructor(
     private val preachingTimeRecordRepository: PreachingTimeRecordRepository,
     private val announcementRepository: AnnouncementRepository,
     private val locationSharingSettingsRepository: LocationSharingSettingsRepository,
+    private val savedLocationRepository: SavedLocationRepository,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     private var started = false
 
-    /** Emits the signed-in uid (or null) whenever Firebase Auth's state changes. */
-    private fun authUidFlow(): Flow<String?> = callbackFlow {
+    /** Emits the signed-in uid (or null) whenever Firebase Auth's state
+     * changes. `callbackFlow` is *cold* — every independent collector re-runs
+     * the block and registers its own [FirebaseAuth.AuthStateListener]. This
+     * used to be called once in [startAll] and the resulting `Flow` object
+     * handed to all 17 `startTracked` calls below, but a `Flow` is just a
+     * recipe, not a running stream: each of those 17 `flatMapLatest`
+     * collectors re-ran this block independently, registering 17 separate
+     * Firebase Auth listeners instead of one. Signing out and back in as a
+     * different account meant 17 near-simultaneous auth-state callbacks each
+     * tearing down and re-subscribing their own repo's Firestore listener at
+     * once — reproduced as the app freezing on the second sign-in until
+     * force-closed. `stateIn(..., Eagerly)` makes this one real, shared,
+     * already-running stream (one listener, started the moment this
+     * singleton is created) that every `startTracked` call below now just
+     * *observes*, instead of each spinning up its own. */
+    private val uidChanged: StateFlow<String?> = callbackFlow {
         val listener = FirebaseAuth.AuthStateListener { auth -> trySend(auth.currentUser?.uid) }
         firebaseAuth.addAuthStateListener(listener)
         awaitClose { firebaseAuth.removeAuthStateListener(listener) }
-    }.distinctUntilChanged()
+    }.distinctUntilChanged().stateIn(appScope, SharingStarted.Eagerly, firebaseAuth.currentUser?.uid)
 
     /** Wires one collection's listener into [appScope], re-subscribing fresh
      * on every auth-state change (see the class doc for why that matters). */
@@ -100,7 +119,6 @@ class RemoteSyncCoordinator @Inject constructor(
     fun startAll() {
         if (started) return
         started = true
-        val uidChanged = authUidFlow()
         personRepository.startRemoteSync().startTracked(uidChanged)
         roleAssignmentRepository.startRemoteSync().startTracked(uidChanged)
         congregationRepository.startRemoteSync().startTracked(uidChanged)
@@ -119,5 +137,6 @@ class RemoteSyncCoordinator @Inject constructor(
         preachingTimeRecordRepository.startRemoteSync().startTracked(uidChanged)
         announcementRepository.startRemoteSync().startTracked(uidChanged)
         locationSharingSettingsRepository.startRemoteSync().startTracked(uidChanged)
+        savedLocationRepository.startRemoteSync().startTracked(uidChanged)
     }
 }

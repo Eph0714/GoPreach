@@ -41,7 +41,15 @@ class LocationTracker @Inject constructor(
     suspend fun getCurrentLocation(): LatLng? {
         if (!hasLocationPermission()) return null
         val client = LocationServices.getFusedLocationProviderClient(context)
-        val request = CurrentLocationRequest.Builder().setPriority(Priority.PRIORITY_BALANCED_POWER_ACCURACY).build()
+        // PRIORITY_HIGH_ACCURACY, not BALANCED_POWER_ACCURACY — the latter
+        // is free to answer from WiFi/cell towers alone (often 50-100+
+        // meters of error), which combined with Share Location's own
+        // accuracy-radius filter (see LocationSharingSettings, default 5m)
+        // meant a fix almost never met the threshold and "Share Location"
+        // silently never actually published anything. HIGH_ACCURACY asks
+        // for a real GPS-chip fix (typically single-digit-to-low-tens of
+        // meters outdoors), which is what that filter was written assuming.
+        val request = CurrentLocationRequest.Builder().setPriority(Priority.PRIORITY_HIGH_ACCURACY).build()
         val location = client.getCurrentLocation(request, null).await() ?: return null
         return LatLng(location.latitude, location.longitude, location.accuracy)
     }

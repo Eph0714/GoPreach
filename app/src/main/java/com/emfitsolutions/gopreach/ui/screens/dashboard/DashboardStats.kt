@@ -43,10 +43,17 @@ fun computeStatMembers(
             val congregation = congregationsById[assignment.congregationId] ?: return@mapNotNull null
             val labels: Set<String> = when (val role = assignment.resolvedRoleType()) {
                 is RoleType.Admin -> when (role.role) {
-                    // "Total Elders" counts Regular Elders only (per explicit
-                    // request) — Coordinator Elder is an administrative role,
-                    // not counted here even though it's also an Elder title.
-                    AdminRole.REGULAR_ELDER -> setOf("Total Elders")
+                    // "Total Elders" counts Coordinator Elder, Regular Elder,
+                    // and Service Overseer — every Elder-title role in the
+                    // congregation. A person holding more than one of these
+                    // (e.g. a Coordinator Elder who's also a Regular Elder
+                    // via a Group Overseer assignment) still counts once;
+                    // that dedup happens below (by personId, then by name).
+                    AdminRole.COORDINATOR_ELDER, AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER -> setOf("Total Elders")
+                    // "Total Ministerial" — same "use the same logic in
+                    // counting elders" dedup, applied below alongside "Total
+                    // Elders" rather than duplicating that block.
+                    AdminRole.MINISTERIAL_SERVANT -> setOf("Total Ministerial")
                     else -> emptySet()
                 }
                 is RoleType.Publisher -> buildSet {
@@ -74,18 +81,18 @@ fun computeStatMembers(
 
     // "Check the same name of the elder in a congregation and consider it
     // as one person" — keeps this drill-down list in lockstep with
-    // [CongregationStats.compute]'s own name-deduped "Total Elders" count
-    // (same reasoning this function's own doc comment already states: the
-    // dialog must always show exactly what the card's number counts).
-    // Publisher-labeled entries are untouched — this app's own person-level
-    // dedup already covers a genuine single Person doc correctly; only
-    // "Total Elders" needed the *additional* same-name-different-Person-doc
-    // rule spelled out here.
-    val (elderMembers, otherMembers) = members.partition { "Total Elders" in it.statLabels }
-    val dedupedElders = elderMembers
+    // [CongregationStats.compute]'s own name-deduped "Total Elders"/"Total
+    // Ministerial" counts (same reasoning this function's own doc comment
+    // already states: the dialog must always show exactly what the card's
+    // number counts). Publisher-labeled entries are untouched — this app's
+    // own person-level dedup already covers a genuine single Person doc
+    // correctly; only these two Admin-role counts needed the *additional*
+    // same-name-different-Person-doc rule spelled out here.
+    val (adminMembers, otherMembers) = members.partition { "Total Elders" in it.statLabels || "Total Ministerial" in it.statLabels }
+    val dedupedAdmins = adminMembers
         .groupBy { it.congregationId to it.fullName.trim().uppercase().replace(Regex("\\s+"), " ") }
         .map { (_, group) -> group.first() }
-    return otherMembers + dedupedElders
+    return otherMembers + dedupedAdmins
 }
 
 /**
@@ -108,10 +115,16 @@ data class CongregationStats(
      * "Total Publishers" KPI, distinct from [regularPublishers] below (spec §7
      * lists both "Total Publishers" and each category separately). */
     val totalPublishers: Int,
-    /** Regular Elders only (per explicit request) — Coordinator Elder and
-     * Admin Per Congregation are both administrative roles, not counted as
-     * an "Elder" here even though Coordinator Elder is also an Elder title. */
+    /** Coordinator Elder + Regular Elder + Service Overseer (see
+     * [ELDER_ROLES]) — every Elder-title role in the congregation, each
+     * distinct person counted once even if they hold more than one of these
+     * roles at once. Admin Per Congregation is still excluded (a purely
+     * administrative role, not an Elder title). */
     val totalElders: Int,
+    /** Ministerial Servant (see [MINISTERIAL_ROLES]) — same dedup rules as
+     * [totalElders], kept as its own count since Ministerial Servant is a
+     * distinct, non-Elder appointed position. */
+    val totalMinisterial: Int,
     val regularPioneers: Int,
     val auxiliaryPioneers: Int,
     val regularPublishers: Int,
@@ -148,13 +161,16 @@ data class CongregationStats(
             fun countOf(category: PublisherCategory) = publisherAssignments.count {
                 (it.resolvedRoleType() as RoleType.Publisher).category == category
             }
-            // Regular Elders only — Coordinator Elder is deliberately excluded
-            // from "Total Elders" (per explicit request), even though it's
-            // also an Elder title; it's an administrative role here. Deduped
-            // by *name*, not just personId — two separate Person docs for the
-            // same real elder (a duplicate enrollment) still share one full
-            // name within a congregation, and personId alone can't catch that.
-            val elderCount = countDistinctElders(active, people)
+            // Coordinator Elder + Regular Elder + Service Overseer (see
+            // ELDER_ROLES/countDistinctAdmins) — a person holding more than
+            // one of these at once still counts as one Elder. Deduped by
+            // *name* too, not just personId — two separate Person docs for
+            // the same real elder (a duplicate enrollment) still share one
+            // full name within a congregation, and personId alone can't
+            // catch that. "Total Ministerial" (MINISTERIAL_ROLES) uses the
+            // exact same counting rules.
+            val elderCount = countDistinctAdmins(active, people, ELDER_ROLES)
+            val ministerialCount = countDistinctAdmins(active, people, MINISTERIAL_ROLES)
             val congregationReports = reports.filter { it.congregationId == congregation.id }
             CongregationStats(
                 congregationId = congregation.id,
@@ -163,6 +179,7 @@ data class CongregationStats(
                     (it.resolvedRoleType() as RoleType.Publisher).category != PublisherCategory.REMOVED_PUBLISHER
                 },
                 totalElders = elderCount,
+                totalMinisterial = ministerialCount,
                 regularPioneers = countOf(PublisherCategory.REGULAR_PIONEER),
                 auxiliaryPioneers = countOf(PublisherCategory.AUXILIARY_PIONEER),
                 regularPublishers = countOf(PublisherCategory.REGULAR_PUBLISHER),
@@ -202,14 +219,18 @@ data class CongregationStats(
             fun countOf(category: PublisherCategory) = publisherAssignments.count {
                 (it.resolvedRoleType() as RoleType.Publisher).category == category
             }
-            // Regular Elders only — Coordinator Elder is deliberately excluded
-            // from "Total Elders" (per explicit request), even though it's
-            // also an Elder title; it's an administrative role here. Deduped
-            // by name within each congregation — see [compute]'s matching
-            // comment for why personId alone isn't enough.
+            // Coordinator Elder + Regular Elder + Service Overseer (see
+            // ELDER_ROLES) — a person holding more than one at once still
+            // counts as one Elder. Deduped by name within each congregation
+            // too — see [compute]'s matching comment for why personId alone
+            // isn't enough. "Total Ministerial" (MINISTERIAL_ROLES) uses the
+            // same per-congregation-then-summed approach.
             val elderCount = active
                 .groupBy { it.congregationId }
-                .entries.sumOf { (_, congregationAssignments) -> countDistinctElders(congregationAssignments, people) }
+                .entries.sumOf { (_, congregationAssignments) -> countDistinctAdmins(congregationAssignments, people, ELDER_ROLES) }
+            val ministerialCount = active
+                .groupBy { it.congregationId }
+                .entries.sumOf { (_, congregationAssignments) -> countDistinctAdmins(congregationAssignments, people, MINISTERIAL_ROLES) }
             val scopedReports = reports.filter { it.congregationId in congregationIds }
             return CongregationStats(
                 congregationId = "",
@@ -218,6 +239,7 @@ data class CongregationStats(
                     (it.resolvedRoleType() as RoleType.Publisher).category != PublisherCategory.REMOVED_PUBLISHER
                 },
                 totalElders = elderCount,
+                totalMinisterial = ministerialCount,
                 regularPioneers = countOf(PublisherCategory.REGULAR_PIONEER),
                 auxiliaryPioneers = countOf(PublisherCategory.AUXILIARY_PIONEER),
                 regularPublishers = countOf(PublisherCategory.REGULAR_PUBLISHER),
@@ -232,16 +254,35 @@ data class CongregationStats(
     }
 }
 
-/** Counts distinct Regular Elders among [assignments] (already filtered to
- * one congregation/ACTIVE) — first collapsing multiple RoleAssignment docs
- * for the same personId, then collapsing distinct Person docs that share a
- * name (see [duplicateNameKey]'s doc comment). Falls back to the bare
- * personId when [people] doesn't (yet) include a given assignment's person
- * — e.g. an in-flight sync — so that elder still counts as their own entry
- * rather than silently vanishing from the total. */
-private fun countDistinctElders(assignments: List<RoleAssignment>, people: List<Person>): Int {
+/** Every Elder-title [AdminRole] "Total Elders" counts: Coordinator Elder,
+ * Regular Elder, and Service Overseer. Ministerial Servant is deliberately
+ * not included — spec's own wording calls it out as "Not an Elder — a
+ * distinct appointed position," even though it's enrolled the same way
+ * (see [MINISTERIAL_ROLES]/"Total Ministerial" — its own, separate count,
+ * same dedup logic). */
+private val ELDER_ROLES = setOf(AdminRole.COORDINATOR_ELDER, AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER)
+
+/** "Total Ministerial" — Ministerial Servant, counted with the exact same
+ * dedup rules as [ELDER_ROLES]/"Total Elders" (per explicit request: "use
+ * the same logi[c] in counting elders"). Kept as its own role set/card
+ * rather than folded into "Total Elders" since Ministerial Servant is a
+ * distinct, non-Elder appointed position (see [ELDER_ROLES]'s doc comment). */
+private val MINISTERIAL_ROLES = setOf(AdminRole.MINISTERIAL_SERVANT)
+
+/** Counts distinct people holding any of [roles] among [assignments]
+ * (already filtered to one congregation/ACTIVE) — first collapsing multiple
+ * RoleAssignment docs for the same personId (the same real person holding,
+ * say, both a Coordinator Elder assignment and a separate Regular Elder
+ * assignment from also being a Group Overseer counts once, not twice), then
+ * collapsing distinct Person docs that share a name (see [duplicateNameKey]'s
+ * doc comment). Falls back to the bare personId when [people] doesn't (yet)
+ * include a given assignment's person — e.g. an in-flight sync — so that
+ * person still counts as their own entry rather than silently vanishing from
+ * the total. Shared by both "Total Elders" ([ELDER_ROLES]) and "Total
+ * Ministerial" ([MINISTERIAL_ROLES]) — same counting rules, different role set. */
+private fun countDistinctAdmins(assignments: List<RoleAssignment>, people: List<Person>, roles: Set<AdminRole>): Int {
     val distinctPersonIds = assignments
-        .filter { (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER }
+        .filter { (it.resolvedRoleType() as? RoleType.Admin)?.role in roles }
         .map { it.personId }
         .distinct()
     if (people.isEmpty()) return distinctPersonIds.size

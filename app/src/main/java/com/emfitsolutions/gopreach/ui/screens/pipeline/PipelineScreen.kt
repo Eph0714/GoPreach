@@ -83,6 +83,7 @@ import com.emfitsolutions.gopreach.data.model.SupportingImage
 import com.emfitsolutions.gopreach.data.model.Visit
 import com.emfitsolutions.gopreach.data.model.VisitOutcome
 import com.emfitsolutions.gopreach.ui.components.CoordinatesValue
+import com.emfitsolutions.gopreach.ui.components.ClickableCoordinatesText
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
@@ -175,6 +176,11 @@ private fun PipelineListScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<InterestedPerson?>(null) }
     val showToast = rememberActionToast()
+
+    // Bug fix: surfaces a save failure (e.g. from a corrupt/oversized photo)
+    // as a toast instead of the app silently closing — see
+    // PipelineViewModel.errorEvents' doc comment.
+    LaunchedEffect(Unit) { viewModel.errorEvents.collect { showToast(it) } }
 
     Scaffold(
         topBar = {
@@ -926,8 +932,7 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
             capture != null -> Card(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("New Location Captured", style = MaterialTheme.typography.titleSmall)
-                    Text("Latitude: ${"%.6f".format(capture.lat)}", style = MaterialTheme.typography.bodyMedium)
-                    Text("Longitude: ${"%.6f".format(capture.lng)}", style = MaterialTheme.typography.bodyMedium)
+                    ClickableCoordinatesText(lat = capture.lat, lng = capture.lng, label = person.name.ifBlank { null })
                     if (capture.accuracyMeters != null) Text("Accuracy: ${capture.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
                     Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
@@ -951,8 +956,7 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
                         Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Text("GPS Location Captured", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp))
                     }
-                    Text("Latitude: ${"%.6f".format(person.gpsLat)}", style = MaterialTheme.typography.bodyMedium)
-                    Text("Longitude: ${"%.6f".format(person.gpsLng)}", style = MaterialTheme.typography.bodyMedium)
+                    ClickableCoordinatesText(lat = person.gpsLat!!, lng = person.gpsLng!!, label = person.name.ifBlank { null })
                     if (person.gpsAccuracy != null) Text("Accuracy: ${person.gpsAccuracy.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
                     if (person.gpsCapturedAt != null) Text("Captured: ${formatRecordTimestamp(person.gpsCapturedAt)}", style = MaterialTheme.typography.bodySmall)
                     Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

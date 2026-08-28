@@ -20,6 +20,17 @@
          on API 26+ to launch that installer from within an app at all. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Calendar Alarm (notifications/AlarmScheduler.kt + AlarmRingService.kt):
+         an exact-time alarm that rings (looping sound + vibration) until the
+         user stops it, same as a phone alarm clock. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Exact alarms don't survive a reboot; re-arms them on next boot (see
+         notifications/BootCompletedReceiver.kt). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <application
         android:name=".GoPreachApp"
         android:allowBackup="true"
@@ -57,6 +68,19 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Calendar Alarm — see notifications/AlarmScheduler.kt's doc comment. -->
+        <receiver android:name=".notifications.CalendarAlarmReceiver" android:exported="false" />
+        <receiver android:name=".notifications.AlarmStopReceiver" android:exported="false" />
+        <receiver android:name=".notifications.BootCompletedReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <service
+            android:name=".notifications.AlarmRingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <activity
             android:name=".MainActivity"

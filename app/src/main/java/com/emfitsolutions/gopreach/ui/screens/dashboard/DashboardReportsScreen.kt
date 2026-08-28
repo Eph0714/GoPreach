@@ -166,7 +166,9 @@ fun DashboardStatsContent(
         Text(
             "Bible Studies and Preaching Hours reflect the selected period above. " +
                 "Publisher/Elder counts always reflect current status. " +
-                "\"Total Elders\" counts Regular Elders only (Coordinator Elders are shown under Admins).",
+                "\"Total Elders\" counts Coordinator Elders, Regular Elders, and Service Overseers, and " +
+                "\"Total Ministerial\" counts Ministerial Servants — anyone holding more than one of " +
+                "the roles within a card's own count is counted once.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -205,6 +207,7 @@ fun DashboardStatsContent(
                 ),
             ),
             StatDetail("Total Elders", displayed.totalElders.toString(), emptyList()),
+            StatDetail("Total Ministerial", displayed.totalMinisterial.toString(), emptyList()),
             StatDetail("Regular Pioneers", displayed.regularPioneers.toString(), emptyList()),
             StatDetail("Auxiliary Pioneers", displayed.auxiliaryPioneers.toString(), emptyList()),
             StatDetail("Unbaptized Publishers", displayed.unbaptizedPublishers.toString(), emptyList()),

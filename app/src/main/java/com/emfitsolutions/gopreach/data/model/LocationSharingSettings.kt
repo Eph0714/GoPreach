@@ -21,7 +21,15 @@ data class LocationSharingSettings(
 ) {
     companion object {
         const val DEFAULT_DURATION_MINUTES = 30
-        const val DEFAULT_ACCURACY_METERS = 5
+        // Was 5 (the spec's own illustrative example) — even a good outdoor
+        // GPS fix commonly reports 8-15m of accuracy, so that default meant
+        // a publisher's location almost never actually got published before
+        // an admin had ever touched Share Location Settings: "Share
+        // Location" looked broken out of the box. 20m is still tight enough
+        // to reject a rough WiFi/cell-only fix but achievable by a normal
+        // GPS fix; a congregation that wants the stricter 5m can still set
+        // it explicitly.
+        const val DEFAULT_ACCURACY_METERS = 20
 
         fun defaultsFor(congregationId: String) = LocationSharingSettings(congregationId = congregationId)
     }

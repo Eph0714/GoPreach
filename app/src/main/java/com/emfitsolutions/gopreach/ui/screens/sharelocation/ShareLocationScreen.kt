@@ -56,9 +56,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.LocationSharingSettings
+import com.emfitsolutions.gopreach.ui.components.ClickableCoordinatesText
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -221,8 +221,10 @@ fun ShareLocationScreen(
                                     Text("Status: ${row.category.name.replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
                                 }
                                 Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
-                                Text(
-                                    "Coordinates: ${formatCoordinatesDms(row.location.lat, row.location.lng)}",
+                                ClickableCoordinatesText(
+                                    lat = row.location.lat,
+                                    lng = row.location.lng,
+                                    label = row.person.fullName,
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                                 Text(
@@ -422,7 +424,7 @@ private fun MyCurrentLocationCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 location != null -> {
-                    Text("Coordinates: ${formatCoordinatesDms(location.fix.lat, location.fix.lng)}", style = MaterialTheme.typography.bodyMedium)
+                    ClickableCoordinatesText(lat = location.fix.lat, lng = location.fix.lng)
                     if (location.fix.accuracyMeters != null) {
                         Text("Accuracy: ${location.fix.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
                     }

@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Forward
-import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.CalendarMonth
@@ -69,6 +68,7 @@ import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.NotificationBell
+import com.emfitsolutions.gopreach.ui.components.ProfileMenuButton
 import com.emfitsolutions.gopreach.ui.components.RoundIconActionButton
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
@@ -141,6 +141,13 @@ fun PublisherHomeScreen(
         notificationCenterViewModel.unseenCountFor(notificationItemsFlow, currentPersonId)
     }
     val notificationUnseenCount by notificationUnseenFlow.collectAsStateWithLifecycle(initialValue = 0)
+    com.emfitsolutions.gopreach.ui.components.NewItemNotifier(
+        items = notificationItemsFlow,
+        onlyCategories = setOf(
+            com.emfitsolutions.gopreach.data.repository.NotificationCategory.ANNOUNCEMENT,
+            com.emfitsolutions.gopreach.data.repository.NotificationCategory.CALENDAR_SCHEDULE,
+        ),
+    )
 
     // "FORWARD TO OTHER PUBLISHER" — this Publisher's own incoming queue
     // count, for the "Forwarded to Me" tile's badge (same pattern as the
@@ -181,8 +188,11 @@ fun PublisherHomeScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            com.emfitsolutions.gopreach.ui.components.AlarmRingingBanner()
             PublisherWelcomeHeader(
                 greetingName = session.person?.firstName?.takeIf { it.isNotBlank() } ?: "there",
+                fullName = session.person?.fullName ?: "—",
+                profileImageUrl = session.person?.profileImageUrl,
                 congregationName = congregationName,
                 categoryLabel = category?.displayLabel(),
                 isOnline = isOnline,
@@ -192,6 +202,7 @@ fun PublisherHomeScreen(
                 onOpenNotifications = { notificationCenterViewModel.markAllSeen(currentPersonId) },
                 onNotificationClick = onNavigate,
                 onOpenSettings = { onNavigate(Destinations.SETTINGS) },
+                onImagePicked = viewModel::updateProfileImage,
                 onSignOut = viewModel::signOut,
             )
 
@@ -261,6 +272,8 @@ fun PublisherHomeScreen(
 @Composable
 private fun PublisherWelcomeHeader(
     greetingName: String,
+    fullName: String,
+    profileImageUrl: String?,
     congregationName: String?,
     categoryLabel: String?,
     isOnline: Boolean,
@@ -270,6 +283,7 @@ private fun PublisherWelcomeHeader(
     onOpenNotifications: () -> Unit,
     onNotificationClick: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onImagePicked: (android.net.Uri) -> Unit,
     onSignOut: () -> Unit,
 ) {
     Box(
@@ -302,9 +316,16 @@ private fun PublisherWelcomeHeader(
                 IconButton(onClick = onOpenSettings) {
                     Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
                 }
-                IconButton(onClick = onSignOut) {
-                    Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = "Sign Out", tint = Color.White)
-                }
+                // Folds Sign Out into the profile menu (name + role, View/
+                // Update Profile Image, Log Out) — replaces the old
+                // standalone logout icon rather than duplicating it.
+                ProfileMenuButton(
+                    fullName = fullName,
+                    roleLabel = categoryLabel ?: "Publisher",
+                    profileImageUrl = profileImageUrl,
+                    onImagePicked = onImagePicked,
+                    onSignOut = onSignOut,
+                )
             }
 
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {

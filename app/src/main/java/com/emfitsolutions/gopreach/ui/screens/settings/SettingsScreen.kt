@@ -1,5 +1,12 @@
 package com.emfitsolutions.gopreach.ui.screens.settings
 
+import android.app.Activity
+import android.media.RingtoneManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,7 +24,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
@@ -27,6 +36,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -50,6 +60,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.repository.ThemePreference
+import com.emfitsolutions.gopreach.notifications.AlarmScheduler
 import com.emfitsolutions.gopreach.ui.components.ColorWheelPicker
 import com.emfitsolutions.gopreach.ui.components.EyedropperImagePicker
 import kotlinx.coroutines.launch
@@ -152,6 +163,8 @@ fun SettingsScreen(
                 }
             }
 
+            NotificationSoundSection(viewModel = viewModel)
+
             AppVersionSection(updateViewModel = updateViewModel)
         }
     }
@@ -166,6 +179,88 @@ fun SettingsScreen(
             onDismiss = { showCustomColorDialog = false },
         )
     }
+}
+
+/**
+ * "Allow all the users to manage notification sound... browse to mobile
+ * notification sounds" — one setting shared by every incoming notification
+ * this app posts (Transfer Request, Announcement, Calendar Alarm alike; see
+ * [com.emfitsolutions.gopreach.notifications.NotificationHelper]'s doc
+ * comment). Uses the system's own ringtone picker
+ * ([RingtoneManager.ACTION_RINGTONE_PICKER]) rather than a custom list, so it
+ * shows exactly the same notification sounds the user's phone already offers
+ * everywhere else. Also surfaces the "Alarms & reminders" system permission
+ * when it's missing (API 31+) — without it, Calendar Alarms still ring, just
+ * not necessarily at the exact minute.
+ */
+@Composable
+private fun NotificationSoundSection(viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val soundUri by viewModel.notificationSoundUri.collectAsStateWithLifecycle()
+    var exactAlarmsAllowed by remember { mutableStateOf(AlarmScheduler.canScheduleExactAlarms(context)) }
+
+    val pickRingtone = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val picked: Uri? = result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            viewModel.setNotificationSound(picked)
+        }
+    }
+
+    Text("Notifications", style = MaterialTheme.typography.titleMedium)
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column {
+            ListItem(
+                headlineContent = { Text("Notification Sound") },
+                supportingContent = { Text(ringtoneTitle(context, soundUri)) },
+                leadingContent = { Icon(Icons.Rounded.MusicNote, contentDescription = null) },
+                modifier = Modifier.clickable {
+                    val intent = android.content.Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION)
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                        putExtra(
+                            RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI,
+                            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                        )
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, soundUri)
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Notification Sound")
+                    }
+                    pickRingtone.launch(intent)
+                },
+            )
+            Text(
+                "Plays for every incoming notification — transfer requests, announcements, and calendar alarms.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !exactAlarmsAllowed) {
+                androidx.compose.material3.HorizontalDivider()
+                ListItem(
+                    headlineContent = { Text("Allow Exact Alarms") },
+                    supportingContent = { Text("Needed so Calendar Alarms ring at the exact scheduled time.") },
+                    leadingContent = { Icon(Icons.Rounded.Alarm, contentDescription = null) },
+                    modifier = Modifier.clickable {
+                        context.startActivity(
+                            android.content.Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            },
+                        )
+                        exactAlarmsAllowed = AlarmScheduler.canScheduleExactAlarms(context)
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** Best-effort human-readable name for [uri] via [RingtoneManager] — falls
+ * back to a generic label rather than crashing if the picked sound was later
+ * uninstalled/removed (e.g. a ringtone from an app the user removed). */
+private fun ringtoneTitle(context: android.content.Context, uri: Uri?): String {
+    if (uri == null) return "Default"
+    return runCatching { RingtoneManager.getRingtone(context, uri)?.getTitle(context) }
+        .getOrNull() ?: "Custom sound"
 }
 
 /**

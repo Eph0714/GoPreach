@@ -540,7 +540,7 @@ fun GoPreachNavGraph(
             )
         }
         composable(Destinations.FIND_LOCATION) {
-            FindLocationScreen(onBack = { navController.popBackStack() })
+            FindLocationScreen(currentPersonId = currentPersonId, onBack = { navController.popBackStack() })
         }
         composable(Destinations.CALENDAR) {
             val scope = when (currentRole) {

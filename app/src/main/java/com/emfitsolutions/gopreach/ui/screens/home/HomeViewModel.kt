@@ -1,8 +1,10 @@
 package com.emfitsolutions.gopreach.ui.screens.home
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.repository.AuthRepository
+import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.sync.ConnectivityObserver
 import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
 import com.emfitsolutions.gopreach.domain.SessionState
@@ -11,12 +13,14 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     userSession: UserSession,
     private val authRepository: AuthRepository,
+    private val personRepository: PersonRepository,
     private val connectivityObserver: ConnectivityObserver,
     offlineFirestoreRepository: OfflineFirestoreRepository,
 ) : ViewModel() {
@@ -29,6 +33,18 @@ class HomeViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     fun signOut() = authRepository.signOut()
+
+    /** "Update Profile Image" — the top-right profile menu, every role. Reads
+     * the signed-in session's own current [state] rather than taking a
+     * `Person` parameter, so a caller can't accidentally pass a stale/wrong
+     * copy from a previous composition. */
+    fun updateProfileImage(imageUri: Uri) {
+        val person = state.value.person ?: return
+        viewModelScope.launch {
+            val url = personRepository.uploadProfileImage(person.id, imageUri)
+            personRepository.save(person.copy(profileImageUrl = url))
+        }
+    }
 
     /** Pull-to-refresh on the Main Form — per the "Refresh, Automatic Updates,
      * Offline Sync" spec's explicit separation requirement (§1/§18), Refresh
