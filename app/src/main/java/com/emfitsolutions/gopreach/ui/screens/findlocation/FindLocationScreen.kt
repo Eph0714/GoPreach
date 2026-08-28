@@ -180,6 +180,7 @@ fun FindLocationScreen(
                             label = mode.label,
                             icon = mode.icon,
                             onClick = { openDirections(context, lat, lng, mode.travelModeParam) },
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }

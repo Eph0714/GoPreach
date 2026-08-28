@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -13,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
@@ -47,7 +49,18 @@ fun DashboardTile(
         ),
         contentPadding = PaddingValues(horizontal = 20.dp),
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.padding(end = 12.dp))
-        Text(text = label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+        // Icon at a fixed size so it never squeezes the label; the label
+        // itself is capped to one line with an ellipsis rather than wrapping
+        // — this Button has a fixed 56.dp height, so an unbounded/2-line
+        // label would silently get clipped top and bottom instead of
+        // visibly truncating.
+        Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp).padding(end = 12.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

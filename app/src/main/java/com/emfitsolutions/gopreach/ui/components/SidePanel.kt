@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 
@@ -175,7 +176,7 @@ fun GoPreachSidePanelContent(
             item {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 NavigationDrawerItem(
-                    label = { Text("Account Settings") },
+                    label = { SideItemLabel("Account Settings") },
                     icon = { Icon(Icons.Rounded.Password, contentDescription = null) },
                     selected = activeRoute == Destinations.ACCOUNT_SETTINGS,
                     onClick = { onNavigate(Destinations.ACCOUNT_SETTINGS) },
@@ -183,7 +184,7 @@ fun GoPreachSidePanelContent(
                 )
                 if (onSwitchToPublisher != null) {
                     NavigationDrawerItem(
-                        label = { Text("Ministry Report App") },
+                        label = { SideItemLabel("Ministry Report App") },
                         icon = { Icon(Icons.Rounded.SwapHoriz, contentDescription = null) },
                         selected = false,
                         onClick = onSwitchToPublisher,
@@ -191,7 +192,7 @@ fun GoPreachSidePanelContent(
                     )
                 }
                 NavigationDrawerItem(
-                    label = { Text("Sign Out") },
+                    label = { SideItemLabel("Sign Out") },
                     icon = { Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null) },
                     selected = false,
                     onClick = onSignOut,
@@ -217,7 +218,7 @@ private fun SidePanelSection(section: SideSection, activeRoute: String?, onNavig
         if (expanded) {
             section.items.forEach { item ->
                 NavigationDrawerItem(
-                    label = { Text(item.label) },
+                    label = { SideItemLabel(item.label) },
                     icon = { Icon(item.icon, contentDescription = null) },
                     selected = activeRoute == item.route,
                     onClick = { onNavigate(item.route) },
@@ -226,4 +227,13 @@ private fun SidePanelSection(section: SideSection, activeRoute: String?, onNavig
             }
         }
     }
+}
+
+/** Every drawer item's label — one line, ellipsized rather than wrapped, so
+ * a longer entry (e.g. "Appearance & App Logo", "Share Location Settings")
+ * never wraps into NavigationDrawerItem's fixed-height row and gets its
+ * second line silently clipped. */
+@Composable
+private fun SideItemLabel(text: String) {
+    Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }

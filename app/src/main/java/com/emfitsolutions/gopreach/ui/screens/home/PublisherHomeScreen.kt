@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -359,9 +360,27 @@ private fun FeatureTile(
                 ) {
                     Icon(icon, contentDescription = null, tint = iconTint)
                 }
-                Column(modifier = Modifier.padding(start = 12.dp)) {
-                    Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // weight(1f) so this column is actually constrained to the
+                // space left after the icon, instead of measuring at its own
+                // "wanted" text width — without it, a longer title/subtitle
+                // (e.g. "Forwarded to Me", "Share My Location") could overflow
+                // past the icon into the Card's rounded edge and get visually
+                // clipped there instead of wrapping/ellipsizing in place.
+                Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
             if (badgeCount > 0) {
@@ -503,29 +522,36 @@ private fun PublisherStatsSection(
     // "My Bible Study" / "My Return Visit" / "Preaching Hours" — redesigned
     // per request as small, colorless round icon buttons (only the icon is
     // tinted) with the label below the circle, replacing the numeric
-    // SquareStatCard tiles these three used to be.
+    // SquareStatCard tiles these three used to be. Each gets weight(1f) so
+    // its label is actually width-constrained to its own share of the row —
+    // without it, a longer label (e.g. "Attended Preaching") has no width to
+    // wrap/ellipsize against and just pushes the row wider than the screen.
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
         RoundIconActionButton(
             label = "My Bible Study",
             icon = Icons.AutoMirrored.Rounded.MenuBook,
             onClick = { onNavigate(Destinations.BIBLE_STUDY) },
+            modifier = Modifier.weight(1f),
         )
         if (isPioneer) {
             RoundIconActionButton(
                 label = "My Return Visit",
                 icon = Icons.Rounded.PeopleAlt,
                 onClick = { onNavigate(Destinations.RETURN_VISIT) },
+                modifier = Modifier.weight(1f),
             )
             RoundIconActionButton(
                 label = "Preaching Hours",
                 icon = Icons.Rounded.Timer,
                 onClick = { onNavigate(Destinations.PREACHING_TIME_RECORD) },
+                modifier = Modifier.weight(1f),
             )
         } else {
             RoundIconActionButton(
                 label = "Attended Preaching",
                 icon = Icons.Rounded.Assignment,
                 onClick = { onNavigate(Destinations.MONTHLY_REPORT) },
+                modifier = Modifier.weight(1f),
             )
         }
     }

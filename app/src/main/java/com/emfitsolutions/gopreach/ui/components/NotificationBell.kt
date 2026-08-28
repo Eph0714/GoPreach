@@ -96,8 +96,18 @@ fun NotificationBell(
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.padding(top = 2.dp, end = 8.dp),
                                     )
-                                    Column {
-                                        Text(item.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                    // weight(1f) so this column is actually
+                                    // constrained to the space left after the
+                                    // icon, instead of measuring against the
+                                    // dropdown's full width and overlapping it.
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            item.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
                                         if (item.subtitle.isNotBlank()) {
                                             Text(
                                                 item.subtitle,
