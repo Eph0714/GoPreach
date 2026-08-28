@@ -25,6 +25,7 @@ import com.emfitsolutions.gopreach.ui.screens.backup.BackupRestoreScreen
 import com.emfitsolutions.gopreach.ui.screens.calendar.CalendarScope
 import com.emfitsolutions.gopreach.ui.screens.calendar.CalendarScreen
 import com.emfitsolutions.gopreach.ui.screens.congregations.ManageCongregationsScreen
+import com.emfitsolutions.gopreach.ui.screens.contactrecord.ContactRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.controlpanel.ControlPanelScreen
 import com.emfitsolutions.gopreach.ui.screens.dashboard.DashboardReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.elders.ManageCoordinatorEldersScreen
@@ -293,6 +294,17 @@ fun GoPreachNavGraph(
             UserLogsScreen(
                 visibleCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
                 canDelete = currentRole == AdminRole.SUPER_ADMIN,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.CONTACT_RECORD) {
+            // Super-Admin sees every congregation; Coordinator Elder is
+            // scoped via ownCongregationId, Regular Elder via
+            // ownGroupAssignment's own congregationId — same fallback chain
+            // DASHBOARD_REPORTS/REPORTS already use for this exact pair of
+            // roles.
+            ContactRecordScreen(
+                visibleCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
                 onBack = { navController.popBackStack() },
             )
         }

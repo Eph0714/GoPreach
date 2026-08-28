@@ -90,4 +90,10 @@ object Destinations {
 
     // Role-Based Dashboard, Side Panel & Graphical Reports
     const val DASHBOARD_REPORTS = "dashboard_reports"
+
+    // "Contact Record" module — consolidated Publisher/Interested People
+    // (Searching/Return Visit/Bible Study)/Coordinator Elder/Service
+    // Overseer/Ministerial Servant directory. Super-Admin/Coordinator
+    // Elder/Regular Elder only.
+    const val CONTACT_RECORD = "contact_record"
 }

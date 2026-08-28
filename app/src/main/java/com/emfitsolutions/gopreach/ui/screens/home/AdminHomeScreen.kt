@@ -171,6 +171,10 @@ fun AdminHomeScreen(
     val canAccessControlPanel = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION
     // User logs: Super-Admin (all) and Admin/Coordinator Elder (own congregation); Regular Elder has no access.
     val canViewUserLogs = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION || role == AdminRole.COORDINATOR_ELDER
+    // "Contact Record" module — explicitly Super-Admin/Coordinator Elder/
+    // Regular Elder only, not the wider admin-track set [canViewUserLogs]
+    // above uses (no Admin, no Service Overseer/Ministerial Servant).
+    val canViewContactRecord = role == AdminRole.SUPER_ADMIN || role == AdminRole.COORDINATOR_ELDER || role == AdminRole.REGULAR_ELDER
     // Publishers/Groups: Super-Admin/Admin/Coordinator Elder only (spec §3 permission matrix — Regular Elder ❌).
     val canManagePublishersAndGroups = canViewUserLogs
     // "CREATING GROUPS" spec — Service Overseer can also create/manage
@@ -394,6 +398,7 @@ fun AdminHomeScreen(
                 isSuperAdmin = isSuperAdmin,
                 canViewUserLogs = canViewUserLogs,
                 canManageUsers = canManageUsers,
+                canViewContactRecord = canViewContactRecord,
                 onSwitchToPublisher = onSwitchToPublisher?.let { switchAction ->
                     { coroutineScope.launch { drawerState.close() }; switchAction() }
                 },

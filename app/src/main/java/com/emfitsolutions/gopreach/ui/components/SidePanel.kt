@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Campaign
+import androidx.compose.material.icons.rounded.Contacts
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Groups
@@ -94,6 +95,9 @@ fun GoPreachSidePanelContent(
     isSuperAdmin: Boolean,
     canViewUserLogs: Boolean,
     canManageUsers: Boolean,
+    /** "Contact Record" module — Super-Admin, Coordinator Elder, and Regular
+     * Elder only (not Admin, not Service Overseer/Ministerial Servant). */
+    canViewContactRecord: Boolean,
     /** Non-null only for a session holding both an Admin-track role and a
      * Publisher category (spec's pre-existing "switch context" affordance) —
      * relocated here now that Super-Admin/Admin's main dashboard body is
@@ -159,6 +163,7 @@ fun GoPreachSidePanelContent(
             add(SideItem("Calendar", Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
             add(SideItem("Share Location Settings", Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
             if (canViewUserLogs) add(SideItem("User Logs", Icons.Rounded.History, Destinations.USER_LOGS))
+            if (canViewContactRecord) add(SideItem("Contact Record", Icons.Rounded.Contacts, Destinations.CONTACT_RECORD))
             if (canManageUsers) add(SideItem("User Management", Icons.Rounded.ManageAccounts, Destinations.MANAGE_USERS))
         }
         add(SideSection("Other", otherItems))
