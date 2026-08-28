@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.Print
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.export.CsvExporter
+import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.DateRange
@@ -48,8 +50,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private fun PublisherCategory.displayLabel(): String = name.replace('_', ' ')
+    .lowercase().split(' ').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
+
 /** Spec §5.1 — Total Bible Studies / Interested People / preaching hours, per
- * publisher, with an "All Publishers" summary at the top. */
+ * publisher, grouped by Group, with an "All Publishers" summary at the top. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportsScreen(
@@ -75,7 +80,9 @@ fun ReportsScreen(
     // "Main Form Date Range Filtering" spec §7/§4/§8 — This Month by default
     // (calculated live from the current date), shared with the Dashboard's
     // own Reports screen via DateRangeStore rather than screen-local state,
-    // so navigating between the two never resets the selection.
+    // so navigating between the two never resets the selection. Today/This
+    // Week/This Month/This Year/Custom (From, To) are all offered by
+    // [DateRangeFilterBar] below — nothing extra needed here for that.
     val dateRange by viewModel.dateRange.collectAsStateWithLifecycle()
 
     val rowsFlow = remember(visibleCongregationId, effectiveGroupId, dateRange) {
@@ -83,13 +90,21 @@ fun ReportsScreen(
     }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
+    // "Group the record by Group" — the same rows above, bucketed into
+    // sections with their own Overseer/Servant/Assistant header and a
+    // per-group summary total.
+    val sectionsFlow = remember(visibleCongregationId, effectiveGroupId, dateRange) {
+        viewModel.groupedRowsFor(visibleCongregationId, effectiveGroupId, dateRange)
+    }
+    val sections by sectionsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+
     // "Make all reports have a print preview [and] export as pdf or excel,
     // put a heading" — safe to always offer: it's the exact same rows
     // already visible on screen, not a new data exposure, so there's no
     // separate Permission gate the way Add/Edit/Delete have via [readOnly]
     // elsewhere.
     val context = LocalContext.current
-    val reportTable = remember(rows, dateRange) { reportsTableFor(rows, dateRange) }
+    val reportTable = remember(sections, dateRange) { reportsTableFor(sections, dateRange) }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
             CsvExporter.write(context, uri, reportTable.title, subtitle = null, columns = reportTable.columns, rows = reportTable.rows, totals = reportTable.totals)
@@ -169,26 +184,8 @@ fun ReportsScreen(
                         }
                     }
                 }
-                items(rows, key = { it.person.id }) { row ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column {
-                                Text(row.person.fullName, style = MaterialTheme.typography.titleMedium)
-                                Text("Bible Studies: ${row.totalBibleStudies}", style = MaterialTheme.typography.bodySmall)
-                                Text("Hours: ${"%.1f".format(row.totalHours)}", style = MaterialTheme.typography.bodySmall)
-                                Text("Interested People: ${row.totalInterestedPeople}", style = MaterialTheme.typography.bodySmall)
-                            }
-                            if (canEditReports) {
-                                IconButton(onClick = { onEditPublisher(row.person.id) }) {
-                                    Icon(Icons.Rounded.Edit, contentDescription = "Edit this month's report")
-                                }
-                            }
-                        }
-                    }
+                items(sections, key = { it.groupId ?: "unassigned" }) { section ->
+                    GroupReportCard(section, dateRange, canEditReports, onEditPublisher)
                 }
             }
         }
@@ -196,21 +193,113 @@ fun ReportsScreen(
     }
 }
 
-/** Shared shape for both Print and CSV export — "put a heading" (the title
- * plus the period line) is baked in here so it's identical for both. */
-private fun reportsTableFor(rows: List<PublisherReportRow>, dateRange: DateRange): ReportTable {
+@Composable
+private fun GroupReportCard(
+    section: GroupReportSection,
+    dateRange: DateRange,
+    canEditReports: Boolean,
+    onEditPublisher: (personId: String) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Group: ${section.groupName}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Group Overseer: ${section.overseerName ?: "—"}", style = MaterialTheme.typography.bodySmall)
+            Text("Group Servant: ${section.servantName ?: "—"}", style = MaterialTheme.typography.bodySmall)
+            Text("Group Assistant: ${section.assistantName ?: "—"}", style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            section.rows.forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(row.person.fullName, style = MaterialTheme.typography.titleSmall)
+                        Text(row.category.displayLabel(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            "Hours: ${"%.1f".format(row.totalHours)} · Bible Studies: ${row.totalBibleStudies} · " +
+                                "Attended Preaching: ${row.attendedPreaching.toYesNoNa()}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (canEditReports) {
+                        IconButton(onClick = { onEditPublisher(row.person.id) }) {
+                            Icon(Icons.Rounded.Edit, contentDescription = "Edit this month's report")
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Text(
+                "Summary Total for ${dateRange.periodLabel()}",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+            )
+            section.categoryCounts.entries.sortedBy { it.key.displayLabel() }.forEach { (category, count) ->
+                Text("Total ${category.displayLabel()}: $count", style = MaterialTheme.typography.bodySmall)
+            }
+            section.categoryHours.entries.sortedBy { it.key.displayLabel() }.forEach { (category, hours) ->
+                Text("Total Hours for ${category.displayLabel()}: ${"%.1f".format(hours)}", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+private fun Boolean?.toYesNoNa(): String = when (this) {
+    true -> "Yes"
+    false -> "No"
+    null -> "N/A"
+}
+
+private fun DateRange.periodLabel(): String {
     val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
-    val periodLabel = "${dateFormat.format(Date(dateRange.startMillis))} - ${dateFormat.format(Date(dateRange.endMillis))}"
+    return "${dateFormat.format(Date(startMillis))} - ${dateFormat.format(Date(endMillis))}"
+}
+
+/** Shared shape for both Print and CSV export — "put a heading" (the title
+ * plus the period line) is baked in here, same as before, now walking every
+ * [GroupReportSection] in turn: a group header pseudo-row, that group's
+ * publisher rows, then its own "SUMMARY TOTAL" pseudo-rows, before moving to
+ * the next group — matches the on-screen grouping exactly so the export
+ * never shows a different shape than what's on screen. */
+private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateRange): ReportTable {
+    val periodLabel = dateRange.periodLabel()
+    val columns = listOf("Status", "Publisher Name", "Hours", "Bible Studies", "Attended Preaching")
+    val rows = mutableListOf<List<String>>()
+    sections.forEach { section ->
+        rows += listOf(
+            "GROUP: ${section.groupName}",
+            "Overseer: ${section.overseerName ?: "—"} | Servant: ${section.servantName ?: "—"} | Assistant: ${section.assistantName ?: "—"}",
+            "", "", "",
+        )
+        section.rows.forEach { row ->
+            rows += listOf(
+                row.category.displayLabel(),
+                row.person.fullName,
+                "%.1f".format(row.totalHours),
+                row.totalBibleStudies.toString(),
+                row.attendedPreaching.toYesNoNa(),
+            )
+        }
+        rows += listOf("SUMMARY TOTAL FOR THE PERIOD OF $periodLabel", "", "", "", "")
+        section.categoryCounts.entries.sortedBy { it.key.displayLabel() }.forEach { (category, count) ->
+            rows += listOf("Total ${category.displayLabel()}", count.toString(), "", "", "")
+        }
+        section.categoryHours.entries.sortedBy { it.key.displayLabel() }.forEach { (category, hours) ->
+            rows += listOf("Total Hours for ${category.displayLabel()}", "%.1f".format(hours), "", "", "")
+        }
+        rows += listOf("", "", "", "", "")
+    }
+    val allRows = sections.flatMap { it.rows }
     return ReportTable(
         title = "GoPreach Publisher Reports ($periodLabel)",
-        columns = listOf("Publisher", "Bible Studies", "Hours", "Interested People"),
-        rows = rows.map { row ->
-            listOf(row.person.fullName, row.totalBibleStudies.toString(), row.totalHours.toString(), row.totalInterestedPeople.toString())
-        },
+        columns = columns,
+        rows = rows,
         totals = listOf(
-            "Bible Studies" to rows.sumOf { it.totalBibleStudies }.toString(),
-            "Hours" to rows.sumOf { it.totalHours }.toString(),
-            "Interested People" to rows.sumOf { it.totalInterestedPeople }.toString(),
+            "Bible Studies" to allRows.sumOf { it.totalBibleStudies }.toString(),
+            "Hours" to "%.1f".format(allRows.sumOf { it.totalHours }),
         ),
     )
 }
