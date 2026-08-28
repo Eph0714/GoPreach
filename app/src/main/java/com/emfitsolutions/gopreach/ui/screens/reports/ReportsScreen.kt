@@ -46,6 +46,7 @@ import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -104,10 +105,27 @@ fun ReportsScreen(
     // separate Permission gate the way Add/Edit/Delete have via [readOnly]
     // elsewhere.
     val context = LocalContext.current
+    val showToast = rememberActionToast()
     val reportTable = remember(sections, dateRange) { reportsTableFor(sections, dateRange) }
+    // Bug fix ("I cannot see any PDF or Excel inside the Reports Summary"):
+    // the Storage Access Framework picker just saves and closes — nothing
+    // about that flow shows the result inside the app on its own. Now it
+    // confirms the export succeeded and immediately opens the file, instead
+    // of leaving the user to go find it in a file manager (or wonder whether
+    // it ever actually happened).
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
-            CsvExporter.write(context, uri, reportTable.title, subtitle = null, columns = reportTable.columns, rows = reportTable.rows, totals = reportTable.totals)
+            try {
+                val wrote = CsvExporter.write(context, uri, reportTable.title, subtitle = null, columns = reportTable.columns, rows = reportTable.rows, totals = reportTable.totals)
+                if (wrote) {
+                    showToast("Exported to Excel (CSV).")
+                    CsvExporter.openWithChooser(context, uri, "text/csv")
+                } else {
+                    showToast("Export failed: couldn't write the file.")
+                }
+            } catch (e: Exception) {
+                showToast("Export failed: ${e.localizedMessage ?: "unknown error"}")
+            }
         }
     }
     val exportFileName = "gopreach-reports-${SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())}.csv"

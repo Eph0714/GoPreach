@@ -53,6 +53,7 @@ import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.charts.BarSlice
 import com.emfitsolutions.gopreach.ui.components.charts.SimpleBarChart
 import com.emfitsolutions.gopreach.ui.components.charts.StatCard
@@ -398,6 +399,7 @@ fun DashboardReportsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val showToast = rememberActionToast()
 
     // Same [displayed] derivation [DashboardStatsContent] uses internally —
     // duplicated here (not exposed from that composable) purely so the
@@ -408,10 +410,23 @@ fun DashboardReportsScreen(
     val reportTable = remember(displayed, uiState.dateRange) {
         displayed?.let { dashboardTableFor(it, uiState.dateRange) }
     }
+    // Bug fix ("I cannot see any PDF or Excel"): see ReportsScreen's matching
+    // fix — the Storage Access Framework picker just saves and closes with
+    // no feedback of its own; now it confirms and opens the file immediately.
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         val table = reportTable
         if (uri != null && table != null) {
-            CsvExporter.write(context, uri, table.title, subtitle = null, columns = table.columns, rows = table.rows, totals = table.totals)
+            try {
+                val wrote = CsvExporter.write(context, uri, table.title, subtitle = null, columns = table.columns, rows = table.rows, totals = table.totals)
+                if (wrote) {
+                    showToast("Exported to Excel (CSV).")
+                    CsvExporter.openWithChooser(context, uri, "text/csv")
+                } else {
+                    showToast("Export failed: couldn't write the file.")
+                }
+            } catch (e: Exception) {
+                showToast("Export failed: ${e.localizedMessage ?: "unknown error"}")
+            }
         }
     }
     val exportFileName = "gopreach-dashboard-${SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())}.csv"

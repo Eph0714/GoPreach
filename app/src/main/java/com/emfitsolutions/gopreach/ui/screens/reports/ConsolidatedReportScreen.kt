@@ -53,6 +53,7 @@ import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.charts.StatCard
 import com.emfitsolutions.gopreach.ui.screens.home.isPioneerCategory
 import java.text.SimpleDateFormat
@@ -87,10 +88,24 @@ fun ConsolidatedReportScreen(
     // put a heading" — same shared ReportTable/CsvExporter/ReportPrinter
     // shape every other report screen uses.
     val context = LocalContext.current
+    val showToast = rememberActionToast()
     val reportTable = remember(uiState.visibleEntries, uiState.dateRange) { consolidatedReportTableFor(uiState) }
+    // Bug fix ("I cannot see any PDF or Excel"): see ReportsScreen's matching
+    // fix — the Storage Access Framework picker just saves and closes with
+    // no feedback of its own; now it confirms and opens the file immediately.
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
-            CsvExporter.write(context, uri, reportTable.title, subtitle = null, columns = reportTable.columns, rows = reportTable.rows, totals = reportTable.totals)
+            try {
+                val wrote = CsvExporter.write(context, uri, reportTable.title, subtitle = null, columns = reportTable.columns, rows = reportTable.rows, totals = reportTable.totals)
+                if (wrote) {
+                    showToast("Exported to Excel (CSV).")
+                    CsvExporter.openWithChooser(context, uri, "text/csv")
+                } else {
+                    showToast("Export failed: couldn't write the file.")
+                }
+            } catch (e: Exception) {
+                showToast("Export failed: ${e.localizedMessage ?: "unknown error"}")
+            }
         }
     }
     val exportFileName = "gopreach-consolidated-report-${SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())}.csv"
@@ -103,14 +118,18 @@ fun ConsolidatedReportScreen(
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { ReportPrinter.print(context, reportTable) },
-                        enabled = uiState.visibleEntries.isNotEmpty(),
-                    ) { Icon(Icons.Rounded.Print, contentDescription = "Print") }
-                    IconButton(
-                        onClick = { exportLauncher.launch(exportFileName) },
-                        enabled = uiState.visibleEntries.isNotEmpty(),
-                    ) { Icon(Icons.Rounded.Share, contentDescription = "Export as CSV") }
+                    // Bug fix ("I cannot see export to excel or pdf"): these
+                    // were disabled when there were no visible entries — a
+                    // disabled IconButton's icon renders at reduced alpha,
+                    // which on this TopAppBar read as "not there at all."
+                    // Always enabled now; printing/exporting with nothing to
+                    // show just produces a heading-only result.
+                    IconButton(onClick = { ReportPrinter.print(context, reportTable) }) {
+                        Icon(Icons.Rounded.Print, contentDescription = "Print / Export as PDF")
+                    }
+                    IconButton(onClick = { exportLauncher.launch(exportFileName) }) {
+                        Icon(Icons.Rounded.Share, contentDescription = "Export as Excel (CSV)")
+                    }
                 },
             )
         },

@@ -96,9 +96,22 @@ fun ManagePublisherReportsScreen(
     val reportTitle = remember(uiState.dateRange) { reportTitleFor(uiState.dateRange.startMillis, uiState.dateRange.endMillis, uiState.dateRange.option) }
     val reportTable = remember(uiState.rows, reportTitle) { publisherReportTable(reportTitle, uiState) }
 
+    // Bug fix ("I cannot see any PDF or Excel"): see ReportsScreen's matching
+    // fix — the Storage Access Framework picker just saves and closes with
+    // no feedback of its own; now it confirms and opens the file immediately.
     val csvExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
-            CsvExporter.write(context, uri, reportTable.title, subtitle = null, columns = reportTable.columns, rows = reportTable.rows, totals = reportTable.totals)
+            try {
+                val wrote = CsvExporter.write(context, uri, reportTable.title, subtitle = null, columns = reportTable.columns, rows = reportTable.rows, totals = reportTable.totals)
+                if (wrote) {
+                    showToast("Exported to Excel (CSV).")
+                    CsvExporter.openWithChooser(context, uri, "text/csv")
+                } else {
+                    showToast("Export failed: couldn't write the file.")
+                }
+            } catch (e: Exception) {
+                showToast("Export failed: ${e.localizedMessage ?: "unknown error"}")
+            }
         }
     }
     val csvExportFileName = "gopreach-publisher-reports-${SimpleDateFormat("yyyyMMdd", Locale.US).format(java.util.Date())}.csv"
@@ -115,14 +128,18 @@ fun ManagePublisherReportsScreen(
                 actions = {
                     // "Print preview" — Android's own print dialog always
                     // shows a preview before anything prints, and offers
-                    // "Save as PDF" out of the box.
-                    IconButton(onClick = { ReportPrinter.print(context, reportTable) }, enabled = uiState.rows.isNotEmpty()) {
-                        Icon(Icons.Rounded.Print, contentDescription = "Print")
+                    // "Save as PDF" out of the box. Bug fix ("I cannot see
+                    // export to excel or pdf"): these were disabled when
+                    // there were no rows — a disabled IconButton's icon
+                    // renders at reduced alpha, which on this TopAppBar read
+                    // as "not there at all." Always enabled now.
+                    IconButton(onClick = { ReportPrinter.print(context, reportTable) }) {
+                        Icon(Icons.Rounded.Print, contentDescription = "Print / Export as PDF")
                     }
                     // "Export as ... excel" — CSV, opens directly in any
                     // spreadsheet app.
-                    IconButton(onClick = { csvExportLauncher.launch(csvExportFileName) }, enabled = uiState.rows.isNotEmpty()) {
-                        Icon(Icons.Rounded.Share, contentDescription = "Export as CSV")
+                    IconButton(onClick = { csvExportLauncher.launch(csvExportFileName) }) {
+                        Icon(Icons.Rounded.Share, contentDescription = "Export as Excel (CSV)")
                     }
                 },
             )

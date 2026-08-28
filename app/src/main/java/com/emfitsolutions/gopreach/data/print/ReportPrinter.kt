@@ -3,8 +3,12 @@ package com.emfitsolutions.gopreach.data.print
 import android.content.Context
 import android.print.PrintAttributes
 import android.print.PrintManager
+import android.util.Log
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
+
+private const val TAG = "ReportPrinter"
 
 /**
  * A generic printable report table — every report screen builds one of
@@ -33,13 +37,45 @@ data class ReportTable(
  */
 object ReportPrinter {
 
+    /** Holds every in-flight [WebView] until its print hand-off completes —
+     * bug fix ("I cannot see any PDF or Excel"): [print] used to create the
+     * WebView as a bare local variable with nothing else referencing it.
+     * `loadDataWithBaseURL` is asynchronous, and a WebView that's never
+     * attached to any view hierarchy is otherwise unreachable from GC roots
+     * the moment [print] returns — on a device under memory pressure (or
+     * just unlucky timing), the WebView could be collected before
+     * `onPageFinished` ever fires, so the print dialog silently never
+     * appeared and nothing told the caller why. Keeping a strong reference
+     * here until the callback actually runs (success or failure) removes
+     * that race entirely. */
+    private val inFlightWebViews = mutableSetOf<WebView>()
+
     fun print(context: Context, table: ReportTable) {
         val webView = WebView(context)
+        inFlightWebViews += webView
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
-                val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager ?: return
-                val adapter = view.createPrintDocumentAdapter(table.title)
-                printManager.print(table.title, adapter, PrintAttributes.Builder().build())
+                try {
+                    val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager
+                    if (printManager == null) {
+                        Log.e(TAG, "PRINT_SERVICE unavailable on this device")
+                        Toast.makeText(context, "Printing isn't available on this device.", Toast.LENGTH_LONG).show()
+                        return
+                    }
+                    val adapter = view.createPrintDocumentAdapter(table.title)
+                    printManager.print(table.title, adapter, PrintAttributes.Builder().build())
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to open print dialog", e)
+                    Toast.makeText(context, "Couldn't open the print dialog: ${e.localizedMessage ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                } finally {
+                    inFlightWebViews -= webView
+                }
+            }
+
+            override fun onReceivedError(view: WebView, errorCode: Int, description: String?, failingUrl: String?) {
+                Log.e(TAG, "WebView failed to load report HTML: $description")
+                Toast.makeText(context, "Couldn't prepare the report for printing.", Toast.LENGTH_LONG).show()
+                inFlightWebViews -= webView
             }
         }
         webView.loadDataWithBaseURL(null, buildHtml(table), "text/html", "UTF-8", null)
