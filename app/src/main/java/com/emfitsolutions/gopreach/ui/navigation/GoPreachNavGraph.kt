@@ -362,6 +362,12 @@ fun GoPreachNavGraph(
             }
             DashboardReportsScreen(
                 visibleCongregationIds = visibleCongregationIds,
+                // "Allow the admin, super admin, coordinator elder, service
+                // overseer to export the report to PDF or Excel" — exactly
+                // these four roles, not the wider set that can merely view
+                // this screen (Regular Elder/Ministerial Servant included).
+                canExport = currentRole == AdminRole.SUPER_ADMIN || currentRole == AdminRole.ADMIN_PER_CONGREGATION ||
+                    currentRole == AdminRole.COORDINATOR_ELDER || currentRole == AdminRole.SERVICE_OVERSEER,
                 onBack = { navController.popBackStack() },
             )
         }

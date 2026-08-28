@@ -1,7 +1,9 @@
 package com.emfitsolutions.gopreach.ui.screens.contactrecord
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.AdminRole
+import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RecordStatus
@@ -13,7 +15,10 @@ import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
 /** One entry in the consolidated directory — a Person-backed role (Publisher/
@@ -35,8 +40,14 @@ data class ContactRow(
      * only contact detail available for that source). */
     val contact: String,
     val address: String,
+    val congregationId: String,
     val congregationName: String,
 )
+
+/** Every source label a [ContactRow] can carry — shared with
+ * [ContactRecordScreen]'s "By Status" filter so that dropdown's options can
+ * never drift out of sync with what this ViewModel actually produces. */
+val CONTACT_SOURCE_LABELS = listOf(PUBLISHER, SEARCHING, RETURN_VISIT, BIBLE_STUDY, COORDINATOR_ELDER, SERVICE_OVERSEER, MINISTERIAL_SERVANT)
 
 private const val PUBLISHER = "Publisher"
 private const val SEARCHING = "Searching"
@@ -63,6 +74,13 @@ class ContactRecordViewModel @Inject constructor(
     private val interestedPersonRepository: InterestedPersonRepository,
     private val congregationRepository: CongregationRepository,
 ) : ViewModel() {
+
+    /** For the "By Congregation" filter — Super-Admin only in practice
+     * (everyone else's rows are already fixed to their own single
+     * congregation upstream, same `visibleCongregationId` scoping every
+     * other Manage screen here uses). */
+    val congregations: StateFlow<List<Congregation>> =
+        congregationRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun rowsFor(visibleCongregationId: String?): Flow<List<ContactRow>> = combine(
         personRepository.observeAll(),
@@ -103,6 +121,7 @@ class ContactRecordViewModel @Inject constructor(
                 sourceLabels = labels,
                 contact = person.contact,
                 address = person.address,
+                congregationId = key.congregationId,
                 congregationName = congregationNameFor(key.congregationId),
             )
         }
@@ -121,6 +140,7 @@ class ContactRecordViewModel @Inject constructor(
                     sourceLabels = setOf(label),
                     contact = "",
                     address = interestedPerson.address,
+                    congregationId = interestedPerson.congregationId,
                     congregationName = congregationNameFor(interestedPerson.congregationId),
                 )
             }

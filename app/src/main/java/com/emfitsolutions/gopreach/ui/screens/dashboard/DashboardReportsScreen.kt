@@ -1,5 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.dashboard
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +16,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Print
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,10 +43,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.export.CsvExporter
+import com.emfitsolutions.gopreach.data.print.ReportPrinter
+import com.emfitsolutions.gopreach.data.print.ReportTable
+import com.emfitsolutions.gopreach.ui.components.DateRange
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.charts.BarSlice
 import com.emfitsolutions.gopreach.ui.components.charts.SimpleBarChart
@@ -72,6 +81,40 @@ private data class StatDetail(
     val value: String,
     val breakdown: List<Pair<String, String>>,
 )
+
+/** Shared by [DashboardStatsContent] (the on-screen cards) and
+ * [DashboardReportsScreen] (its PDF/Excel export) so the two can never list
+ * a different set of figures — same source, one place this list is defined. */
+private fun buildStatCards(displayed: CongregationStats): List<StatDetail> {
+    val totalHours = displayed.regularPioneerHours + displayed.auxiliaryPioneerHours
+    return listOf(
+        StatDetail(
+            "Total Publishers", displayed.totalPublishers.toString(),
+            breakdown = listOf(
+                "Regular Publishers" to displayed.regularPublishers.toString(),
+                "Regular Pioneers" to displayed.regularPioneers.toString(),
+                "Auxiliary Pioneers" to displayed.auxiliaryPioneers.toString(),
+                "Unbaptized Publishers" to displayed.unbaptizedPublishers.toString(),
+                "Inactive Publishers" to displayed.inactivePublishers.toString(),
+            ),
+        ),
+        StatDetail("Total Elders", displayed.totalElders.toString(), emptyList()),
+        StatDetail("Total Ministerial", displayed.totalMinisterial.toString(), emptyList()),
+        StatDetail("Regular Pioneers", displayed.regularPioneers.toString(), emptyList()),
+        StatDetail("Auxiliary Pioneers", displayed.auxiliaryPioneers.toString(), emptyList()),
+        StatDetail("Unbaptized Publishers", displayed.unbaptizedPublishers.toString(), emptyList()),
+        StatDetail("Inactive Publishers", displayed.inactivePublishers.toString(), emptyList()),
+        StatDetail("Removed Publishers", displayed.removedPublishers.toString(), emptyList()),
+        StatDetail("Bible Studies", displayed.totalBibleStudies.toString(), emptyList()),
+        StatDetail(
+            "Total Preaching Hours", "%.1f".format(totalHours),
+            breakdown = listOf(
+                "Regular Pioneer Hours" to "%.1f".format(displayed.regularPioneerHours),
+                "Auxiliary Pioneer Hours" to "%.1f".format(displayed.auxiliaryPioneerHours),
+            ),
+        ),
+    )
+}
 
 /**
  * "Role-Based Dashboard... Graphical Reports" spec §3-§5,§7,§8,§15 — KPI
@@ -194,34 +237,7 @@ fun DashboardStatsContent(
         // separate cards here now, not one combined "Publishers vs Elders"
         // card with a shared proportion bar. Each is clickable and opens a
         // details dialog (spec: "show the details inside when clicked").
-        val totalHours = displayed.regularPioneerHours + displayed.auxiliaryPioneerHours
-        val statCards = listOf(
-            StatDetail(
-                "Total Publishers", displayed.totalPublishers.toString(),
-                breakdown = listOf(
-                    "Regular Publishers" to displayed.regularPublishers.toString(),
-                    "Regular Pioneers" to displayed.regularPioneers.toString(),
-                    "Auxiliary Pioneers" to displayed.auxiliaryPioneers.toString(),
-                    "Unbaptized Publishers" to displayed.unbaptizedPublishers.toString(),
-                    "Inactive Publishers" to displayed.inactivePublishers.toString(),
-                ),
-            ),
-            StatDetail("Total Elders", displayed.totalElders.toString(), emptyList()),
-            StatDetail("Total Ministerial", displayed.totalMinisterial.toString(), emptyList()),
-            StatDetail("Regular Pioneers", displayed.regularPioneers.toString(), emptyList()),
-            StatDetail("Auxiliary Pioneers", displayed.auxiliaryPioneers.toString(), emptyList()),
-            StatDetail("Unbaptized Publishers", displayed.unbaptizedPublishers.toString(), emptyList()),
-            StatDetail("Inactive Publishers", displayed.inactivePublishers.toString(), emptyList()),
-            StatDetail("Removed Publishers", displayed.removedPublishers.toString(), emptyList()),
-            StatDetail("Bible Studies", displayed.totalBibleStudies.toString(), emptyList()),
-            StatDetail(
-                "Total Preaching Hours", "%.1f".format(totalHours),
-                breakdown = listOf(
-                    "Regular Pioneer Hours" to "%.1f".format(displayed.regularPioneerHours),
-                    "Auxiliary Pioneer Hours" to "%.1f".format(displayed.auxiliaryPioneerHours),
-                ),
-            ),
-        )
+        val statCards = buildStatCards(displayed)
         var selectedDetail by remember { mutableStateOf<StatDetail?>(null) }
         // A fixed 2-column grid (not a wrapping FlowRow) — matches the
         // reference's "Accounts" section exactly: two equal-width cards per
@@ -371,10 +387,34 @@ fun DashboardStatsContent(
 @Composable
 fun DashboardReportsScreen(
     visibleCongregationIds: Set<String>?,
+    /** "Allow the admin, super admin, coordinator elder, service overseer to
+     * export the report to PDF or Excel" — Regular Elder/Ministerial Servant
+     * can still view this screen (see GoPreachNavGraph's own drawer gating)
+     * but don't get the export actions; wired from the nav graph based on
+     * role, same pattern [ReportsScreen]'s own `canEditReports` uses. */
+    canExport: Boolean = false,
     onBack: () -> Unit,
     viewModel: DashboardStatsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // Same [displayed] derivation [DashboardStatsContent] uses internally —
+    // duplicated here (not exposed from that composable) purely so the
+    // export table always matches whatever congregation/period the cards on
+    // screen are currently showing.
+    val displayed = uiState.selectedCongregationId?.let { id -> uiState.all.firstOrNull { it.congregationId == id } }
+        ?: uiState.overallTotal ?: uiState.all.firstOrNull()
+    val reportTable = remember(displayed, uiState.dateRange) {
+        displayed?.let { dashboardTableFor(it, uiState.dateRange) }
+    }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        val table = reportTable
+        if (uri != null && table != null) {
+            CsvExporter.write(context, uri, table.title, subtitle = null, columns = table.columns, rows = table.rows, totals = table.totals)
+        }
+    }
+    val exportFileName = "gopreach-dashboard-${SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())}.csv"
 
     Scaffold(
         topBar = {
@@ -391,6 +431,23 @@ fun DashboardReportsScreen(
                     IconButton(onClick = { viewModel.selectCongregation(uiState.selectedCongregationId) }) {
                         Icon(Icons.Rounded.Refresh, contentDescription = "Refresh")
                     }
+                    if (canExport) {
+                        // Same "print preview always offers Save as PDF" +
+                        // plain-CSV-for-Excel pair [ReportsScreen] already
+                        // uses — no new export mechanism to maintain.
+                        IconButton(
+                            onClick = { reportTable?.let { ReportPrinter.print(context, it) } },
+                            enabled = reportTable != null,
+                        ) {
+                            Icon(Icons.Rounded.Print, contentDescription = "Print / Export as PDF")
+                        }
+                        IconButton(
+                            onClick = { exportLauncher.launch(exportFileName) },
+                            enabled = reportTable != null,
+                        ) {
+                            Icon(Icons.Rounded.Share, contentDescription = "Export as Excel (CSV)")
+                        }
+                    }
                 },
             )
         },
@@ -401,4 +458,20 @@ fun DashboardReportsScreen(
             viewModel = viewModel,
         )
     }
+}
+
+/** Shared shape for both Print/PDF and CSV/Excel export of the dashboard's
+ * KPI cards — same [buildStatCards] list the on-screen cards themselves are
+ * built from, so the exported report can never show different figures than
+ * what's on screen. */
+private fun dashboardTableFor(displayed: CongregationStats, dateRange: DateRange): ReportTable {
+    val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
+    val periodLabel = "${dateFormat.format(Date(dateRange.startMillis))} - ${dateFormat.format(Date(dateRange.endMillis))}"
+    val cards = buildStatCards(displayed)
+    return ReportTable(
+        title = "GoPreach Dashboard Report — ${displayed.congregationName} ($periodLabel)",
+        columns = listOf("Figure", "Value"),
+        rows = cards.map { listOf(it.label, it.value) } +
+            cards.flatMap { card -> card.breakdown.map { (label, value) -> listOf("  ${card.label} — $label", value) } },
+    )
 }

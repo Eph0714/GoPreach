@@ -7,13 +7,19 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +38,16 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+/** "Make a filter like (All, Congregation, By Congregation, By Status, By
+ * Name)" — four modes; [ALL] shows everything with no extra control,
+ * the other three each swap in the one control that matches their name. */
+private enum class ContactFilterMode(val label: String) {
+    ALL("All"),
+    CONGREGATION("By Congregation"),
+    STATUS("By Status"),
+    NAME("By Name"),
+}
 
 /**
  * "Contact Record" module (visible to Super-Admin, Coordinator Elder, and
@@ -52,17 +68,27 @@ fun ContactRecordScreen(
 ) {
     val rowsFlow = remember(visibleCongregationId) { viewModel.rowsFor(visibleCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    var query by remember { mutableStateOf("") }
-    val filteredRows = remember(rows, query) {
-        val needle = query.trim()
-        if (needle.isBlank()) {
-            rows
-        } else {
-            rows.filter {
-                it.name.contains(needle, ignoreCase = true) ||
-                    it.contact.contains(needle, ignoreCase = true) ||
-                    it.address.contains(needle, ignoreCase = true) ||
-                    it.sourceLabels.any { label -> label.contains(needle, ignoreCase = true) }
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+
+    var filterMode by remember { mutableStateOf(ContactFilterMode.ALL) }
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var statusFilter by remember { mutableStateOf<String?>(null) }
+    var nameQuery by remember { mutableStateOf("") }
+
+    val filteredRows = remember(rows, filterMode, congregationFilter, statusFilter, nameQuery) {
+        when (filterMode) {
+            ContactFilterMode.ALL -> rows
+            ContactFilterMode.CONGREGATION -> {
+                val target = congregationFilter
+                if (target == null) rows else rows.filter { it.congregationId == target }
+            }
+            ContactFilterMode.STATUS -> {
+                val target = statusFilter
+                if (target == null) rows else rows.filter { target in it.sourceLabels }
+            }
+            ContactFilterMode.NAME -> {
+                val needle = nameQuery.trim()
+                if (needle.isBlank()) rows else rows.filter { it.name.contains(needle, ignoreCase = true) }
             }
         }
     }
@@ -80,15 +106,58 @@ fun ContactRecordScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                label = { Text("Search by name, contact, address, or source") },
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                visualTransformation = VisualTransformation.None,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ContactFilterMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = filterMode == mode,
+                        onClick = {
+                            filterMode = mode
+                            // Switching modes clears whatever the *other*
+                            // filter controls held, so re-picking "All" (or
+                            // any other mode) always starts unfiltered
+                            // instead of silently carrying a stale pick.
+                            congregationFilter = null
+                            statusFilter = null
+                            nameQuery = ""
+                        },
+                        label = { Text(mode.label) },
+                    )
+                }
+            }
+
+            when (filterMode) {
+                ContactFilterMode.CONGREGATION -> {
+                    ContactCongregationDropdown(
+                        congregations = congregations,
+                        selectedId = congregationFilter,
+                        onSelected = { congregationFilter = it },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                ContactFilterMode.STATUS -> {
+                    ContactStatusDropdown(
+                        selected = statusFilter,
+                        onSelected = { statusFilter = it },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                ContactFilterMode.NAME -> {
+                    OutlinedTextField(
+                        value = nameQuery,
+                        onValueChange = { nameQuery = it },
+                        label = { Text("Search by name") },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                        visualTransformation = VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                ContactFilterMode.ALL -> Unit
+            }
+
             Text(
                 "${filteredRows.size} of ${rows.size} contact${if (rows.size == 1) "" else "s"}",
                 style = MaterialTheme.typography.bodySmall,
@@ -101,7 +170,7 @@ fun ContactRecordScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        if (rows.isEmpty()) "No contacts recorded yet." else "No contacts match \"$query\".",
+                        if (rows.isEmpty()) "No contacts recorded yet." else "No contacts match this filter.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -115,6 +184,62 @@ fun ContactRecordScreen(
                         ContactRowCard(row)
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ContactCongregationDropdown(
+    congregations: List<com.emfitsolutions.gopreach.data.model.Congregation>,
+    selectedId: String?,
+    onSelected: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: "All Congregations"
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+        OutlinedTextField(
+            value = selectedName,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Congregation") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("All Congregations") }, onClick = { onSelected(null); expanded = false })
+            congregations.forEach { c ->
+                DropdownMenuItem(text = { Text(c.name) }, onClick = { onSelected(c.id); expanded = false })
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ContactStatusDropdown(
+    selected: String?,
+    onSelected: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+        OutlinedTextField(
+            value = selected ?: "All Statuses",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Status") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("All Statuses") }, onClick = { onSelected(null); expanded = false })
+            CONTACT_SOURCE_LABELS.forEach { label ->
+                DropdownMenuItem(text = { Text(label) }, onClick = { onSelected(label); expanded = false })
             }
         }
     }

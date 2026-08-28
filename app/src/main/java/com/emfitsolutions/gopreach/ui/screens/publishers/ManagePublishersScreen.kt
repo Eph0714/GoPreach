@@ -49,6 +49,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.model.AccountStatus
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Gender
 import com.emfitsolutions.gopreach.data.model.Group
@@ -289,6 +290,11 @@ private fun EditPublisherDialog(
     var contactPersonNumber by remember { mutableStateOf(row.person.contactPersonNumber.orEmpty()) }
     var category by remember { mutableStateOf(row.category) }
     var groupId by remember { mutableStateOf(row.assignment.groupId) }
+    // "Allow the user to Edit the Publishers Status" — this was a read-only
+    // System Information field; the account's actual sign-in eligibility,
+    // distinct from [category] (which already covers Publisher/Pioneer/
+    // Reproof/etc. standing) — see AccountStatus's own doc comment.
+    var accountStatus by remember { mutableStateOf(row.person.accountStatus) }
     val showToast = rememberActionToast()
 
     val groupsFlow = remember(row.assignment.congregationId) { viewModel.groupsFor(row.assignment.congregationId) }
@@ -389,7 +395,7 @@ private fun EditPublisherDialog(
 
                 EditSectionHeader("System Information")
                 ReadOnlyField("Username", row.person.username)
-                ReadOnlyField("Account Status", row.person.accountStatus.name)
+                AccountStatusDropdown(selected = accountStatus, onSelected = { accountStatus = it })
                 ReadOnlyField("Date Added", formatRecordTimestamp(row.person.createdAt))
             }
         },
@@ -409,6 +415,7 @@ private fun EditPublisherDialog(
                                 email = email.trim().ifBlank { null },
                                 contactPerson = contactPerson.trim().ifBlank { null },
                                 contactPersonNumber = contactPersonNumber.trim().ifBlank { null },
+                                accountStatus = accountStatus,
                             ),
                         )
                         if (category != row.category) viewModel.changeCategory(row, category, currentPersonId)
@@ -482,6 +489,39 @@ private fun GroupDropdown(
             DropdownMenuItem(text = { Text("Unassigned") }, onClick = { onSelected(null); expanded = false })
             groups.forEach { g ->
                 DropdownMenuItem(text = { Text(g.name) }, onClick = { onSelected(g.id); expanded = false })
+            }
+        }
+    }
+}
+
+/** "Allow the user to Edit the Publishers Status" — [Person.accountStatus]
+ * (ACTIVE/INACTIVE/SUSPENDED), the account's sign-in eligibility. Same
+ * three-way choice [ManageUsersScreen] already exposes for restricted
+ * users, offered here as a plain dropdown to match this dialog's other
+ * Assignment-section fields rather than that screen's icon-menu shape. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AccountStatusDropdown(selected: AccountStatus, onSelected: (AccountStatus) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selected.name,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Status") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            AccountStatus.entries.forEach { status ->
+                DropdownMenuItem(
+                    text = { Text(status.name) },
+                    onClick = {
+                        onSelected(status)
+                        expanded = false
+                    },
+                )
             }
         }
     }
