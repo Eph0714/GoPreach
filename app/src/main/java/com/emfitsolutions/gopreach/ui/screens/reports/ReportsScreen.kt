@@ -272,6 +272,14 @@ fun ReportsScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item {
+                    // "Separate the Total report of Regular Pioneers and
+                    // Auxiliary Pioneer" — the combined "Hours" line below
+                    // used to fold every category's hours into one figure;
+                    // these two extra lines call out each Pioneer
+                    // category's own total explicitly, at the congregation-
+                    // wide level, the same way each Group's own section
+                    // already breaks them out (see GroupReportCard).
+                    val hoursByCategory = rows.categoryHours()
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("All Publishers", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -279,6 +287,15 @@ fun ReportsScreen(
                             Text("Hours: ${"%.1f".format(rows.sumOf { it.totalHours })}", style = MaterialTheme.typography.bodyMedium)
                             Text(
                                 "Interested People: ${rows.sumOf { it.totalInterestedPeople }}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                            Text(
+                                "Total Hours for Regular Pioneer: ${"%.1f".format(hoursByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0.0)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                "Total Hours for Auxiliary Pioneer: ${"%.1f".format(hoursByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0.0)}",
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                         }
@@ -459,6 +476,11 @@ private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateR
         rows += listOf("", "", "", "", "")
     }
     val allRows = sections.flatMap { it.rows }
+    // "Separate the Total report of Regular Pioneers and Auxiliary Pioneer"
+    // — called out as their own totals line, same as the on-screen "All
+    // Publishers" card, instead of folding into the single combined "Hours"
+    // total below.
+    val hoursByCategory = allRows.categoryHours()
     return ReportTable(
         title = "GoPreach Publisher Reports ($periodLabel)",
         columns = columns,
@@ -466,6 +488,8 @@ private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateR
         totals = listOf(
             "Bible Studies" to allRows.sumOf { it.totalBibleStudies }.toString(),
             "Hours" to "%.1f".format(allRows.sumOf { it.totalHours }),
+            "Total Hours for Regular Pioneer" to "%.1f".format(hoursByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0.0),
+            "Total Hours for Auxiliary Pioneer" to "%.1f".format(hoursByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0.0),
         ),
     )
 }

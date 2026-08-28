@@ -80,22 +80,30 @@ data class GroupReportSection(
      * (a map, not one field per category, so every [PublisherCategory] this
      * group actually holds is covered without hard-coding the four the
      * example happens to show). */
-    val categoryCounts: Map<PublisherCategory, Int> get() = rows.groupingBy { it.category }.eachCount()
+    val categoryCounts: Map<PublisherCategory, Int> get() = rows.categoryCounts()
 
-    /** "TOTAL HOURS FOR REGULAR PIONEER / AUXILIARY PIONEER" — summed from
-     * each row's [PublisherReportRow.hoursByReportCategory] (what was
-     * actually reported under that category), not from rows filtered by
-     * their *current* [PublisherReportRow.category] — see that field's own
-     * doc comment for why those two can disagree. Only Pioneer categories
-     * carry hours at all (see [MonthlyReport]'s own table); a category with
-     * no hours reported is simply absent from this map rather than shown as
-     * a spurious 0. */
-    val categoryHours: Map<PublisherCategory, Double> get() = rows
-        .flatMap { it.hoursByReportCategory.entries }
-        .filter { it.key == PublisherCategory.REGULAR_PIONEER || it.key == PublisherCategory.AUXILIARY_PIONEER }
-        .groupBy({ it.key }, { it.value })
-        .mapValues { (_, hours) -> hours.sum() }
+    /** "TOTAL HOURS FOR REGULAR PIONEER / AUXILIARY PIONEER" — see
+     * [categoryHours] (the shared extension) for how this is derived from
+     * each row's *reported* category rather than its current one. */
+    val categoryHours: Map<PublisherCategory, Double> get() = rows.categoryHours()
 }
+
+/** "Edit the Report. Separate the Total report of Regular Pioneers and
+ * Auxiliary Pioneer" — shared by [GroupReportSection] (one Group's rows)
+ * and the "All Publishers" congregation-wide summary (every row across
+ * every Group at once), so both levels of the report break "Regular
+ * Pioneer" and "Auxiliary Pioneer" out as their own distinct totals instead
+ * of folding them into one combined figure. */
+fun List<PublisherReportRow>.categoryCounts(): Map<PublisherCategory, Int> = groupingBy { it.category }.eachCount()
+
+/** See [PublisherReportRow.hoursByReportCategory]'s doc comment for why this
+ * sums each row's *reported* category, not its current one — a publisher
+ * who changed category mid-period must not have their earlier hours
+ * silently move into whichever category they hold today. */
+fun List<PublisherReportRow>.categoryHours(): Map<PublisherCategory, Double> = flatMap { it.hoursByReportCategory.entries }
+    .filter { it.key == PublisherCategory.REGULAR_PIONEER || it.key == PublisherCategory.AUXILIARY_PIONEER }
+    .groupBy({ it.key }, { it.value })
+    .mapValues { (_, hours) -> hours.sum() }
 
 /**
  * Spec §5.1 — "View publisher records/reports": Bible studies, interested
