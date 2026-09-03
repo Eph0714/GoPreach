@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Forward
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Assignment
+import androidx.compose.material.icons.rounded.Bookmarks
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Home
@@ -447,6 +448,10 @@ private fun FeatureTileGrid(
         if (isPioneer) {
             add(Tile("My Total Hours", "Track Preaching Hours", Icons.Rounded.Timer, Destinations.PREACHING_TIME_RECORD))
         }
+        // "My Bible Text Record" module — every Publisher, not just Pioneers.
+        // A distinct icon from "Bible Study" (also MenuBook) — this is a
+        // personal saved-reference collection, not the ministry module.
+        add(Tile("My Bible Text Record", "Save Bible References", Icons.Rounded.Bookmarks, Destinations.MY_BIBLE_TEXT_RECORD))
         add(Tile("My Calendar", "View Schedule", Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
         add(Tile("Share My Location", "Share Live Location", Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
         add(Tile("Find Location", "Get Directions", Icons.Rounded.Navigation, Destinations.FIND_LOCATION))

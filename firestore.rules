@@ -166,6 +166,26 @@ service cloud.firestore {
       allow write: if !hasGrant(database);
     }
 
+    // "My Bible Text Record" module spec §20/§31: "Never trust a
+    // PublisherID supplied by the frontend... perform ownership checks on
+    // the backend." Unlike most of this file's collections (see the
+    // file-level note — fine-grained per-role authorization elsewhere is
+    // still UI-enforced, not rules-enforced), these two get a real,
+    // self-contained ownership check: a document's own `publisherPersonId`
+    // field must equal the caller's own personId, derived from their auth
+    // token, never from anything the client sends as a plain "which
+    // publisher is this for" parameter. No `get()`/`exists()` needed (no
+    // cross-document role lookup, just a field-equality check), so this is
+    // cheap to enforce for real.
+    match /bibleTextCategories/{categoryId} {
+      allow read, update, delete: if isSignedIn() && resource.data.publisherPersonId == personIdFromToken();
+      allow create: if isSignedIn() && request.resource.data.publisherPersonId == personIdFromToken();
+    }
+    match /bibleTextRecords/{recordId} {
+      allow read, update, delete: if isSignedIn() && resource.data.publisherPersonId == personIdFromToken();
+      allow create: if isSignedIn() && request.resource.data.publisherPersonId == personIdFromToken();
+    }
+
     // Everything else (schedules, territories, Bible studies, interested
     // persons, shared locations, app settings, backups, audit log, ...):
     // authenticated read/write, unchanged from before — none of these are

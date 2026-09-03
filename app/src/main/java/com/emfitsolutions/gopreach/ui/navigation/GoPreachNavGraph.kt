@@ -46,6 +46,7 @@ import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestsScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsScreen
+import com.emfitsolutions.gopreach.ui.screens.bibletext.BibleTextRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.preachingtime.PreachingTimeRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MonthlyReportScreen
 import com.emfitsolutions.gopreach.ui.screens.login.LoginScreen
@@ -521,6 +522,13 @@ fun GoPreachNavGraph(
                 publisherPersonId = currentPersonId,
                 congregationId = ownPublisherAssignment?.congregationId,
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.MY_BIBLE_TEXT_RECORD) {
+            BibleTextRecordScreen(
+                publisherPersonId = currentPersonId,
+                currentPerson = session.person,
                 onBack = { navController.popBackStack() },
             )
         }

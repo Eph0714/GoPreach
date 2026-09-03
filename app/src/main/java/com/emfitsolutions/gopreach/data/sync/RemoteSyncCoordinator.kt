@@ -3,6 +3,8 @@ package com.emfitsolutions.gopreach.data.sync
 import com.emfitsolutions.gopreach.data.repository.AnnouncementRepository
 import com.emfitsolutions.gopreach.data.repository.AppSettingsRepository
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
+import com.emfitsolutions.gopreach.data.repository.BibleTextCategoryRepository
+import com.emfitsolutions.gopreach.data.repository.BibleTextRecordRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.ElderTitleRepository
 import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
@@ -85,6 +87,8 @@ class RemoteSyncCoordinator @Inject constructor(
     private val announcementRepository: AnnouncementRepository,
     private val locationSharingSettingsRepository: LocationSharingSettingsRepository,
     private val savedLocationRepository: SavedLocationRepository,
+    private val bibleTextCategoryRepository: BibleTextCategoryRepository,
+    private val bibleTextRecordRepository: BibleTextRecordRepository,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     private var started = false
@@ -138,5 +142,7 @@ class RemoteSyncCoordinator @Inject constructor(
         announcementRepository.startRemoteSync().startTracked(uidChanged)
         locationSharingSettingsRepository.startRemoteSync().startTracked(uidChanged)
         savedLocationRepository.startRemoteSync().startTracked(uidChanged)
+        bibleTextCategoryRepository.startRemoteSync().startTracked(uidChanged)
+        bibleTextRecordRepository.startRemoteSync().startTracked(uidChanged)
     }
 }
