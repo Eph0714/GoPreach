@@ -333,15 +333,21 @@ fun GoPreachNavGraph(
             // TerritoryMapScreen's own doc comment (always view-only, so a
             // Publisher reaching this route needs no separate readOnly flag
             // — there's nothing to edit or delete in the first place).
-            // Falls back to a Publisher's own congregation (see
+            // Falls back through a Regular Elder's own group's congregation,
+            // then a Publisher's own congregation (see ownGroupAssignment/
             // ownPublisherAssignment above) — `ownCongregationId` alone is
-            // null for them, and null here means "every congregation," same
-            // fix as MANAGE_ANNOUNCEMENTS/MANAGE_CHAT_SCHEDULES already use.
-            // Explicit Super-Admin check first (also null in ownCongregationId)
-            // so they still see every congregation regardless of any Publisher
-            // assignment they might also hold.
+            // null for both of them, and null here means "every
+            // congregation," same fix as MANAGE_ANNOUNCEMENTS/
+            // MANAGE_CHAT_SCHEDULES already use. Explicit Super-Admin check
+            // first (also null in ownCongregationId) so they still see every
+            // congregation regardless of any other assignment they might
+            // also hold.
             TerritoryMapScreen(
-                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownPublisherAssignment?.congregationId),
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) {
+                    null
+                } else {
+                    ownCongregationId ?: ownGroupAssignment?.congregationId ?: ownPublisherAssignment?.congregationId
+                },
                 onBack = { navController.popBackStack() },
             )
         }

@@ -177,6 +177,15 @@ fun AdminHomeScreen(
     val canViewContactRecord = role == AdminRole.SUPER_ADMIN || role == AdminRole.COORDINATOR_ELDER || role == AdminRole.REGULAR_ELDER
     // Publishers/Groups: Super-Admin/Admin/Coordinator Elder only (spec §3 permission matrix — Regular Elder ❌).
     val canManagePublishersAndGroups = canViewUserLogs
+    // "Territory Map" — "allow the publishers, coordinator elders, regular
+    // elders, service overseer and admin to see... their congregation only,
+    // however the super admin can see all territory in all congregation" —
+    // its own (wider than [canManagePublishersAndGroups]) set: Super-Admin,
+    // Admin, Coordinator Elder, Service Overseer, and Regular Elder. Always
+    // view-only regardless of role — the screen itself has no edit/delete
+    // action for anyone (see TerritoryMapScreen).
+    val canViewTerritoryMap = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION ||
+        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.REGULAR_ELDER
     // "CREATING GROUPS" spec — Service Overseer can also create/manage
     // Groups under their own congregation, same as Coordinator Elder,
     // without gaining the wider Publisher-management access above.
@@ -393,7 +402,7 @@ fun AdminHomeScreen(
                 canEnrollPublisher = canEnrollPublisher,
                 canManagePublishersAndGroups = canManagePublishersAndGroups,
                 canManageGroups = canManageGroups,
-                canManageTerritories = canManagePublishersAndGroups,
+                canManageTerritories = canViewTerritoryMap,
                 canAccessControlPanel = canAccessControlPanel,
                 isSuperAdmin = isSuperAdmin,
                 canViewUserLogs = canViewUserLogs,
@@ -518,6 +527,14 @@ fun AdminHomeScreen(
                             DashboardSection("Management") {
                                 DashboardTile("Publishers", Icons.Rounded.People, { onNavigate(Destinations.MANAGE_PUBLISHERS) })
                                 DashboardTile("Groups", Icons.Rounded.Groups, { onNavigate(Destinations.MANAGE_GROUPS) })
+                            }
+                        }
+
+                        // Wider than the Management section above — also
+                        // reaches Service Overseer/Regular Elder, own
+                        // congregation only (see canViewTerritoryMap).
+                        if (canViewTerritoryMap) {
+                            DashboardSection("Territory") {
                                 DashboardTile("Territory Map", Icons.Rounded.Map, { onNavigate(Destinations.MANAGE_TERRITORIES) })
                             }
                         }
