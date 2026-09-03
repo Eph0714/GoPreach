@@ -59,7 +59,7 @@ import com.emfitsolutions.gopreach.ui.screens.reports.ReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.schedules.ManageChatSchedulesScreen
 import com.emfitsolutions.gopreach.ui.screens.settings.SettingsScreen
 import com.emfitsolutions.gopreach.ui.screens.sharelocation.ShareLocationScreen
-import com.emfitsolutions.gopreach.ui.screens.territories.ManageTerritoriesScreen
+import com.emfitsolutions.gopreach.ui.screens.territories.TerritoryMapScreen
 import com.emfitsolutions.gopreach.ui.screens.userlogs.UserLogsScreen
 import com.emfitsolutions.gopreach.ui.screens.users.AddEditUserScreen
 import com.emfitsolutions.gopreach.ui.screens.users.ManageUsersScreen
@@ -328,7 +328,11 @@ fun GoPreachNavGraph(
             )
         }
         composable(Destinations.MANAGE_TERRITORIES) {
-            ManageTerritoriesScreen(
+            // "Territory Module will be a map of location of every Search,
+            // Interested, Return Visit, Bible Study" — no CRUD anymore, see
+            // TerritoryMapScreen's own doc comment. Same scoping as before:
+            // Super-Admin (ownCongregationId null) sees every congregation.
+            TerritoryMapScreen(
                 fixedCongregationId = ownCongregationId,
                 onBack = { navController.popBackStack() },
             )

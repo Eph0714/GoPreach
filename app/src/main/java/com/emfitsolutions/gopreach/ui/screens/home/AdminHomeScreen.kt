@@ -518,7 +518,7 @@ fun AdminHomeScreen(
                             DashboardSection("Management") {
                                 DashboardTile("Publishers", Icons.Rounded.People, { onNavigate(Destinations.MANAGE_PUBLISHERS) })
                                 DashboardTile("Groups", Icons.Rounded.Groups, { onNavigate(Destinations.MANAGE_GROUPS) })
-                                DashboardTile("Territories", Icons.Rounded.Map, { onNavigate(Destinations.MANAGE_TERRITORIES) })
+                                DashboardTile("Territory Map", Icons.Rounded.Map, { onNavigate(Destinations.MANAGE_TERRITORIES) })
                             }
                         }
 

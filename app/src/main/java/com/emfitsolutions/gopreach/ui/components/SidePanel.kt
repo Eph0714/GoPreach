@@ -125,7 +125,7 @@ fun GoPreachSidePanelContent(
             // once the old tile grid (their only other route to it) was
             // hidden for them.
             if (canEnrollPublisher) add(SideItem("Publisher", Icons.Rounded.People, Destinations.MANAGE_PUBLISHERS))
-            if (canManageTerritories) add(SideItem("Territories", Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES))
+            if (canManageTerritories) add(SideItem("Territory Map", Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES))
         }
         if (enrollmentItems.isNotEmpty()) add(SideSection("Enrollment", enrollmentItems))
 
