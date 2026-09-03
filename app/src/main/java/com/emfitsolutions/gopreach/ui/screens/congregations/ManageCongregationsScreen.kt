@@ -50,10 +50,12 @@ import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.LanguagesTagInput
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import kotlinx.coroutines.launch
 
 /** Spec §3/§5.1 — Manage Congregation Master File, Super-Admin only.
@@ -213,15 +215,29 @@ private fun EditCongregationDialog(
     var address by remember { mutableStateOf(congregation.address) }
     var code by remember { mutableStateOf(congregation.code) }
     var languages by remember { mutableStateOf(congregation.languages) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val message = requiredFieldsMessage(
+            "Congregation Name" to name.isNotBlank(),
+            "Address" to address.isNotBlank(),
+            "Congregation Code" to code.isNotBlank(),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        onSave(congregation.copy(name = name.trim(), address = address.trim(), code = code.trim(), languages = languages))
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit Congregation") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = "Edit Congregation",
+        onConfirm = ::submit,
+        confirmLabel = "Save Changes",
+        errorMessage = errorMessage,
+        maxContentHeight = 480.dp,
+    ) {
                 EditSectionHeader("Congregation Information")
                 OutlinedTextField(
                     value = name,
@@ -257,17 +273,5 @@ private fun EditCongregationDialog(
                 ReadOnlyField("Record ID", congregation.id)
                 ReadOnlyField("Status", congregation.status.name)
                 ReadOnlyField("Date Added", formatRecordTimestamp(congregation.createdAt))
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (name.isNotBlank() && address.isNotBlank() && code.isNotBlank()) {
-                        onSave(congregation.copy(name = name.trim(), address = address.trim(), code = code.trim(), languages = languages))
-                    }
-                },
-            ) { Text("Save Changes") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }

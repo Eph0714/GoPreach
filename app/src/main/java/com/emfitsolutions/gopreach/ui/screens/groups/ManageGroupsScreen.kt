@@ -55,10 +55,12 @@ import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.displayLabel
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 
 /** Spec: "CRUD Groups" — each Group needs exactly one Elder in each of three
  * roles (Overseer/Servant/Assistant), not the single Elder this used to allow.
@@ -319,14 +321,44 @@ private fun GroupDialog(
         membersPreselected = true
     }
 
-    AlertDialog(
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    fun submit() {
+        val message = requiredFieldsMessage(
+            "Group Name" to name.isNotBlank(),
+            "Congregation" to (congregationId != null),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        viewModel.saveWithMembers(
+            group = Group(
+                id = existingGroup?.id ?: "",
+                congregationId = congregationId!!,
+                name = name.trim(),
+                regularElderPersonId = existingGroup?.regularElderPersonId,
+                overseerPersonId = overseer?.id,
+                servantPersonId = servant?.id,
+                assistantPersonId = assistant?.id,
+                createdAt = existingGroup?.createdAt ?: System.currentTimeMillis(),
+            ),
+            candidates = memberCandidates,
+            selectedMemberPersonIds = checkedMemberIds,
+            actorPersonId = currentPersonId,
+        )
+        showToast(if (existingGroup == null) "Group added." else "Group saved.")
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existingGroup == null) "New Group" else "Edit Group") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = if (existingGroup == null) "New Group" else "Edit Group",
+        onConfirm = ::submit,
+        confirmLabel = if (existingGroup == null) "Create" else "Save",
+        errorMessage = errorMessage,
+        maxContentHeight = 480.dp,
+    ) {
                 if (fixedCongregationId == null) {
                     CongregationPickerDropdown(
                         congregations = congregations,
@@ -414,35 +446,7 @@ private fun GroupDialog(
                     ReadOnlyField("Status", existingGroup.status.name)
                     ReadOnlyField("Date Added", formatRecordTimestamp(existingGroup.createdAt))
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (name.isNotBlank() && congregationId != null) {
-                        viewModel.saveWithMembers(
-                            group = Group(
-                                id = existingGroup?.id ?: "",
-                                congregationId = congregationId,
-                                name = name.trim(),
-                                regularElderPersonId = existingGroup?.regularElderPersonId,
-                                overseerPersonId = overseer?.id,
-                                servantPersonId = servant?.id,
-                                assistantPersonId = assistant?.id,
-                                createdAt = existingGroup?.createdAt ?: System.currentTimeMillis(),
-                            ),
-                            candidates = memberCandidates,
-                            selectedMemberPersonIds = checkedMemberIds,
-                            actorPersonId = currentPersonId,
-                        )
-                        showToast(if (existingGroup == null) "Group added." else "Group saved.")
-                        onDismiss()
-                    }
-                },
-            ) { Text(if (existingGroup == null) "Create" else "Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

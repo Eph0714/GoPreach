@@ -62,6 +62,7 @@ import com.emfitsolutions.gopreach.data.model.ReportStatus
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.QuickDateRange
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
@@ -436,14 +437,22 @@ private fun EditReportDialog(
     var hours by remember { mutableStateOf((row.report.hoursRendered ?: 0.0).toString()) }
     var participated by remember { mutableStateOf(row.report.participatedInPreaching ?: false) }
 
-    AlertDialog(
+    fun submit() {
+        onSave(
+            bibleStudies.toIntOrNull() ?: 0,
+            if (row.isPioneer) hours.toDoubleOrNull() ?: 0.0 else null,
+            if (row.isPioneer) null else participated,
+        )
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit ${row.person.fullName}'s Report") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = "Edit ${row.person.fullName}'s Report",
+        onConfirm = ::submit,
+        confirmLabel = "Save Changes",
+        maxContentHeight = 400.dp,
+    ) {
                 OutlinedTextField(
                     value = bibleStudies,
                     onValueChange = { bibleStudies = it.filter { c -> c.isDigit() } },
@@ -473,20 +482,5 @@ private fun EditReportDialog(
                         Switch(checked = participated, onCheckedChange = { participated = it })
                     }
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onSave(
-                        bibleStudies.toIntOrNull() ?: 0,
-                        if (row.isPioneer) hours.toDoubleOrNull() ?: 0.0 else null,
-                        if (row.isPioneer) null else participated,
-                    )
-                    onDismiss()
-                },
-            ) { Text("Save Changes") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }

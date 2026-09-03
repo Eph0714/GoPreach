@@ -56,8 +56,10 @@ import com.emfitsolutions.gopreach.data.model.BibleTextCategory
 import com.emfitsolutions.gopreach.data.model.BibleTextRecord
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.domain.NwtBibleReferenceData
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -429,15 +431,45 @@ private fun BibleTextRecordDialog(
     }
     val canSave = languageId.isNotBlank() && bookId.isNotBlank() && chapter > 0 &&
         versesText.isNotBlank() && verseRangeValid && categoryId.isNotBlank() && remarks.isNotBlank()
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val message = requiredFieldsMessage(
+            "Bible Language" to languageId.isNotBlank(),
+            "Bible Book" to bookId.isNotBlank(),
+            "Chapter" to (chapter > 0),
+            "Verses" to (versesText.isNotBlank() && verseRangeValid),
+            "Category" to categoryId.isNotBlank(),
+            "Remarks" to remarks.isNotBlank(),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        val now = System.currentTimeMillis()
+        val base = existing ?: BibleTextRecord(publisherPersonId = publisherPersonId, createdAt = now)
+        onSave(
+            base.copy(
+                bibleVersionId = version.id,
+                languageId = languageId,
+                bibleBookId = bookId,
+                chapter = chapter,
+                verses = versesText.trim(),
+                categoryId = categoryId,
+                remarks = remarks.trim(),
+                updatedAt = now,
+            ),
+        )
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existing == null) "Add Bible Text" else "Edit Bible Text") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = if (existing == null) "Add Bible Text" else "Edit Bible Text",
+        onConfirm = ::submit,
+        confirmLabel = if (existing == null) "Save Bible Text" else "Save",
+        errorMessage = errorMessage,
+        maxContentHeight = 560.dp,
+    ) {
                 Column {
                     Text("Bible Version", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(version.name, style = MaterialTheme.typography.bodyMedium)
@@ -526,72 +558,51 @@ private fun BibleTextRecordDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
                 )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = canSave,
-                onClick = {
-                    if (!canSave) return@TextButton
-                    val now = System.currentTimeMillis()
-                    val base = existing ?: BibleTextRecord(publisherPersonId = publisherPersonId, createdAt = now)
-                    onSave(
-                        base.copy(
-                            bibleVersionId = version.id,
-                            languageId = languageId,
-                            bibleBookId = bookId,
-                            chapter = chapter,
-                            verses = versesText.trim(),
-                            categoryId = categoryId,
-                            remarks = remarks.trim(),
-                            updatedAt = now,
-                        ),
-                    )
-                },
-            ) { Text(if (existing == null) "Save Bible Text" else "Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 
     if (showAddCategory) {
         var newCategoryName by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showAddCategory = false },
-            title = { Text("Add Category") },
-            text = {
-                OutlinedTextField(
-                    value = newCategoryName,
-                    onValueChange = { newCategoryName = it },
-                    label = { Text("Category name") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
+        var addCategoryError by remember { mutableStateOf<String?>(null) }
+
+        fun submitNewCategory() {
+            val message = requiredFieldsMessage("Category name" to newCategoryName.isNotBlank())
+            if (message != null) {
+                addCategoryError = message
+                return
+            }
+            val name = newCategoryName.trim()
+            showAddCategory = false
+            // Suspend save, then select the newly-created category the
+            // moment its real id comes back — saveCategoryAndReturn (unlike
+            // the fire-and-forget saveCategory the Manage Categories dialog
+            // uses) hands that back directly instead of waiting for
+            // categoriesFor's next emission.
+            coroutineScope.launch {
+                val now = System.currentTimeMillis()
+                val saved = viewModel.saveCategoryAndReturn(
+                    BibleTextCategory(publisherPersonId = publisherPersonId, name = name, createdAt = now, updatedAt = now),
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = newCategoryName.isNotBlank(),
-                    onClick = {
-                        val name = newCategoryName.trim()
-                        showAddCategory = false
-                        // Suspend save, then select the newly-created
-                        // category the moment its real id comes back —
-                        // saveCategoryAndReturn (unlike the fire-and-forget
-                        // saveCategory the Manage Categories dialog uses)
-                        // hands that back directly instead of waiting for
-                        // categoriesFor's next emission.
-                        coroutineScope.launch {
-                            val now = System.currentTimeMillis()
-                            val saved = viewModel.saveCategoryAndReturn(
-                                BibleTextCategory(publisherPersonId = publisherPersonId, name = name, createdAt = now, updatedAt = now),
-                            )
-                            categoryId = saved.id
-                        }
-                    },
-                ) { Text("Add") }
-            },
-            dismissButton = { TextButton(onClick = { showAddCategory = false }) { Text("Cancel") } },
-        )
+                categoryId = saved.id
+            }
+        }
+
+        FormDialog(
+            onDismissRequest = { showAddCategory = false },
+            title = "Add Category",
+            onConfirm = ::submitNewCategory,
+            confirmLabel = "Add",
+            errorMessage = addCategoryError,
+            maxContentHeight = 200.dp,
+        ) {
+            OutlinedTextField(
+                value = newCategoryName,
+                onValueChange = { newCategoryName = it; addCategoryError = null },
+                label = { Text("Category name") },
+                singleLine = true,
+                visualTransformation = VisualTransformation.None,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

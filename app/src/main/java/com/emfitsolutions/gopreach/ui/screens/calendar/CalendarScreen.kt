@@ -44,7 +44,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Schedule
 import com.emfitsolutions.gopreach.data.model.ScheduleKind
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -192,23 +194,62 @@ private fun EventDialog(
     var startTime by remember { mutableStateOf(existingEvent?.startTime) }
     var endTime by remember { mutableStateOf(existingEvent?.endTime) }
     val isNew = existingEvent == null
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val start = startTime
+        val end = endTime
+        val message = requiredFieldsMessage(
+            "Event Title" to title.isNotBlank(),
+            "Start" to (start != null),
+            "End" to (end != null),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        onSave(
+            when (scope) {
+                is CalendarScope.Publisher -> Schedule(
+                    id = existingEvent?.id ?: "",
+                    kind = ScheduleKind.PERSONAL_NOTE,
+                    title = title.trim(),
+                    description = description.trim().ifBlank { null },
+                    startTime = start!!,
+                    endTime = end!!,
+                    ownerPersonId = currentPersonId,
+                    createdByPersonId = existingEvent?.createdByPersonId ?: currentPersonId,
+                    createdAt = existingEvent?.createdAt ?: System.currentTimeMillis(),
+                )
+                is CalendarScope.AdminTrack -> Schedule(
+                    id = existingEvent?.id ?: "",
+                    kind = ScheduleKind.CALENDAR_EVENT,
+                    title = title.trim(),
+                    description = description.trim().ifBlank { null },
+                    startTime = start!!,
+                    endTime = end!!,
+                    congregationId = existingEvent?.congregationId ?: scope.congregationId,
+                    groupId = existingEvent?.groupId ?: (if (!scope.canEditAll) scope.editableGroupId else null),
+                    createdByPersonId = existingEvent?.createdByPersonId ?: currentPersonId,
+                    createdAt = existingEvent?.createdAt ?: System.currentTimeMillis(),
+                )
+            }
+        )
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                when {
-                    !isNew -> "Edit ${if (scope is CalendarScope.Publisher) "Note" else "Event"}"
-                    scope is CalendarScope.Publisher -> "New Personal Note"
-                    else -> "New Calendar Event"
-                }
-            )
+        title = when {
+            !isNew -> "Edit ${if (scope is CalendarScope.Publisher) "Note" else "Event"}"
+            scope is CalendarScope.Publisher -> "New Personal Note"
+            else -> "New Calendar Event"
         },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        onConfirm = ::submit,
+        confirmLabel = "Save",
+        errorMessage = errorMessage,
+        maxContentHeight = 420.dp,
+    ) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it.uppercase() },
@@ -226,46 +267,5 @@ private fun EventDialog(
                 )
                 DateTimeField(label = "Start", valueMillis = startTime, onValueChange = { startTime = it })
                 DateTimeField(label = "End", valueMillis = endTime, onValueChange = { endTime = it })
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val start = startTime
-                    val end = endTime
-                    if (title.isNotBlank() && start != null && end != null) {
-                        onSave(
-                            when (scope) {
-                                is CalendarScope.Publisher -> Schedule(
-                                    id = existingEvent?.id ?: "",
-                                    kind = ScheduleKind.PERSONAL_NOTE,
-                                    title = title.trim(),
-                                    description = description.trim().ifBlank { null },
-                                    startTime = start,
-                                    endTime = end,
-                                    ownerPersonId = currentPersonId,
-                                    createdByPersonId = existingEvent?.createdByPersonId ?: currentPersonId,
-                                    createdAt = existingEvent?.createdAt ?: System.currentTimeMillis(),
-                                )
-                                is CalendarScope.AdminTrack -> Schedule(
-                                    id = existingEvent?.id ?: "",
-                                    kind = ScheduleKind.CALENDAR_EVENT,
-                                    title = title.trim(),
-                                    description = description.trim().ifBlank { null },
-                                    startTime = start,
-                                    endTime = end,
-                                    congregationId = existingEvent?.congregationId ?: scope.congregationId,
-                                    groupId = existingEvent?.groupId ?: (if (!scope.canEditAll) scope.editableGroupId else null),
-                                    createdByPersonId = existingEvent?.createdByPersonId ?: currentPersonId,
-                                    createdAt = existingEvent?.createdAt ?: System.currentTimeMillis(),
-                                )
-                            }
-                        )
-                        onDismiss()
-                    }
-                },
-            ) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }

@@ -60,7 +60,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.LocationSharingSettings
 import com.emfitsolutions.gopreach.ui.components.ClickableCoordinatesText
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -305,15 +307,40 @@ private fun LocationSharingSettingsDialog(
     var durationText by remember(congregationId, settings.sharingDurationMinutes) { mutableStateOf(settings.sharingDurationMinutes.toString()) }
     var accuracyText by remember(congregationId, settings.accuracyRadiusMeters) { mutableStateOf(settings.accuracyRadiusMeters.toString()) }
     val showToast = rememberActionToast()
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val duration = durationText.toIntOrNull()
+        val accuracy = accuracyText.toIntOrNull()
+        val message = requiredFieldsMessage(
+            "Congregation" to (congregationId != null),
+            "Location Sharing Time" to (duration != null && duration > 0),
+            "Accuracy Radius" to (accuracy != null && accuracy > 0),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        viewModel.saveSettings(
+            LocationSharingSettings(
+                congregationId = congregationId!!,
+                sharingDurationMinutes = duration!!,
+                accuracyRadiusMeters = accuracy!!,
+            ),
+            currentPersonId,
+        )
+        showToast("Location sharing settings saved.")
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Share Location Settings") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = "Share Location Settings",
+        onConfirm = ::submit,
+        confirmLabel = "Save",
+        errorMessage = errorMessage,
+        maxContentHeight = 420.dp,
+    ) {
                 if (fixedCongregationId == null) {
                     CongregationSettingsDropdown(
                         congregations = congregations,
@@ -347,30 +374,7 @@ private fun LocationSharingSettingsDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val duration = durationText.toIntOrNull()
-                    val accuracy = accuracyText.toIntOrNull()
-                    if (congregationId != null && duration != null && duration > 0 && accuracy != null && accuracy > 0) {
-                        viewModel.saveSettings(
-                            LocationSharingSettings(
-                                congregationId = congregationId,
-                                sharingDurationMinutes = duration,
-                                accuracyRadiusMeters = accuracy,
-                            ),
-                            currentPersonId,
-                        )
-                        showToast("Location sharing settings saved.")
-                        onDismiss()
-                    }
-                },
-            ) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

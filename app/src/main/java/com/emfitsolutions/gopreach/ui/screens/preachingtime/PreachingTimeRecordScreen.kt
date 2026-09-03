@@ -48,8 +48,10 @@ import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -229,15 +231,41 @@ private fun PreachingTimeRecordDialog(
 
     val hours = hoursText.toDoubleOrNull()
     val canSave = hours != null && hours > 0.0
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    androidx.compose.material3.AlertDialog(
+    fun submit() {
+        val message = requiredFieldsMessage("Hour Consumed" to canSave)
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        val now = System.currentTimeMillis()
+        val base = existingRecord ?: PreachingTimeRecord(
+            publisherPersonId = publisherPersonId,
+            congregationId = congregationId,
+            createdByPersonId = publisherPersonId,
+            createdAt = now,
+        )
+        onSave(
+            base.copy(
+                date = date,
+                hoursConsumed = hours!!,
+                remarks = remarks.trim().ifBlank { null },
+                lastEditedByPersonId = if (existingRecord != null) publisherPersonId else base.lastEditedByPersonId,
+                lastEditedAt = if (existingRecord != null) now else base.lastEditedAt,
+            ),
+        )
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existingRecord == null) "Add Preaching Time Record" else "Edit Preaching Time Record") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = if (existingRecord == null) "Add Preaching Time Record" else "Edit Preaching Time Record",
+        onConfirm = ::submit,
+        confirmLabel = if (existingRecord == null) "Add" else "Save",
+        errorMessage = errorMessage,
+        maxContentHeight = 500.dp,
+    ) {
                 DateTimeField(label = "Date", valueMillis = date, onValueChange = { date = it })
                 OutlinedTextField(
                     value = hoursText,
@@ -264,34 +292,5 @@ private fun PreachingTimeRecordDialog(
                         ReadOnlyField("Date Updated", formatRecordTimestamp(existingRecord.lastEditedAt))
                     }
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = canSave,
-                onClick = {
-                    if (canSave) {
-                        val now = System.currentTimeMillis()
-                        val base = existingRecord ?: PreachingTimeRecord(
-                            publisherPersonId = publisherPersonId,
-                            congregationId = congregationId,
-                            createdByPersonId = publisherPersonId,
-                            createdAt = now,
-                        )
-                        onSave(
-                            base.copy(
-                                date = date,
-                                hoursConsumed = hours!!,
-                                remarks = remarks.trim().ifBlank { null },
-                                lastEditedByPersonId = if (existingRecord != null) publisherPersonId else base.lastEditedByPersonId,
-                                lastEditedAt = if (existingRecord != null) now else base.lastEditedAt,
-                            ),
-                        )
-                        onDismiss()
-                    }
-                },
-            ) { Text(if (existingRecord == null) "Add" else "Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }

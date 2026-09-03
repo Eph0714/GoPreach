@@ -59,8 +59,10 @@ import coil.compose.AsyncImage
 import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.model.Announcement
 import com.emfitsolutions.gopreach.data.model.Congregation
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 
 /**
  * "Announcement Module" — one screen for both sides:
@@ -302,16 +304,52 @@ private fun AnnouncementDialog(
     val attachmentNameToShow = pickedAttachmentFileName
         ?: (existing?.attachmentFileName.takeIf { existing?.attachmentUrl != null && !removeAttachment })
     val congregationId = fixedCongregationId ?: pickedCongregationId
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val message = requiredFieldsMessage(
+            "Announcement Title" to title.isNotBlank(),
+            "Announcement Details" to details.isNotBlank(),
+            "Congregation" to (congregationId != null),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        viewModel.saveWithImage(
+            announcement = Announcement(
+                id = existing?.id ?: "",
+                congregationId = congregationId!!,
+                title = title.trim(),
+                details = details.trim(),
+                imageUrl = existing?.imageUrl,
+                attachmentUrl = existing?.attachmentUrl,
+                attachmentFileName = existing?.attachmentFileName,
+                createdByPersonId = existing?.createdByPersonId ?: currentPersonId,
+                createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+            ),
+            pickedImageUri = pickedImageUri,
+            removeImage = removeImage,
+            pickedAttachmentUri = pickedAttachmentUri,
+            pickedAttachmentFileName = pickedAttachmentFileName,
+            removeAttachment = removeAttachment,
+            actorPersonId = currentPersonId,
+            onImageUploadFailed = { showToast("Saved, but the image failed to upload. Try attaching it again.") },
+            onAttachmentUploadFailed = { showToast("Saved, but the file failed to upload. Try attaching it again.") },
+        )
+        showToast(if (existing == null) "Announcement posted." else "Announcement saved.")
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existing == null) "New Announcement" else "Edit Announcement") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                if (fixedCongregationId == null) {
+        title = if (existing == null) "New Announcement" else "Edit Announcement",
+        onConfirm = ::submit,
+        confirmLabel = if (existing == null) "Create" else "Save",
+        errorMessage = errorMessage,
+        maxContentHeight = 520.dp,
+    ) {
+        if (fixedCongregationId == null) {
                     CongregationPickerDropdown(
                         congregations = congregations,
                         selectedId = pickedCongregationId,
@@ -374,41 +412,7 @@ private fun AnnouncementDialog(
                         ) { Text("Remove File") }
                     }
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (title.isNotBlank() && details.isNotBlank() && congregationId != null) {
-                        viewModel.saveWithImage(
-                            announcement = Announcement(
-                                id = existing?.id ?: "",
-                                congregationId = congregationId,
-                                title = title.trim(),
-                                details = details.trim(),
-                                imageUrl = existing?.imageUrl,
-                                attachmentUrl = existing?.attachmentUrl,
-                                attachmentFileName = existing?.attachmentFileName,
-                                createdByPersonId = existing?.createdByPersonId ?: currentPersonId,
-                                createdAt = existing?.createdAt ?: System.currentTimeMillis(),
-                            ),
-                            pickedImageUri = pickedImageUri,
-                            removeImage = removeImage,
-                            pickedAttachmentUri = pickedAttachmentUri,
-                            pickedAttachmentFileName = pickedAttachmentFileName,
-                            removeAttachment = removeAttachment,
-                            actorPersonId = currentPersonId,
-                            onImageUploadFailed = { showToast("Saved, but the image failed to upload. Try attaching it again.") },
-                            onAttachmentUploadFailed = { showToast("Saved, but the file failed to upload. Try attaching it again.") },
-                        )
-                        showToast(if (existing == null) "Announcement posted." else "Announcement saved.")
-                        onDismiss()
-                    }
-                },
-            ) { Text(if (existing == null) "Create" else "Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

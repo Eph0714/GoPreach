@@ -47,7 +47,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Territory
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 
 /** Spec §3/§5.1 — Territory Master File. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -191,14 +193,38 @@ private fun TerritoryDialog(
         mutableStateOf(groups.firstOrNull { it.id == existingTerritory?.assignedGroupId })
     }
 
-    AlertDialog(
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    fun submit() {
+        val message = requiredFieldsMessage(
+            "Territory Name" to name.isNotBlank(),
+            "Congregation" to (congregationId != null),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        onSave(
+            Territory(
+                id = existingTerritory?.id ?: "",
+                congregationId = congregationId!!,
+                name = name.trim(),
+                description = description.trim().ifBlank { null },
+                assignedGroupId = selectedGroup?.id,
+                createdAt = existingTerritory?.createdAt ?: System.currentTimeMillis(),
+            )
+        )
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existingTerritory == null) "New Territory" else "Edit Territory") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = if (existingTerritory == null) "New Territory" else "Edit Territory",
+        onConfirm = ::submit,
+        confirmLabel = if (existingTerritory == null) "Create" else "Save",
+        errorMessage = errorMessage,
+        maxContentHeight = 420.dp,
+    ) {
                 if (fixedCongregationId == null) {
                     CongregationPickerDropdown(
                         congregations = congregations,
@@ -222,29 +248,7 @@ private fun TerritoryDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 GroupDropdown(groups = groups, selected = selectedGroup, onSelected = { selectedGroup = it })
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (name.isNotBlank() && congregationId != null) {
-                        onSave(
-                            Territory(
-                                id = existingTerritory?.id ?: "",
-                                congregationId = congregationId,
-                                name = name.trim(),
-                                description = description.trim().ifBlank { null },
-                                assignedGroupId = selectedGroup?.id,
-                                createdAt = existingTerritory?.createdAt ?: System.currentTimeMillis(),
-                            )
-                        )
-                        onDismiss()
-                    }
-                },
-            ) { Text(if (existingTerritory == null) "Create" else "Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

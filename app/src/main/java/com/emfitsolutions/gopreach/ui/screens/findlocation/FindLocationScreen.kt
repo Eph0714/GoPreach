@@ -66,8 +66,10 @@ import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.SavedLocation
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.RoundIconActionButton
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import kotlinx.coroutines.launch
 
 /** A way to get to the destination — mirrors Google Maps' own `travelmode`
@@ -357,31 +359,35 @@ private fun SaveLocationDialog(
     onCancel: () -> Unit,
 ) {
     var remarks by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val message = requiredFieldsMessage("Remarks" to remarks.isNotBlank())
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        onSave(remarks)
+    }
+
+    FormDialog(
         onDismissRequest = onCancel,
-        title = { Text("Result Found") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("Coordinate: ${formatCoordinatesDms(lat, lng)}", style = MaterialTheme.typography.bodyMedium)
-                OutlinedTextField(
-                    value = remarks,
-                    onValueChange = { remarks = it },
-                    label = { Text("Remarks") },
-                    placeholder = { Text("e.g. House of Emilio Aguinaldo") },
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(remarks) }, enabled = remarks.isNotBlank()) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
-    )
+        title = "Result Found",
+        onConfirm = ::submit,
+        confirmLabel = "Save",
+        errorMessage = errorMessage,
+        maxContentHeight = 320.dp,
+    ) {
+        Text("Coordinate: ${formatCoordinatesDms(lat, lng)}", style = MaterialTheme.typography.bodyMedium)
+        OutlinedTextField(
+            value = remarks,
+            onValueChange = { remarks = it },
+            label = { Text("Remarks") },
+            placeholder = { Text("e.g. House of Emilio Aguinaldo") },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 /** "The publisher can... assign a 'Searching Record', 'Return Visit' record

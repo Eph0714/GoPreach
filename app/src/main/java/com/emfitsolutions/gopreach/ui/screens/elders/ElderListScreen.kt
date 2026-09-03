@@ -45,10 +45,12 @@ import androidx.compose.ui.unit.dp
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 import com.emfitsolutions.gopreach.ui.components.displayLabel
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 
 /** Shared list UI for [ManageCoordinatorEldersScreen] and [ManageRegularEldersScreen] —
@@ -223,15 +225,38 @@ private fun EditElderDialog(
     var address by remember { mutableStateOf(row.person.address) }
     var contact by remember { mutableStateOf(row.person.contact) }
     var email by remember { mutableStateOf(row.person.email ?: "") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val message = requiredFieldsMessage(
+            "First Name" to firstName.isNotBlank(),
+            "Last Name" to lastName.isNotBlank(),
+            "Address" to address.isNotBlank(),
+            "Contact" to contact.isNotBlank(),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        onSave(
+            row.person.copy(
+                firstName = firstName.trim(),
+                lastName = lastName.trim(),
+                address = address.trim(),
+                contact = contact.trim(),
+                email = email.trim().ifBlank { null },
+            ),
+        )
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit ${row.person.fullName}") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = "Edit ${row.person.fullName}",
+        onConfirm = ::submit,
+        confirmLabel = "Save Changes",
+        errorMessage = errorMessage,
+        maxContentHeight = 520.dp,
+    ) {
                 EditSectionHeader("Personal Information")
                 OutlinedTextField(
                     value = firstName,
@@ -283,23 +308,5 @@ private fun EditElderDialog(
                 ReadOnlyField("Username", row.person.username)
                 ReadOnlyField("Status", if (row.isActive) "Active" else "Inactive")
                 ReadOnlyField("Date Added", formatRecordTimestamp(row.person.createdAt))
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                if (firstName.isNotBlank() && lastName.isNotBlank() && address.isNotBlank() && contact.isNotBlank()) {
-                    onSave(
-                        row.person.copy(
-                            firstName = firstName.trim(),
-                            lastName = lastName.trim(),
-                            address = address.trim(),
-                            contact = contact.trim(),
-                            email = email.trim().ifBlank { null },
-                        ),
-                    )
-                }
-            }) { Text("Save Changes") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }

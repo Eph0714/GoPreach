@@ -58,10 +58,12 @@ import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 
 /** Spec §3/§5.1 — Manage Publishers (all categories).
  * [canPermanentlyDelete] is Super-Admin-only, per the "Admin Record Deletion"
@@ -301,14 +303,48 @@ private fun EditPublisherDialog(
     val groupsFlow = remember(row.assignment.congregationId) { viewModel.groupsFor(row.assignment.congregationId) }
     val groups by groupsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    AlertDialog(
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    fun submit() {
+        val message = requiredFieldsMessage(
+            "First Name" to firstName.isNotBlank(),
+            "Last Name" to lastName.isNotBlank(),
+            "Address" to address.isNotBlank(),
+            "Contact" to contact.isNotBlank(),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        viewModel.updatePerson(
+            row.person.copy(
+                firstName = firstName.trim(),
+                lastName = lastName.trim(),
+                middleInitial = middleInitial.trim().ifBlank { null },
+                extensionName = extensionName.trim().ifBlank { null },
+                gender = gender,
+                address = address.trim(),
+                contact = contact.trim(),
+                email = email.trim().ifBlank { null },
+                contactPerson = contactPerson.trim().ifBlank { null },
+                contactPersonNumber = contactPersonNumber.trim().ifBlank { null },
+                accountStatus = accountStatus,
+            ),
+        )
+        if (category != row.category) viewModel.changeCategory(row, category, currentPersonId)
+        if (groupId != row.assignment.groupId) viewModel.changeGroup(row, groupId, currentPersonId)
+        showToast("\"${row.person.fullName}\" saved.")
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit ${row.person.fullName}") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = "Edit ${row.person.fullName}",
+        onConfirm = ::submit,
+        confirmLabel = "Save Changes",
+        errorMessage = errorMessage,
+        maxContentHeight = 560.dp,
+    ) {
                 EditSectionHeader("Personal Information")
                 OutlinedTextField(
                     value = firstName,
@@ -398,37 +434,7 @@ private fun EditPublisherDialog(
                 ReadOnlyField("Username", row.person.username)
                 AccountStatusDropdown(selected = accountStatus, onSelected = { accountStatus = it })
                 ReadOnlyField("Date Added", formatRecordTimestamp(row.person.createdAt))
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (firstName.isNotBlank() && lastName.isNotBlank() && address.isNotBlank() && contact.isNotBlank()) {
-                        viewModel.updatePerson(
-                            row.person.copy(
-                                firstName = firstName.trim(),
-                                lastName = lastName.trim(),
-                                middleInitial = middleInitial.trim().ifBlank { null },
-                                extensionName = extensionName.trim().ifBlank { null },
-                                gender = gender,
-                                address = address.trim(),
-                                contact = contact.trim(),
-                                email = email.trim().ifBlank { null },
-                                contactPerson = contactPerson.trim().ifBlank { null },
-                                contactPersonNumber = contactPersonNumber.trim().ifBlank { null },
-                                accountStatus = accountStatus,
-                            ),
-                        )
-                        if (category != row.category) viewModel.changeCategory(row, category, currentPersonId)
-                        if (groupId != row.assignment.groupId) viewModel.changeGroup(row, groupId, currentPersonId)
-                        showToast("\"${row.person.fullName}\" saved.")
-                        onDismiss()
-                    }
-                },
-            ) { Text("Save Changes") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }
 
 /** "In enrolling publisher record for superadmin, show a dropdown to select

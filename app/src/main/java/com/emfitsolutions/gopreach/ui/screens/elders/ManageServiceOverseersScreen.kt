@@ -32,8 +32,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 
 @Composable
 fun ManageServiceOverseersScreen(
@@ -107,14 +109,45 @@ private fun ServiceOverseerEditDialog(
         rolesLoaded = true
     }
 
-    AlertDialog(
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    fun submit() {
+        val message = requiredFieldsMessage(
+            "First Name" to firstName.isNotBlank(),
+            "Last Name" to lastName.isNotBlank(),
+            "Address" to address.isNotBlank(),
+            "Contact" to contact.isNotBlank(),
+            "Congregation" to (congregationId != null),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        viewModel.updateRolesAndPerson(
+            row = row,
+            updatedPerson = row.person.copy(
+                firstName = firstName.trim(),
+                lastName = lastName.trim(),
+                address = address.trim(),
+                contact = contact.trim(),
+                email = email.trim().ifBlank { null },
+            ),
+            newCongregationId = congregationId!!,
+            isGroupOverseer = isGroupOverseer,
+            publisherCategory = publisherCategory,
+            actorPersonId = currentPersonId,
+        )
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit ${row.person.fullName}") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = "Edit ${row.person.fullName}",
+        onConfirm = ::submit,
+        confirmLabel = "Save Changes",
+        errorMessage = errorMessage,
+        maxContentHeight = 560.dp,
+    ) {
                 EditSectionHeader("Personal Information")
                 OutlinedTextField(
                     value = firstName,
@@ -201,33 +234,7 @@ private fun ServiceOverseerEditDialog(
                 ReadOnlyField("Username", row.person.username)
                 ReadOnlyField("Status", if (row.isActive) "Active" else "Inactive")
                 ReadOnlyField("Date Added", formatRecordTimestamp(row.person.createdAt))
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (firstName.isNotBlank() && lastName.isNotBlank() && address.isNotBlank() && contact.isNotBlank() && congregationId != null) {
-                        viewModel.updateRolesAndPerson(
-                            row = row,
-                            updatedPerson = row.person.copy(
-                                firstName = firstName.trim(),
-                                lastName = lastName.trim(),
-                                address = address.trim(),
-                                contact = contact.trim(),
-                                email = email.trim().ifBlank { null },
-                            ),
-                            newCongregationId = congregationId,
-                            isGroupOverseer = isGroupOverseer,
-                            publisherCategory = publisherCategory,
-                            actorPersonId = currentPersonId,
-                        )
-                        onDismiss()
-                    }
-                },
-            ) { Text("Save Changes") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

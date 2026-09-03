@@ -89,10 +89,12 @@ import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ManualCoordinatesDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.SupportingImageSection
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -349,15 +351,66 @@ private fun PipelinePersonDialog(
         existingPerson?.takeIf { it.hasGpsLocation }?.let { CoordinatesValue(it.gpsLat!!, it.gpsLng!!, it.gpsAccuracy) }
     }
     var coordinates by remember { mutableStateOf(originalCoordinates) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val message = requiredFieldsMessage(
+            "Name" to name.isNotBlank(),
+            "Address" to address.isNotBlank(),
+            "Gender" to (gender != null),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        val coordinatesChanged = coordinates != originalCoordinates
+        val now = System.currentTimeMillis()
+        val base = existingPerson ?: InterestedPerson(
+            publisherPersonId = publisherPersonId,
+            congregationId = congregationId,
+            createdAt = now,
+            createdByPersonId = currentPersonId,
+            // "If it save under Return Visit Module then the status will be
+            // automatically in 'Return Visit'" — a brand-new record starts
+            // at whichever stage this dialog was opened from, not always
+            // Searching.
+            pipelineStage = stage,
+            stageEnteredAt = now,
+        )
+        onSave(
+            base.copy(
+                name = name.trim(),
+                gender = gender,
+                spouse = spouse.trim().ifBlank { null },
+                address = address.trim(),
+                children = children.trim().ifBlank { null },
+                religion = religion.trim().ifBlank { null },
+                ageYears = ageText.toIntOrNull(),
+                placeOrigin = placeOrigin.trim().ifBlank { null },
+                language = language.trim().ifBlank { null },
+                literaturePlace = literaturePlace.trim().ifBlank { null },
+                remarks = remarks.trim().ifBlank { null },
+                notes = notes.trim().ifBlank { null },
+                supportingImages = listOfNotNull(image),
+                gpsLat = coordinates?.lat,
+                gpsLng = coordinates?.lng,
+                gpsAccuracy = coordinates?.accuracyMeters ?: existingPerson?.gpsAccuracy.takeIf { !coordinatesChanged },
+                gpsCapturedAt = if (coordinatesChanged) coordinates?.let { now } else existingPerson?.gpsCapturedAt,
+                gpsCapturedBy = if (coordinatesChanged) coordinates?.let { currentPersonId } else existingPerson?.gpsCapturedBy,
+                gpsUpdatedAt = if (coordinatesChanged) coordinates?.let { now } else existingPerson?.gpsUpdatedAt,
+            ),
+        )
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existingPerson == null) "New ${stage.label()} Record" else "Edit Record") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 620.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = if (existingPerson == null) "New ${stage.label()} Record" else "Edit Record",
+        onConfirm = ::submit,
+        confirmLabel = if (existingPerson == null) "Add" else "Save",
+        errorMessage = errorMessage,
+        maxContentHeight = 620.dp,
+    ) {
                 EditSectionHeader("Personal Information")
                 OutlinedTextField(value = name, onValueChange = { name = it.uppercase() }, label = { Text("Name") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 Row {
@@ -393,57 +446,7 @@ private fun PipelinePersonDialog(
                     ReadOnlyField("Date Created", formatRecordTimestamp(existingPerson.createdAt))
                     ReadOnlyField("Created By", existingPerson.createdByPersonId.ifBlank { "—" })
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (name.isNotBlank() && address.isNotBlank() && gender != null) {
-                        val coordinatesChanged = coordinates != originalCoordinates
-                        val now = System.currentTimeMillis()
-                        val base = existingPerson ?: InterestedPerson(
-                            publisherPersonId = publisherPersonId,
-                            congregationId = congregationId,
-                            createdAt = now,
-                            createdByPersonId = currentPersonId,
-                            // "If it save under Return Visit Module then the
-                            // status will be automatically in 'Return
-                            // Visit'" — a brand-new record starts at
-                            // whichever stage this dialog was opened from,
-                            // not always Searching.
-                            pipelineStage = stage,
-                            stageEnteredAt = now,
-                        )
-                        onSave(
-                            base.copy(
-                                name = name.trim(),
-                                gender = gender,
-                                spouse = spouse.trim().ifBlank { null },
-                                address = address.trim(),
-                                children = children.trim().ifBlank { null },
-                                religion = religion.trim().ifBlank { null },
-                                ageYears = ageText.toIntOrNull(),
-                                placeOrigin = placeOrigin.trim().ifBlank { null },
-                                language = language.trim().ifBlank { null },
-                                literaturePlace = literaturePlace.trim().ifBlank { null },
-                                remarks = remarks.trim().ifBlank { null },
-                                notes = notes.trim().ifBlank { null },
-                                supportingImages = listOfNotNull(image),
-                                gpsLat = coordinates?.lat,
-                                gpsLng = coordinates?.lng,
-                                gpsAccuracy = coordinates?.accuracyMeters ?: existingPerson?.gpsAccuracy.takeIf { !coordinatesChanged },
-                                gpsCapturedAt = if (coordinatesChanged) coordinates?.let { now } else existingPerson?.gpsCapturedAt,
-                                gpsCapturedBy = if (coordinatesChanged) coordinates?.let { currentPersonId } else existingPerson?.gpsCapturedBy,
-                                gpsUpdatedAt = if (coordinatesChanged) coordinates?.let { now } else existingPerson?.gpsUpdatedAt,
-                            ),
-                        )
-                        onDismiss()
-                    }
-                },
-            ) { Text(if (existingPerson == null) "Add" else "Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }
 
 @Composable
@@ -843,51 +846,51 @@ private fun ForwardToCongregationDialog(
         else congregations.filter { c -> c.name.contains(query, ignoreCase = true) || c.languages.any { it.contains(query, ignoreCase = true) } }
     }
     val showToast = rememberActionToast()
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val target = selected
+        val message = requiredFieldsMessage("Congregation" to (target != null))
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        viewModel.forward(person, target!!, ownCongregationName, fromPublisherName ?: "—", currentPersonId)
+        showToast("Forward request sent to ${target.name}.")
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Forward to Other Congregation") },
-        text = {
-            Column(modifier = Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it; selected = null },
-                    label = { Text("Search by congregation name or language") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                LazyColumn(modifier = Modifier.heightIn(max = 280.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(filtered, key = { it.id }) { c ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth().clickable { selected = c; query = c.name },
-                            colors = if (selected?.id == c.id) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer) else CardDefaults.cardColors(),
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(c.name, style = MaterialTheme.typography.bodyMedium)
-                                if (c.languages.isNotEmpty()) Text(c.languages.joinToString(", "), style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
+        title = "Forward to Other Congregation",
+        onConfirm = ::submit,
+        confirmLabel = "Send Request",
+        errorMessage = errorMessage,
+        maxContentHeight = 420.dp,
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it; selected = null },
+            label = { Text("Search by congregation name or language") },
+            singleLine = true,
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        LazyColumn(modifier = Modifier.heightIn(max = 280.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(filtered, key = { it.id }) { c ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable { selected = c; query = c.name },
+                    colors = if (selected?.id == c.id) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer) else CardDefaults.cardColors(),
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(c.name, style = MaterialTheme.typography.bodyMedium)
+                        if (c.languages.isNotEmpty()) Text(c.languages.joinToString(", "), style = MaterialTheme.typography.bodySmall)
                     }
-                    if (filtered.isEmpty()) item { Text("No matching congregation.", style = MaterialTheme.typography.bodySmall) }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val target = selected
-                    if (target != null) {
-                        viewModel.forward(person, target, ownCongregationName, fromPublisherName ?: "—", currentPersonId)
-                        showToast("Forward request sent to ${target.name}.")
-                        onDismiss()
-                    }
-                },
-                enabled = selected != null,
-            ) { Text("Send Request") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+            if (filtered.isEmpty()) item { Text("No matching congregation.", style = MaterialTheme.typography.bodySmall) }
+        }
+    }
 }
 
 /** "FORWARD TO OTHER PUBLISHER" spec flow — search field over publisher
@@ -913,48 +916,48 @@ private fun ForwardToPublisherDialog(
         if (query.isBlank()) publishers else publishers.filter { it.fullName.contains(query, ignoreCase = true) }
     }
     val showToast = rememberActionToast()
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val target = selected
+        val message = requiredFieldsMessage("Publisher" to (target != null))
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        viewModel.forwardToPublisher(person, target!!, fromPublisherName ?: "—", currentPersonId)
+        showToast("Forward request sent to ${target.fullName}.")
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Forward to Other Publisher") },
-        text = {
-            Column(modifier = Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it; selected = null },
-                    label = { Text("Search by publisher name") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                LazyColumn(modifier = Modifier.heightIn(max = 280.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(filtered, key = { it.id }) { p ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth().clickable { selected = p; query = p.fullName },
-                            colors = if (selected?.id == p.id) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer) else CardDefaults.cardColors(),
-                        ) {
-                            Text(p.fullName, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(12.dp))
-                        }
-                    }
-                    if (filtered.isEmpty()) item { Text("No other publisher available in your congregation.", style = MaterialTheme.typography.bodySmall) }
+        title = "Forward to Other Publisher",
+        onConfirm = ::submit,
+        confirmLabel = "Send Request",
+        errorMessage = errorMessage,
+        maxContentHeight = 420.dp,
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it; selected = null },
+            label = { Text("Search by publisher name") },
+            singleLine = true,
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        LazyColumn(modifier = Modifier.heightIn(max = 280.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(filtered, key = { it.id }) { p ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable { selected = p; query = p.fullName },
+                    colors = if (selected?.id == p.id) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer) else CardDefaults.cardColors(),
+                ) {
+                    Text(p.fullName, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(12.dp))
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val target = selected
-                    if (target != null) {
-                        viewModel.forwardToPublisher(person, target, fromPublisherName ?: "—", currentPersonId)
-                        showToast("Forward request sent to ${target.fullName}.")
-                        onDismiss()
-                    }
-                },
-                enabled = selected != null,
-            ) { Text("Send Request") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+            if (filtered.isEmpty()) item { Text("No other publisher available in your congregation.", style = MaterialTheme.typography.bodySmall) }
+        }
+    }
 }
 
 @Composable
@@ -1109,49 +1112,53 @@ private fun AddVisitDialog(
     var outcome by remember { mutableStateOf(existingVisit?.outcome ?: VisitOutcome.NOT_AT_HOME) }
     var minutesText by remember { mutableStateOf(existingVisit?.timeConsumedMinutes?.toString().orEmpty()) }
     var followUpDate by remember { mutableStateOf(existingVisit?.followUpDate) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val date = visitDate
+        val minutes = minutesText.toIntOrNull()
+        val message = requiredFieldsMessage(
+            "Visit Date/Time" to (date != null),
+            "Time Consumed" to (minutes != null),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        val base = existingVisit ?: Visit(
+            interestedPersonId = interestedPersonId,
+            publisherPersonId = publisherPersonId,
+            createdAt = System.currentTimeMillis(),
+            createdByPersonId = currentPersonId,
+        )
+        onSave(
+            base.copy(
+                visitDate = date!!,
+                visitTime = date,
+                topicDiscussed = topic.trim().ifBlank { null },
+                outcome = outcome,
+                timeConsumedMinutes = minutes!!,
+                followUpDate = followUpDate,
+            )
+        )
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existingVisit == null) "Log Visit" else "Edit Visit") },
-        text = {
-            Column(modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        title = if (existingVisit == null) "Log Visit" else "Edit Visit",
+        onConfirm = ::submit,
+        confirmLabel = if (existingVisit == null) "Save" else "Save Changes",
+        errorMessage = errorMessage,
+        maxContentHeight = 480.dp,
+    ) {
                 DateTimeField(label = "Visit Date/Time", valueMillis = visitDate, onValueChange = { visitDate = it })
                 OutlinedTextField(value = topic, onValueChange = { topic = it.uppercase() }, label = { Text("Remarks / Topic Discussed (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 VisitOutcomeDropdown(selected = outcome, onSelected = { outcome = it })
                 OutlinedTextField(value = minutesText, onValueChange = { minutesText = it.filter { c -> c.isDigit() } }, label = { Text("Time Consumed (minutes)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 DateTimeField(label = "Follow-up Date (optional)", valueMillis = followUpDate, onValueChange = { followUpDate = it })
                 if (followUpDate != null) TextButton(onClick = { followUpDate = null }) { Text("Clear Follow-up Date") }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val date = visitDate
-                    val minutes = minutesText.toIntOrNull()
-                    if (date != null && minutes != null) {
-                        val base = existingVisit ?: Visit(
-                            interestedPersonId = interestedPersonId,
-                            publisherPersonId = publisherPersonId,
-                            createdAt = System.currentTimeMillis(),
-                            createdByPersonId = currentPersonId,
-                        )
-                        onSave(
-                            base.copy(
-                                visitDate = date,
-                                visitTime = date,
-                                topicDiscussed = topic.trim().ifBlank { null },
-                                outcome = outcome,
-                                timeConsumedMinutes = minutes,
-                                followUpDate = followUpDate,
-                            )
-                        )
-                        onDismiss()
-                    }
-                },
-            ) { Text(if (existingVisit == null) "Save" else "Save Changes") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }
 
 @Composable

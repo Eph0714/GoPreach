@@ -44,7 +44,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Schedule
 import com.emfitsolutions.gopreach.data.model.ScheduleKind
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -191,15 +193,45 @@ private fun ChatScheduleDialog(
     var description by remember { mutableStateOf(existingSchedule?.description ?: "") }
     var startTime by remember { mutableStateOf(existingSchedule?.startTime) }
     var endTime by remember { mutableStateOf(existingSchedule?.endTime) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val start = startTime
+        val end = endTime
+        val message = requiredFieldsMessage(
+            "Event Title" to title.isNotBlank(),
+            "Start" to (start != null),
+            "End" to (end != null),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        onSave(
+            Schedule(
+                id = existingSchedule?.id ?: "",
+                kind = ScheduleKind.CHAT_SCHEDULE,
+                title = title.trim(),
+                description = description.trim().ifBlank { null },
+                startTime = start!!,
+                endTime = end!!,
+                congregationId = congregationId,
+                groupId = groupId,
+                createdByPersonId = existingSchedule?.createdByPersonId ?: currentPersonId,
+                createdAt = existingSchedule?.createdAt ?: System.currentTimeMillis(),
+            )
+        )
+        onDismiss()
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existingSchedule == null) "New Chat Schedule" else "Edit Chat Schedule") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = if (existingSchedule == null) "New Chat Schedule" else "Edit Chat Schedule",
+        onConfirm = ::submit,
+        confirmLabel = if (existingSchedule == null) "Create" else "Save",
+        errorMessage = errorMessage,
+        maxContentHeight = 420.dp,
+    ) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it.uppercase() },
@@ -217,33 +249,5 @@ private fun ChatScheduleDialog(
                 )
                 DateTimeField(label = "Start", valueMillis = startTime, onValueChange = { startTime = it })
                 DateTimeField(label = "End", valueMillis = endTime, onValueChange = { endTime = it })
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val start = startTime
-                    val end = endTime
-                    if (title.isNotBlank() && start != null && end != null) {
-                        onSave(
-                            Schedule(
-                                id = existingSchedule?.id ?: "",
-                                kind = ScheduleKind.CHAT_SCHEDULE,
-                                title = title.trim(),
-                                description = description.trim().ifBlank { null },
-                                startTime = start,
-                                endTime = end,
-                                congregationId = congregationId,
-                                groupId = groupId,
-                                createdByPersonId = existingSchedule?.createdByPersonId ?: currentPersonId,
-                                createdAt = existingSchedule?.createdAt ?: System.currentTimeMillis(),
-                            )
-                        )
-                        onDismiss()
-                    }
-                },
-            ) { Text(if (existingSchedule == null) "Create" else "Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }

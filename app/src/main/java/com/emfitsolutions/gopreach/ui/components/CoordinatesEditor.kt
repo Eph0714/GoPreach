@@ -164,36 +164,34 @@ fun ManualCoordinatesDialog(
         }
     }
 
-    AlertDialog(
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Enter Location Manually") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = inputText,
-                    onValueChange = { inputText = it; errorText = null },
-                    label = { Text("Location Link or GPS Coordinates") },
-                    placeholder = { Text("Paste a maps link, or e.g. 14.599512, 120.984222") },
-                    singleLine = true,
-                    isError = errorText != null,
-                    enabled = !isResolving,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (isResolving) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
-                        Text("Looking up that location…", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-                if (errorText != null) {
-                    Text(errorText.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
+        title = "Enter Location Manually",
+        onConfirm = ::submit,
+        confirmLabel = "SAVE",
+        dismissLabel = "CANCEL",
+        confirmEnabled = !isResolving,
+        maxContentHeight = 280.dp,
+    ) {
+        OutlinedTextField(
+            value = inputText,
+            onValueChange = { inputText = it; errorText = null },
+            label = { Text("Location Link or GPS Coordinates") },
+            placeholder = { Text("Paste a maps link, or e.g. 14.599512, 120.984222") },
+            singleLine = true,
+            isError = errorText != null,
+            enabled = !isResolving,
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (isResolving) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
+                Text("Looking up that location…", style = MaterialTheme.typography.bodySmall)
             }
-        },
-        confirmButton = {
-            TextButton(onClick = ::submit, enabled = !isResolving) { Text("SAVE") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !isResolving) { Text("CANCEL") } },
-    )
+        }
+        if (errorText != null) {
+            Text(errorText.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+    }
 }

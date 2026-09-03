@@ -48,10 +48,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
+import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 
 /** Spec §3/§5.1 — Manage Admins, Super-Admin only. "Move to Inactive" deactivates
  * rather than erases the record — an inactive Admin can be restored, and their
@@ -200,15 +202,38 @@ private fun EditAdminDialog(
     var address by remember { mutableStateOf(row.person.address) }
     var contact by remember { mutableStateOf(row.person.contact) }
     var email by remember { mutableStateOf(row.person.email ?: "") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
+    fun submit() {
+        val message = requiredFieldsMessage(
+            "First Name" to firstName.isNotBlank(),
+            "Last Name" to lastName.isNotBlank(),
+            "Address" to address.isNotBlank(),
+            "Contact" to contact.isNotBlank(),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        onSave(
+            row.person.copy(
+                firstName = firstName.trim(),
+                lastName = lastName.trim(),
+                address = address.trim(),
+                contact = contact.trim(),
+                email = email.trim().ifBlank { null },
+            ),
+        )
+    }
+
+    FormDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit ${row.person.fullName}") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+        title = "Edit ${row.person.fullName}",
+        onConfirm = ::submit,
+        confirmLabel = "Save Changes",
+        errorMessage = errorMessage,
+        maxContentHeight = 520.dp,
+    ) {
                 EditSectionHeader("Personal Information")
                 OutlinedTextField(
                     value = firstName,
@@ -258,23 +283,5 @@ private fun EditAdminDialog(
                 ReadOnlyField("Username", row.person.username)
                 ReadOnlyField("Status", if (row.isActive) "Active" else "Inactive")
                 ReadOnlyField("Date Added", formatRecordTimestamp(row.person.createdAt))
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                if (firstName.isNotBlank() && lastName.isNotBlank() && address.isNotBlank() && contact.isNotBlank()) {
-                    onSave(
-                        row.person.copy(
-                            firstName = firstName.trim(),
-                            lastName = lastName.trim(),
-                            address = address.trim(),
-                            contact = contact.trim(),
-                            email = email.trim().ifBlank { null },
-                        ),
-                    )
-                }
-            }) { Text("Save Changes") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    }
 }
