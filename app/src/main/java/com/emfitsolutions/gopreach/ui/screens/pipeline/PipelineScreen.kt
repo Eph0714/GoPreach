@@ -116,11 +116,11 @@ private fun PipelineStage.visitorLabel(): String = if (this == PipelineStage.BIB
  * Only [stage] and the derived [PipelineStage.label]/[PipelineStage.visitorLabel]
  * differ what's shown: full create/edit fields + [MOVE TO RETURN VISIT] only
  * at Searching; [MOVE TO BIBLE STUDY] only at Return Visit; visit logging at
- * Return Visit/Bible Study. [FORWARD TO OTHER CONGREGATION] is available at
- * every stage; [FORWARD TO OTHER PUBLISHER] (same-congregation hand-off,
- * accept/decline by the target publisher, no Service Overseer step) is
- * available at Return Visit and Bible Study — the two stages the spec names
- * for it.
+ * Return Visit/Bible Study. [FORWARD TO OTHER CONGREGATION] and [FORWARD TO
+ * OTHER PUBLISHER] (same-congregation hand-off, accept/decline by the
+ * target publisher, no Service Overseer step) are both available at every
+ * stage, Searching included — the same transfer logic Return Visit/Bible
+ * Study already had.
  */
 @Composable
 fun PipelineScreen(
@@ -774,16 +774,21 @@ private fun PipelineActionButtons(
             Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = iconModifier)
             Text("Forward to Other Congregation")
         }
-        // "FORWARD TO OTHER PUBLISHER" only at Return Visit/Bible Study, per spec.
-        if (stage != PipelineStage.SEARCHING) {
-            OutlinedButton(
-                onClick = onShowForwardToPublisherDialog,
-                enabled = publisherForwardRequest?.status != ForwardRequestStatus.PENDING,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.AutoMirrored.Rounded.Forward, contentDescription = null, modifier = iconModifier)
-                Text("Forward to Other Publisher")
-            }
+        // "Use the same logic in transferring to other publisher in Return
+        // Visit and Bible Study" — Searching now offers the exact same
+        // "Forward to Other Publisher" flow (receiving publisher accepts/
+        // declines, no Service Overseer step) Return Visit/Bible Study
+        // already had; forwardToPublisher()/the receiving side's accept
+        // flow were already entirely stage-agnostic (never reads or
+        // assumes pipelineStage), so this was purely a UI gate, not a data-
+        // layer change.
+        OutlinedButton(
+            onClick = onShowForwardToPublisherDialog,
+            enabled = publisherForwardRequest?.status != ForwardRequestStatus.PENDING,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.AutoMirrored.Rounded.Forward, contentDescription = null, modifier = iconModifier)
+            Text("Forward to Other Publisher")
         }
         ForwardStatusLine(forwardRequest)
         PublisherForwardStatusLine(publisherForwardRequest)
