@@ -77,4 +77,27 @@ class LocationTracker @Inject constructor(
             }
         }.getOrNull()
     }
+
+    /** Forward geocoding — "Find Location" spec: "the textbox will search a
+     * coordinates or address, not just the latitude and longitude." Same
+     * on-device [Geocoder] as [reverseGeocode] (no API key/new dependency),
+     * just run the other direction. Returns the first/best match, or null on
+     * any failure (no network, no geocoder backend on this device, nothing
+     * found for that text) — the caller falls back to its own "couldn't find
+     * that" error rather than assuming this always resolves. */
+    suspend fun geocodeAddress(query: String): LatLng? = withContext(Dispatchers.IO) {
+        if (!Geocoder.isPresent()) return@withContext null
+        runCatching {
+            val geocoder = Geocoder(context, Locale.getDefault())
+            val address = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                suspendCancellableCoroutine { cont ->
+                    geocoder.getFromLocationName(query, 1) { addresses -> cont.resume(addresses.firstOrNull()) }
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                geocoder.getFromLocationName(query, 1)?.firstOrNull()
+            }
+            address?.let { LatLng(it.latitude, it.longitude, accuracyMeters = null) }
+        }.getOrNull()
+    }
 }

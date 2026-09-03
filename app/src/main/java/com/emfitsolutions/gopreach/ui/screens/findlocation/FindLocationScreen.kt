@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -29,6 +30,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -48,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +68,7 @@ import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.SavedLocation
 import com.emfitsolutions.gopreach.ui.components.RoundIconActionButton
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import kotlinx.coroutines.launch
 
 /** A way to get to the destination — mirrors Google Maps' own `travelmode`
  * values, covering both "by walking" and "different kinds of vehicle" (car,
@@ -98,11 +102,14 @@ fun FindLocationScreen(
 ) {
     val context = LocalContext.current
     val showToast = rememberActionToast()
-    // "Make the Latitude and Longitude in the same text field" — one field,
-    // comma-separated ("14.5995, 120.9842"), rather than two.
+    val coroutineScope = rememberCoroutineScope()
+    // "The textbox will search a coordinates or address, not just the
+    // latitude and longitude" — one field that accepts either
+    // "14.5995, 120.9842" or free-text like "Rizal Park, Manila".
     var coordinatesText by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
+    var isSearching by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showAssignDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<SavedLocation?>(null) }
@@ -111,16 +118,39 @@ fun FindLocationScreen(
     val savedLocations by savedLocationsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     fun submit() {
-        val parts = coordinatesText.trim().split(",").map { it.trim() }
+        val query = coordinatesText.trim()
+        if (query.isBlank()) {
+            errorText = "Enter coordinates or an address."
+            return
+        }
+        // Try "lat, lng" first — same validated parse as before — and only
+        // fall back to geocoding the whole text as an address if it isn't
+        // that shape, so a well-formed coordinate pair never takes a
+        // network round-trip it doesn't need.
+        val parts = query.split(",").map { it.trim() }
         val lat = parts.getOrNull(0)?.toDoubleOrNull()
         val lng = parts.getOrNull(1)?.toDoubleOrNull()
-        errorText = when {
-            parts.size != 2 || lat == null || lng == null -> "Enter latitude and longitude separated by a comma, e.g. 14.5995, 120.9842."
-            lat < -90.0 || lat > 90.0 -> "Latitude must be between -90 and 90."
-            lng < -180.0 || lng > 180.0 -> "Longitude must be between -180 and 180."
-            else -> null
+        if (parts.size == 2 && lat != null && lng != null) {
+            errorText = when {
+                lat < -90.0 || lat > 90.0 -> "Latitude must be between -90 and 90."
+                lng < -180.0 || lng > 180.0 -> "Longitude must be between -180 and 180."
+                else -> null
+            }
+            destination = if (errorText == null) lat to lng else null
+            return
         }
-        destination = if (errorText == null) lat!! to lng!! else null
+        isSearching = true
+        coroutineScope.launch {
+            val found = viewModel.geocode(query)
+            isSearching = false
+            if (found != null) {
+                destination = found.lat to found.lng
+                errorText = null
+            } else {
+                destination = null
+                errorText = "No location found for \"$query\". Check the spelling, or enter GPS coordinates instead."
+            }
+        }
     }
 
     Scaffold(
@@ -140,7 +170,7 @@ fun FindLocationScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                "Enter the GPS coordinates of where you want to go, then pick how you're getting there to open the fastest route.",
+                "Enter the GPS coordinates or an address of where you want to go, then pick how you're getting there to open the fastest route.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -148,17 +178,25 @@ fun FindLocationScreen(
             OutlinedTextField(
                 value = coordinatesText,
                 onValueChange = { coordinatesText = it; errorText = null },
-                label = { Text("Latitude, Longitude") },
-                placeholder = { Text("e.g. 14.5995, 120.9842") },
+                label = { Text("Coordinates or Address") },
+                placeholder = { Text("e.g. 14.5995, 120.9842 or Rizal Park, Manila") },
                 singleLine = true,
+                enabled = !isSearching,
                 visualTransformation = VisualTransformation.None,
                 modifier = Modifier.fillMaxWidth(),
             )
             if (errorText != null) {
                 Text(errorText.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
-            Button(onClick = ::submit, modifier = Modifier.fillMaxWidth()) {
-                Text("FIND ROUTE")
+            Button(onClick = ::submit, enabled = !isSearching, modifier = Modifier.fillMaxWidth()) {
+                if (isSearching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp).padding(end = 8.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
+                Text(if (isSearching) "SEARCHING…" else "FIND ROUTE")
             }
 
             destination?.let { (lat, lng) ->

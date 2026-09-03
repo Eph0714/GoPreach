@@ -2,6 +2,7 @@ package com.emfitsolutions.gopreach.ui.screens.findlocation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.location.LatLng
 import com.emfitsolutions.gopreach.data.location.LocationTracker
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.PipelineStage
@@ -39,6 +40,12 @@ class FindLocationViewModel @Inject constructor(
     private val auditLogRepository: AuditLogRepository,
 ) : ViewModel() {
     suspend fun addressFor(lat: Double, lng: Double): String? = locationTracker.reverseGeocode(lat, lng)
+
+    /** "The textbox will search a coordinates or address, not just the
+     * latitude and longitude" — the address half; [FindLocationScreen]
+     * already parses the coordinates half itself before falling back to
+     * this. */
+    suspend fun geocode(query: String): LatLng? = locationTracker.geocodeAddress(query)
 
     fun savedLocationsFor(publisherPersonId: String): Flow<List<SavedLocation>> =
         savedLocationRepository.observeForPublisher(publisherPersonId)
