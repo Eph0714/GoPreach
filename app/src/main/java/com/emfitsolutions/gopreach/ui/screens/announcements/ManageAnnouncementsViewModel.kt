@@ -57,41 +57,55 @@ class ManageAnnouncementsViewModel @Inject constructor(
 
     fun markSeen(personId: String) = announcementSeenStore.markSeenNow(personId)
 
-    /** Saves the announcement's text fields, then applies the image change,
-     * if any, in the same coroutine — a brand-new announcement has no id
-     * (and therefore no Storage path) until the first save completes, so an
-     * image pick has to wait for that regardless of which field changed.
-     * [removeImage] clears an existing image (spec: "the image can be
-     * cleared or removed"); [pickedImageUri] takes priority if both are
-     * somehow set (a fresh pick replaces whatever was there, removal or not). */
+    /** Saves the announcement's text fields, then applies the image *and*
+     * attachment changes, if any, in the same coroutine — a brand-new
+     * announcement has no id (and therefore no Storage path) until the
+     * first save completes, so a pick has to wait for that regardless of
+     * which field changed. [removeImage]/[removeAttachment] clears the
+     * existing one (spec: "the image can be cleared or removed"); a fresh
+     * pick ([pickedImageUri]/[pickedAttachmentUri]) takes priority if both
+     * are somehow set (replaces whatever was there, removal or not). */
     fun saveWithImage(
         announcement: Announcement,
         pickedImageUri: Uri?,
         removeImage: Boolean,
+        pickedAttachmentUri: Uri? = null,
+        pickedAttachmentFileName: String? = null,
+        removeAttachment: Boolean = false,
         actorPersonId: String,
         onImageUploadFailed: (() -> Unit)? = null,
+        onAttachmentUploadFailed: (() -> Unit)? = null,
     ) {
         val isNew = announcement.id.isBlank()
         viewModelScope.launch {
             // Bug fix ("the form closes if you attach an image on saving"):
-            // uploadImage()/deleteImage() hit Firebase Storage over the
-            // network (unlike save(), which is local-first and effectively
-            // never throws — see OfflineFirestoreRepository's own doc
-            // comments) — a flaky connection, an expired auth token, or a
-            // revoked content:// read grant on [pickedImageUri] all throw
-            // here. Left uncaught, that exception propagated out of this
-            // coroutine with nothing downstream to catch it, which crashes
-            // the whole app process — not just this dialog — exactly the
-            // "form closes" symptom reported. The text fields were already
+            // uploadImage()/deleteImage()/uploadAttachment()/deleteAttachment()
+            // all hit Firebase Storage over the network (unlike save(),
+            // which is local-first and effectively never throws — see
+            // OfflineFirestoreRepository's own doc comments) — a flaky
+            // connection, an expired auth token, or a revoked content://
+            // read grant on the picked uri all throw here. Left uncaught,
+            // that exception propagated out of this coroutine with nothing
+            // downstream to catch it, which crashes the whole app process —
+            // not just this dialog — exactly the "form closes"/"problem
+            // attaching" symptoms reported. The text fields were already
             // saved successfully by this point (the dialog itself dismisses
             // immediately on tapping Save, independent of this coroutine —
-            // see AnnouncementDialog), so on an image failure we keep that
-            // save and just let the caller know the image didn't attach,
-            // instead of taking the whole app down with it.
-            try {
-                var saved = announcementRepository.save(
+            // see AnnouncementDialog), so a failure on either upload keeps
+            // that save and just lets the caller know which one didn't
+            // attach, instead of taking the whole app down with it. Image
+            // and attachment are handled as two independent try blocks —
+            // one failing (e.g. the image) must not also swallow/skip the
+            // other (e.g. a perfectly good attachment upload).
+            var saved = try {
+                announcementRepository.save(
                     announcement.copy(lastEditedByPersonId = actorPersonId, lastEditedAt = System.currentTimeMillis()),
                 )
+            } catch (e: Exception) {
+                Log.e(TAG, "Announcement save failed", e)
+                return@launch
+            }
+            try {
                 if (pickedImageUri != null) {
                     val url = announcementRepository.uploadImage(saved.id, pickedImageUri)
                     saved = announcementRepository.save(saved.copy(imageUrl = url))
@@ -99,17 +113,29 @@ class ManageAnnouncementsViewModel @Inject constructor(
                     announcementRepository.deleteImage(saved.id)
                     saved = announcementRepository.save(saved.copy(imageUrl = null))
                 }
-                auditLogRepository.log(
-                    actorPersonId = actorPersonId,
-                    action = if (isNew) "CREATE_ANNOUNCEMENT" else "EDIT_ANNOUNCEMENT",
-                    targetType = "Announcement",
-                    targetId = saved.id,
-                    congregationId = saved.congregationId,
-                )
             } catch (e: Exception) {
                 Log.e(TAG, "Announcement image upload/removal failed", e)
                 onImageUploadFailed?.invoke()
             }
+            try {
+                if (pickedAttachmentUri != null) {
+                    val url = announcementRepository.uploadAttachment(saved.id, pickedAttachmentUri)
+                    saved = announcementRepository.save(saved.copy(attachmentUrl = url, attachmentFileName = pickedAttachmentFileName))
+                } else if (removeAttachment && saved.attachmentUrl != null) {
+                    announcementRepository.deleteAttachment(saved.id)
+                    saved = announcementRepository.save(saved.copy(attachmentUrl = null, attachmentFileName = null))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Announcement attachment upload/removal failed", e)
+                onAttachmentUploadFailed?.invoke()
+            }
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = if (isNew) "CREATE_ANNOUNCEMENT" else "EDIT_ANNOUNCEMENT",
+                targetType = "Announcement",
+                targetId = saved.id,
+                congregationId = saved.congregationId,
+            )
         }
     }
 

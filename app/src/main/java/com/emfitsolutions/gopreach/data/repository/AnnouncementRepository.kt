@@ -34,10 +34,11 @@ class AnnouncementRepository @Inject constructor(
     }
 
     /** Deletes the announcement doc and best-effort cleans up its uploaded
-     * image, if any — a missing/already-deleted Storage object is not an
-     * error worth surfacing here. */
+     * image/attachment, if any — a missing/already-deleted Storage object is
+     * not an error worth surfacing here. */
     suspend fun delete(announcementId: String) {
         runCatching { storage.reference.child(imagePath(announcementId)).delete().await() }
+        runCatching { storage.reference.child(attachmentPath(announcementId)).delete().await() }
         offline.delete(COLLECTION, announcementId)
     }
 
@@ -57,7 +58,23 @@ class AnnouncementRepository @Inject constructor(
         runCatching { storage.reference.child(imagePath(announcementId)).delete().await() }
     }
 
+    /** "Allow to add files like pdf, word and excel" — same one-attachment-
+     * per-announcement, re-upload-overwrites shape as [uploadImage]; the
+     * caller saves the returned URL onto [Announcement.attachmentUrl]. */
+    suspend fun uploadAttachment(announcementId: String, fileUri: Uri): String {
+        val ref = storage.reference.child(attachmentPath(announcementId))
+        ref.putFile(fileUri).await()
+        return ref.downloadUrl.await().toString()
+    }
+
+    /** Removes the uploaded attachment from Storage. The caller separately
+     * clears [Announcement.attachmentUrl]/[Announcement.attachmentFileName]. */
+    suspend fun deleteAttachment(announcementId: String) {
+        runCatching { storage.reference.child(attachmentPath(announcementId)).delete().await() }
+    }
+
     private fun imagePath(announcementId: String) = "announcements/$announcementId/image"
+    private fun attachmentPath(announcementId: String) = "announcements/$announcementId/attachment"
 
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, Announcement::class.java) { it.id }

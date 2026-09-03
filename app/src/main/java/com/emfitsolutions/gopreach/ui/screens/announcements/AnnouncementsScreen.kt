@@ -1,8 +1,10 @@
 package com.emfitsolutions.gopreach.ui.screens.announcements
 
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
@@ -47,11 +50,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.model.Announcement
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
@@ -161,6 +166,9 @@ fun AnnouncementsScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 maxLines = 3,
                             )
+                            if (announcement.attachmentUrl != null) {
+                                AttachmentRow(url = announcement.attachmentUrl, fileName = announcement.attachmentFileName)
+                            }
                             Text(
                                 formatRecordTimestamp(announcement.createdAt),
                                 style = MaterialTheme.typography.labelSmall,
@@ -231,6 +239,9 @@ fun AnnouncementsScreen(
                         )
                     }
                     Text(toView.details, style = MaterialTheme.typography.bodyMedium)
+                    if (toView.attachmentUrl != null) {
+                        AttachmentRow(url = toView.attachmentUrl, fileName = toView.attachmentFileName)
+                    }
                     Text(
                         formatRecordTimestamp(toView.createdAt),
                         style = MaterialTheme.typography.labelSmall,
@@ -257,11 +268,17 @@ private fun AnnouncementDialog(
     viewModel: ManageAnnouncementsViewModel,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
     var title by remember { mutableStateOf(existing?.title ?: "") }
     var details by remember { mutableStateOf(existing?.details ?: "") }
     var pickedCongregationId by remember { mutableStateOf(existing?.congregationId ?: fixedCongregationId) }
     var pickedImageUri by remember { mutableStateOf<Uri?>(null) }
     var removeImage by remember { mutableStateOf(false) }
+    // "Allow to add files like pdf, word and excel" — a document attachment,
+    // independent of the image above.
+    var pickedAttachmentUri by remember { mutableStateOf<Uri?>(null) }
+    var pickedAttachmentFileName by remember { mutableStateOf<String?>(null) }
+    var removeAttachment by remember { mutableStateOf(false) }
     val showToast = rememberActionToast()
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -270,8 +287,20 @@ private fun AnnouncementDialog(
             removeImage = false
         }
     }
+    // OpenDocument, not GetContent — GetContent only takes one mime type;
+    // OpenDocument's contract accepts an array so PDF/Word/Excel can all be
+    // offered in the same picker.
+    val pickAttachment = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            pickedAttachmentUri = uri
+            pickedAttachmentFileName = queryFileName(context, uri)
+            removeAttachment = false
+        }
+    }
 
     val hasImageToShow = pickedImageUri != null || (existing?.imageUrl != null && !removeImage)
+    val attachmentNameToShow = pickedAttachmentFileName
+        ?: (existing?.attachmentFileName.takeIf { existing?.attachmentUrl != null && !removeAttachment })
     val congregationId = fixedCongregationId ?: pickedCongregationId
 
     AlertDialog(
@@ -325,6 +354,26 @@ private fun AnnouncementDialog(
                         ) { Text("Remove Image") }
                     }
                 }
+
+                Text("Attachment (optional) — PDF, Word, or Excel", style = MaterialTheme.typography.labelLarge)
+                if (attachmentNameToShow != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text(attachmentNameToShow, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 4.dp))
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { pickAttachment.launch(ATTACHMENT_MIME_TYPES) },
+                        modifier = Modifier.weight(1f),
+                    ) { Text(if (attachmentNameToShow != null) "Replace File" else "Attach File") }
+                    if (attachmentNameToShow != null) {
+                        OutlinedButton(
+                            onClick = { pickedAttachmentUri = null; pickedAttachmentFileName = null; removeAttachment = true },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Remove File") }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -338,13 +387,19 @@ private fun AnnouncementDialog(
                                 title = title.trim(),
                                 details = details.trim(),
                                 imageUrl = existing?.imageUrl,
+                                attachmentUrl = existing?.attachmentUrl,
+                                attachmentFileName = existing?.attachmentFileName,
                                 createdByPersonId = existing?.createdByPersonId ?: currentPersonId,
                                 createdAt = existing?.createdAt ?: System.currentTimeMillis(),
                             ),
                             pickedImageUri = pickedImageUri,
                             removeImage = removeImage,
+                            pickedAttachmentUri = pickedAttachmentUri,
+                            pickedAttachmentFileName = pickedAttachmentFileName,
+                            removeAttachment = removeAttachment,
                             actorPersonId = currentPersonId,
                             onImageUploadFailed = { showToast("Saved, but the image failed to upload. Try attaching it again.") },
+                            onAttachmentUploadFailed = { showToast("Saved, but the file failed to upload. Try attaching it again.") },
                         )
                         showToast(if (existing == null) "Announcement posted." else "Announcement saved.")
                         onDismiss()
@@ -379,5 +434,49 @@ private fun CongregationPickerDropdown(congregations: List<Congregation>, select
                 )
             }
         }
+    }
+}
+
+/** "Allow to add files like pdf, word and excel" — offered together in one
+ * document picker (the modern and the legacy .doc/.xls MIME types, since
+ * both still turn up in the wild). */
+private val ATTACHMENT_MIME_TYPES = arrayOf(
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
+
+/** A `content://` picker Uri carries no filename of its own — this is the
+ * standard `OpenableColumns.DISPLAY_NAME` query every Storage Access
+ * Framework picker result supports, used so the Publisher sees the actual
+ * file name ("Congregation Schedule.pdf") instead of an opaque Storage
+ * download URL. Falls back to the raw Uri's last path segment if the query
+ * fails or the provider doesn't return one — still better than nothing. */
+private fun queryFileName(context: android.content.Context, uri: Uri): String? = runCatching {
+    context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+    }
+}.getOrNull() ?: uri.lastPathSegment
+
+/** The attached PDF/Word/Excel file, shown as a tappable row that opens it
+ * (via whatever app the device has for that file type, same
+ * [CsvExporter.openWithChooser] pattern the Reports export already uses)
+ * rather than an inline preview the way [AsyncImage] handles the image. */
+@Composable
+private fun AttachmentRow(url: String, fileName: String?) {
+    val context = LocalContext.current
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { CsvExporter.openWithChooser(context, Uri.parse(url), "*/*") },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Text(
+            fileName ?: "Attachment",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 4.dp),
+        )
     }
 }

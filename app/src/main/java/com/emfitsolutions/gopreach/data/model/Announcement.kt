@@ -18,6 +18,15 @@ data class Announcement(
      * null means no image (never uploaded, or cleared/removed since — spec:
      * "the image can be cleared or removed"). */
     val imageUrl: String? = null,
+    /** Optional — a PDF/Word/Excel (or other) document attached alongside
+     * (or instead of) [imageUrl], uploaded to Firebase Storage at
+     * `announcements/{id}/attachment`. Independent of the image: an
+     * announcement can have both, either, or neither. [attachmentFileName]
+     * is the original picked file's display name (Storage paths don't
+     * preserve it), shown in the UI and used as the suggested name if the
+     * Publisher downloads/opens it. */
+    val attachmentUrl: String? = null,
+    val attachmentFileName: String? = null,
     val createdByPersonId: String = "",
     val createdAt: Long = 0L,
     val lastEditedByPersonId: String? = null,
