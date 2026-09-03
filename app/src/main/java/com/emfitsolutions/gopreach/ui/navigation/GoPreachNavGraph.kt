@@ -330,10 +330,18 @@ fun GoPreachNavGraph(
         composable(Destinations.MANAGE_TERRITORIES) {
             // "Territory Module will be a map of location of every Search,
             // Interested, Return Visit, Bible Study" — no CRUD anymore, see
-            // TerritoryMapScreen's own doc comment. Same scoping as before:
-            // Super-Admin (ownCongregationId null) sees every congregation.
+            // TerritoryMapScreen's own doc comment (always view-only, so a
+            // Publisher reaching this route needs no separate readOnly flag
+            // — there's nothing to edit or delete in the first place).
+            // Falls back to a Publisher's own congregation (see
+            // ownPublisherAssignment above) — `ownCongregationId` alone is
+            // null for them, and null here means "every congregation," same
+            // fix as MANAGE_ANNOUNCEMENTS/MANAGE_CHAT_SCHEDULES already use.
+            // Explicit Super-Admin check first (also null in ownCongregationId)
+            // so they still see every congregation regardless of any Publisher
+            // assignment they might also hold.
             TerritoryMapScreen(
-                fixedCongregationId = ownCongregationId,
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownPublisherAssignment?.congregationId),
                 onBack = { navController.popBackStack() },
             )
         }

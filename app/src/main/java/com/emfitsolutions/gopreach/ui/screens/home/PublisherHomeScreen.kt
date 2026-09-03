@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.PeopleAlt
 import androidx.compose.material.icons.rounded.Person
@@ -460,6 +461,13 @@ private fun FeatureTileGrid(
         add(Tile("My Calendar", "View Schedule", Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
         add(Tile("Share My Location", "Share Live Location", Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
         add(Tile("Find Location", "Get Directions", Icons.Rounded.Navigation, Destinations.FIND_LOCATION))
+        // "Add the Territory Module in Publisher. The publisher can see all
+        // the location but cannot edit or delete, view only" — the screen
+        // itself has no edit/delete actions for anyone anymore (see
+        // TerritoryMapScreen), so reaching it here is already read-only by
+        // construction; scoped to the Publisher's own congregation (see
+        // GoPreachNavGraph's MANAGE_TERRITORIES composable).
+        add(Tile("Territory Map", "All Saved Locations", Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES))
         add(Tile("Announcement", "Latest Updates", Icons.Rounded.Campaign, Destinations.PUBLISHER_ANNOUNCEMENTS, unseenAnnouncements))
     }
 
