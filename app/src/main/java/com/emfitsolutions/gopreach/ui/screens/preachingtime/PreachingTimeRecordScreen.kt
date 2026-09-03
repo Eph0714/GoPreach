@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -234,7 +235,7 @@ private fun PreachingTimeRecordDialog(
         title = { Text(if (existingRecord == null) "Add Preaching Time Record" else "Edit Preaching Time Record") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()).imePadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 DateTimeField(label = "Date", valueMillis = date, onValueChange = { date = it })

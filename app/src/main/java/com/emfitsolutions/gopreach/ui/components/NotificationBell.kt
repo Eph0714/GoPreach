@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -85,7 +86,7 @@ fun NotificationBell(
                     modifier = Modifier.padding(16.dp),
                 )
             } else {
-                Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()).imePadding()) {
                     items.forEach { item ->
                         DropdownMenuItem(
                             text = {

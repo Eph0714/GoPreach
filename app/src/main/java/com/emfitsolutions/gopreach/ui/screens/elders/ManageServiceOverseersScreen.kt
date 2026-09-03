@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -111,7 +112,7 @@ private fun ServiceOverseerEditDialog(
         title = { Text("Edit ${row.person.fullName}") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()).imePadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 EditSectionHeader("Personal Information")

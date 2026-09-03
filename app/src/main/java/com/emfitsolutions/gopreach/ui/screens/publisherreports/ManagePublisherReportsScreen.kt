@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -440,7 +441,7 @@ private fun EditReportDialog(
         title = { Text("Edit ${row.person.fullName}'s Report") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()).imePadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 OutlinedTextField(

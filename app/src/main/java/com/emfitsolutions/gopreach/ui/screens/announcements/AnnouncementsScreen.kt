@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -218,7 +219,7 @@ fun AnnouncementsScreen(
             title = { Text(toView.title) },
             text = {
                 Column(
-                    modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                    modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).imePadding(),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (toView.imageUrl != null) {
@@ -278,7 +279,7 @@ private fun AnnouncementDialog(
         title = { Text(if (existing == null) "New Announcement" else "Edit Announcement") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()).imePadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (fixedCongregationId == null) {

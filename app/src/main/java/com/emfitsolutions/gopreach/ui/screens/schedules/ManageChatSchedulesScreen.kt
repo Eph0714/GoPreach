@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.ui.screens.schedules
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -196,7 +197,7 @@ private fun ChatScheduleDialog(
         title = { Text(if (existingSchedule == null) "New Chat Schedule" else "Edit Chat Schedule") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()).imePadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 OutlinedTextField(

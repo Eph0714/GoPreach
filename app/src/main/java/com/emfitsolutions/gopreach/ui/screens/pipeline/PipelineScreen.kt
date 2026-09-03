@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -354,7 +355,7 @@ private fun PipelinePersonDialog(
         title = { Text(if (existingPerson == null) "New ${stage.label()} Record" else "Edit Record") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 620.dp).verticalScroll(rememberScrollState()).imePadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 EditSectionHeader("Personal Information")
@@ -1113,7 +1114,7 @@ private fun AddVisitDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (existingVisit == null) "Log Visit" else "Edit Visit") },
         text = {
-            Column(modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 DateTimeField(label = "Visit Date/Time", valueMillis = visitDate, onValueChange = { visitDate = it })
                 OutlinedTextField(value = topic, onValueChange = { topic = it.uppercase() }, label = { Text("Remarks / Topic Discussed (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 VisitOutcomeDropdown(selected = outcome, onSelected = { outcome = it })

@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.ui.screens.groups
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -323,7 +324,7 @@ private fun GroupDialog(
         title = { Text(if (existingGroup == null) "New Group" else "Edit Group") },
         text = {
             Column(
-                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).imePadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (fixedCongregationId == null) {
