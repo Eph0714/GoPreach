@@ -505,7 +505,7 @@ private fun CoordinatesEditorField(coordinates: CoordinatesValue?, onChange: (Co
             }
             OutlinedButton(onClick = { showManualEntry = true }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                Text("Enter Coordinates Manually")
+                Text("Enter Location Manually")
             }
         }
     }
@@ -1051,7 +1051,7 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
                 }
                 OutlinedButton(onClick = { showManualEntry = true }) {
                     Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text("Enter Coordinates Manually")
+                    Text("Enter Location Manually")
                 }
             }
         }
