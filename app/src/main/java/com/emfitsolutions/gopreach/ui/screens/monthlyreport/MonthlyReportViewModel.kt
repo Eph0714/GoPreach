@@ -49,10 +49,14 @@ data class MonthlyReportUiState(
     val errorMessage: String? = null,
     val saved: Boolean = false,
 ) {
-    /** Spec §5.2: editable/deletable by the submitter only until submitted; after
-     * that only a Coordinator/Regular Elder can edit — [MonthlyReportScreen]
-     * passes `allowEditWhenLocked = true` for that elder-edit entry point. */
-    val isLocked: Boolean get() = existingReport?.status == ReportStatus.SUBMITTED
+    /** "Allow the publisher to edit the record until the service overseer
+     * will mark it as 'Posted'" — the Publisher may keep editing their own
+     * report through DRAFT *and* SUBMITTED; only [ReportStatus.POSTED]
+     * actually locks them out (see that enum value's own doc comment for
+     * who marks it and why Submit itself no longer does). [MonthlyReportScreen]
+     * passes `allowEditWhenLocked = true` for the separate Service Overseer/
+     * Admin/Super-Admin edit-anytime entry point. */
+    val isLocked: Boolean get() = existingReport?.status == ReportStatus.POSTED
 
     /** "Submission of report is done each month... available 2 days before
      * the end of each month" spec — this restriction only makes sense for

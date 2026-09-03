@@ -7,7 +7,6 @@ import androidx.work.WorkerParameters
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RecordStatus
-import com.emfitsolutions.gopreach.data.model.ReportStatus
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
@@ -103,7 +102,12 @@ class ReminderWorker @AssistedInject constructor(
         if (daysUntilMonthEnd <= 2) {
             val existing = monthlyReportRepository.observeAll().first()
                 .firstOrNull { it.publisherPersonId == person.id && it.periodMonth == periodMonthStart }
-            if (existing == null || existing.status != ReportStatus.SUBMITTED) {
+            // Bug fix: was `!= ReportStatus.SUBMITTED` — once a report can
+            // progress to POSTED, that comparison alone would wrongly
+            // re-trigger this "you haven't submitted yet" reminder for a
+            // publisher who very much had (see MonthlyReport
+            // .isSubmittedOrPosted's own doc comment).
+            if (existing == null || !existing.isSubmittedOrPosted) {
                 NotificationHelper.notify(
                     applicationContext,
                     NOTIFICATION_ID_SUBMIT_REPORT,

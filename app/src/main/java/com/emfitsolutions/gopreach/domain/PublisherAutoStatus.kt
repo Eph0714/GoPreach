@@ -2,7 +2,6 @@ package com.emfitsolutions.gopreach.domain
 
 import com.emfitsolutions.gopreach.data.model.MonthlyReport
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
-import com.emfitsolutions.gopreach.data.model.ReportStatus
 import java.util.Calendar
 
 /**
@@ -55,7 +54,11 @@ object PublisherAutoStatus {
         }
 
         fun reportedIn(monthStart: Long): Boolean {
-            val report = reportsForThisPublisher.firstOrNull { it.periodMonth == monthStart && it.status == ReportStatus.SUBMITTED }
+            // Bug fix: was `status == ReportStatus.SUBMITTED` — a Posted
+            // report (see MonthlyReport.isSubmittedOrPosted's doc comment)
+            // still counts as a real submission for irregular/inactive
+            // detection, not as if nothing was ever reported that month.
+            val report = reportsForThisPublisher.firstOrNull { it.periodMonth == monthStart && it.isSubmittedOrPosted }
                 ?: return false
             return if (isPioneer) (report.hoursRendered ?: 0.0) > 0.0 else report.participatedInPreaching == true
         }

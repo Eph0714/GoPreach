@@ -46,8 +46,12 @@ import java.util.Locale
 
 /**
  * Spec §5.2 — monthly ministry report. Shows only the fields required for the
- * signed-in publisher's category, and locks once submitted (only a Coordinator/
- * Regular Elder can edit it from that point — see [MonthlyReportUiState.isLocked]).
+ * signed-in publisher's category. Submitting no longer locks it by itself —
+ * the Publisher can keep editing their own report through DRAFT and
+ * SUBMITTED; it only locks once a Service Overseer/Admin/Super-Admin marks
+ * it Posted (see [MonthlyReportUiState.isLocked] and
+ * [com.emfitsolutions.gopreach.data.model.ReportStatus.POSTED]'s own doc
+ * comment).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,7 +120,7 @@ fun MonthlyReportScreen(
 
             if (effectivelyLocked) {
                 Text(
-                    "This report has been submitted and can only be changed by your Coordinator or Regular Elder.",
+                    "This report has been posted and can now only be changed by your Service Overseer, Admin, or Super-Admin.",
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                 )

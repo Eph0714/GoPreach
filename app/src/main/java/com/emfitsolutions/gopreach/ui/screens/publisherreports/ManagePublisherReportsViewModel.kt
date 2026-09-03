@@ -42,10 +42,13 @@ data class PublisherReportRow(
 ) {
     val category: PublisherCategory get() = report.category
     val isPioneer: Boolean get() = category == PublisherCategory.REGULAR_PIONEER || category == PublisherCategory.AUXILIARY_PIONEER
-    /** Spec: unlocked (a publisher can edit it again) vs. its normal locked
-     * state once submitted — [ReportStatus.DRAFT] doubles as "unlocked" here,
-     * the same status a fresh, not-yet-submitted report already starts as. */
-    val isLocked: Boolean get() = report.status == ReportStatus.SUBMITTED
+    /** Whether the *Publisher* can still edit this report themselves —
+     * "allow the publisher to edit the record until the service overseer
+     * will mark it as 'Posted'": true only once [ReportStatus.POSTED],
+     * unlike the old model where SUBMITTED alone already locked them out.
+     * DRAFT and SUBMITTED both read as "unlocked" here. */
+    val isLocked: Boolean get() = report.status == ReportStatus.POSTED
+    val isPosted: Boolean get() = report.status == ReportStatus.POSTED
 }
 
 data class ManagePublisherReportsUiState(
@@ -66,7 +69,9 @@ data class ManagePublisherReportsUiState(
 /**
  * "Manage Publisher Report" module — Super-Admin (every congregation),
  * Admin/Coordinator Elder/Service Overseer (own congregation only, via
- * [restrictTo]). Direct edits and Unlock are scoped the same way; permanent
+ * [restrictTo]). Direct edits and Unlock are scoped the same way; [markPosted]
+ * is narrower — Service Overseer/Admin/Super-Admin only, not Coordinator
+ * Elder (see ManagePublisherReportsScreen's `canMarkPosted`) — and permanent
  * delete is Super-Admin only (see [canPermanentlyDelete] usages at the call
  * site, same convention as every other Manage screen).
  */
@@ -214,11 +219,13 @@ class ManagePublisherReportsViewModel @Inject constructor(
     }
 
     /** "Unlock so that the publisher can edit it by himself" — flips a
-     * SUBMITTED report back to DRAFT, the same status a fresh report starts
-     * as; the publisher's own Monthly Report screen already treats DRAFT as
-     * editable (see MonthlyReportUiState.isLocked), and their next Submit
-     * puts it back to SUBMITTED — "it will return to status as lock" — with
-     * no separate flag needed here. */
+     * Posted (or Submitted) report back to DRAFT, the same status a fresh
+     * report starts as; the publisher's own Monthly Report screen already
+     * treats DRAFT (and now SUBMITTED too) as editable (see
+     * MonthlyReportUiState.isLocked), and their next Submit puts it back to
+     * SUBMITTED — "it will return to status as lock" — with no separate
+     * flag needed here. Doubles as "un-post": there's no other way back to
+     * an editable-by-the-publisher state from POSTED. */
     fun unlock(report: MonthlyReport, actorPersonId: String) {
         viewModelScope.launch {
             monthlyReportRepository.save(
@@ -227,6 +234,28 @@ class ManagePublisherReportsViewModel @Inject constructor(
             auditLogRepository.log(
                 actorPersonId = actorPersonId,
                 action = "UNLOCK_PUBLISHER_REPORT",
+                targetType = "MonthlyReport",
+                targetId = report.id,
+                congregationId = report.congregationId,
+            )
+        }
+    }
+
+    /** "Allow the publisher to edit the record until the service overseer
+     * will mark it as 'Posted', that's the time the publisher can no
+     * longer edit the record" — the actual lock trigger, gated at the call
+     * site to Service Overseer/Admin (own congregation)/Super-Admin (see
+     * ManagePublisherReportsScreen's `canMarkPosted`). Distinct from
+     * [unlock] going the other way: this is the one action that actually
+     * shuts the Publisher's own edit access off. */
+    fun markPosted(report: MonthlyReport, actorPersonId: String) {
+        viewModelScope.launch {
+            monthlyReportRepository.save(
+                report.copy(status = ReportStatus.POSTED, lastEditedByPersonId = actorPersonId, lastEditedAt = System.currentTimeMillis()),
+            )
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "MARK_PUBLISHER_REPORT_POSTED",
                 targetType = "MonthlyReport",
                 targetId = report.id,
                 congregationId = report.congregationId,

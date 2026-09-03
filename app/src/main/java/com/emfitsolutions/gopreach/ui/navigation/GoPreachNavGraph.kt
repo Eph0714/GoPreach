@@ -395,6 +395,14 @@ fun GoPreachNavGraph(
             val canEditPublisherReports = currentRole in setOf(
                 AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER,
             )
+            // "The service overseer will mark it as 'Posted'... the admin
+            // and super admin can do the same" — narrower than the general
+            // edit set above: Coordinator Elder can still edit a report's
+            // fields directly (canEditPublisherReports), just not mark it
+            // Posted.
+            val canMarkPosted = currentRole in setOf(
+                AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.SERVICE_OVERSEER,
+            )
             ManagePublisherReportsScreen(
                 currentPersonId = currentPersonId,
                 // Falls back to a Regular Elder's own group's congregation
@@ -403,6 +411,7 @@ fun GoPreachNavGraph(
                 // here means "every congregation").
                 fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
+                canMarkPosted = canMarkPosted,
                 readOnly = !canEditPublisherReports,
                 onBack = { navController.popBackStack() },
             )

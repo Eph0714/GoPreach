@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.MonthlyReport
 import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
-import com.emfitsolutions.gopreach.data.model.ReportStatus
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
@@ -92,8 +91,12 @@ class PublisherDashboardViewModel @Inject constructor(
             .map { it.id }
             .toSet()
         val visitsInRange = visits.filter { range.contains(it.visitDate) && it.interestedPersonId in returnVisitPersonIds }
+        // Bug fix: was `status == ReportStatus.SUBMITTED` — a Posted report
+        // (see MonthlyReport.isSubmittedOrPosted's doc comment) still
+        // counts toward this Publisher's own dashboard totals; it used to
+        // silently drop out of their own stats the moment it was Posted.
         val reportsInRange = allReports.filter {
-            it.publisherPersonId == publisherPersonId && it.status == ReportStatus.SUBMITTED && range.overlapsMonth(it.periodMonth)
+            it.publisherPersonId == publisherPersonId && it.isSubmittedOrPosted && range.overlapsMonth(it.periodMonth)
         }
         val bibleStudies = allPeople.filter { it.publisherPersonId == publisherPersonId && it.pipelineStage == PipelineStage.BIBLE_STUDY }
         PublisherDashboardStats(

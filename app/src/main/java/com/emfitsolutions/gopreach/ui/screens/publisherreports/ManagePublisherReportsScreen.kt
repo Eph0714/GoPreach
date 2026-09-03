@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Search
@@ -56,6 +57,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.ReportStatus
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
@@ -70,11 +72,20 @@ import java.util.Locale
  * boundary, resolved by the caller from the enrolling session's own role
  * (null means Super-Admin — every congregation); [canPermanentlyDelete] is
  * Super-Admin-only, same convention as every other Manage screen.
- * [readOnly] hides Edit/Unlock (and Delete, on top of [canPermanentlyDelete])
- * — a grant-based Circuit Overseer with a report-view permission reaches
- * this screen but can never edit through it, since firestore.rules blocks
- * every restricted user's `monthlyReports` write regardless of permission
- * (see AdminHomeScreen.canManagePublisherReports's doc comment).
+ * [readOnly] hides Edit/Unlock/Mark Posted (and Delete, on top of
+ * [canPermanentlyDelete]) — a grant-based Circuit Overseer with a report-view
+ * permission reaches this screen but can never edit through it, since
+ * firestore.rules blocks every restricted user's `monthlyReports` write
+ * regardless of permission (see AdminHomeScreen.canManagePublisherReports's
+ * doc comment).
+ *
+ * [canMarkPosted] — "the service overseer will mark it as 'Posted'... the
+ * admin and super admin can do the same [edit a Posted report]" — narrower
+ * than [readOnly]/general edit access: Service Overseer, Admin (own
+ * congregation, via [fixedCongregationId]), and Super-Admin only, not
+ * Coordinator Elder even though Coordinator Elder can still edit a report's
+ * fields directly through the always-available Edit action regardless of
+ * status (that part was never gated by [ReportStatus] and isn't changing).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,6 +93,7 @@ fun ManagePublisherReportsScreen(
     currentPersonId: String,
     fixedCongregationId: String?,
     canPermanentlyDelete: Boolean,
+    canMarkPosted: Boolean,
     readOnly: Boolean = false,
     onBack: () -> Unit,
     viewModel: ManagePublisherReportsViewModel = hiltViewModel(),
@@ -236,6 +248,12 @@ fun ManagePublisherReportsScreen(
                                                 IconButton(onClick = { viewModel.unlock(row.report, currentPersonId) }) {
                                                     Icon(Icons.Rounded.LockOpen, contentDescription = "Unlock for publisher")
                                                 }
+                                            } else if (canMarkPosted) {
+                                                // "The service overseer will mark it as 'Posted', that's
+                                                // the time the publisher can no longer edit the record."
+                                                IconButton(onClick = { viewModel.markPosted(row.report, currentPersonId) }) {
+                                                    Icon(Icons.Rounded.Lock, contentDescription = "Mark as Posted")
+                                                }
                                             }
                                         }
                                         if (canPermanentlyDelete && !readOnly) {
@@ -253,9 +271,13 @@ fun ManagePublisherReportsScreen(
                                 )
                                 Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
                                 Text(
-                                    if (row.isLocked) "Locked" else "Unlocked — editable by the publisher",
+                                    when {
+                                        row.isPosted -> "Posted — locked for the publisher"
+                                        row.report.status == ReportStatus.SUBMITTED -> "Submitted — still editable by the publisher"
+                                        else -> "Draft — editable by the publisher"
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (row.isLocked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.secondary,
+                                    color = if (row.isPosted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.secondary,
                                 )
                             }
                         }

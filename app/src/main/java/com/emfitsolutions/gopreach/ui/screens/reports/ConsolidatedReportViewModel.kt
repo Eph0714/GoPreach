@@ -10,7 +10,6 @@ import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.PreachingTimeRecord
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RecordStatus
-import com.emfitsolutions.gopreach.data.model.ReportStatus
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
@@ -177,8 +176,12 @@ class ConsolidatedReportViewModel @Inject constructor(
                 val participatedInMinistry = if (isPioneer) {
                     null
                 } else {
+                    // Bug fix: was `status == ReportStatus.SUBMITTED` — a
+                    // Posted report (see MonthlyReport.isSubmittedOrPosted's
+                    // doc comment) still counts toward this total; it used
+                    // to silently drop out the moment it was Posted.
                     val reportsInRange = records.reports.filter {
-                        it.publisherPersonId == person.id && it.status == ReportStatus.SUBMITTED && range.overlapsMonth(it.periodMonth)
+                        it.publisherPersonId == person.id && it.isSubmittedOrPosted && range.overlapsMonth(it.periodMonth)
                     }
                     if (reportsInRange.isEmpty()) null else reportsInRange.any { it.participatedInPreaching == true }
                 }
