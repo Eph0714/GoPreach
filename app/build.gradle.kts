@@ -15,8 +15,8 @@ android {
         applicationId = "com.emfitsolutions.gopreach"
         minSdk = 24
         targetSdk = 35
-        versionCode = 70
-        versionName = "1.55.0"
+        versionCode = 71
+        versionName = "1.56.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
