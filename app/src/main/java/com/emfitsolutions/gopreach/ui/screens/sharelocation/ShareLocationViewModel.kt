@@ -191,7 +191,7 @@ class ShareLocationViewModel @Inject constructor(
         if (enabled) {
             LocationSharingService.start(context, publisherPersonId, congregationId, groupId)
         } else {
-            LocationSharingService.stop(context)
+            LocationSharingService.stop(context, publisherPersonId)
         }
     }
 }

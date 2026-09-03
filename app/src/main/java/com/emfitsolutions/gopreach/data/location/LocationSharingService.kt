@@ -23,6 +23,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -64,7 +65,23 @@ class LocationSharingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            serviceScope.launch { stopSharingAndSelf() }
+            // Bug fix ("Share location cannot be turned off"): this used to
+            // rely solely on [lastPublished], an in-memory field that only
+            // this exact Service *instance* ever sets — while it's actually
+            // running the sharing loop below. Stop is delivered via
+            // `startService()`, which Android is free to satisfy by cold-
+            // starting a brand-new instance of this Service (e.g. the
+            // previous one already died — process killed, doze, the OS
+            // reclaiming it — while the Firestore doc it last wrote was
+            // still `isSharing = true`); that new instance's [lastPublished]
+            // is null, so the old "only write if lastPublished != null"
+            // stop path silently did nothing and the doc stayed stuck
+            // showing as sharing forever, no matter how many times the
+            // Publisher tapped the toggle off. Now the publisher id always
+            // rides along with the stop request itself, so stopping never
+            // depends on this being the same instance that started sharing.
+            val publisherPersonId = intent.getStringExtra(EXTRA_PUBLISHER_PERSON_ID)
+            serviceScope.launch { stopSharingAndSelf(publisherPersonId) }
             return START_NOT_STICKY
         }
 
@@ -83,7 +100,7 @@ class LocationSharingService : Service() {
         sharingJob?.cancel()
         sharingJob = serviceScope.launch {
             runSharingLoop(publisherPersonId, congregationId, groupId)
-            stopSharingAndSelf()
+            stopSharingAndSelf(publisherPersonId)
         }
         return START_NOT_STICKY
     }
@@ -127,11 +144,17 @@ class LocationSharingService : Service() {
      * would otherwise abandon this write mid-flight and leave the doc
      * showing `isSharing = true` forever (which is exactly the "someone's
      * location is still showing as shared even though they stopped" failure
-     * mode this needs to avoid). */
-    private suspend fun stopSharingAndSelf() {
+     * mode this needs to avoid). [publisherPersonId] is who to stop sharing
+     * for — passed in explicitly (see [onStartCommand]'s [ACTION_STOP]
+     * branch) rather than trusted to always be this instance's own
+     * [lastPublished], which a freshly (re)started instance never has. */
+    private suspend fun stopSharingAndSelf(publisherPersonId: String? = null) {
         sharingJob?.cancel()
         val toStop = lastPublished
-        if (toStop != null) {
+            ?: publisherPersonId?.let { id ->
+                runCatching { sharedLocationRepository.observeFor(id).first() }.getOrNull()
+            }
+        if (toStop != null && toStop.isSharing) {
             runCatching { sharedLocationRepository.stopSharing(toStop.publisherPersonId, toStop) }
                 .onFailure { Log.e(TAG, "Failed to persist stop-sharing", it) }
         }
@@ -184,8 +207,17 @@ class LocationSharingService : Service() {
             androidx.core.content.ContextCompat.startForegroundService(context, intent)
         }
 
-        fun stop(context: Context) {
-            context.startService(Intent(context, LocationSharingService::class.java).setAction(ACTION_STOP))
+        /** [publisherPersonId] rides along on the stop intent itself now
+         * (bug fix — see [onStartCommand]'s [ACTION_STOP] doc comment) so a
+         * cold-started instance handling this stop can still find and clear
+         * the right [SharedLocation] doc, even if it never ran the sharing
+         * loop itself. */
+        fun stop(context: Context, publisherPersonId: String) {
+            context.startService(
+                Intent(context, LocationSharingService::class.java)
+                    .setAction(ACTION_STOP)
+                    .putExtra(EXTRA_PUBLISHER_PERSON_ID, publisherPersonId),
+            )
         }
     }
 }
