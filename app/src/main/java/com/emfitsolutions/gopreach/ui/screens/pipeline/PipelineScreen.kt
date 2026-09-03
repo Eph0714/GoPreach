@@ -191,14 +191,20 @@ private fun PipelineListScreen(
             )
         },
         floatingActionButton = {
-            // New records only ever start in Searching (spec: "the publisher
-            // will record the newly found potential RV or Bible Study" here);
-            // Return Visit/Bible Study only ever gain records via [MOVE TO...]
-            // on an existing Searching/Return Visit record.
-            if (stage == PipelineStage.SEARCHING) {
-                FloatingActionButton(onClick = { showCreateDialog = true }) {
-                    Icon(Icons.Rounded.Add, contentDescription = "New Searching Record")
-                }
+            // "The Publisher can directly add from Return Visit and Bible
+            // Study Module... use the same entity as the Searching Fields.
+            // If it save under Return Visit Module then the status will be
+            // automatically 'Return Visit'" — a new record can now be
+            // created directly at whichever stage screen it's added from,
+            // not just Searching; [PipelinePersonDialog] sets the new
+            // record's initial [InterestedPerson.pipelineStage] to this
+            // [stage] rather than always defaulting to Searching. A record
+            // still gains further stages the normal way too ([MOVE TO
+            // RETURN VISIT]/[MOVE TO BIBLE STUDY] on an existing record) —
+            // this is an additional entry point, not a replacement for that
+            // one.
+            FloatingActionButton(onClick = { showCreateDialog = true }) {
+                Icon(Icons.Rounded.Add, contentDescription = "New ${stage.label()} Record")
             }
         },
     ) { padding ->
@@ -258,6 +264,7 @@ private fun PipelineListScreen(
             publisherPersonId = publisherPersonId,
             congregationId = congregationId,
             currentPersonId = currentPersonId,
+            stage = stage,
             onSave = { viewModel.save(it); showToast("Record added.") },
             onDismiss = { showCreateDialog = false },
             viewModel = viewModel,
@@ -302,16 +309,24 @@ private fun PublisherForwardStatusBadge(person: InterestedPerson, viewModel: Pip
     Text(text, style = MaterialTheme.typography.bodySmall, color = color)
 }
 
-/** Full Searching-stage create/edit form (spec's field list). A Return
- * Visit/Bible Study record is opened read/append-only here for the fields
- * this dialog edits — reached only via [PipelinePersonDetailScreen]'s Edit
- * action, which every stage still offers for correcting a typo etc. */
+/** The same create/edit form (spec's full Searching field list) for every
+ * stage — spec: "the Publisher can directly add from Return Visit and Bible
+ * Study Module... use the same entity as the Searching Fields." A brand-new
+ * record ([existingPerson] null) is created with [PipelineStage] set to
+ * whichever [stage] this dialog was opened from — "if it save under Return
+ * Visit Module then the status will be automatically 'Return Visit'" — so
+ * adding from the Bible Study screen skips straight to Bible Study without
+ * a separate [MOVE TO...] step, same for Return Visit. Editing an existing
+ * record ([existingPerson] non-null) never changes its stage here — [stage]
+ * is unused in that path — a record's stage still only ever advances via
+ * [MOVE TO RETURN VISIT]/[MOVE TO BIBLE STUDY] on [PipelinePersonDetailScreen]. */
 @Composable
 private fun PipelinePersonDialog(
     existingPerson: InterestedPerson?,
     publisherPersonId: String,
     congregationId: String,
     currentPersonId: String,
+    stage: PipelineStage,
     onSave: (InterestedPerson) -> Unit,
     onDismiss: () -> Unit,
     viewModel: PipelineViewModel,
@@ -336,7 +351,7 @@ private fun PipelinePersonDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existingPerson == null) "New Searching Record" else "Edit Record") },
+        title = { Text(if (existingPerson == null) "New ${stage.label()} Record" else "Edit Record") },
         text = {
             Column(
                 modifier = Modifier.heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
@@ -390,6 +405,12 @@ private fun PipelinePersonDialog(
                             congregationId = congregationId,
                             createdAt = now,
                             createdByPersonId = currentPersonId,
+                            // "If it save under Return Visit Module then the
+                            // status will be automatically in 'Return
+                            // Visit'" — a brand-new record starts at
+                            // whichever stage this dialog was opened from,
+                            // not always Searching.
+                            pipelineStage = stage,
                             stageEnteredAt = now,
                         )
                         onSave(
@@ -646,6 +667,10 @@ private fun PipelinePersonDetailScreen(
             publisherPersonId = person.publisherPersonId,
             congregationId = livePerson.congregationId,
             currentPersonId = currentPersonId,
+            // Irrelevant for an edit (existingPerson != null short-circuits
+            // the new-record construction below) — passed only because
+            // this stage-aware dialog now always needs one.
+            stage = stage,
             onSave = { viewModel.save(it); showToast("Record saved.") },
             onDismiss = { showEditDialog = false },
             viewModel = viewModel,
