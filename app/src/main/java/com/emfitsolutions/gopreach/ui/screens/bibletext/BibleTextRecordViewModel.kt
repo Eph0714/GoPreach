@@ -14,6 +14,43 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** "Add an initial category" — the starter set every Publisher's own
+ * category list is seeded with the first time they have none (see
+ * [BibleTextRecordViewModel.seedDefaultCategoriesIfNeeded]). Plain names,
+ * not ids — a Publisher can freely rename, delete, or add to these
+ * afterward, same as any category they created themselves; nothing else in
+ * this module treats a default category specially once it exists. */
+val DEFAULT_BIBLE_TEXT_CATEGORIES: List<String> = listOf(
+    "God and His Attributes",
+    "Jesus Christ",
+    "The Bible and Its Teachings",
+    "God's Kingdom",
+    "Faith and Spirituality",
+    "Prayer and Worship",
+    "Christian Living",
+    "Christian Qualities",
+    "Family and Personal Matters",
+    "Marriage and Relationships",
+    "Parenting and Children",
+    "Youth and Young People",
+    "Daily Life and Practical Decisions",
+    "Work, Money, and Material Things",
+    "Health and Well-Being",
+    "Peace, Happiness, and Encouragement",
+    "Trials, Suffering, and Challenges",
+    "Life and Death",
+    "Sin, Forgiveness, and Salvation",
+    "Conduct and Moral Issues",
+    "Friendship and Relationships",
+    "Congregation and Christian Unity",
+    "Ministry and Evangelism",
+    "Bible Prophecy and the Future",
+    "Bible History",
+    "Bible Characters and Examples",
+    "Science and the Bible",
+    "Bible Study and Understanding",
+)
+
 /** Result of attempting to delete a [BibleTextCategory] — spec §11 "Category
  * Delete Protection": a category currently assigned to one or more records
  * is never silently deleted (or, worse, silently orphans those records). */
@@ -46,6 +83,34 @@ class BibleTextRecordViewModel @Inject constructor(
 
     fun categoriesFor(publisherPersonId: String): Flow<List<BibleTextCategory>> =
         categoryRepository.observeForPublisher(publisherPersonId)
+
+    /** In-memory guard so a rapid recomposition/re-collection of
+     * [categoriesFor] can't call [seedDefaultCategoriesIfNeeded] twice
+     * before the first save round-trips through the offline cache and the
+     * flow re-emits a non-empty list — not persisted, since "already
+     * seeded, stay empty" isn't something this needs to remember past this
+     * ViewModel's own lifetime; a genuinely still-empty list next time this
+     * screen opens is exactly the case this feature exists for. */
+    private val seededForPublisher = mutableSetOf<String>()
+
+    /** "Add an initial category" — the first time a Publisher's own
+     * category list is genuinely empty (a brand-new Publisher, or one who
+     * deleted every category they had), seeds it with
+     * [DEFAULT_BIBLE_TEXT_CATEGORIES] so they land on a populated Category
+     * dropdown instead of an empty one with no starting point. Every seeded
+     * category is a completely ordinary [BibleTextCategory] afterward —
+     * freely renamable/deletable, no different from one the Publisher
+     * typed in themselves. */
+    fun seedDefaultCategoriesIfNeeded(publisherPersonId: String, currentCategories: List<BibleTextCategory>) {
+        if (currentCategories.isNotEmpty()) return
+        if (!seededForPublisher.add(publisherPersonId)) return
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            DEFAULT_BIBLE_TEXT_CATEGORIES.forEach { name ->
+                categoryRepository.save(BibleTextCategory(publisherPersonId = publisherPersonId, name = name, createdAt = now, updatedAt = now))
+            }
+        }
+    }
 
     fun saveRecord(record: BibleTextRecord) {
         viewModelScope.launch { recordRepository.save(record) }

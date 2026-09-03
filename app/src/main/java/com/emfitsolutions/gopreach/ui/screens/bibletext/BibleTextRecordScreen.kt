@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.BibleTextCategory
 import com.emfitsolutions.gopreach.data.model.BibleTextRecord
@@ -54,6 +55,7 @@ import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.domain.NwtBibleReferenceData
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import kotlinx.coroutines.flow.first
 
 private enum class BibleTextSort(val label: String) {
     BOOK("Bible Book"), CHAPTER("Chapter"), DATE_ADDED("Date Added"), CATEGORY("Category"), LANGUAGE("Language")
@@ -94,6 +96,17 @@ fun BibleTextRecordScreen(
     val records by recordsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val categoriesFlow = remember(publisherPersonId) { viewModel.categoriesFor(publisherPersonId) }
     val categories by categoriesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    // "Add an initial category" — seeded once this Publisher's *actual*
+    // first emission from the underlying flow comes back empty. Collecting
+    // categoriesFlow.first() directly here (not the `categories` state
+    // above, which starts at the emptyList() placeholder before the real
+    // cache/Firestore data ever arrives) avoids wrongly seeding for a
+    // Publisher who already has categories, just not loaded onto screen
+    // yet.
+    LaunchedEffect(publisherPersonId) {
+        viewModel.seedDefaultCategoriesIfNeeded(publisherPersonId, categoriesFlow.first())
+    }
     val categoriesById = remember(categories) { categories.associateBy { it.id } }
     val showToast = rememberActionToast()
 
