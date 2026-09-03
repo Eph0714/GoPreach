@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -61,6 +62,11 @@ fun MonthlyReportScreen(
      * publisher's report rather than the publisher editing their own (spec
      * §5.2's post-submission edit right). */
     allowEditWhenLocked: Boolean = false,
+    /** "Allow the publisher to see all his submitted Report record" — shown
+     * as a top-bar action only for the Publisher's own normal entry point
+     * (null for the separate Elder-editing-someone-else's-report route,
+     * where a report-history shortcut doesn't make sense). */
+    onViewHistory: (() -> Unit)? = null,
     onBack: () -> Unit,
     viewModel: MonthlyReportViewModel = hiltViewModel(),
 ) {
@@ -87,6 +93,13 @@ fun MonthlyReportScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (onViewHistory != null) {
+                        IconButton(onClick = onViewHistory) {
+                            Icon(Icons.AutoMirrored.Rounded.ListAlt, contentDescription = "My Reports")
+                        }
                     }
                 },
             )

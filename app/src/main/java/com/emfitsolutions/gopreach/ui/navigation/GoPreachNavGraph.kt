@@ -49,6 +49,7 @@ import com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsS
 import com.emfitsolutions.gopreach.ui.screens.bibletext.BibleTextRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.preachingtime.PreachingTimeRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MonthlyReportScreen
+import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MySubmittedReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.login.LoginScreen
 import com.emfitsolutions.gopreach.ui.screens.publishers.ManagePublishersScreen
 import com.emfitsolutions.gopreach.ui.screens.announcements.AnnouncementsScreen
@@ -543,6 +544,15 @@ fun GoPreachNavGraph(
         }
         composable(Destinations.MONTHLY_REPORT) {
             MonthlyReportScreen(
+                publisherPersonId = currentPersonId,
+                onViewHistory = { navController.navigate(Destinations.MY_SUBMITTED_REPORTS) },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.MY_SUBMITTED_REPORTS) {
+            // "Allow the publisher to see all his submitted Report record" —
+            // own reports only, every period, read-only.
+            MySubmittedReportsScreen(
                 publisherPersonId = currentPersonId,
                 onBack = { navController.popBackStack() },
             )

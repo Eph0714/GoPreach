@@ -62,6 +62,10 @@ object Destinations {
     const val MONTHLY_REPORT = "monthly_report"
     const val EDIT_MONTHLY_REPORT = "edit_monthly_report/{targetPersonId}"
     fun editMonthlyReport(targetPersonId: String) = "edit_monthly_report/$targetPersonId"
+    // "Allow the publisher to see all his submitted Report record" — a
+    // read-only history, separate from MONTHLY_REPORT's current/previous-
+    // month editing form.
+    const val MY_SUBMITTED_REPORTS = "my_submitted_reports"
 
     // "Redesign the Publisher Dashboard" — Searching → Return Visit → Bible
     // Study pipeline (see PipelineStage). Replaces the old separate

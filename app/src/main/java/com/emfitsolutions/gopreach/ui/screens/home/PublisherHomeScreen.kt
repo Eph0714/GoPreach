@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Forward
+import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.Bookmarks
@@ -440,6 +441,10 @@ private fun FeatureTileGrid(
 
     val tiles = buildList {
         add(Tile("Monthly Report", "Submit Report", Icons.Rounded.Assignment, Destinations.MONTHLY_REPORT))
+        // "Allow the publisher to see all his submitted Report record" —
+        // its own tile since MONTHLY_REPORT's form only ever shows the
+        // current/previous month, not the full history.
+        add(Tile("My Reports", "View Report History", Icons.AutoMirrored.Rounded.ListAlt, Destinations.MY_SUBMITTED_REPORTS))
         add(Tile("Searching", "Find Interested Ones", Icons.Rounded.PersonSearch, Destinations.SEARCHING))
         add(Tile("Return Visit", "Record & Follow-up", Icons.Rounded.PeopleAlt, Destinations.RETURN_VISIT))
         add(Tile("Bible Study", "View & Manage", Icons.AutoMirrored.Rounded.MenuBook, Destinations.BIBLE_STUDY))
