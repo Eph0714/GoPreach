@@ -540,6 +540,8 @@ private fun PipelinePersonDetailScreen(
     var showForwardDialog by remember { mutableStateOf(false) }
     var showForwardToPublisherDialog by remember { mutableStateOf(false) }
     var selectedVisit by remember { mutableStateOf<Visit?>(null) }
+    var pendingEditVisit by remember { mutableStateOf<Visit?>(null) }
+    var pendingDeleteVisit by remember { mutableStateOf<Visit?>(null) }
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
     val sortedVisits = remember(visits) { visits.sortedByDescending { it.visitDate } }
     val createdByName by remember(livePerson.createdByPersonId) { viewModel.personName(livePerson.createdByPersonId) }.collectAsStateWithLifecycle(initialValue = null)
@@ -635,7 +637,10 @@ private fun PipelinePersonDetailScreen(
                                 val visitorName by remember(visit.publisherPersonId) { viewModel.personName(visit.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
                                 Text("${stage.visitorLabel()}: ${visitorName ?: "—"}", style = MaterialTheme.typography.bodySmall)
                             }
-                            IconButton(onClick = { viewModel.deleteVisit(person.id, visit.id); showToast("Visit deleted.") }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete visit") }
+                            Row {
+                                IconButton(onClick = { pendingEditVisit = visit }) { Icon(Icons.Rounded.Edit, contentDescription = "Edit visit") }
+                                IconButton(onClick = { pendingDeleteVisit = visit }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete visit") }
+                            }
                         }
                     }
                 }
@@ -652,12 +657,49 @@ private fun PipelinePersonDetailScreen(
 
     if (showAddVisit) {
         AddVisitDialog(
+            existingVisit = null,
             interestedPersonId = person.id,
             publisherPersonId = person.publisherPersonId,
             currentPersonId = currentPersonId,
             stage = stage,
             onSave = { viewModel.saveVisit(it); showToast("Visit logged.") },
             onDismiss = { showAddVisit = false },
+        )
+    }
+
+    val toEditVisit = pendingEditVisit
+    if (toEditVisit != null) {
+        AddVisitDialog(
+            existingVisit = toEditVisit,
+            interestedPersonId = person.id,
+            publisherPersonId = person.publisherPersonId,
+            currentPersonId = currentPersonId,
+            stage = stage,
+            onSave = { viewModel.saveVisit(it); showToast("Visit updated.") },
+            onDismiss = { pendingEditVisit = null },
+        )
+    }
+
+    // "Delete (Permanently)" — deleteVisit has always been a real, hard
+    // delete (Visit carries no RecordStatus/inactive concept to soft-delete
+    // into); this was previously wired straight to the trash icon with no
+    // confirmation at all, so a stray tap wiped a Visit History entry with
+    // zero chance to back out. A confirmation now guards it, matching every
+    // other permanent-delete flow in this app.
+    val toDeleteVisit = pendingDeleteVisit
+    if (toDeleteVisit != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteVisit = null },
+            title = { Text("Delete Visit?") },
+            text = { Text("This will permanently delete the visit logged on ${dateFormat.format(Date(toDeleteVisit.visitDate))}. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteVisit(person.id, toDeleteVisit.id)
+                    showToast("Visit deleted.")
+                    pendingDeleteVisit = null
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDeleteVisit = null }) { Text("Cancel") } },
         )
     }
 
@@ -1043,6 +1085,12 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddVisitDialog(
+    /** Non-null makes this an edit of an existing Visit History entry
+     * (spec: "allow the publisher to Add, edit and delete... the Visit
+     * History") — pre-fills every field from it and preserves its id/
+     * createdAt/createdByPersonId on save, only ever changing the fields
+     * this form actually edits. */
+    existingVisit: Visit?,
     interestedPersonId: String,
     publisherPersonId: String,
     currentPersonId: String,
@@ -1050,15 +1098,15 @@ private fun AddVisitDialog(
     onSave: (Visit) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var visitDate by remember { mutableStateOf<Long?>(null) }
-    var topic by remember { mutableStateOf("") }
-    var outcome by remember { mutableStateOf(VisitOutcome.NOT_AT_HOME) }
-    var minutesText by remember { mutableStateOf("") }
-    var followUpDate by remember { mutableStateOf<Long?>(null) }
+    var visitDate by remember { mutableStateOf(existingVisit?.visitDate) }
+    var topic by remember { mutableStateOf(existingVisit?.topicDiscussed.orEmpty()) }
+    var outcome by remember { mutableStateOf(existingVisit?.outcome ?: VisitOutcome.NOT_AT_HOME) }
+    var minutesText by remember { mutableStateOf(existingVisit?.timeConsumedMinutes?.toString().orEmpty()) }
+    var followUpDate by remember { mutableStateOf(existingVisit?.followUpDate) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Log Visit") },
+        title = { Text(if (existingVisit == null) "Log Visit" else "Edit Visit") },
         text = {
             Column(modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 DateTimeField(label = "Visit Date/Time", valueMillis = visitDate, onValueChange = { visitDate = it })
@@ -1075,24 +1123,26 @@ private fun AddVisitDialog(
                     val date = visitDate
                     val minutes = minutesText.toIntOrNull()
                     if (date != null && minutes != null) {
+                        val base = existingVisit ?: Visit(
+                            interestedPersonId = interestedPersonId,
+                            publisherPersonId = publisherPersonId,
+                            createdAt = System.currentTimeMillis(),
+                            createdByPersonId = currentPersonId,
+                        )
                         onSave(
-                            Visit(
-                                interestedPersonId = interestedPersonId,
+                            base.copy(
                                 visitDate = date,
                                 visitTime = date,
                                 topicDiscussed = topic.trim().ifBlank { null },
                                 outcome = outcome,
                                 timeConsumedMinutes = minutes,
-                                publisherPersonId = publisherPersonId,
                                 followUpDate = followUpDate,
-                                createdAt = System.currentTimeMillis(),
-                                createdByPersonId = currentPersonId,
                             )
                         )
                         onDismiss()
                     }
                 },
-            ) { Text("Save") }
+            ) { Text(if (existingVisit == null) "Save" else "Save Changes") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
