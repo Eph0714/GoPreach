@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.ui.screens.findlocation
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.DirectionsBike
 import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
+import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DirectionsBus
 import androidx.compose.material.icons.rounded.DirectionsCar
@@ -35,6 +37,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -49,13 +54,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
+import com.emfitsolutions.gopreach.data.model.InterestedPerson
+import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.SavedLocation
 import com.emfitsolutions.gopreach.ui.components.RoundIconActionButton
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -92,21 +98,24 @@ fun FindLocationScreen(
 ) {
     val context = LocalContext.current
     val showToast = rememberActionToast()
-    var latText by remember { mutableStateOf("") }
-    var lngText by remember { mutableStateOf("") }
+    // "Make the Latitude and Longitude in the same text field" — one field,
+    // comma-separated ("14.5995, 120.9842"), rather than two.
+    var coordinatesText by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var showSaveDialog by remember { mutableStateOf(false) }
+    var showAssignDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<SavedLocation?>(null) }
 
     val savedLocationsFlow = remember(currentPersonId) { viewModel.savedLocationsFor(currentPersonId) }
     val savedLocations by savedLocationsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     fun submit() {
-        val lat = latText.trim().toDoubleOrNull()
-        val lng = lngText.trim().toDoubleOrNull()
+        val parts = coordinatesText.trim().split(",").map { it.trim() }
+        val lat = parts.getOrNull(0)?.toDoubleOrNull()
+        val lng = parts.getOrNull(1)?.toDoubleOrNull()
         errorText = when {
-            lat == null || lng == null -> "Enter both latitude and longitude as numbers."
+            parts.size != 2 || lat == null || lng == null -> "Enter latitude and longitude separated by a comma, e.g. 14.5995, 120.9842."
             lat < -90.0 || lat > 90.0 -> "Latitude must be between -90 and 90."
             lng < -180.0 || lng > 180.0 -> "Longitude must be between -180 and 180."
             else -> null
@@ -137,22 +146,11 @@ fun FindLocationScreen(
             )
 
             OutlinedTextField(
-                value = latText,
-                onValueChange = { latText = it; errorText = null },
-                label = { Text("Latitude") },
-                placeholder = { Text("e.g. 14.5995") },
+                value = coordinatesText,
+                onValueChange = { coordinatesText = it; errorText = null },
+                label = { Text("Latitude, Longitude") },
+                placeholder = { Text("e.g. 14.5995, 120.9842") },
                 singleLine = true,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
-                visualTransformation = VisualTransformation.None,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = lngText,
-                onValueChange = { lngText = it; errorText = null },
-                label = { Text("Longitude") },
-                placeholder = { Text("e.g. 120.9842") },
-                singleLine = true,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
                 visualTransformation = VisualTransformation.None,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -188,9 +186,24 @@ fun FindLocationScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        OutlinedButton(onClick = { showSaveDialog = true }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                            Icon(Icons.Rounded.Save, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
-                            Text("Save Location")
+                        // "The publisher can save the location and can
+                        // assign a 'Searching Record', 'Return Visit'
+                        // record or 'Bible Study' Record or simply save the
+                        // coordinates with remarks" — both actions are
+                        // offered side by side; neither one requires the
+                        // other.
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            OutlinedButton(onClick = { showSaveDialog = true }, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Rounded.Save, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                                Text("Save Location")
+                            }
+                            OutlinedButton(onClick = { showAssignDialog = true }, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Rounded.Assignment, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                                Text("Assign to Record")
+                            }
                         }
                     }
                 }
@@ -230,8 +243,7 @@ fun FindLocationScreen(
                             }
                             Row {
                                 TextButton(onClick = {
-                                    latText = saved.lat.toString()
-                                    lngText = saved.lng.toString()
+                                    coordinatesText = "${saved.lat}, ${saved.lng}"
                                     destination = saved.lat to saved.lng
                                     errorText = null
                                 }) { Text("Use") }
@@ -257,6 +269,21 @@ fun FindLocationScreen(
                 showSaveDialog = false
             },
             onCancel = { showSaveDialog = false },
+        )
+    }
+
+    if (showAssignDialog && destinationForSave != null) {
+        AssignToRecordDialog(
+            currentPersonId = currentPersonId,
+            lat = destinationForSave.first,
+            lng = destinationForSave.second,
+            onAssigned = { person ->
+                viewModel.assignToRecord(person, destinationForSave.first, destinationForSave.second, currentPersonId)
+                showToast("Location assigned to \"${person.name}\".")
+                showAssignDialog = false
+            },
+            onDismiss = { showAssignDialog = false },
+            viewModel = viewModel,
         )
     }
 
@@ -317,6 +344,77 @@ private fun SaveLocationDialog(
         },
         dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
     )
+}
+
+/** "The publisher can... assign a 'Searching Record', 'Return Visit' record
+ * or 'Bible Study' Record" — pick which of the three stages, then which of
+ * the Publisher's own active records at that stage, to write the found
+ * coordinate onto (see [FindLocationViewModel.assignToRecord]). */
+@Composable
+private fun AssignToRecordDialog(
+    currentPersonId: String,
+    lat: Double,
+    lng: Double,
+    onAssigned: (InterestedPerson) -> Unit,
+    onDismiss: () -> Unit,
+    viewModel: FindLocationViewModel,
+) {
+    var stage by remember { mutableStateOf(PipelineStage.SEARCHING) }
+    val recordsFlow = remember(currentPersonId, stage) { viewModel.recordsFor(currentPersonId, stage) }
+    val records by recordsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Assign to Record") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Coordinate: ${formatCoordinatesDms(lat, lng)}", style = MaterialTheme.typography.bodyMedium)
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    PipelineStage.entries.forEachIndexed { index, entry ->
+                        SegmentedButton(
+                            selected = stage == entry,
+                            onClick = { stage = entry },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = PipelineStage.entries.size),
+                        ) { Text(entry.assignLabel()) }
+                    }
+                }
+                if (records.isEmpty()) {
+                    Text(
+                        "No ${stage.assignLabel()} records yet under your name.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    records.forEach { person ->
+                        Card(modifier = Modifier.fillMaxWidth().clickable { onAssigned(person) }) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(person.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                Text(person.address, style = MaterialTheme.typography.bodySmall)
+                                if (person.hasGpsLocation) {
+                                    Text(
+                                        "Already has a saved location — tapping will replace it.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+private fun PipelineStage.assignLabel(): String = when (this) {
+    PipelineStage.SEARCHING -> "Searching"
+    PipelineStage.RETURN_VISIT -> "Return Visit"
+    PipelineStage.BIBLE_STUDY -> "Bible Study"
 }
 
 /** Launches Google Maps (falling back to any browser if the app isn't
