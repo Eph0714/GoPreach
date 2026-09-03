@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
@@ -41,6 +42,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -53,6 +55,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
@@ -198,6 +201,7 @@ fun SettingsScreen(
 private fun NotificationSoundSection(viewModel: SettingsViewModel) {
     val context = LocalContext.current
     val soundUri by viewModel.notificationSoundUri.collectAsStateWithLifecycle()
+    val notificationsEnabled by viewModel.notificationsEnabled.collectAsStateWithLifecycle()
     var exactAlarmsAllowed by remember { mutableStateOf(AlarmScheduler.canScheduleExactAlarms(context)) }
 
     val pickRingtone = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -211,23 +215,34 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column {
             ListItem(
+                headlineContent = { Text("Notifications") },
+                supportingContent = { Text("Transfer requests, announcements, and monthly report reminders. Calendar Alarms you've scheduled still ring either way.") },
+                leadingContent = { Icon(Icons.Rounded.Notifications, contentDescription = null) },
+                trailingContent = {
+                    Switch(checked = notificationsEnabled, onCheckedChange = viewModel::setNotificationsEnabled)
+                },
+            )
+            androidx.compose.material3.HorizontalDivider()
+            ListItem(
                 headlineContent = { Text("Notification Sound") },
                 supportingContent = { Text(ringtoneTitle(context, soundUri)) },
                 leadingContent = { Icon(Icons.Rounded.MusicNote, contentDescription = null) },
-                modifier = Modifier.clickable {
-                    val intent = android.content.Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-                        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION)
-                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
-                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
-                        putExtra(
-                            RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI,
-                            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
-                        )
-                        putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, soundUri)
-                        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Notification Sound")
-                    }
-                    pickRingtone.launch(intent)
-                },
+                modifier = Modifier
+                    .alpha(if (notificationsEnabled) 1f else 0.5f)
+                    .clickable(enabled = notificationsEnabled) {
+                        val intent = android.content.Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION)
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                            putExtra(
+                                RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI,
+                                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                            )
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, soundUri)
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Notification Sound")
+                        }
+                        pickRingtone.launch(intent)
+                    },
             )
             Text(
                 "Plays for every incoming notification — transfer requests, announcements, and calendar alarms.",

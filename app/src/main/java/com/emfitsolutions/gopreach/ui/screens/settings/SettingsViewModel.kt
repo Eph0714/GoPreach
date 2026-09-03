@@ -24,6 +24,7 @@ class SettingsViewModel @Inject constructor(
     val colorOption: StateFlow<ThemeColorOption> = themePreferenceRepository.colorOption
     val customColor: StateFlow<Color> = themePreferenceRepository.customColor
     val notificationSoundUri: StateFlow<Uri?> = notificationSoundRepository.soundUri
+    val notificationsEnabled: StateFlow<Boolean> = notificationSoundRepository.enabled
 
     fun setTheme(value: ThemePreference) = themePreferenceRepository.setPreference(value)
     fun setColorOption(value: ThemeColorOption) = themePreferenceRepository.setColorOption(value)
@@ -37,4 +38,10 @@ class SettingsViewModel @Inject constructor(
         notificationSoundRepository.setSoundUri(uri)
         NotificationHelper.applySoundPreference(context, uri)
     }
+
+    /** Master on/off switch for every notification [NotificationHelper.notify]
+     * posts (Transfer Request, Announcement, report reminders) — spec: "allow
+     * the publisher to turn on and turn off notification." Calendar Alarms
+     * are untouched by this; see [NotificationSoundRepository]'s doc comment. */
+    fun setNotificationsEnabled(value: Boolean) = notificationSoundRepository.setEnabled(value)
 }
