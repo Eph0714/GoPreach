@@ -124,6 +124,14 @@ class BibleTextRecordViewModel @Inject constructor(
         viewModelScope.launch { categoryRepository.save(category) }
     }
 
+    /** "Allow the publisher to add a category directly upon enrolling new
+     * Bible Text record" — a suspend variant of [saveCategory] that hands
+     * the saved (id-assigned) category straight back, so the Add/Edit Bible
+     * Text dialog can select it immediately instead of waiting for the next
+     * [categoriesFor] emission to catch up before the new category is even
+     * choosable. */
+    suspend fun saveCategoryAndReturn(category: BibleTextCategory): BibleTextCategory = categoryRepository.save(category)
+
     /** Spec §11 — checks every one of [publisherPersonId]'s own records
      * before deleting; a category in use is reported back as
      * [CategoryDeleteResult.InUse] instead of being deleted, so the screen

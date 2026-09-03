@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.bibletext
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -40,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +58,7 @@ import com.emfitsolutions.gopreach.domain.NwtBibleReferenceData
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 private enum class BibleTextSort(val label: String) {
     BOOK("Bible Book"), CHAPTER("Chapter"), DATE_ADDED("Date Added"), CATEGORY("Category"), LANGUAGE("Language")
@@ -271,6 +274,7 @@ fun BibleTextRecordScreen(
             categories = categories,
             onSave = { viewModel.saveRecord(it); showToast("Bible text record saved successfully."); showAddDialog = false },
             onDismiss = { showAddDialog = false },
+            viewModel = viewModel,
         )
     }
     val toEdit = pendingEdit
@@ -282,6 +286,7 @@ fun BibleTextRecordScreen(
             categories = categories,
             onSave = { viewModel.saveRecord(it); showToast("Bible text record updated successfully."); pendingEdit = null },
             onDismiss = { pendingEdit = null },
+            viewModel = viewModel,
         )
     }
     val toView = viewingRecord
@@ -394,7 +399,10 @@ private fun BibleTextRecordDialog(
     categories: List<BibleTextCategory>,
     onSave: (BibleTextRecord) -> Unit,
     onDismiss: () -> Unit,
+    viewModel: BibleTextRecordViewModel,
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    var showAddCategory by remember { mutableStateOf(false) }
     val version = NwtBibleReferenceData.defaultVersion
     var languageId by remember {
         mutableStateOf(existing?.languageId ?: preferredLanguageId ?: NwtBibleReferenceData.languages.first().id)
@@ -483,20 +491,32 @@ private fun BibleTextRecordDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (categories.isEmpty()) {
-                    Text(
-                        "No categories yet — add one from Filters → Manage Categories first.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                } else {
-                    LabeledDropdown(
-                        label = "Category",
-                        selectedLabel = categories.firstOrNull { it.id == categoryId }?.name ?: "Select",
-                        options = categories.map { it.id to it.name },
-                        onSelected = { categoryId = it ?: categoryId },
-                        required = true,
-                    )
+                // "Allow the publisher to add a category directly upon
+                // enrolling new Bible Text record" — no more sending them
+                // away to Filters → Manage Categories first; the + button
+                // creates and selects a new category right here.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (categories.isEmpty()) {
+                        Text(
+                            "No categories yet — tap + to add one.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        Box(modifier = Modifier.weight(1f)) {
+                            LabeledDropdown(
+                                label = "Category",
+                                selectedLabel = categories.firstOrNull { it.id == categoryId }?.name ?: "Select",
+                                options = categories.map { it.id to it.name },
+                                onSelected = { categoryId = it ?: categoryId },
+                                required = true,
+                            )
+                        }
+                    }
+                    IconButton(onClick = { showAddCategory = true }) {
+                        Icon(Icons.Rounded.Add, contentDescription = "Add category")
+                    }
                 }
                 OutlinedTextField(
                     value = remarks,
@@ -531,6 +551,47 @@ private fun BibleTextRecordDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+
+    if (showAddCategory) {
+        var newCategoryName by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAddCategory = false },
+            title = { Text("Add Category") },
+            text = {
+                OutlinedTextField(
+                    value = newCategoryName,
+                    onValueChange = { newCategoryName = it },
+                    label = { Text("Category name") },
+                    singleLine = true,
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newCategoryName.isNotBlank(),
+                    onClick = {
+                        val name = newCategoryName.trim()
+                        showAddCategory = false
+                        // Suspend save, then select the newly-created
+                        // category the moment its real id comes back —
+                        // saveCategoryAndReturn (unlike the fire-and-forget
+                        // saveCategory the Manage Categories dialog uses)
+                        // hands that back directly instead of waiting for
+                        // categoriesFor's next emission.
+                        coroutineScope.launch {
+                            val now = System.currentTimeMillis()
+                            val saved = viewModel.saveCategoryAndReturn(
+                                BibleTextCategory(publisherPersonId = publisherPersonId, name = name, createdAt = now, updatedAt = now),
+                            )
+                            categoryId = saved.id
+                        }
+                    },
+                ) { Text("Add") }
+            },
+            dismissButton = { TextButton(onClick = { showAddCategory = false }) { Text("Cancel") } },
+        )
+    }
 }
 
 /** Spec §10-§11 — a Publisher's own personal categories: add/edit/delete,
