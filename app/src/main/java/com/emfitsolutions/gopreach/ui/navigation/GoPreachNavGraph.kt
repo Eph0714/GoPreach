@@ -387,23 +387,28 @@ fun GoPreachNavGraph(
         }
         composable(Destinations.MANAGE_PUBLISHER_REPORTS) {
             // Same access set/scoping as the Consolidated Report above —
-            // Super-Admin/Admin/Coordinator Elder/Service Overseer, own
-            // congregation only for anyone but Super-Admin. A grant-based
-            // Circuit Overseer also reaches this route (see
-            // AdminHomeScreen.canManagePublisherReports) but always
-            // read-only — firestore.rules blocks every restricted user's
-            // `monthlyReports` write regardless of permission.
+            // Super-Admin/Admin/Coordinator Elder/Regular Elder/Service
+            // Overseer, own congregation only for anyone but Super-Admin
+            // (naturally enforced: `fixedCongregationId` below already
+            // confines which rows a non-Super-Admin ever sees or acts on,
+            // so nothing outside their own congregation is ever reachable
+            // to begin with). A grant-based Circuit Overseer also reaches
+            // this route (see AdminHomeScreen.canManagePublisherReports)
+            // but always read-only — firestore.rules blocks every
+            // restricted user's `monthlyReports` write regardless of
+            // permission.
             val canEditPublisherReports = currentRole in setOf(
-                AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER,
+                AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER,
+                AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER,
             )
-            // "The service overseer will mark it as 'Posted'... the admin
-            // and super admin can do the same" — narrower than the general
-            // edit set above: Coordinator Elder can still edit a report's
-            // fields directly (canEditPublisherReports), just not mark it
-            // Posted.
-            val canMarkPosted = currentRole in setOf(
-                AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.SERVICE_OVERSEER,
-            )
+            // "The service overseer will click the POST button... the
+            // super admin, admin, and coordinator elder, regular elder can
+            // do so [too]" — same set as the general edit right above; once
+            // Posted, firestore.rules (not this set) is what actually shuts
+            // the Publisher's own edit access off (see monthlyReports'
+            // write rule) — this only governs who in the admin track sees
+            // the "Mark as Posted" action at all.
+            val canMarkPosted = canEditPublisherReports
             ManagePublisherReportsScreen(
                 currentPersonId = currentPersonId,
                 // Falls back to a Regular Elder's own group's congregation

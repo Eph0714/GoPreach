@@ -163,7 +163,24 @@ service cloud.firestore {
         restrictedAllows(database, 'VIEW_CONGREGATION_REPORTS', resource.data.get('congregationId', null));
       // A restricted user's report access is view-only in every one of the
       // spec's own worked examples — none of them grant report edits.
-      allow write: if !hasGrant(database);
+      //
+      // "The publisher can edit... until the service overseer marks it
+      // Posted, that's the time the publisher can no longer edit the
+      // record" — enforced here too, not only in the app's own UI: once a
+      // report's status is POSTED, the one publisher it belongs to
+      // (personIdFromToken() == its own publisherPersonId) can never write
+      // to it again — update or delete — no matter what the client sends.
+      // `resource` is null on create (a brand-new report), so this never
+      // blocks a publisher creating/saving their own not-yet-posted report.
+      // Every other authenticated, non-restricted actor (Service Overseer/
+      // Admin/Coordinator Elder/Regular Elder/Super-Admin) is unaffected —
+      // this file has no rules-level way to tell those roles apart from
+      // each other (see the file-level note), so the finer own-congregation
+      // scoping for them stays UI-enforced like everywhere else here; this
+      // clause only ever narrows the *Publisher's own* access, never
+      // anyone else's.
+      allow write: if !hasGrant(database) &&
+        !(resource != null && resource.data.status == 'POSTED' && resource.data.publisherPersonId == personIdFromToken());
     }
 
     // "My Bible Text Record" module spec §20/§31: "Never trust a

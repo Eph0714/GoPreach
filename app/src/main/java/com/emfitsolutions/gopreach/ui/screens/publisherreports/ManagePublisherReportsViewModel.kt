@@ -263,6 +263,35 @@ class ManagePublisherReportsViewModel @Inject constructor(
         }
     }
 
+    /** "The service overseer will select a month, then he can see all
+     * publishers that submitted their record within that month. After that
+     * he will click the POST button, all the record will now be locked" —
+     * one tap posts every currently-visible SUBMITTED report at once
+     * (whichever month/filters [uiState.rows] is already scoped to — see
+     * [ManagePublisherReportsScreen]'s date-range filter), instead of
+     * tapping the per-row lock icon one publisher at a time. Only
+     * SUBMITTED rows are posted; a DRAFT (never actually submitted) or
+     * already-POSTED row is silently skipped, same as if it weren't in the
+     * list at all. */
+    fun markPostedAll(rows: List<PublisherReportRow>, actorPersonId: String) {
+        val toPost = rows.filter { it.report.status == ReportStatus.SUBMITTED }
+        if (toPost.isEmpty()) return
+        viewModelScope.launch {
+            toPost.forEach { row ->
+                monthlyReportRepository.save(
+                    row.report.copy(status = ReportStatus.POSTED, lastEditedByPersonId = actorPersonId, lastEditedAt = System.currentTimeMillis()),
+                )
+                auditLogRepository.log(
+                    actorPersonId = actorPersonId,
+                    action = "MARK_PUBLISHER_REPORT_POSTED",
+                    targetType = "MonthlyReport",
+                    targetId = row.report.id,
+                    congregationId = row.report.congregationId,
+                )
+            }
+        }
+    }
+
     /** Super-Admin-only (enforced at the call site, same convention as every
      * other Manage screen's force delete) — permanently removes this one
      * report row. Never touches the Publisher's own RoleAssignment/Person

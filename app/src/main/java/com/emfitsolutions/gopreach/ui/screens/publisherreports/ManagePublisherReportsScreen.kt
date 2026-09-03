@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.TableChart
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -81,13 +82,16 @@ import java.util.Locale
  * regardless of permission (see AdminHomeScreen.canManagePublisherReports's
  * doc comment).
  *
- * [canMarkPosted] — "the service overseer will mark it as 'Posted'... the
- * admin and super admin can do the same [edit a Posted report]" — narrower
- * than [readOnly]/general edit access: Service Overseer, Admin (own
- * congregation, via [fixedCongregationId]), and Super-Admin only, not
- * Coordinator Elder even though Coordinator Elder can still edit a report's
- * fields directly through the always-available Edit action regardless of
- * status (that part was never gated by [ReportStatus] and isn't changing).
+ * [canMarkPosted] — "the service overseer will click the POST button... the
+ * super admin, admin, and coordinator elder, regular elder can do so [too],
+ * however the admin, coordinator elder, regular elder can only do it under
+ * their congregation" — same set as the general edit right ([readOnly]):
+ * Super-Admin (every congregation), Admin/Coordinator Elder/Regular Elder
+ * (own congregation only, via [fixedCongregationId]), and Service Overseer.
+ * Actual enforcement of "once Posted, the Publisher can no longer edit it"
+ * lives in firestore.rules' `monthlyReports` write rule, not this flag —
+ * this only governs who in the admin track even sees the "Mark as Posted"/
+ * "POST" actions.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,6 +109,7 @@ fun ManagePublisherReportsScreen(
     val context = LocalContext.current
     var pendingEdit by remember { mutableStateOf<PublisherReportRow?>(null) }
     var pendingDelete by remember { mutableStateOf<PublisherReportRow?>(null) }
+    var showPostAllConfirm by remember { mutableStateOf(false) }
     val showToast = rememberActionToast()
 
     val reportTitle = remember(uiState.dateRange) { reportTitleFor(uiState.dateRange.startMillis, uiState.dateRange.endMillis, uiState.dateRange.option) }
@@ -215,6 +220,20 @@ fun ManagePublisherReportsScreen(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                // "Select a month, then see all publishers that submitted
+                // their record within that month, then click the POST
+                // button — all the record will now be locked" — one tap
+                // posts every SUBMITTED report currently shown for whichever
+                // month/filters are selected above, instead of the per-row
+                // lock icon one publisher at a time.
+                val submittedCount = uiState.rows.count { it.report.status == ReportStatus.SUBMITTED }
+                if (canMarkPosted && submittedCount > 0) {
+                    Button(onClick = { showPostAllConfirm = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text("POST $submittedCount Submitted Report${if (submittedCount == 1) "" else "s"}")
+                    }
+                }
             }
 
             if (uiState.rows.isEmpty()) {
@@ -321,6 +340,28 @@ fun ManagePublisherReportsScreen(
                 }
             },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+        )
+    }
+
+    if (showPostAllConfirm) {
+        val submittedCount = uiState.rows.count { it.report.status == ReportStatus.SUBMITTED }
+        AlertDialog(
+            onDismissRequest = { showPostAllConfirm = false },
+            title = { Text("Post $submittedCount Report${if (submittedCount == 1) "" else "s"}?") },
+            text = {
+                Text(
+                    "Every submitted report shown for $reportTitle will be marked Posted and locked — " +
+                        "the publisher can no longer edit it themselves once posted.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.markPostedAll(uiState.rows, currentPersonId)
+                    showToast("$submittedCount report${if (submittedCount == 1) "" else "s"} posted.")
+                    showPostAllConfirm = false
+                }) { Text("Post") }
+            },
+            dismissButton = { TextButton(onClick = { showPostAllConfirm = false }) { Text("Cancel") } },
         )
     }
 }
