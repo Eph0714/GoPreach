@@ -135,11 +135,19 @@ class MonthlyReportViewModel @Inject constructor(
         _uiState.value = block(_uiState.value)
     }
 
-    /** The caller (screen) is responsible for only invoking this when editing is
-     * actually allowed — either the report isn't locked yet, or the signed-in
-     * user is a Coordinator/Regular Elder editing a submitted report (spec §5.2). */
-    fun submit(publisherPersonId: String) {
+    /** [allowEditWhenLocked] must be the same value the screen itself is
+     * showing (its Elder/Admin "edit anyone's report" entry point) — the
+     * Publisher's own normal screen always passes false. Belt-and-suspenders
+     * on top of that screen's own disabled Submit button: this used to only
+     * document "the caller is responsible for not calling this when locked"
+     * rather than actually checking, so any bug in the UI's own enabled/
+     * disabled wiring had nothing else standing between it and a save going
+     * through anyway. Firestore's own security rules are still the real,
+     * server-side backstop against a genuinely malicious client — this is
+     * about this app's own UI never doing it by accident. */
+    fun submit(publisherPersonId: String, allowEditWhenLocked: Boolean = false) {
         val state = _uiState.value
+        if (state.isLocked && !allowEditWhenLocked) return
         _uiState.value = state.copy(isSaving = true, errorMessage = null)
         viewModelScope.launch {
             val report = MonthlyReport(

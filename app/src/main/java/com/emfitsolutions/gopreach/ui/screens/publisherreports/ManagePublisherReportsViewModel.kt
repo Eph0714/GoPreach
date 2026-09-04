@@ -228,7 +228,11 @@ class ManagePublisherReportsViewModel @Inject constructor(
      * an editable-by-the-publisher state from POSTED. */
     fun unlock(report: MonthlyReport, actorPersonId: String) {
         viewModelScope.launch {
-            monthlyReportRepository.save(
+            // saveNow, not save — see MonthlyReportRepository.saveNow's doc
+            // comment: a lock-state change has to actually reach the
+            // publisher's own device promptly, not sit queued for whenever
+            // someone next syncs.
+            monthlyReportRepository.saveNow(
                 report.copy(status = ReportStatus.DRAFT, lastEditedByPersonId = actorPersonId, lastEditedAt = System.currentTimeMillis()),
             )
             auditLogRepository.log(
@@ -250,7 +254,15 @@ class ManagePublisherReportsViewModel @Inject constructor(
      * shuts the Publisher's own edit access off. */
     fun markPosted(report: MonthlyReport, actorPersonId: String) {
         viewModelScope.launch {
-            monthlyReportRepository.save(
+            // saveNow — see MonthlyReportRepository.saveNow's doc comment.
+            // Bug fix ("the publisher can still edit even though it's
+            // posted"): the plain queued `save()` only reached Firestore
+            // (and therefore the publisher's own device) whenever someone
+            // next happened to sync, which could be indefinitely under this
+            // app's manual/periodic-sync design — the publisher's copy kept
+            // showing SUBMITTED, so their Submit button stayed correctly
+            // (per that stale data) enabled.
+            monthlyReportRepository.saveNow(
                 report.copy(status = ReportStatus.POSTED, lastEditedByPersonId = actorPersonId, lastEditedAt = System.currentTimeMillis()),
             )
             auditLogRepository.log(
@@ -278,7 +290,9 @@ class ManagePublisherReportsViewModel @Inject constructor(
         if (toPost.isEmpty()) return
         viewModelScope.launch {
             toPost.forEach { row ->
-                monthlyReportRepository.save(
+                // saveNow — same reasoning as markPosted above, applied to
+                // every row in the batch.
+                monthlyReportRepository.saveNow(
                     row.report.copy(status = ReportStatus.POSTED, lastEditedByPersonId = actorPersonId, lastEditedAt = System.currentTimeMillis()),
                 )
                 auditLogRepository.log(

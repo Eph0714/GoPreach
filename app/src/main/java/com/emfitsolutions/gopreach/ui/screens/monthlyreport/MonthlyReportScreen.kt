@@ -189,7 +189,7 @@ fun MonthlyReportScreen(
             }
 
             Button(
-                onClick = { viewModel.submit(publisherPersonId) },
+                onClick = { viewModel.submit(publisherPersonId, allowEditWhenLocked) },
                 enabled = !uiState.isSaving && !effectivelyLocked && !submitBlockedByWindow,
                 modifier = Modifier.fillMaxWidth(),
             ) {
