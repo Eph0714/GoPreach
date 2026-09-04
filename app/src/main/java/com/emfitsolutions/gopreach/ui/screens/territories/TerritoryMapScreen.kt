@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,8 +36,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -237,7 +239,11 @@ fun TerritoryMapScreen(
                                     verticalAlignment = Alignment.Top,
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
-                                    Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    // "Make every person/location immediately
+                                    // identifiable without relying only on
+                                    // text labels" — same per-category emoji
+                                    // Map View's own markers/legend use.
+                                    Text(emojiFor(row.person.pipelineStage.toMapPointKind()), style = MaterialTheme.typography.titleMedium)
                                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         Text(row.person.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                                         Text("Status: ${row.person.pipelineStage.statusLabel()}", style = MaterialTheme.typography.bodySmall)
@@ -268,14 +274,14 @@ private fun PipelineStage.statusLabel(): String = when (this) {
  * Refresh) is the default/original view: every pipeline record, no
  * publishers — not itself one of the seven, since the dropdown lists
  * exactly these seven and no more. */
-private enum class MapFilterOption(val label: String) {
-    MY_LOCATION("My Location"),
-    BIBLE_STUDY("Bible Study"),
-    RETURN_VISIT("Return Visit"),
-    PUBLISHERS("Publisher – All Congregation"),
-    NEAREST_PUBLISHER("Nearest Publisher"),
-    NEAREST_BIBLE_STUDY("Nearest Bible Study"),
-    NEAREST_RETURN_VISIT("Nearest Return Visit"),
+private enum class MapFilterOption(val label: String, val emoji: String) {
+    MY_LOCATION("My Location", "📍"),
+    BIBLE_STUDY("Bible Study", "📖"),
+    RETURN_VISIT("Return Visit", "🔄"),
+    PUBLISHERS("Publisher – All Congregation", "👤"),
+    NEAREST_PUBLISHER("Nearest Publisher", "👤"),
+    NEAREST_BIBLE_STUDY("Nearest Bible Study", "📖"),
+    NEAREST_RETURN_VISIT("Nearest Return Visit", "🔄"),
 }
 
 /**
@@ -327,11 +333,12 @@ private fun TerritoryLiveMap(
             if (lat != null && lng != null && lat.isFinite() && lng.isFinite() && isValidLatitude(lat) && isValidLongitude(lng)) {
                 MapPoint(
                     id = "pipeline_${row.person.id}",
-                    kind = when (row.person.pipelineStage) {
-                        PipelineStage.SEARCHING -> MapPointKind.SEARCHING
-                        PipelineStage.RETURN_VISIT -> MapPointKind.RETURN_VISIT
-                        PipelineStage.BIBLE_STUDY -> MapPointKind.BIBLE_STUDY
-                    },
+                    // "Status must control the marker" — read fresh from the
+                    // record's own current pipelineStage every time [rows]
+                    // recomposes (a live Firestore listener), so a reverse/
+                    // forward status move immediately swaps the marker's
+                    // icon rather than ever retaining a stale one.
+                    kind = row.person.pipelineStage.toMapPointKind(),
                     lat = lat,
                     lng = lng,
                     name = row.person.name,
@@ -393,6 +400,10 @@ private fun TerritoryLiveMap(
     var pendingPermissionFilter by remember { mutableStateOf<MapFilterOption?>(null) }
     var selectedFilter by remember { mutableStateOf<MapFilterOption?>(null) }
     var filterMenuExpanded by remember { mutableStateOf(false) }
+    // "Be collapsible/minimizable... not cover important map controls" —
+    // starts collapsed so it never obscures the map on first load; the
+    // "LEGEND" chip is always visible to expand it again.
+    var legendExpanded by remember { mutableStateOf(false) }
     var selectedPointId by remember { mutableStateOf<String?>(null) }
     // "Show details in all categories in territory map even 'My Location'" —
     // a synthetic point built from the live GPS fix, id "me", so tapping the
@@ -599,6 +610,18 @@ private fun TerritoryLiveMap(
         }
     }
 
+    // "Highlight the selected marker" — covers both a manual tap (which
+    // already highlights itself immediately in JS, see the marker click
+    // handlers above) and a Nearest-X auto-selection (set directly in
+    // [applySelection], never via a JS tap), plus clears the highlight the
+    // instant the bottom sheet is dismissed (selectedPointId -> null).
+    LaunchedEffect(selectedPointId, webViewRef, loadState) {
+        if (loadState == MapLoadState.LOADED) {
+            val idJs = selectedPointId?.let { "'${jsEscape(it)}'" } ?: "null"
+            webViewRef?.evaluateJavascript("if (window.setSelectedMarker) { window.setSelectedMarker($idJs); }", null)
+        }
+    }
+
     Box(modifier = modifier) {
         AndroidView(
             // Bug fix #2 ("still not working" after the reload-loop fix):
@@ -801,7 +824,17 @@ private fun TerritoryLiveMap(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Icon(Icons.Rounded.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    // "When a category is selected, display the appropriate
+                    // icon" — the generic Tune icon before anything's picked
+                    // (there's no one category yet to represent), the exact
+                    // same emoji every marker/legend/bottom-sheet entry for
+                    // that category already uses once one is.
+                    val currentFilter = selectedFilter
+                    if (currentFilter != null) {
+                        Text(currentFilter.emoji, style = MaterialTheme.typography.titleMedium)
+                    } else {
+                        Icon(Icons.Rounded.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
                     Text(
                         selectedFilter?.let { if (it == MapFilterOption.PUBLISHERS && !isAllCongregations) "Publisher – My Congregation" else it.label } ?: "All Records",
                         style = MaterialTheme.typography.bodyLarge,
@@ -815,6 +848,7 @@ private fun TerritoryLiveMap(
                             if (!canSeePublisherLocations) return@forEach
                         }
                         DropdownMenuItem(
+                            leadingIcon = { Text(option.emoji, style = MaterialTheme.typography.titleMedium) },
                             text = { Text(if (option == MapFilterOption.PUBLISHERS && !isAllCongregations) "Publisher – My Congregation" else option.label) },
                             onClick = {
                                 filterMenuExpanded = false
@@ -851,6 +885,43 @@ private fun TerritoryLiveMap(
             modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
         ) {
             Icon(Icons.Rounded.Info, contentDescription = "Map diagnostics", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        // "Add a compact Map Legend floating over the map" — bottom-start,
+        // clear of Leaflet's own zoom controls (top-left) and the dropdown
+        // (top-center) and Refresh/diagnostics (bottom-end), so nothing
+        // floating ever overlaps another control.
+        Surface(
+            modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 12.dp),
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 4.dp,
+        ) {
+            Column(modifier = Modifier.padding(10.dp).widthIn(max = 220.dp)) {
+                Row(
+                    modifier = Modifier.clickable { legendExpanded = !legendExpanded },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("LEGEND", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Icon(
+                        if (legendExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                        contentDescription = if (legendExpanded) "Collapse legend" else "Expand legend",
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                if (legendExpanded) {
+                    // Same icon+category-name pairing used by every marker,
+                    // the bottom sheet, and the dropdown — "use the same
+                    // marker icons shown on the map."
+                    listOf(MapPointKind.ME, MapPointKind.PUBLISHER, MapPointKind.BIBLE_STUDY, MapPointKind.RETURN_VISIT, MapPointKind.SEARCHING).forEach { kind ->
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                            Text(emojiFor(kind), style = MaterialTheme.typography.bodyMedium)
+                            Text(categoryLabelFor(kind), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                }
+            }
         }
 
         SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp))
@@ -910,14 +981,22 @@ private fun MapPointDetailsSheet(
     val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).padding(bottom = 24.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // "Keep the category icon visible" — the same emoji as the
+            // marker itself, legend, and dropdown, shown large above the
+            // name (spec's own worked examples: "👤 / Juan Dela Cruz").
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(
-                    modifier = Modifier.size(14.dp).clip(if (point.kind == MapPointKind.BIBLE_STUDY) RoundedCornerShape(3.dp) else CircleShape)
-                        .background(markerColorFor(point.kind)),
-                )
-                Text(point.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    modifier = Modifier.size(44.dp).clip(CircleShape).background(markerColorFor(point.kind)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(emojiFor(point.kind), style = MaterialTheme.typography.titleLarge)
+                }
+                Column {
+                    Text(point.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(categoryLabelFor(point.kind), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            Text(point.status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+            Text(point.status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 6.dp))
 
             if (point.kind == MapPointKind.ME) {
                 // "You are here" — its own coordinates in place of the
@@ -962,6 +1041,35 @@ private fun markerColorFor(kind: MapPointKind): Color = when (kind) {
     MapPointKind.RETURN_VISIT -> Color(0xFFFB8C00)
     MapPointKind.SEARCHING -> Color(0xFF616161)
     MapPointKind.ME -> Color(0xFF34A853)
+}
+
+/** "The icon identifies the person's current classification; GPS location
+ * does not determine classification" — the one place every one of the five
+ * category emoji is defined, reused verbatim by the map markers (via
+ * [buildTerritoryMapHtml], which gets the same string embedded into the
+ * page), the legend, the bottom sheet, the dropdown, and List View's own
+ * rows, so it's structurally impossible for two screens to disagree about
+ * which icon means what. */
+private fun emojiFor(kind: MapPointKind): String = when (kind) {
+    MapPointKind.PUBLISHER -> "👤"
+    MapPointKind.BIBLE_STUDY -> "📖"
+    MapPointKind.RETURN_VISIT -> "🔄"
+    MapPointKind.SEARCHING -> "⭐"
+    MapPointKind.ME -> "📍"
+}
+
+private fun categoryLabelFor(kind: MapPointKind): String = when (kind) {
+    MapPointKind.PUBLISHER -> "Publisher"
+    MapPointKind.BIBLE_STUDY -> "Bible Study"
+    MapPointKind.RETURN_VISIT -> "Return Visit"
+    MapPointKind.SEARCHING -> "Searching Interested Person"
+    MapPointKind.ME -> "My Location"
+}
+
+private fun PipelineStage.toMapPointKind(): MapPointKind = when (this) {
+    PipelineStage.SEARCHING -> MapPointKind.SEARCHING
+    PipelineStage.RETURN_VISIT -> MapPointKind.RETURN_VISIT
+    PipelineStage.BIBLE_STUDY -> MapPointKind.BIBLE_STUDY
 }
 
 /** "Juan Dela Cruz — 350 meters away" — meters under 1km, one decimal of
@@ -1098,25 +1206,47 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
             console.log('Tile layer reported load complete. Errors so far: ' + tileErrorCount);
           });
 
-          // "Use visually distinct markers... do not rely on color alone" —
-          // a colored circle for Publishers, a rotated square (diamond) for
-          // Bible Studies, a triangle for Return Visits; "you are here" (see
-          // setMyLocation) reuses the circle shape in its own green.
-          function buildIcon(kind) {
-            var color = kind === 'PUBLISHER' ? '#1a73e8' : kind === 'BIBLE_STUDY' ? '#8e24aa' : kind === 'RETURN_VISIT' ? '#fb8c00' : kind === 'ME' ? '#34a853' : '#616161';
-            var html, size, anchor;
-            if (kind === 'RETURN_VISIT') {
-              html = '<div style="width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:18px solid ' + color + ';filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))"></div>';
-              size = [20, 18]; anchor = [10, 18];
-            } else if (kind === 'BIBLE_STUDY') {
-              html = '<div style="width:16px;height:16px;background:' + color + ';border:2px solid #fff;transform:rotate(45deg);box-shadow:0 1px 3px rgba(0,0,0,.45)"></div>';
-              size = [16, 16]; anchor = [8, 8];
-            } else {
-              html = '<div style="width:16px;height:16px;border-radius:50%;background:' + color + ';border:3px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.45)"></div>';
-              size = [16, 16]; anchor = [8, 8];
-            }
-            return L.divIcon({ className: 'territory-marker', html: html, iconSize: size, iconAnchor: anchor });
+          // "Assign a unique icon to every map category... do not rely
+          // exclusively on icons [alone] — icon + color together, plus the
+          // emoji itself carries its own meaning independent of color for
+          // anyone who can't distinguish the colors. Selected markers grow
+          // and gain a gold ring (§10 "Highlight the selected marker") —
+          // same shape/emoji, just visually emphasized, so the category
+          // identity never changes just because it's selected.
+          function emojiForKind(kind) {
+            return kind === 'PUBLISHER' ? '👤' : kind === 'BIBLE_STUDY' ? '📖' : kind === 'RETURN_VISIT' ? '🔄' : kind === 'ME' ? '📍' : '⭐';
           }
+          function colorForKind(kind) {
+            return kind === 'PUBLISHER' ? '#1a73e8' : kind === 'BIBLE_STUDY' ? '#8e24aa' : kind === 'RETURN_VISIT' ? '#fb8c00' : kind === 'ME' ? '#34a853' : '#616161';
+          }
+          function buildIcon(kind, selected) {
+            var size = selected ? 34 : 26;
+            var fontSize = selected ? 16 : 13;
+            var border = selected ? '3px solid #ffd600' : '2px solid #ffffff';
+            var html = '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:' + colorForKind(kind) + ';border:' + border +
+              ';box-shadow:0 1px 3px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;font-size:' + fontSize + 'px;line-height:1;">' +
+              emojiForKind(kind) + '</div>';
+            return L.divIcon({ className: 'territory-marker', html: html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+          }
+
+          // "Highlight the selected marker" — tracks whichever marker (or
+          // 'me') was last tapped/auto-selected and swaps only that one's
+          // icon back and forth between its normal and selected style;
+          // Kotlin also calls this directly (see the [selectedPointId]
+          // LaunchedEffect) so a Nearest-X auto-selection highlights the
+          // same way a manual tap does.
+          var selectedMarkerId = null;
+          window.setSelectedMarker = function(id) {
+            if (selectedMarkerId && selectedMarkerId !== id) {
+              var prev = selectedMarkerId === 'me' ? window.myLocationMarker : markersById[selectedMarkerId];
+              if (prev) prev.setIcon(buildIcon(prev._kind, false));
+            }
+            selectedMarkerId = id || null;
+            if (id) {
+              var current = id === 'me' ? window.myLocationMarker : markersById[id];
+              if (current) current.setIcon(buildIcon(current._kind, true));
+            }
+          };
 
           // Clusters nearby markers into one numbered bubble that expands on
           // tap/zoom — keeps a congregation with many records close together
@@ -1129,12 +1259,17 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
           var markersById = {};
 
           points.forEach(function(p) {
-            var marker = L.marker([p.lat, p.lng], { icon: buildIcon(p.kind) });
-            marker.bindTooltip(p.name, { permanent: true, direction: 'right', offset: [8, 0], className: 'territory-label' });
+            var marker = L.marker([p.lat, p.lng], { icon: buildIcon(p.kind, false) });
+            // "Icon + Text/Category" — the same emoji every legend/bottom-
+            // sheet/dropdown entry for this category uses, prefixed onto
+            // the permanent name label so identification never depends on
+            // the icon alone even before a marker is tapped.
+            marker.bindTooltip(emojiForKind(p.kind) + ' ' + p.name, { permanent: true, direction: 'right', offset: [8, 0], className: 'territory-label' });
             // "Display a compact information card/bottom sheet" — a tap
             // hands off to the native side (which already has every other
             // field for this point) rather than building an HTML popup here.
             marker.on('click', function() {
+              window.setSelectedMarker(p.id);
               if (window.AndroidBridge) { AndroidBridge.showDetails(p.id); }
             });
             marker._kind = p.kind;
@@ -1211,12 +1346,14 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
           // has a GPS fix; never present until then.
           window.setMyLocation = function(lat, lng) {
             if (window.myLocationMarker) { map.removeLayer(window.myLocationMarker); }
-            window.myLocationMarker = L.marker([lat, lng], { icon: buildIcon('ME'), zIndexOffset: 1000 }).addTo(map);
+            window.myLocationMarker = L.marker([lat, lng], { icon: buildIcon('ME', selectedMarkerId === 'me'), zIndexOffset: 1000 }).addTo(map);
+            window.myLocationMarker._kind = 'ME';
             // "Show details in all categories... even 'My Location'" — same
             // AndroidBridge.showDetails('me') hop every other marker's tap
             // already uses; Kotlin builds the matching synthetic point
             // itself (see TerritoryLiveMap's `myLocationPoint`).
             window.myLocationMarker.on('click', function() {
+              window.setSelectedMarker('me');
               if (window.AndroidBridge) { AndroidBridge.showDetails('me'); }
             });
           };
