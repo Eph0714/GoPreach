@@ -127,10 +127,10 @@ class PublisherEnrollmentViewModel @Inject constructor(
             _uiState.update { it.copy(errorMessage = "Select a congregation.") }
             return
         }
-        if (state.lastName.isBlank() || state.firstName.isBlank() || state.address.isBlank() ||
+        if (state.lastName.isBlank() || state.firstName.isBlank() || state.address.isBlank() || state.contact.isBlank() ||
             state.selectedGroupId == null || state.category == null
         ) {
-            _uiState.update { it.copy(errorMessage = "Last name, first name, address, group, and status are all required.") }
+            _uiState.update { it.copy(errorMessage = "Last name, first name, address, contact, group, and status are all required.") }
             return
         }
         val group = groups.value.firstOrNull { it.id == state.selectedGroupId }

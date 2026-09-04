@@ -117,7 +117,7 @@ fun PublisherEnrollmentScreen(
                     OutlinedTextField(
                         value = uiState.contact,
                         onValueChange = viewModel::onContactChange,
-                        label = { Text("Contact (optional)") },
+                        label = { Text("Contact") },
                         singleLine = true,
                         visualTransformation = VisualTransformation.None,
                         modifier = Modifier.fillMaxWidth(),
