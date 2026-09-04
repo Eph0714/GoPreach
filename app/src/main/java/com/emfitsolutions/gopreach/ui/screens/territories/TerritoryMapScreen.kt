@@ -201,7 +201,6 @@ fun TerritoryMapScreen(
                     rows = rows,
                     publisherRows = publisherRows,
                     canSeePublisherLocations = canSeePublisherLocations,
-                    isAllCongregations = fixedCongregationId == null,
                     getCurrentLocation = viewModel::currentLocation,
                     hasLocationPermission = viewModel::hasLocationPermission,
                     focusLat = focusLat,
@@ -286,9 +285,17 @@ private fun PipelineStage.statusLabel(): String = when (this) {
  * publishers — not itself one of the seven, since the dropdown lists
  * exactly these seven and no more. */
 private enum class MapFilterOption(val label: String, val emoji: String) {
+    // "Add 'All' in the category" — every classification (including
+    // Publishers, when [canSeePublisherLocations] allows it) shown at once.
+    ALL("All", "🗂️"),
     MY_LOCATION("My Location", "📍"),
     BIBLE_STUDY("Bible Study", "📖"),
     RETURN_VISIT("Return Visit", "🔄"),
+    // "Publisher – All/My Congregation" and "Nearest Publisher" are no
+    // longer offered in the dropdown (see the DropdownMenu below, which
+    // always skips both) — kept here only because [applySelection]'s
+    // Publisher-kind filtering logic and the "open in Territory Map from
+    // Share Location" focus effect still reuse it internally.
     PUBLISHERS("Publisher – All Congregation", "👤"),
     NEAREST_PUBLISHER("Nearest Publisher", "👤"),
     NEAREST_BIBLE_STUDY("Nearest Bible Study", "📖"),
@@ -322,7 +329,6 @@ private fun TerritoryLiveMap(
     rows: List<TerritoryMapRow>,
     publisherRows: List<TerritoryPublisherRow>,
     canSeePublisherLocations: Boolean,
-    isAllCongregations: Boolean,
     getCurrentLocation: suspend () -> LatLng?,
     hasLocationPermission: () -> Boolean,
     focusLat: Double? = null,
@@ -514,6 +520,13 @@ private fun TerritoryLiveMap(
             null -> {
                 // "Original state" — every pipeline stage, no publishers.
                 val kinds = listOf(MapPointKind.SEARCHING, MapPointKind.RETURN_VISIT, MapPointKind.BIBLE_STUDY)
+                webView?.evaluateJavascript("if (window.applyFilter) { window.applyFilter('${kinds.joinToString(",") { it.jsValue }}'); }", null)
+            }
+            MapFilterOption.ALL -> {
+                // "Add 'All' in the category" — every classification at
+                // once, including Publishers (an empty list, and so a no-op
+                // here, when [canSeePublisherLocations] doesn't allow it).
+                val kinds = listOf(MapPointKind.SEARCHING, MapPointKind.RETURN_VISIT, MapPointKind.BIBLE_STUDY, MapPointKind.PUBLISHER)
                 webView?.evaluateJavascript("if (window.applyFilter) { window.applyFilter('${kinds.joinToString(",") { it.jsValue }}'); }", null)
             }
             MapFilterOption.MY_LOCATION -> {
@@ -879,7 +892,7 @@ private fun TerritoryLiveMap(
                         Icon(Icons.Rounded.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     }
                     Text(
-                        selectedFilter?.let { if (it == MapFilterOption.PUBLISHERS && !isAllCongregations) "Publisher – My Congregation" else it.label } ?: "All Records",
+                        selectedFilter?.label ?: "All Records",
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.weight(1f),
                     )
@@ -887,12 +900,15 @@ private fun TerritoryLiveMap(
                 }
                 DropdownMenu(expanded = filterMenuExpanded, onDismissRequest = { filterMenuExpanded = false }) {
                     MapFilterOption.entries.forEach { option ->
-                        if (option == MapFilterOption.PUBLISHERS || option == MapFilterOption.NEAREST_PUBLISHER) {
-                            if (!canSeePublisherLocations) return@forEach
-                        }
+                        // "Remove 'Publisher – My Congregation' and 'Nearest
+                        // Publisher' from the dropdown list" — always hidden
+                        // now, regardless of [canSeePublisherLocations]; the
+                        // new "All" entry (below) is how Publishers still
+                        // show up on the map.
+                        if (option == MapFilterOption.PUBLISHERS || option == MapFilterOption.NEAREST_PUBLISHER) return@forEach
                         DropdownMenuItem(
                             leadingIcon = { Text(option.emoji, style = MaterialTheme.typography.titleMedium) },
-                            text = { Text(if (option == MapFilterOption.PUBLISHERS && !isAllCongregations) "Publisher – My Congregation" else option.label) },
+                            text = { Text(option.label) },
                             onClick = {
                                 filterMenuExpanded = false
                                 selectFilter(option)
