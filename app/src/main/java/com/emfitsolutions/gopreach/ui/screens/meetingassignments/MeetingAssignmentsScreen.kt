@@ -158,7 +158,7 @@ private fun CongregationDropdown(congregations: List<Congregation>, selectedId: 
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation") },
+            label = { Text("Congregation/Group") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

@@ -90,7 +90,7 @@ fun ForwardRequestsScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (requests.isNotEmpty()) {
-                    item { Text("To Other Congregation", style = MaterialTheme.typography.titleSmall) }
+                    item { Text("To Other Congregation/Group", style = MaterialTheme.typography.titleSmall) }
                     items(requests, key = { it.id }) { request ->
                         Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                             Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
@@ -170,7 +170,7 @@ private fun ReviewForwardRequestDialog(
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("FORWARD REQUEST FROM:", style = MaterialTheme.typography.labelLarge)
                     Text("Publisher Name: ${request.fromPublisherNameSnapshot}")
-                    Text("Congregation: ${request.fromCongregationNameSnapshot}")
+                    Text("Congregation/Group: ${request.fromCongregationNameSnapshot}")
                     Text("—".repeat(20), style = MaterialTheme.typography.bodySmall)
                     Text("Name: ${request.personNameSnapshot}")
                     Text("Status: Pending", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
@@ -188,7 +188,7 @@ private fun ReviewForwardRequestDialog(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("FORWARD REQUEST FROM:", style = MaterialTheme.typography.labelLarge)
                 Text("Publisher Name: ${request.fromPublisherNameSnapshot}")
-                Text("Congregation: ${request.fromCongregationNameSnapshot}")
+                Text("Congregation/Group: ${request.fromCongregationNameSnapshot}")
                 Text("—".repeat(20), style = MaterialTheme.typography.bodySmall)
                 Text("Name: ${request.personNameSnapshot}")
                 if (!assigning) {

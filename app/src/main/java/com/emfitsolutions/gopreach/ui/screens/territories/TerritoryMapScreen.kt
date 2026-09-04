@@ -261,7 +261,7 @@ fun TerritoryMapScreen(
                                             "Location: ${row.resolvedLocation ?: (if (lat != null && lng != null) formatCoordinatesDms(lat, lng) else "—")}",
                                             style = MaterialTheme.typography.bodySmall,
                                         )
-                                        Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Congregation/Group: ${row.congregationName}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             }
@@ -296,7 +296,7 @@ private enum class MapFilterOption(val label: String, val emoji: String) {
     // always skips both) — kept here only because [applySelection]'s
     // Publisher-kind filtering logic and the "open in Territory Map from
     // Share Location" focus effect still reuse it internally.
-    PUBLISHERS("Publisher – All Congregation", "👤"),
+    PUBLISHERS("Publisher – All Congregation/Group", "👤"),
     NEAREST_PUBLISHER("Nearest Publisher", "👤"),
     NEAREST_BIBLE_STUDY("Nearest Bible Study", "📖"),
     NEAREST_RETURN_VISIT("Nearest Return Visit", "🔄"),

@@ -90,7 +90,7 @@ fun ManageCongregationsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Congregations") },
+                title = { Text("Congregations/Groups") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -101,7 +101,7 @@ fun ManageCongregationsScreen(
         floatingActionButton = {
             if (!readOnly) {
                 FloatingActionButton(onClick = onAddNew) {
-                    Icon(Icons.Rounded.Add, contentDescription = "New Congregation")
+                    Icon(Icons.Rounded.Add, contentDescription = "New Congregation/Group")
                 }
             }
         },
@@ -219,9 +219,9 @@ private fun EditCongregationDialog(
 
     fun submit() {
         val message = requiredFieldsMessage(
-            "Congregation Name" to name.isNotBlank(),
+            "Congregation/Group Name" to name.isNotBlank(),
             "Address" to address.isNotBlank(),
-            "Congregation Code" to code.isNotBlank(),
+            "Congregation/Group Code" to code.isNotBlank(),
         )
         if (message != null) {
             errorMessage = message
@@ -232,17 +232,17 @@ private fun EditCongregationDialog(
 
     FormDialog(
         onDismissRequest = onDismiss,
-        title = "Edit Congregation",
+        title = "Edit Congregation/Group",
         onConfirm = ::submit,
         confirmLabel = "Save Changes",
         errorMessage = errorMessage,
         maxContentHeight = 480.dp,
     ) {
-                EditSectionHeader("Congregation Information")
+                EditSectionHeader("Congregation/Group Information")
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.uppercase() },
-                    label = { Text("Congregation Name") },
+                    label = { Text("Congregation/Group Name") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
@@ -257,7 +257,7 @@ private fun EditCongregationDialog(
                 OutlinedTextField(
                     value = code,
                     onValueChange = { code = it.uppercase() },
-                    label = { Text("Congregation Code") },
+                    label = { Text("Congregation/Group Code") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),

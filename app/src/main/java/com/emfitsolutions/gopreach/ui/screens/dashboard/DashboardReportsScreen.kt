@@ -175,7 +175,7 @@ fun DashboardStatsContent(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         if (isMultiCongregation) {
-            Text("Congregation", style = MaterialTheme.typography.titleSmall)
+            Text("Congregation/Group", style = MaterialTheme.typography.titleSmall)
             var expanded by remember { mutableStateOf(false) }
             val selectedLabel = uiState.selectedCongregationId
                 ?.let { id -> uiState.all.firstOrNull { it.congregationId == id }?.congregationName }
@@ -337,7 +337,7 @@ fun DashboardStatsContent(
         if (isMultiCongregation && uiState.selectedCongregationId == null) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Publishers per Congregation", style = MaterialTheme.typography.titleMedium)
+                    Text("Publishers per Congregation/Group", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "Tap a bar to drill into that congregation.",
                         style = MaterialTheme.typography.bodySmall,
@@ -363,7 +363,7 @@ fun DashboardStatsContent(
             // congregation's single Total Elders card above.
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Elders per Congregation", style = MaterialTheme.typography.titleMedium)
+                    Text("Elders per Congregation/Group", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "Regular Elders only. Tap a bar to drill into that congregation.",
                         style = MaterialTheme.typography.bodySmall,

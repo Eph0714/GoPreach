@@ -174,12 +174,12 @@ fun AddEditUserScreen(
             HorizontalDivider()
             Text("Access Scope", style = MaterialTheme.typography.titleMedium)
             ScopeRadioRow(
-                label = "All Congregations",
+                label = "All Congregations/Groups",
                 selected = uiState.scopeType == ScopeType.ALL_CONGREGATIONS,
                 onClick = { viewModel.onScopeTypeChange(ScopeType.ALL_CONGREGATIONS) },
             )
             ScopeRadioRow(
-                label = "Selected Congregations",
+                label = "Selected Congregations/Groups",
                 selected = uiState.scopeType == ScopeType.SELECTED_CONGREGATIONS,
                 onClick = { viewModel.onScopeTypeChange(ScopeType.SELECTED_CONGREGATIONS) },
             )
@@ -298,10 +298,10 @@ private fun NewUserCredentialsCard(credentials: TempCredentials, onDone: () -> U
 }
 
 private fun Permission.displayLabel(): String = when (this) {
-    Permission.VIEW_CONGREGATIONS -> "View Congregations"
-    Permission.ADD_CONGREGATIONS -> "Add Congregations"
-    Permission.EDIT_CONGREGATIONS -> "Edit Congregations"
-    Permission.DELETE_CONGREGATIONS -> "Delete Congregations"
+    Permission.VIEW_CONGREGATIONS -> "View Congregations/Groups"
+    Permission.ADD_CONGREGATIONS -> "Add Congregations/Groups"
+    Permission.EDIT_CONGREGATIONS -> "Edit Congregations/Groups"
+    Permission.DELETE_CONGREGATIONS -> "Delete Congregations/Groups"
     Permission.VIEW_ELDERS -> "View Elders"
     Permission.MANAGE_ELDERS -> "Manage Elders"
     Permission.VIEW_GROUPS -> "View Groups"
@@ -310,7 +310,7 @@ private fun Permission.displayLabel(): String = when (this) {
     Permission.MANAGE_PUBLISHERS -> "Manage Publishers"
     Permission.VIEW_PUBLISHER_REPORTS -> "View Publisher Reports"
     Permission.VIEW_GROUP_REPORTS -> "View Group Reports"
-    Permission.VIEW_CONGREGATION_REPORTS -> "View Congregation Reports"
+    Permission.VIEW_CONGREGATION_REPORTS -> "View Congregation/Group Reports"
     Permission.PRINT_REPORTS -> "Print Reports"
     Permission.EXPORT_REPORTS -> "Export Reports"
     Permission.MANAGE_USERS -> "Manage Users"

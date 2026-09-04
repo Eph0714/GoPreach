@@ -191,7 +191,7 @@ fun ManagePublisherReportsScreen(
                         FilterChip(
                             selected = uiState.showMode == ReportShowMode.BY_CONGREGATION,
                             onClick = { viewModel.setShowMode(ReportShowMode.BY_CONGREGATION) },
-                            label = { Text("By Congregation") },
+                            label = { Text("By Congregation/Group") },
                         )
                     }
                 }
@@ -214,7 +214,7 @@ fun ManagePublisherReportsScreen(
                 OutlinedTextField(
                     value = uiState.searchQuery,
                     onValueChange = viewModel::setSearchQuery,
-                    label = { Text("Search: Name, Status" + if (fixedCongregationId == null) ", Congregation" else "") },
+                    label = { Text("Search: Name, Status" + if (fixedCongregationId == null) ", Congregation/Group" else "") },
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                     visualTransformation = VisualTransformation.None,
@@ -290,7 +290,7 @@ fun ManagePublisherReportsScreen(
                                         (if (row.isPioneer) "Hours: ${row.report.hoursRendered ?: 0.0}" else "Participate in Preaching: ${if (row.report.participatedInPreaching == true) "YES" else "NO"}"),
                                     style = MaterialTheme.typography.bodySmall,
                                 )
-                                Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
+                                Text("Congregation/Group: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
                                 Text(
                                     when {
                                         row.isPosted -> "Posted — locked for the publisher"
@@ -383,7 +383,7 @@ private fun publisherReportTable(title: String, uiState: ManagePublisherReportsU
     }
     return ReportTable(
         title = title,
-        columns = listOf("#", "Publisher", "Status", "Bible Study", "Hours", "Participate in Preaching", "Congregation"),
+        columns = listOf("#", "Publisher", "Status", "Bible Study", "Hours", "Participate in Preaching", "Congregation/Group"),
         rows = rows,
         totals = listOf(
             "Total Bible Study" to uiState.totalBibleStudies.toString(),
@@ -451,7 +451,7 @@ private fun CongregationPickerDropdown(congregations: List<Congregation>, select
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation") },
+            label = { Text("Congregation/Group") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

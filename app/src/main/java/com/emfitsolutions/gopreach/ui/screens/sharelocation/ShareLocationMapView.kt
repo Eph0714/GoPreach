@@ -313,7 +313,7 @@ private fun SharePointDetailsSheet(
                     )
                 }
             }
-            DetailRow(label = "Congregation", value = row.congregationName)
+            DetailRow(label = "Congregation/Group", value = row.congregationName)
             DetailRow(label = "Coordinates", value = formatCoordinatesDms(row.location.lat, row.location.lng))
             DetailRow(label = "Last Updated", value = formatShareRelativeTime(row.location.updatedAt))
             Button(onClick = onOpenTerritoryMap, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {

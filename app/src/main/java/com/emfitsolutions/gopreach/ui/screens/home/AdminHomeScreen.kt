@@ -572,7 +572,7 @@ fun AdminHomeScreen(
                         if (isSuperAdmin || canEnrollCoordinatorElder || canEnrollRegularElderOrPublisher) {
                             DashboardSection("Enrollment") {
                                 if (isSuperAdmin) {
-                                    DashboardTile("Congregations", Icons.Rounded.AccountBalance, { onNavigate(Destinations.MANAGE_CONGREGATIONS) })
+                                    DashboardTile("Congregations/Groups", Icons.Rounded.AccountBalance, { onNavigate(Destinations.MANAGE_CONGREGATIONS) })
                                     DashboardTile("Admins", Icons.Rounded.AdminPanelSettings, { onNavigate(Destinations.MANAGE_ADMINS) })
                                 }
                                 if (canEnrollCoordinatorElder) {

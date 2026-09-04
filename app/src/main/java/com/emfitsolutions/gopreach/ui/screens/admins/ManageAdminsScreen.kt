@@ -123,7 +123,7 @@ fun ManageAdminsScreen(
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(row.person.fullName, style = MaterialTheme.typography.titleMedium)
-                                Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
+                                Text("Congregation/Group: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
                                 Text("Contact: ${row.person.contact}", style = MaterialTheme.typography.bodySmall)
                                 Text(
                                     if (row.isActive) "Active" else "Inactive",
@@ -276,7 +276,7 @@ private fun EditAdminDialog(
                 )
 
                 EditSectionHeader("Assignment")
-                ReadOnlyField("Congregation", row.congregationName)
+                ReadOnlyField("Congregation/Group", row.congregationName)
                 ReadOnlyField("Role", "Admin")
 
                 EditSectionHeader("System Information")

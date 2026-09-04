@@ -55,7 +55,7 @@ fun ManageServiceOverseersScreen(
 
     ElderListScreen(
         title = "Service Overseers",
-        scopeLabel = "Congregation",
+        scopeLabel = "Congregation/Group",
         rows = rows,
         canPermanentlyDelete = canPermanentlyDelete,
         readOnly = readOnly,
@@ -129,7 +129,7 @@ private fun ServiceOverseerEditDialog(
             "Last Name" to lastName.isNotBlank(),
             "Address" to address.isNotBlank(),
             "Contact" to contact.isNotBlank(),
-            "Congregation" to (congregationId != null),
+            "Congregation/Group" to (congregationId != null),
         )
         if (message != null) {
             errorMessage = message
@@ -209,7 +209,7 @@ private fun ServiceOverseerEditDialog(
                         onSelected = { pickedCongregationId = it },
                     )
                 } else {
-                    ReadOnlyField("Congregation", row.scopeName)
+                    ReadOnlyField("Congregation/Group", row.scopeName)
                 }
 
                 HorizontalDivider()
@@ -259,7 +259,7 @@ private fun ServiceOverseerCongregationDropdown(congregations: List<Congregation
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation") },
+            label = { Text("Congregation/Group") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

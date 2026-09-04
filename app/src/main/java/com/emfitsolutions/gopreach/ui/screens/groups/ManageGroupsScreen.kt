@@ -326,7 +326,7 @@ private fun GroupDialog(
     fun submit() {
         val message = requiredFieldsMessage(
             "Group Name" to name.isNotBlank(),
-            "Congregation" to (congregationId != null),
+            "Congregation/Group" to (congregationId != null),
         )
         if (message != null) {
             errorMessage = message
@@ -462,7 +462,7 @@ private fun CongregationPickerDropdown(
             value = selected?.name ?: "",
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation") },
+            label = { Text("Congregation/Group") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

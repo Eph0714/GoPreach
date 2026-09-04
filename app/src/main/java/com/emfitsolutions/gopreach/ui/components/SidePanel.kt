@@ -112,7 +112,7 @@ fun GoPreachSidePanelContent(
 ) {
     val sections = buildList {
         val enrollmentItems = buildList {
-            if (canManageCongregationsAndAdmins) add(SideItem("Congregations", Icons.Rounded.AccountBalance, Destinations.MANAGE_CONGREGATIONS))
+            if (canManageCongregationsAndAdmins) add(SideItem("Congregations/Groups", Icons.Rounded.AccountBalance, Destinations.MANAGE_CONGREGATIONS))
             if (canManageCongregationsAndAdmins) add(SideItem("Admins", Icons.Rounded.AdminPanelSettings, Destinations.MANAGE_ADMINS))
             if (canEnrollCoordinatorElder) add(SideItem("Coordinator Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_COORDINATOR_ELDERS))
             if (canEnrollServiceOverseer) add(SideItem("Service Overseer", Icons.Rounded.PersonAdd, Destinations.MANAGE_SERVICE_OVERSEERS))

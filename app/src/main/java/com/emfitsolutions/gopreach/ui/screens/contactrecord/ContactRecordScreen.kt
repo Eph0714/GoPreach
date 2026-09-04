@@ -238,19 +238,19 @@ private fun ContactCongregationDropdown(
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: "All Congregations"
+    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: "All Congregations/Groups"
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         OutlinedTextField(
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation") },
+            label = { Text("Congregation/Group") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("All Congregations") }, onClick = { onSelected(null); expanded = false })
+            DropdownMenuItem(text = { Text("All Congregations/Groups") }, onClick = { onSelected(null); expanded = false })
             congregations.forEach { c ->
                 DropdownMenuItem(text = { Text(c.name) }, onClick = { onSelected(c.id); expanded = false })
             }
@@ -372,7 +372,7 @@ private fun ContactDetailsSheet(
                     )
                 }
             }
-            Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 16.dp))
+            Text("Congregation/Group: ${row.congregationName}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 16.dp))
             if (row.contact.isNotBlank()) {
                 Text("Mobile: ${row.contact}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
             }

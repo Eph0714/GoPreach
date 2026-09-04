@@ -285,7 +285,7 @@ data class CongregationStats(
             val scopedReports = reports.filter { it.congregationId in congregationIds }
             return CongregationStats(
                 congregationId = "",
-                congregationName = "All Congregations",
+                congregationName = "All Congregations/Groups",
                 totalPublishers = publisherAssignments.count {
                     (it.resolvedRoleType() as RoleType.Publisher).category != PublisherCategory.REMOVED_PUBLISHER
                 },

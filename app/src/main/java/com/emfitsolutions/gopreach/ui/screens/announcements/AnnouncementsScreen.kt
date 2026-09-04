@@ -310,7 +310,7 @@ private fun AnnouncementDialog(
         val message = requiredFieldsMessage(
             "Announcement Title" to title.isNotBlank(),
             "Announcement Details" to details.isNotBlank(),
-            "Congregation" to (congregationId != null),
+            "Congregation/Group" to (congregationId != null),
         )
         if (message != null) {
             errorMessage = message
@@ -425,7 +425,7 @@ private fun CongregationPickerDropdown(congregations: List<Congregation>, select
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation") },
+            label = { Text("Congregation/Group") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

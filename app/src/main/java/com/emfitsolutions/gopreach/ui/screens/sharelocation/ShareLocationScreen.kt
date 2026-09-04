@@ -327,7 +327,7 @@ fun ShareLocationScreen(
                                     if (row.category != null) {
                                         Text("Status: ${row.category.name.replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
                                     }
-                                    Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Congregation/Group: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
                                     InternalCoordinatesText(
                                         lat = row.location.lat,
                                         lng = row.location.lng,
@@ -432,7 +432,7 @@ private fun LocationSharingSettingsDialog(
         val duration = durationText.toIntOrNull()
         val accuracy = accuracyText.toIntOrNull()
         val message = requiredFieldsMessage(
-            "Congregation" to (congregationId != null),
+            "Congregation/Group" to (congregationId != null),
             "Location Sharing Time" to (duration != null && duration > 0),
             "Accuracy Radius" to (accuracy != null && accuracy > 0),
         )
@@ -506,7 +506,7 @@ private fun CongregationSettingsDropdown(congregations: List<Congregation>, sele
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation") },
+            label = { Text("Congregation/Group") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

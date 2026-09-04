@@ -223,7 +223,7 @@ private fun consolidatedReportTableFor(uiState: ConsolidatedReportUiState): Repo
     val periodLabel = "${dateFormat.format(Date(uiState.dateRange.startMillis))} - ${dateFormat.format(Date(uiState.dateRange.endMillis))}"
     return ReportTable(
         title = "GoPreach Consolidated Monthly Report ($periodLabel)",
-        columns = listOf("Publisher", "Status", "Congregation", "Bible Studies", "Return Visits", "Preaching Hours", "Participated in Ministry"),
+        columns = listOf("Publisher", "Status", "Congregation/Group", "Bible Studies", "Return Visits", "Preaching Hours", "Participated in Ministry"),
         rows = uiState.visibleEntries.map { entry ->
             listOf(
                 entry.person.fullName,
@@ -247,19 +247,19 @@ private fun consolidatedReportTableFor(uiState: ConsolidatedReportUiState): Repo
 @Composable
 private fun CongregationScopeDropdown(congregationNames: List<Pair<String, String>>, selectedId: String?, onSelected: (String?) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = congregationNames.firstOrNull { it.first == selectedId }?.second ?: "ALL CONGREGATIONS"
+    val selectedName = congregationNames.firstOrNull { it.first == selectedId }?.second ?: "ALL CONGREGATIONS/GROUPS"
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation") },
+            label = { Text("Congregation/Group") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("ALL CONGREGATIONS") }, onClick = { onSelected(null); expanded = false })
+            DropdownMenuItem(text = { Text("ALL CONGREGATIONS/GROUPS") }, onClick = { onSelected(null); expanded = false })
             congregationNames.forEach { (id, name) ->
                 DropdownMenuItem(text = { Text(name) }, onClick = { onSelected(id); expanded = false })
             }

@@ -57,7 +57,7 @@ fun CongregationEnrollmentScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("New Congregation") },
+                title = { Text("New Congregation/Group") },
                 navigationIcon = {
                     IconButton(onClick = guardedBack.onBackPressed) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -77,7 +77,7 @@ fun CongregationEnrollmentScreen(
             OutlinedTextField(
                 value = uiState.name,
                 onValueChange = viewModel::onNameChange,
-                label = { Text("Congregation Name") },
+                label = { Text("Congregation/Group Name") },
                 singleLine = true,
                 visualTransformation = VisualTransformation.None,
                 modifier = Modifier.fillMaxWidth(),
@@ -92,7 +92,7 @@ fun CongregationEnrollmentScreen(
             OutlinedTextField(
                 value = uiState.code,
                 onValueChange = viewModel::onCodeChange,
-                label = { Text("Congregation Code (unique)") },
+                label = { Text("Congregation/Group Code (unique)") },
                 singleLine = true,
                 visualTransformation = VisualTransformation.None,
                 modifier = Modifier.fillMaxWidth(),
@@ -116,7 +116,7 @@ fun CongregationEnrollmentScreen(
                 if (uiState.isSaving) {
                     CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
                 }
-                Text("Save Congregation")
+                Text("Save Congregation/Group")
             }
         }
     }

@@ -615,7 +615,7 @@ private fun PipelinePersonDetailScreen(
                 Text("Place Origin: ${livePerson.placeOrigin ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Language: ${livePerson.language ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Literature Place: ${livePerson.literaturePlace ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-                Text("Congregation: $congregationName", style = MaterialTheme.typography.bodyMedium)
+                Text("Congregation/Group: $congregationName", style = MaterialTheme.typography.bodyMedium)
                 Text("Remarks: ${livePerson.remarks ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 SupportingImagePreview(livePerson.primarySupportingImage)
             }
@@ -851,7 +851,7 @@ private fun PipelineActionButtons(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = iconModifier)
-            Text("Forward to Other Congregation")
+            Text("Forward to Other Congregation/Group")
         }
         // "Use the same logic in transferring to other publisher in Return
         // Visit and Bible Study" — Searching now offers the exact same
@@ -879,9 +879,9 @@ private fun ForwardStatusLine(r: ForwardRequest?) {
     if (r == null) return
     Text(
         when (r.status) {
-            ForwardRequestStatus.PENDING -> "Forward to congregation: Pending — sent to ${r.toCongregationNameSnapshot}"
-            ForwardRequestStatus.ACCEPTED -> "Forward to congregation: Accepted by ${r.toCongregationNameSnapshot} — assigned to ${r.assignedToPublisherNameSnapshot ?: "—"}"
-            ForwardRequestStatus.DECLINED -> "Forward to congregation: Declined by ${r.toCongregationNameSnapshot}"
+            ForwardRequestStatus.PENDING -> "Forward to congregation/group: Pending — sent to ${r.toCongregationNameSnapshot}"
+            ForwardRequestStatus.ACCEPTED -> "Forward to congregation/group: Accepted by ${r.toCongregationNameSnapshot} — assigned to ${r.assignedToPublisherNameSnapshot ?: "—"}"
+            ForwardRequestStatus.DECLINED -> "Forward to congregation/group: Declined by ${r.toCongregationNameSnapshot}"
         },
         style = MaterialTheme.typography.bodySmall,
     )
@@ -925,7 +925,7 @@ private fun ForwardToCongregationDialog(
 
     fun submit() {
         val target = selected
-        val message = requiredFieldsMessage("Congregation" to (target != null))
+        val message = requiredFieldsMessage("Congregation/Group" to (target != null))
         if (message != null) {
             errorMessage = message
             return
@@ -937,7 +937,7 @@ private fun ForwardToCongregationDialog(
 
     FormDialog(
         onDismissRequest = onDismiss,
-        title = "Forward to Other Congregation",
+        title = "Forward to Other Congregation/Group",
         onConfirm = ::submit,
         confirmLabel = "Send Request",
         errorMessage = errorMessage,
@@ -946,7 +946,7 @@ private fun ForwardToCongregationDialog(
         OutlinedTextField(
             value = query,
             onValueChange = { query = it; selected = null },
-            label = { Text("Search by congregation name or language") },
+            label = { Text("Search by congregation/group name or language") },
             singleLine = true,
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth(),
@@ -963,7 +963,7 @@ private fun ForwardToCongregationDialog(
                     }
                 }
             }
-            if (filtered.isEmpty()) item { Text("No matching congregation.", style = MaterialTheme.typography.bodySmall) }
+            if (filtered.isEmpty()) item { Text("No matching congregation/group.", style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
