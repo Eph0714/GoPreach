@@ -73,6 +73,22 @@ data class GroupChatMessage(
     val attachmentType: GroupChatAttachmentType? = null,
     val attachmentSize: Long = 0L,
     val createdAt: Long = 0L,
+
+    /** Sender-only edit (text only — an attachment, once sent, is
+     * immutable, same as every other chat app). [editedAt] drives the
+     * "(edited)" label. */
+    val isEdited: Boolean = false,
+    val editedAt: Long? = null,
+    /** "Delete for everyone" — a soft delete: the doc (and its place in
+     * history/audit) stays, but [text]/attachment fields are cleared and
+     * the UI renders a "This message was deleted" placeholder instead.
+     * Sender-only, same as edit. */
+    val isDeletedForEveryone: Boolean = false,
+    /** "Delete for me" — personIds who chose to hide this one message from
+     * their own view only; everyone else still sees it normally. Any
+     * participant may add their own id here (see firestore.rules), not
+     * just the sender. */
+    val deletedForPersonIds: List<String> = emptyList(),
 ) {
-    val hasAttachment: Boolean get() = attachmentUrl != null
+    val hasAttachment: Boolean get() = attachmentUrl != null && !isDeletedForEveryone
 }

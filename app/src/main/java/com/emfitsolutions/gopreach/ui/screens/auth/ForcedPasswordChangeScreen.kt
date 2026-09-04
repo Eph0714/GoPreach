@@ -9,14 +9,22 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -67,23 +75,17 @@ fun ForcedPasswordChangeScreen(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        OutlinedTextField(
+        PasswordField(
             value = uiState.newPassword,
             onValueChange = viewModel::onPasswordChange,
-            label = { Text("New Password") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            label = "New Password",
             modifier = Modifier.fillMaxWidth(),
         )
 
-        OutlinedTextField(
+        PasswordField(
             value = uiState.confirmPassword,
             onValueChange = viewModel::onConfirmPasswordChange,
-            label = { Text("Confirm New Password") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            label = "Confirm New Password",
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -98,4 +100,37 @@ fun ForcedPasswordChangeScreen(
             Text("Save & Continue")
         }
     }
+}
+
+/** Same show/hide toggle as [com.emfitsolutions.gopreach.ui.screens.account
+ * .AccountSettingsScreen]'s own private `PasswordField` — a permanently
+ * masked field with no way to check what you actually typed is exactly what
+ * caused "password is correct but it says incorrect" reports there; this
+ * screen sets someone's *first real* password, so getting it wrong here is
+ * just as costly. */
+@Composable
+private fun PasswordField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    var visible by remember { mutableStateOf(false) }
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }) {
+                Icon(
+                    if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                    contentDescription = if (visible) "Hide password" else "Show password",
+                )
+            }
+        },
+        modifier = modifier,
+    )
 }

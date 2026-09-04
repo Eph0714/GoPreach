@@ -206,4 +206,40 @@ class GroupChatRepository @Inject constructor(
     }
 
     fun newMessageId(groupChatId: String): String = messages(groupChatId).document().id
+
+    /** Sender-only text edit — an attachment, once sent, is immutable (see
+     * [GroupChatMessage.isEdited]'s doc comment). */
+    suspend fun editMessage(groupChatId: String, messageId: String, newText: String) {
+        messages(groupChatId).document(messageId).update(
+            mapOf("text" to newText, "isEdited" to true, "editedAt" to System.currentTimeMillis()),
+        ).await()
+    }
+
+    /** "Delete for everyone" — sender-only soft delete: clears content, the
+     * doc itself (and its place in chat history/audit) stays. Best-effort
+     * cleans up the attachment's Storage object, if any, same "not worth
+     * failing the whole operation over" trade-off [deleteGroupChat] already
+     * accepts. */
+    suspend fun deleteForEveryone(groupChatId: String, messageId: String, attachmentFileName: String?) {
+        if (attachmentFileName != null) {
+            runCatching { storage.reference.child("groupChats/$groupChatId/attachments/$messageId/$attachmentFileName").delete().await() }
+        }
+        messages(groupChatId).document(messageId).update(
+            mapOf(
+                "text" to "",
+                "attachmentUrl" to null,
+                "attachmentFileName" to null,
+                "attachmentType" to null,
+                "attachmentSize" to 0L,
+                "isDeletedForEveryone" to true,
+            ),
+        ).await()
+    }
+
+    /** "Delete for me" — hides this one message from [personId]'s own view
+     * only (see [GroupChatMessage.deletedForPersonIds]); any participant
+     * may call this on any message, not just their own. */
+    suspend fun deleteForMe(groupChatId: String, messageId: String, personId: String) {
+        messages(groupChatId).document(messageId).update("deletedForPersonIds", FieldValue.arrayUnion(personId)).await()
+    }
 }

@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -183,7 +184,13 @@ class GroupChatViewModel @Inject constructor(
 
     fun groupChat(groupChatId: String): Flow<GroupChat?> = groupChatRepository.observeGroupChat(groupChatId)
 
-    fun messages(groupChatId: String): Flow<List<GroupChatMessage>> = groupChatRepository.observeMessages(groupChatId)
+    /** [viewerPersonId]'s own message list — excludes whatever they've
+     * individually "deleted for me" (see [GroupChatMessage
+     * .deletedForPersonIds]); everyone else still sees those messages
+     * normally, since deletion-for-me never touches the shared doc's real
+     * content. */
+    fun messages(groupChatId: String, viewerPersonId: String): Flow<List<GroupChatMessage>> =
+        groupChatRepository.observeMessages(groupChatId).map { list -> list.filterNot { viewerPersonId in it.deletedForPersonIds } }
 
     fun sendText(groupChatId: String, senderId: String, senderName: String, senderRole: String, text: String) {
         if (text.isBlank()) return
@@ -228,6 +235,31 @@ class GroupChatViewModel @Inject constructor(
                 Log.e(TAG, "sendAttachment failed", e)
                 onFailed()
             }
+        }
+    }
+
+    fun editMessage(groupChatId: String, messageId: String, newText: String) {
+        if (newText.isBlank()) return
+        viewModelScope.launch {
+            runCatching { groupChatRepository.editMessage(groupChatId, messageId, newText.trim()) }
+                .onFailure { Log.e(TAG, "editMessage failed", it) }
+        }
+    }
+
+    /** Sender-only — enforced again server-side (see firestore.rules), this
+     * is UI-side gating so the option isn't even offered on someone else's
+     * message in the first place. */
+    fun deleteForEveryone(groupChatId: String, message: GroupChatMessage) {
+        viewModelScope.launch {
+            runCatching { groupChatRepository.deleteForEveryone(groupChatId, message.id, message.attachmentFileName) }
+                .onFailure { Log.e(TAG, "deleteForEveryone failed", it) }
+        }
+    }
+
+    fun deleteForMe(groupChatId: String, messageId: String, personId: String) {
+        viewModelScope.launch {
+            runCatching { groupChatRepository.deleteForMe(groupChatId, messageId, personId) }
+                .onFailure { Log.e(TAG, "deleteForMe failed", it) }
         }
     }
 

@@ -271,10 +271,37 @@ service cloud.firestore {
         // actually belong to the parent chat.
         allow create: if request.resource.data.senderId == personIdFromToken() &&
           groupChatAllowsRead(database, get(/databases/$(database)/documents/groupChats/$(groupChatId)).data);
-        // No edit/delete of a sent message — chat history stays intact for
+        // "Allow the sender to edit and delete (to everyone, delete for me)
+        // the message he sent" — a real, still-narrow update rule, not a
+        // reopened "anyone can rewrite any message" hole: senderId/createdAt
+        // may never change (identity/ordering stay immutable), and only two
+        // shapes of write are allowed —
+        //  1. the sender editing text/isEdited/editedAt, or soft-deleting via
+        //     isDeletedForEveryone (clearing text/attachment fields), or
+        //  2. ANY participant appending only their own id to
+        //     deletedForPersonIds ("delete for me") — enforced by requiring
+        //     every other field (text/attachment/isDeletedForEveryone) stay
+        //     byte-for-byte unchanged, so a non-sender literally cannot touch
+        //     message content this way.
+        // Chat history/audit otherwise stays intact — deletion is always
+        // soft (a placeholder), never a real doc removal (see delete below).
+        allow update: if isSuperAdmin(database) || (
+          groupChatAllowsRead(database, get(/databases/$(database)/documents/groupChats/$(groupChatId)).data) &&
+          request.resource.data.senderId == resource.data.senderId &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          (
+            personIdFromToken() == resource.data.senderId ||
+            (
+              request.resource.data.text == resource.data.text &&
+              request.resource.data.get('attachmentUrl', null) == resource.data.get('attachmentUrl', null) &&
+              request.resource.data.get('isDeletedForEveryone', false) == resource.data.get('isDeletedForEveryone', false)
+            )
+          )
+        );
+        // No hard delete of a sent message — chat history stays intact for
         // audit (spec §12); Super-Admin can still clean up via deleting the
         // whole group chat above if truly needed.
-        allow update, delete: if false;
+        allow delete: if false;
       }
     }
 

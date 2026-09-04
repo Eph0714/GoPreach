@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,10 +29,14 @@ import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.InsertDriveFile
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.contentColorFor
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -39,6 +44,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -49,8 +55,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -87,16 +95,51 @@ fun GroupChatScreen(
     val showToast = rememberActionToast()
     val chatFlow = remember(groupChatId) { viewModel.groupChat(groupChatId) }
     val chat by chatFlow.collectAsStateWithLifecycle(initialValue = null)
-    val messagesFlow = remember(groupChatId) { viewModel.messages(groupChatId) }
+    val messagesFlow = remember(groupChatId, currentPersonId) { viewModel.messages(groupChatId, currentPersonId) }
     val messages by messagesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+
+    // "Allow the user only to view the chat he/she belongs to" — Firestore
+    // rules already refuse the read server-side for anyone who isn't a
+    // participant (or, per spec, a Coordinator Elder/Admin/Super-Admin
+    // managing their own congregation — see [canManageSettings]); this is
+    // the UI half of that, since a denied listener just never emits rather
+    // than throwing, so without this an unauthorized open would otherwise
+    // sit on a blank screen forever instead of a clear system message. Once
+    // [chat] has actually loaded, membership is checked directly against
+    // its own participant list — covers a participant who gets removed
+    // while the chat is still open, not just someone opening a link they
+    // were never sent. [showNotAvailable] only flips after a short grace
+    // window so the very first (still-loading) frame doesn't flash it.
+    val isParticipant = chat?.participantIds?.contains(currentPersonId) == true
+    val isAuthorized = chat != null && (isParticipant || canManageSettings)
+    var showNotAvailable by remember(groupChatId) { mutableStateOf(false) }
+    LaunchedEffect(groupChatId, chat) {
+        if (chat == null) {
+            kotlinx.coroutines.delay(4000)
+            if (chat == null) showNotAvailable = true
+        } else {
+            showNotAvailable = false
+        }
+    }
+    // Deliberately NOT an early `return` here — every remember/LaunchedEffect
+    // below this point must still run on every recomposition regardless of
+    // [isAuthorized]/[showNotAvailable] (Compose requires the same
+    // composable calls in the same order every time); only the actual
+    // rendered content branches on them, at the very bottom of this function.
 
     var showSettings by remember { mutableStateOf(false) }
     var showDocuments by remember { mutableStateOf(false) }
     var messageText by remember { mutableStateOf("") }
     var pendingAttachment by remember { mutableStateOf<PendingAttachment?>(null) }
     var isUploading by remember { mutableStateOf(false) }
+    // "Allow the sender to edit and delete (to everyone, delete for me) the
+    // message he sent" — editingMessage drives an edit dialog;
+    // pendingDeleteForEveryone a confirmation (an irreversible, everyone-
+    // sees-it action, unlike "delete for me").
+    var editingMessage by remember { mutableStateOf<GroupChatMessage?>(null) }
+    var pendingDeleteForEveryone by remember { mutableStateOf<GroupChatMessage?>(null) }
 
     // Opening the chat (and every time a new message arrives while it's
     // open) marks it read — this is what clears the Chat Box/list unread
@@ -148,6 +191,18 @@ fun GroupChatScreen(
         messageText = ""
     }
 
+    if (chat != null && !isAuthorized) {
+        UnauthorizedGroupChatScreen(onBack = onBack)
+        return
+    }
+    if (showNotAvailable) {
+        UnauthorizedGroupChatScreen(
+            message = "This Group Chat is no longer available to your account.",
+            onBack = onBack,
+        )
+        return
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -185,7 +240,13 @@ fun GroupChatScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(messages, key = { it.id }) { message ->
-                    MessageBubble(message = message, isOwnMessage = message.senderId == currentPersonId)
+                    MessageBubble(
+                        message = message,
+                        isOwnMessage = message.senderId == currentPersonId,
+                        onEdit = { editingMessage = message },
+                        onDeleteForEveryone = { pendingDeleteForEveryone = message },
+                        onDeleteForMe = { viewModel.deleteForMe(groupChatId, message.id, currentPersonId) },
+                    )
                 }
             }
 
@@ -237,10 +298,99 @@ fun GroupChatScreen(
     if (showDocuments && currentChat != null) {
         SharedDocumentsDialog(groupName = currentChat.groupName, messages = messages, onDismiss = { showDocuments = false })
     }
+
+    val toEdit = editingMessage
+    if (toEdit != null) {
+        EditMessageDialog(
+            message = toEdit,
+            onDismiss = { editingMessage = null },
+            onSave = { newText -> viewModel.editMessage(groupChatId, toEdit.id, newText); editingMessage = null },
+        )
+    }
+    val toDeleteForEveryone = pendingDeleteForEveryone
+    if (toDeleteForEveryone != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteForEveryone = null },
+            title = { Text("Delete for everyone?") },
+            text = { Text("This message will be removed for everyone in this group chat. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteForEveryone(groupChatId, toDeleteForEveryone)
+                    pendingDeleteForEveryone = null
+                }) { Text("Delete for Everyone") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDeleteForEveryone = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** "Allow the user only to view the chat he/she belong[s to]" — shown in
+ * place of the chat itself when [GroupChatScreen] determines the current
+ * viewer isn't (or is no longer) authorized to see it: opened a stale/
+ * shared link to a chat they were never added to, or were removed from
+ * participants while it was still open. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UnauthorizedGroupChatScreen(
+    message: String = "You are not authorized to access this Group Chat.",
+    onBack: () -> Unit,
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Group Chat") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
+                },
+            )
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("❌ $message", style = MaterialTheme.typography.bodyLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        }
+    }
+}
+
+/** Sender-only text edit (spec: "allow the sender... to edit... the message
+ * he sent") — an attachment, once sent, stays as-is; only [GroupChatMessage
+ * .text] is editable. */
+@Composable
+private fun EditMessageDialog(message: GroupChatMessage, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var text by remember(message.id) { mutableStateOf(message.text) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Message") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                visualTransformation = VisualTransformation.None,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { if (text.isNotBlank()) onSave(text) }, enabled = text.isNotBlank()) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
-private fun MessageBubble(message: GroupChatMessage, isOwnMessage: Boolean) {
+private fun MessageBubble(
+    message: GroupChatMessage,
+    isOwnMessage: Boolean,
+    onEdit: () -> Unit,
+    onDeleteForEveryone: () -> Unit,
+    onDeleteForMe: () -> Unit,
+) {
+    if (message.isDeletedForEveryone) {
+        DeletedMessagePlaceholder(isOwnMessage)
+        return
+    }
     val bubbleColor = if (isOwnMessage) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
     // "Check if the background color is suited to the text" — the bubble's
     // background is a theme color (primaryContainer/surfaceVariant, which on
@@ -265,6 +415,13 @@ private fun MessageBubble(message: GroupChatMessage, isOwnMessage: Boolean) {
                 if (!isOwnMessage) {
                     Text(message.senderName, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = contentColor)
                     Text(message.senderRole, style = MaterialTheme.typography.labelSmall, color = mutedContentColor)
+                } else {
+                    // "Allow the sender... to edit and delete (to everyone,
+                    // delete for me) the chat he sent" — own-message-only
+                    // menu, right-aligned above the bubble's own content.
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        MessageMenuButton(contentColor = contentColor, onEdit = onEdit, onDeleteForEveryone = onDeleteForEveryone, onDeleteForMe = onDeleteForMe)
+                    }
                 }
                 if (message.attachmentUrl != null) {
                     val context = LocalContext.current
@@ -301,13 +458,51 @@ private fun MessageBubble(message: GroupChatMessage, isOwnMessage: Boolean) {
                     Text(message.text, style = MaterialTheme.typography.bodyMedium, color = contentColor)
                 }
                 Text(
-                    formatRecordTimestamp(message.createdAt),
+                    formatRecordTimestamp(message.createdAt) + if (message.isEdited) " · edited" else "",
                     style = MaterialTheme.typography.labelSmall,
                     color = mutedContentColor,
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
         }
+    }
+}
+
+/** The sender-only "⋮" menu on their own bubble — Edit / Delete for
+ * Everyone / Delete for Me. [contentColor] matches the bubble's own text
+ * color (same reasoning as the rest of [MessageBubble]) so the icon reads
+ * correctly against either bubble background. */
+@Composable
+private fun MessageMenuButton(contentColor: Color, onEdit: () -> Unit, onDeleteForEveryone: () -> Unit, onDeleteForMe: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }, modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Rounded.MoreVert, contentDescription = "Message options", tint = contentColor, modifier = Modifier.size(18.dp))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("Edit") }, onClick = { expanded = false; onEdit() })
+            DropdownMenuItem(text = { Text("Delete for Everyone") }, onClick = { expanded = false; onDeleteForEveryone() })
+            DropdownMenuItem(text = { Text("Delete for Me") }, onClick = { expanded = false; onDeleteForMe() })
+        }
+    }
+}
+
+/** What replaces a bubble once its sender chose "Delete for Everyone" —
+ * every participant, sender included, sees this same placeholder from then
+ * on (spec: "to everyone"); the message doc itself, and its place in chat
+ * history, is untouched (see [GroupChatRepository.deleteForEveryone]). */
+@Composable
+private fun DeletedMessagePlaceholder(isOwnMessage: Boolean) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isOwnMessage) Arrangement.End else Arrangement.Start) {
+        Text(
+            "This message was deleted",
+            style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .widthIn(max = 320.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+        )
     }
 }
 
