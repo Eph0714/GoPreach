@@ -2,11 +2,18 @@ package com.emfitsolutions.gopreach.ui.screens.territories
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.location.LatLng
 import com.emfitsolutions.gopreach.data.location.LocationTracker
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
+import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RecordStatus
+import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
+import com.emfitsolutions.gopreach.data.repository.PersonRepository
+import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
+import com.emfitsolutions.gopreach.data.repository.SharedLocationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +37,20 @@ data class TerritoryMapRow(
     val resolvedLocation: String?,
 )
 
+/** One publisher currently sharing their live location ("Share Location
+ * while Preaching") plotted on the Territory Map alongside the pipeline
+ * records — same underlying [com.emfitsolutions.gopreach.data.model.SharedLocation]
+ * doc [com.emfitsolutions.gopreach.ui.screens.sharelocation.ShareLocationViewModel.rowsFor]
+ * already reads, filtered by [publisherRowsFor]'s own congregation scope
+ * rather than duplicated. */
+data class TerritoryPublisherRow(
+    val person: Person,
+    val lat: Double,
+    val lng: Double,
+    val category: PublisherCategory?,
+    val congregationName: String,
+)
+
 /**
  * "The Territory Module will be a map of location of every Search,
  * Interested, Return Visit, Bible Study [record]" — replaces the old
@@ -43,6 +64,9 @@ class TerritoryMapViewModel @Inject constructor(
     private val interestedPersonRepository: InterestedPersonRepository,
     private val congregationRepository: CongregationRepository,
     private val locationTracker: LocationTracker,
+    private val sharedLocationRepository: SharedLocationRepository,
+    private val personRepository: PersonRepository,
+    private val roleAssignmentRepository: RoleAssignmentRepository,
 ) : ViewModel() {
 
     private val _resolvedAddresses = MutableStateFlow<Map<String, String>>(emptyMap())
@@ -89,4 +113,44 @@ class TerritoryMapViewModel @Inject constructor(
                 }
                 .sortedBy { it.person.name }
         }
+
+    /** "For publisher account they can see other publishers that share their
+     * location in the map. For admin, Coordinator Elder, Service overseer
+     * can do so. However the super admin can see all congregation" — same
+     * `isSharing` [com.emfitsolutions.gopreach.data.model.SharedLocation]
+     * docs and congregation scoping [com.emfitsolutions.gopreach.ui.screens
+     * .sharelocation.ShareLocationViewModel.rowsFor] already uses (see that
+     * function's own doc comment); [congregationId] null means every
+     * congregation (Super-Admin), same convention as [rowsFor]. Whether the
+     * *caller* is even allowed to ask for this at all is a navigation-level
+     * concern (see [com.emfitsolutions.gopreach.ui.navigation.GoPreachNavGraph]'s
+     * `canSeePublisherLocations`), not enforced here. */
+    fun publisherRowsFor(congregationId: String?, excludePersonId: String): Flow<List<TerritoryPublisherRow>> =
+        combine(
+            sharedLocationRepository.observeAll(),
+            personRepository.observeAll(),
+            roleAssignmentRepository.observeAll(),
+            congregationRepository.observeAll(),
+        ) { locations, people, assignments, congregations ->
+            locations
+                .filter { it.isSharing && it.publisherPersonId != excludePersonId }
+                .filter { congregationId == null || it.congregationId == congregationId }
+                .mapNotNull { location ->
+                    val person = people.firstOrNull { it.id == location.publisherPersonId } ?: return@mapNotNull null
+                    val category = assignments.firstOrNull {
+                        it.personId == person.id && it.congregationId == location.congregationId && it.resolvedRoleTypeOrNull() is RoleType.Publisher
+                    }?.let { (it.resolvedRoleTypeOrNull() as RoleType.Publisher).category }
+                    val congregationName = congregations.firstOrNull { it.id == location.congregationId }?.name ?: "—"
+                    TerritoryPublisherRow(person, location.lat, location.lng, category, congregationName)
+                }
+        }
+
+    /** "Add the user current location in the map view" — same
+     * [LocationTracker] every other GPS-fix spot in the app already uses
+     * (Share Location, GPS-coordinate capture forms); the caller checks
+     * [hasLocationPermission] first and requests it if false, same pattern
+     * as [com.emfitsolutions.gopreach.ui.screens.sharelocation.ShareLocationScreen]. */
+    suspend fun currentLocation(): LatLng? = locationTracker.getCurrentLocation()
+
+    fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
 }

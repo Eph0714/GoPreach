@@ -349,6 +349,17 @@ fun GoPreachNavGraph(
                 } else {
                     ownCongregationId ?: ownGroupAssignment?.congregationId ?: ownPublisherAssignment?.congregationId
                 },
+                currentPersonId = currentPersonId,
+                // "For publisher account they can see other publishers that
+                // share their location in the map. For admin, Coordinator
+                // Elder, Service overseer can do so. However the super admin
+                // can see all congregation" — same role set Share Location's
+                // own congregation-scoping already treats as able to see
+                // other publishers (see `visibleCongregationId` above),
+                // Super-Admin included via the [fixedCongregationId] null case.
+                canSeePublisherLocations = currentRole == AdminRole.SUPER_ADMIN ||
+                    currentRole in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER) ||
+                    ownPublisherAssignment != null,
                 onBack = { navController.popBackStack() },
             )
         }
