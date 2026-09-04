@@ -1,8 +1,12 @@
 package com.emfitsolutions.gopreach.domain
 
+import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
+import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
+import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.model.UserAccessGrant
+import com.emfitsolutions.gopreach.data.model.displayLabel
 import com.emfitsolutions.gopreach.data.repository.OfflineSessionMarker
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
@@ -25,11 +29,14 @@ import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Which side of the app a signed-in [Person] should land on — either can carry the
- * other module's nav destinations reachable from a "switch context" affordance,
- * since one Person may hold both an Admin-track role and a Publisher category
- * (spec §3, §5). */
-enum class SessionContext { ADMIN, PUBLISHER, BOTH, NONE }
+/** "Multiple Role Login Detection & Role Selection" spec §2 — one selectable
+ * "account" a signed-in [Person] may operate the app as, backed by exactly
+ * one of their own ACTIVE [RoleAssignment] rows. See [SessionState.roleOptions]
+ * for how these are built. */
+data class RoleOption(
+    val assignment: RoleAssignment,
+    val label: String,
+)
 
 data class SessionState(
     val isLoading: Boolean = true,
@@ -38,6 +45,12 @@ data class SessionState(
     /** Non-null only for a restricted (Circuit Overseer / custom) user — see
      * [UserAccessGrant] and [PermissionChecker.hasPermission]. */
     val grant: UserAccessGrant? = null,
+    /** Spec §7 — set by [UserSession.selectRole] once the user picks an
+     * account off the role-selection screen; cleared automatically on sign
+     * out (see [UserSession]'s own flow chain). Only ever matters when
+     * [roleOptions] has more than one entry — a single-role account never
+     * needs this to resolve [activeRoleAssignment]. */
+    val selectedRoleAssignmentId: String? = null,
 ) {
     val isSignedIn: Boolean get() = person != null
 
@@ -55,17 +68,60 @@ data class SessionState(
      * right after a fresh sign-in. */
     val requiresPasswordChange: Boolean get() = person?.isTemporaryCredential == true
 
-    val availableContext: SessionContext
+    /** "Automatically detect all roles associated with the authenticated
+     * account... Check for: Admin, Coordinator Elder, Ministerial Servant,
+     * Regular Elder, Publisher" — one option per distinct [AdminRole] value
+     * this Person actively holds, plus one for an active Publisher category
+     * if any. Never hard-coded: every entry here is backed by a real,
+     * currently-ACTIVE [RoleAssignment] row (spec §5/§12). A Person holding
+     * two RoleAssignments of the very same AdminRole (e.g. Regular Elder in
+     * two different Groups) collapses to the first one — the same "pick one"
+     * convention this app already uses everywhere else it resolves "a
+     * person's own X" (see GoPreachNavGraph's ownGroupAssignment /
+     * ownPublisherAssignment, which used to do this same firstOrNull scan
+     * directly). */
+    val roleOptions: List<RoleOption>
         get() {
-            val hasAdmin = PermissionChecker.highestAdminRole(roleAssignments) != null
-            val hasPublisher = PermissionChecker.isActivePublisher(roleAssignments)
-            return when {
-                hasAdmin && hasPublisher -> SessionContext.BOTH
-                hasAdmin -> SessionContext.ADMIN
-                hasPublisher -> SessionContext.PUBLISHER
-                else -> SessionContext.NONE
+            val active = roleAssignments.filter { it.status == RoleAssignmentStatus.ACTIVE }
+            val adminOptions = AdminRole.entries.mapNotNull { role ->
+                active.firstOrNull { (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == role }
+                    ?.let { RoleOption(it, role.displayLabel()) }
             }
+            val publisherOption = active.firstOrNull { it.resolvedRoleTypeOrNull() is RoleType.Publisher }
+                ?.let { RoleOption(it, "Publisher") }
+            return adminOptions + listOfNotNull(publisherOption)
         }
+
+    /** Spec §3/§4 — the role-selection screen is skipped entirely for a
+     * single-role account, and never shown before [roleOptions] has actually
+     * loaded (so it can't flash on an empty list the instant sign-in
+     * succeeds, before Firestore's first RoleAssignment snapshot arrives). */
+    val needsRoleSelection: Boolean
+        get() = !isLoading && person != null && roleOptions.size > 1 && activeRoleAssignment == null
+
+    /** Spec §7 — "the selected role must control the session... do not
+     * automatically combine permissions from all roles." The single
+     * RoleAssignment every permission/navigation/scope decision in the app
+     * is made from: automatic (the only one) for a single-role account,
+     * otherwise whichever [roleOptions] entry [selectRole] chose. Resolves
+     * to null while a multi-role account hasn't picked yet — see
+     * [needsRoleSelection]. */
+    val activeRoleAssignment: RoleAssignment?
+        get() = if (roleOptions.size <= 1) {
+            roleOptions.firstOrNull()?.assignment
+        } else {
+            // Only ever matches one of this account's OWN roleOptions — a
+            // stale/foreign id (the role was revoked mid-session, say) simply
+            // fails to resolve, re-triggering [needsRoleSelection] rather than
+            // ever granting access under a role that isn't really active.
+            roleOptions.firstOrNull { it.assignment.id == selectedRoleAssignmentId }?.assignment
+        }
+
+    val activeAdminRole: AdminRole?
+        get() = (activeRoleAssignment?.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role
+
+    val isActivePublisherRole: Boolean
+        get() = activeRoleAssignment?.resolvedRoleTypeOrNull() is RoleType.Publisher
 }
 
 /**
@@ -99,16 +155,47 @@ class UserSession @Inject constructor(
     private fun signedInPersonIdFlow(): Flow<String?> =
         combine(authStateFlow(), offlineSessionMarker.personId) { firebaseId, offlineId -> firebaseId ?: offlineId }
 
+    /** Spec §7 — which of the signed-in Person's own [RoleOption]s is active
+     * for this session. Reset to null every time [signedInPersonIdFlow] moves
+     * to a different (or no) person, so a fresh sign-in — including signing
+     * straight back in as someone else without the process restarting —
+     * always starts from "not yet chosen" rather than inheriting whatever the
+     * previous session picked. Deliberately in-memory only: spec §11's "use
+     * another role -> log out, log in again, select another role" already
+     * implies this doesn't need to survive a process death either — a cold
+     * start naturally re-asks, exactly like a fresh login would. */
+    private val _selectedRoleAssignmentId = MutableStateFlow<String?>(null)
+
+    fun selectRole(assignmentId: String) {
+        _selectedRoleAssignmentId.value = assignmentId
+    }
+
     val state: StateFlow<SessionState> = signedInPersonIdFlow()
-        .flatMapLatest { personId ->
-            if (personId == null) {
-                flowOf(SessionState(isLoading = false, person = null, roleAssignments = emptyList()))
-            } else {
-                combine(
-                    personRepository.observeAll().map { people -> people.firstOrNull { it.id == personId } },
-                    roleAssignmentRepository.observeForPerson(personId),
-                    userAccessGrantRepository.observeForPerson(personId),
-                ) { person, roles, grant -> SessionState(isLoading = false, person = person, roleAssignments = roles, grant = grant) }
+        .let { personIdFlow ->
+            var lastPersonId: String? = null
+            personIdFlow.flatMapLatest { personId ->
+                if (personId != lastPersonId) {
+                    lastPersonId = personId
+                    _selectedRoleAssignmentId.value = null
+                }
+                if (personId == null) {
+                    flowOf(SessionState(isLoading = false, person = null, roleAssignments = emptyList()))
+                } else {
+                    combine(
+                        personRepository.observeAll().map { people -> people.firstOrNull { it.id == personId } },
+                        roleAssignmentRepository.observeForPerson(personId),
+                        userAccessGrantRepository.observeForPerson(personId),
+                        _selectedRoleAssignmentId,
+                    ) { person, roles, grant, selectedRoleAssignmentId ->
+                        SessionState(
+                            isLoading = false,
+                            person = person,
+                            roleAssignments = roles,
+                            grant = grant,
+                            selectedRoleAssignmentId = selectedRoleAssignmentId,
+                        )
+                    }
+                }
             }
         }
         .stateIn(appScope, SharingStarted.Eagerly, SessionState(isLoading = true))

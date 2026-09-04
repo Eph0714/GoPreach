@@ -100,10 +100,12 @@ fun GoPreachSidePanelContent(
     /** "Contact Record" module — Super-Admin, Coordinator Elder, and Regular
      * Elder only (not Admin, not Service Overseer/Ministerial Servant). */
     canViewContactRecord: Boolean,
-    /** Non-null only for a session holding both an Admin-track role and a
-     * Publisher category (spec's pre-existing "switch context" affordance) —
-     * relocated here now that Super-Admin/Admin's main dashboard body is
-     * hidden, so it isn't silently lost for anyone who had it. */
+    /** Always null since "Multiple Role Login Detection & Role Selection"
+     * (spec §7/§11) retired the old mid-session Admin<->Publisher switch in
+     * favor of choosing a role once at login — kept as a parameter (instead
+     * of deleted outright) only so this drawer item's rendering doesn't need
+     * touching if that ever changes; see GoPreachNavGraph's ADMIN_HOME
+     * composable for the actual call site. */
     onSwitchToPublisher: (() -> Unit)?,
     onNavigate: (String) -> Unit,
     onSignOut: () -> Unit,

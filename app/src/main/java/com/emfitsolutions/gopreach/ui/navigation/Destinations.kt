@@ -14,6 +14,11 @@ object Destinations {
     const val FORCED_PASSWORD_CHANGE = "forced_password_change"
     const val FORGOT_PASSWORD = "forgot_password"
 
+    // "Multiple Role Login Detection & Role Selection" — shown after
+    // credentials are verified, only for an account with more than one
+    // active role (see SessionState.needsRoleSelection).
+    const val SELECT_ROLE = "select_role"
+
     // Role-based landing points (real dashboards land in Phase 3-5; placeholders for now)
     const val ADMIN_HOME = "admin_home"
     const val PUBLISHER_HOME = "publisher_home"

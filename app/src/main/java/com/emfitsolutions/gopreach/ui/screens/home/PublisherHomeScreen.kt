@@ -118,12 +118,13 @@ fun PublisherHomeScreen(
     val pendingSyncCount by viewModel.pendingSyncCount.collectAsStateWithLifecycle()
     val showToast = rememberActionToast()
     val currentPersonId = session.person?.id.orEmpty()
-    // resolvedRoleTypeOrNull() (never throws) — this runs unconditionally on
-    // every Main Form composition, same reasoning as AdminHomeScreen/
-    // GoPreachNavGraph's own role resolution.
-    val ownPublisherAssignment = remember(session.roleAssignments) {
-        session.roleAssignments.firstOrNull { it.resolvedRoleTypeOrNull() is RoleType.Publisher }
-    }
+    // "Multiple Role Login Detection & Role Selection" spec §7 — this screen
+    // only ever renders when the session's own active role already resolved
+    // to Publisher (see GoPreachNavGraph's routing), so its own assignment
+    // *is* [session.activeRoleAssignment] — no separate re-scan needed (the
+    // old scan here also predates the ACTIVE-status bugfix that resolving
+    // through activeRoleAssignment already carries).
+    val ownPublisherAssignment = session.activeRoleAssignment
     val category = (ownPublisherAssignment?.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category
     val isPioneer = isPioneerCategory(category)
 

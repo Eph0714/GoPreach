@@ -41,6 +41,20 @@ enum class AdminRole {
     CIRCUIT_OVERSEER,
 }
 
+/** Human-readable name for [AdminRole] — "Multiple Role Login Detection &
+ * Role Selection" spec's own dropdown/example wording ("Admin", "Coordinator
+ * Elder", ...), the single place every role-selection/display surface reads
+ * this from rather than each re-deriving its own string. */
+fun AdminRole.displayLabel(): String = when (this) {
+    AdminRole.SUPER_ADMIN -> "Super Admin"
+    AdminRole.ADMIN_PER_CONGREGATION -> "Admin"
+    AdminRole.COORDINATOR_ELDER -> "Coordinator Elder"
+    AdminRole.SERVICE_OVERSEER -> "Service Overseer"
+    AdminRole.REGULAR_ELDER -> "Regular Elder"
+    AdminRole.MINISTERIAL_SERVANT -> "Ministerial Servant"
+    AdminRole.CIRCUIT_OVERSEER -> "Circuit Overseer"
+}
+
 /**
  * WHAT a restricted ([AdminRole.CIRCUIT_OVERSEER]) user may do — see
  * [UserAccessGrant]. Deliberately a flat enum rather than hard-coded booleans

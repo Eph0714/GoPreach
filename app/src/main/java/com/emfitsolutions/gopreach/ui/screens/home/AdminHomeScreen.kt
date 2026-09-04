@@ -61,7 +61,6 @@ import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.Permission
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.model.ScopeType
-import com.emfitsolutions.gopreach.domain.PermissionChecker
 import com.emfitsolutions.gopreach.ui.components.DashboardHero
 import com.emfitsolutions.gopreach.ui.components.DashboardSection
 import com.emfitsolutions.gopreach.ui.components.DashboardTile
@@ -98,7 +97,11 @@ fun AdminHomeScreen(
     val session by viewModel.state.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val pendingSyncCount by viewModel.pendingSyncCount.collectAsStateWithLifecycle()
-    val role = PermissionChecker.highestAdminRole(session.roleAssignments)
+    // "Multiple Role Login Detection & Role Selection" spec §7 — the
+    // session's single active role (auto for a one-role account, or
+    // whichever SelectRoleScreen entry the user picked), not always the most
+    // senior Admin-track role the account happens to hold.
+    val role = session.activeAdminRole
     val currentPersonId = session.person?.id.orEmpty()
 
     val isSuperAdmin = role == AdminRole.SUPER_ADMIN
@@ -240,10 +243,11 @@ fun AdminHomeScreen(
     // runs unconditionally on every Main Form composition, so one corrupt/
     // unparseable RoleAssignment used to crash the app immediately after a
     // correct login instead of just being skipped like it holds no such role.
-    val ownCongregationId = session.roleAssignments.firstOrNull {
+    val activeAssignment = session.activeRoleAssignment
+    val ownCongregationId = activeAssignment?.takeIf {
         (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT)
     }?.congregationId
-    val ownGroupAssignment = session.roleAssignments.firstOrNull {
+    val ownGroupAssignment = activeAssignment?.takeIf {
         (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
     }
     val ownGroupCongregationId = ownGroupAssignment?.congregationId

@@ -13,10 +13,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.PipelineStage
-import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
-import com.emfitsolutions.gopreach.domain.PermissionChecker
-import com.emfitsolutions.gopreach.domain.SessionContext
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.screens.about.AboutScreen
 import com.emfitsolutions.gopreach.ui.screens.account.AccountSettingsScreen
 import com.emfitsolutions.gopreach.ui.screens.auth.ForcedPasswordChangeScreen
@@ -52,6 +50,7 @@ import com.emfitsolutions.gopreach.ui.screens.preachingtime.PreachingTimeRecordS
 import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MonthlyReportScreen
 import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MySubmittedReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.login.LoginScreen
+import com.emfitsolutions.gopreach.ui.screens.login.SelectRoleScreen
 import com.emfitsolutions.gopreach.ui.screens.publishers.ManagePublishersScreen
 import com.emfitsolutions.gopreach.ui.screens.announcements.AnnouncementsScreen
 import com.emfitsolutions.gopreach.ui.screens.meetingassignments.MeetingAssignmentsScreen
@@ -69,14 +68,18 @@ import com.emfitsolutions.gopreach.data.model.Permission
 import com.emfitsolutions.gopreach.data.model.ScopeType
 
 /**
- * Root navigation graph. Routing between Login / forced-password-change / the
- * Admin or Publisher home is reactive, driven off [SessionViewModel] (backed by
- * [com.emfitsolutions.gopreach.domain.UserSession]) rather than one-off nav calls,
- * so a session change from *any* source — sign-in, sign-out, a password change
- * completing, or Firebase restoring a persisted login on app start — always lands
- * on the right screen. Manually switching between Admin/Publisher context for a
- * person who holds both (spec §3, §5) is a plain nav call instead, since that
- * doesn't change the underlying session.
+ * Root navigation graph. Routing between Login / role-selection / forced-
+ * password-change / the Admin or Publisher home is reactive, driven off
+ * [SessionViewModel] (backed by [com.emfitsolutions.gopreach.domain.UserSession])
+ * rather than one-off nav calls, so a session change from *any* source —
+ * sign-in, sign-out, a role-selection choice, a password change completing,
+ * or Firebase restoring a persisted login on app start — always lands on the
+ * right screen. "Multiple Role Login Detection & Role Selection" spec §7/§11
+ * — a person holding more than one active role always picks exactly one at
+ * login (see [Destinations.SELECT_ROLE]) and operates only under that role's
+ * own permissions/scope for the rest of the session; switching to a
+ * different one of their own roles means signing out and back in, never a
+ * mid-session toggle.
  */
 @Composable
 fun GoPreachNavGraph(
@@ -85,49 +88,52 @@ fun GoPreachNavGraph(
 ) {
     val session by sessionViewModel.state.collectAsStateWithLifecycle()
     val currentPersonId = session.person?.id.orEmpty()
-    val currentRole = PermissionChecker.highestAdminRole(session.roleAssignments)
-    // The congregation an Admin or Coordinator Elder is scoped to (spec §3 permission
+    // "Multiple Role Login Detection & Role Selection" spec §7 — "the
+    // selected role must control the session... do not automatically
+    // combine permissions from all roles." [currentRole] now comes from
+    // [SessionState.activeRoleAssignment] (the single account a multi-role
+    // user picked on SelectRoleScreen, or the only one a single-role user
+    // has) instead of always the most senior Admin-track role a person
+    // happens to hold — an Admin who's also, say, a Coordinator Elder in a
+    // different congregation genuinely operates as only one of the two per
+    // session now, whichever they chose at login.
+    val currentRole = session.activeAdminRole
+    // The congregation the *active* role is scoped to (spec §3 permission
     // matrix: "Own congregation" everywhere except Super-Admin's "All").
-    // Uses resolvedRoleTypeOrNull() (never throws) — this composable runs
-    // unconditionally on every login, so a single corrupt/unparseable
-    // RoleAssignment on this session's own list used to crash the app the
-    // instant Compose evaluated this line, right when the Main Form should
-    // appear. A malformed assignment is now just skipped instead.
-    // Bug fix ("the publisher cannot see other publisher in shared
-    // location... under the same congregation"): none of these three used
-    // to filter to RoleAssignmentStatus.ACTIVE, unlike every other role
-    // lookup in this app (see PermissionChecker.highestAdminRole, which
-    // this exact function's own `session.roleAssignments` list feeds).
-    // `observeForPerson` returns *every* RoleAssignment a person has ever
-    // held, any status — a re-enrolled or congregation-transferred
-    // Publisher (or Elder) can have an old, inactive RoleAssignment sitting
-    // in that list too, and `firstOrNull` had no way to skip past it if it
-    // happened to come first. Picking that stale assignment's congregationId
-    // meant Share Location started/queried under the *wrong* (or blank)
-    // congregation id for that one Publisher — invisible to them, since a
-    // publisher only ever notices this as "I can't see anyone else," not as
-    // an error — while every other Publisher in the same real congregation
-    // still worked fine, since the bug only strikes when a stale
-    // assignment exists at all and happens to be ordered first.
-    val ownCongregationId = session.roleAssignments.firstOrNull {
-        it.status == RoleAssignmentStatus.ACTIVE &&
-            (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT)
+    // Bug fix history ("the publisher cannot see other publisher in shared
+    // location... under the same congregation"): this used to be its own
+    // independent firstOrNull scan over every RoleAssignment (first missing
+    // an ACTIVE filter entirely, then merely disagreeing with whichever role
+    // was picked as "current") — now derived from the exact same
+    // session.activeRoleAssignment [currentRole] itself comes from, so the
+    // two can never disagree about which role is actually driving this
+    // session.
+    val activeAssignment = session.activeRoleAssignment
+    val ownCongregationId = activeAssignment?.takeIf {
+        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT)
     }?.congregationId
     // A Regular Elder's own group (spec §3: their CRUD/view scope is "own group", not congregation-wide).
-    val ownGroupAssignment = session.roleAssignments.firstOrNull {
-        it.status == RoleAssignmentStatus.ACTIVE && (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
+    val ownGroupAssignment = activeAssignment?.takeIf {
+        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
     }
-    // A Publisher's own group/congregation (spec §6.1: publishers share within, and only see, their own group).
-    val ownPublisherAssignment = session.roleAssignments.firstOrNull {
-        it.status == RoleAssignmentStatus.ACTIVE && it.resolvedRoleTypeOrNull() is RoleType.Publisher
-    }
+    // A Publisher's own group/congregation (spec §6.1: publishers share
+    // within, and only see, their own group). Spec §7 "do not combine
+    // permissions from multiple roles": deliberately null for anyone whose
+    // *active selected role* isn't itself Publisher — a Coordinator Elder
+    // who also holds an active Publisher category no longer sees Publisher-
+    // only affordances like "share my own location" while operating under
+    // the Coordinator Elder role they picked at login.
+    val ownPublisherAssignment = activeAssignment?.takeIf { it.resolvedRoleTypeOrNull() is RoleType.Publisher }
 
     val targetRoute = when {
         session.isLoading -> null
         !session.isSignedIn -> Destinations.LOGIN
         session.requiresPasswordChange -> Destinations.FORCED_PASSWORD_CHANGE
-        session.availableContext == SessionContext.PUBLISHER -> Destinations.PUBLISHER_HOME
-        else -> Destinations.ADMIN_HOME // ADMIN, BOTH (default landing), and NONE (shows an empty-state shell)
+        // Spec §4 — shown only for a genuinely multi-role account, and only
+        // until [UserSession.selectRole] resolves it.
+        session.needsRoleSelection -> Destinations.SELECT_ROLE
+        session.isActivePublisherRole -> Destinations.PUBLISHER_HOME
+        else -> Destinations.ADMIN_HOME // an Admin-track active role, and "no role at all" (shows an empty-state shell)
     }
 
     LaunchedEffect(targetRoute) {
@@ -143,6 +149,20 @@ fun GoPreachNavGraph(
     // actually end that session, not just block their *next* sign-in attempt.
     LaunchedEffect(session.isAccountBlocked) {
         if (session.isAccountBlocked) sessionViewModel.signOut()
+    }
+
+    // Spec §14 system messages — each keyed on the signed-in person's own id,
+    // so it fires once per sign-in (a value that only exists while
+    // [session.person] is non-null) rather than on every later
+    // recomposition/role-assignment update.
+    val showSessionToast = rememberActionToast()
+    LaunchedEffect(session.person?.id) {
+        session.person?.let { showSessionToast("Login successful. Welcome, ${it.fullName}.") }
+    }
+    LaunchedEffect(session.person?.id, session.isLoading) {
+        if (!session.isLoading && session.person != null && session.roleOptions.isEmpty()) {
+            showSessionToast("Your account does not have an active role assigned. Please contact the administrator.")
+        }
     }
 
     // Circuit Overseer / custom users (spec §5-§8) carry no built-in scope —
@@ -167,11 +187,26 @@ fun GoPreachNavGraph(
         composable(Destinations.FORCED_PASSWORD_CHANGE) {
             ForcedPasswordChangeScreen(onCompleted = { /* routing handled reactively above */ })
         }
+        composable(Destinations.SELECT_ROLE) {
+            SelectRoleScreen(
+                personName = session.person?.fullName.orEmpty(),
+                roleOptions = session.roleOptions,
+                onContinue = { option -> sessionViewModel.selectRole(option.assignment.id) },
+                onSignOut = { sessionViewModel.signOut() },
+            )
+        }
         composable(Destinations.ADMIN_HOME) {
             AdminHomeScreen(
-                onSwitchToPublisher = if (session.availableContext == SessionContext.BOTH) {
-                    { navController.navigate(Destinations.PUBLISHER_HOME) }
-                } else null,
+                // "Multiple Role Login Detection & Role Selection" spec §7/
+                // §11 — the mid-session Admin<->Publisher switch this used to
+                // offer for a person holding both an Admin-track role and an
+                // active Publisher category is retired in favor of the new
+                // login-time role selector above: Publisher is now just
+                // another SelectRoleScreen entry, same as Coordinator Elder
+                // or Regular Elder, and switching roles mid-session (any
+                // combination, not just this one) always goes through
+                // sign-out + sign-in + re-selecting, per spec §11.
+                onSwitchToPublisher = null,
                 canManageUsers = canManageUsers,
                 // Side panel/dashboard-tile navigation always sits directly on
                 // top of the Main Form, never chained onto whichever menu
@@ -193,9 +228,9 @@ fun GoPreachNavGraph(
         }
         composable(Destinations.PUBLISHER_HOME) {
             PublisherHomeScreen(
-                onSwitchToAdmin = if (session.availableContext == SessionContext.BOTH) {
-                    { navController.navigate(Destinations.ADMIN_HOME) }
-                } else null,
+                // See ADMIN_HOME's own onSwitchToPublisher comment — retired
+                // the same way, for the same reason.
+                onSwitchToAdmin = null,
                 onNavigate = { route -> navController.navigate(route) },
             )
         }
@@ -730,7 +765,7 @@ fun GoPreachNavGraph(
         composable(Destinations.CONTROL_PANEL) {
             ControlPanelScreen(
                 currentPersonId = currentPersonId,
-                canManageLogo = PermissionChecker.highestAdminRole(session.roleAssignments) == AdminRole.SUPER_ADMIN,
+                canManageLogo = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
             )
         }

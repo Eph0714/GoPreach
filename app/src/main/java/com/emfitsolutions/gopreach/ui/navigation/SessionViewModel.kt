@@ -12,7 +12,7 @@ import javax.inject.Inject
  * app-wide [UserSession] without every screen needing its own copy of it. */
 @HiltViewModel
 class SessionViewModel @Inject constructor(
-    userSession: UserSession,
+    private val userSession: UserSession,
     private val authRepository: AuthRepository,
 ) : ViewModel() {
     val state: StateFlow<SessionState> = userSession.state
@@ -21,4 +21,9 @@ class SessionViewModel @Inject constructor(
      * right away, not just be blocked from a *future* sign-in. Called by
      * [GoPreachNavGraph] the moment [SessionState.isAccountBlocked] goes true. */
     fun signOut() = authRepository.signOut()
+
+    /** "Multiple Role Login Detection & Role Selection" spec §7 — called once
+     * from [com.emfitsolutions.gopreach.ui.screens.login.SelectRoleScreen]
+     * when the user taps Continue; see [UserSession.selectRole]. */
+    fun selectRole(assignmentId: String) = userSession.selectRole(assignmentId)
 }
