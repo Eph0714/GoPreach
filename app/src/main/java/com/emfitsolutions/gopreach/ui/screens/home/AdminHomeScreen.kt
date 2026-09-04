@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Chat
+import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocationOn
@@ -185,6 +186,12 @@ fun AdminHomeScreen(
     // view-only regardless of role — the screen itself has no edit/delete
     // action for anyone (see TerritoryMapScreen).
     val canViewTerritoryMap = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION ||
+        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.REGULAR_ELDER
+    // "Meeting Assignments" — "the Coordinator-elder, elder, service
+    // overseer, admin can make an assignment for the meetings, the super
+    // admin can do so [too]" — same role set as [canViewTerritoryMap] today,
+    // kept as its own flag since the two features may diverge later.
+    val canEditMeetingAssignments = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION ||
         role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.REGULAR_ELDER
     // "CREATING GROUPS" spec — Service Overseer can also create/manage
     // Groups under their own congregation, same as Coordinator Elder,
@@ -403,6 +410,7 @@ fun AdminHomeScreen(
                 canManagePublishersAndGroups = canManagePublishersAndGroups,
                 canManageGroups = canManageGroups,
                 canManageTerritories = canViewTerritoryMap,
+                canEditMeetingAssignments = canEditMeetingAssignments,
                 canAccessControlPanel = canAccessControlPanel,
                 isSuperAdmin = isSuperAdmin,
                 canViewUserLogs = canViewUserLogs,
@@ -533,9 +541,14 @@ fun AdminHomeScreen(
                         // Wider than the Management section above — also
                         // reaches Service Overseer/Regular Elder, own
                         // congregation only (see canViewTerritoryMap).
-                        if (canViewTerritoryMap) {
+                        if (canViewTerritoryMap || canEditMeetingAssignments) {
                             DashboardSection("Territory") {
-                                DashboardTile("Territory Map", Icons.Rounded.Map, { onNavigate(Destinations.MANAGE_TERRITORIES) })
+                                if (canViewTerritoryMap) {
+                                    DashboardTile("Territory Map", Icons.Rounded.Map, { onNavigate(Destinations.MANAGE_TERRITORIES) })
+                                }
+                                if (canEditMeetingAssignments) {
+                                    DashboardTile("Meeting Assignments", Icons.Rounded.Event, { onNavigate(Destinations.MEETING_ASSIGNMENTS) })
+                                }
                             }
                         }
 

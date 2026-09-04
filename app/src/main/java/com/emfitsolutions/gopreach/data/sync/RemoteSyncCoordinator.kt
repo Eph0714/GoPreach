@@ -11,7 +11,9 @@ import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.LocationSharingSettingsRepository
+import com.emfitsolutions.gopreach.data.repository.MidweekMeetingScheduleRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
+import com.emfitsolutions.gopreach.data.repository.PublicTalkScheduleRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
 import com.emfitsolutions.gopreach.data.repository.PublisherForwardRequestRepository
@@ -89,6 +91,8 @@ class RemoteSyncCoordinator @Inject constructor(
     private val savedLocationRepository: SavedLocationRepository,
     private val bibleTextCategoryRepository: BibleTextCategoryRepository,
     private val bibleTextRecordRepository: BibleTextRecordRepository,
+    private val midweekMeetingScheduleRepository: MidweekMeetingScheduleRepository,
+    private val publicTalkScheduleRepository: PublicTalkScheduleRepository,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     private var started = false
@@ -144,5 +148,7 @@ class RemoteSyncCoordinator @Inject constructor(
         savedLocationRepository.startRemoteSync().startTracked(uidChanged)
         bibleTextCategoryRepository.startRemoteSync().startTracked(uidChanged)
         bibleTextRecordRepository.startRemoteSync().startTracked(uidChanged)
+        midweekMeetingScheduleRepository.startRemoteSync().startTracked(uidChanged)
+        publicTalkScheduleRepository.startRemoteSync().startTracked(uidChanged)
     }
 }

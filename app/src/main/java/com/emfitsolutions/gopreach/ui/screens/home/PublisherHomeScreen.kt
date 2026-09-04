@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.Bookmarks
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Campaign
+import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
@@ -468,6 +469,11 @@ private fun FeatureTileGrid(
         // construction; scoped to the Publisher's own congregation (see
         // GoPreachNavGraph's MANAGE_TERRITORIES composable).
         add(Tile("Territory Map", "All Saved Locations", Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES))
+        // "The record will be seen in the publishers module... called
+        // 'Meeting Assignments.' The publisher will see only meeting
+        // assignments under their congregation" — read-only, see
+        // GoPreachNavGraph's PUBLISHER_MEETING_ASSIGNMENTS composable.
+        add(Tile("Meeting Assignments", "Midweek & Weekend Schedule", Icons.Rounded.Event, Destinations.PUBLISHER_MEETING_ASSIGNMENTS))
         add(Tile("Announcement", "Latest Updates", Icons.Rounded.Campaign, Destinations.PUBLISHER_ANNOUNCEMENTS, unseenAnnouncements))
     }
 

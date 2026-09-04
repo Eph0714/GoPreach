@@ -38,6 +38,12 @@ object Destinations {
     // "Announcement Module".
     const val MANAGE_ANNOUNCEMENTS = "manage_announcements"
     const val PUBLISHER_ANNOUNCEMENTS = "publisher_announcements"
+    // "Meeting Assignments" module — Midweek Meeting Schedule + Public Talk
+    // and Watchtower Study Schedule. One screen/route for both the admin-
+    // track enrollment side and the Publisher's own read-only view (see
+    // `readOnly` at the call site), same convention as Announcements above.
+    const val MEETING_ASSIGNMENTS = "meeting_assignments"
+    const val PUBLISHER_MEETING_ASSIGNMENTS = "publisher_meeting_assignments"
 
     // Phase 3
     const val CONTROL_PANEL = "control_panel"

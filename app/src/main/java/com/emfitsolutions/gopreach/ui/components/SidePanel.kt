@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Contacts
 import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.History
@@ -91,6 +92,7 @@ fun GoPreachSidePanelContent(
      * wider Publisher-management access. */
     canManageGroups: Boolean,
     canManageTerritories: Boolean,
+    canEditMeetingAssignments: Boolean,
     canAccessControlPanel: Boolean,
     isSuperAdmin: Boolean,
     canViewUserLogs: Boolean,
@@ -126,6 +128,7 @@ fun GoPreachSidePanelContent(
             // hidden for them.
             if (canEnrollPublisher) add(SideItem("Publisher", Icons.Rounded.People, Destinations.MANAGE_PUBLISHERS))
             if (canManageTerritories) add(SideItem("Territory Map", Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES))
+            if (canEditMeetingAssignments) add(SideItem("Meeting Assignments", Icons.Rounded.Event, Destinations.MEETING_ASSIGNMENTS))
         }
         if (enrollmentItems.isNotEmpty()) add(SideSection("Enrollment", enrollmentItems))
 

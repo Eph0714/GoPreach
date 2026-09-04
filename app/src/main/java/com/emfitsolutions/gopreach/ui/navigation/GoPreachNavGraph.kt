@@ -53,6 +53,7 @@ import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MySubmittedReportsSc
 import com.emfitsolutions.gopreach.ui.screens.login.LoginScreen
 import com.emfitsolutions.gopreach.ui.screens.publishers.ManagePublishersScreen
 import com.emfitsolutions.gopreach.ui.screens.announcements.AnnouncementsScreen
+import com.emfitsolutions.gopreach.ui.screens.meetingassignments.MeetingAssignmentsScreen
 import com.emfitsolutions.gopreach.ui.screens.publisherreports.ManagePublisherReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.reports.ConsolidatedReportScreen
 import com.emfitsolutions.gopreach.ui.screens.reports.ReportsScreen
@@ -468,6 +469,36 @@ fun GoPreachNavGraph(
             // A Publisher's own read-only notification list — scoped to
             // their own congregation, opening it marks the badge seen.
             AnnouncementsScreen(
+                currentPersonId = currentPersonId,
+                fixedCongregationId = ownPublisherAssignment?.congregationId,
+                readOnly = true,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.MEETING_ASSIGNMENTS) {
+            // "Meeting Assignments" module — Coordinator Elder/Regular
+            // Elder/Service Overseer/Admin (own congregation)/Super-Admin
+            // (every congregation, picks one) enroll; every other role
+            // reaching this route is read-only.
+            val canEditMeetingAssignments = currentRole in setOf(
+                AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER,
+                AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER,
+            )
+            MeetingAssignmentsScreen(
+                currentPersonId = currentPersonId,
+                // Falls back through a Regular Elder's own group's
+                // congregation (see MANAGE_ANNOUNCEMENTS above for the same
+                // fix/reasoning).
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
+                readOnly = !canEditMeetingAssignments,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.PUBLISHER_MEETING_ASSIGNMENTS) {
+            // A Publisher's own read-only copy — scoped to their own
+            // congregation only (spec: "the publisher will see only meeting
+            // assignments under their congregation").
+            MeetingAssignmentsScreen(
                 currentPersonId = currentPersonId,
                 fixedCongregationId = ownPublisherAssignment?.congregationId,
                 readOnly = true,
