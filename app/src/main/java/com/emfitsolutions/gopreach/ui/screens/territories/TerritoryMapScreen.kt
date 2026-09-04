@@ -122,6 +122,14 @@ fun TerritoryMapScreen(
     fixedCongregationId: String?,
     currentPersonId: String,
     canSeePublisherLocations: Boolean,
+    // "Clicking coordinates should open the Territory Map centered on the
+    // Publisher's latest location" — non-null only when reached via Share
+    // Location's own "open in Territory Map" action (see
+    // Destinations.territoryMapFocusedOn); every other entry point leaves
+    // these null and this screen behaves exactly as before.
+    focusLat: Double? = null,
+    focusLng: Double? = null,
+    focusName: String? = null,
     onBack: () -> Unit,
     viewModel: TerritoryMapViewModel = hiltViewModel(),
 ) {
@@ -196,6 +204,9 @@ fun TerritoryMapScreen(
                     isAllCongregations = fixedCongregationId == null,
                     getCurrentLocation = viewModel::currentLocation,
                     hasLocationPermission = viewModel::hasLocationPermission,
+                    focusLat = focusLat,
+                    focusLng = focusLng,
+                    focusName = focusName,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -314,6 +325,9 @@ private fun TerritoryLiveMap(
     isAllCongregations: Boolean,
     getCurrentLocation: suspend () -> LatLng?,
     hasLocationPermission: () -> Boolean,
+    focusLat: Double? = null,
+    focusLng: Double? = null,
+    focusName: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -607,6 +621,35 @@ private fun TerritoryLiveMap(
                 webViewRef?.evaluateJavascript("if (window.setMyLocation) { window.setMyLocation(${fix.lat}, ${fix.lng}); }", null)
             }
             applySelection(selectedFilter)
+        }
+    }
+
+    // "Clicking coordinates should open the Territory Map centered on the
+    // Publisher's latest location" — runs once, the first time the map
+    // finishes loading with a focus target actually present (see
+    // TerritoryMapScreen's own `focusLat`/`focusLng`, only ever non-null
+    // when reached via Share Location's "open in Territory Map" action).
+    // Switches to the Publisher filter first, since the target would
+    // otherwise be hidden by the default pipeline-only view, then pans/
+    // zooms there — highlighting the closest matching marker (should
+    // always be the exact same publisher, since both screens read the same
+    // underlying SharedLocation data) when one's found within a
+    // realistic GPS-noise radius, or just centering the camera there
+    // otherwise (the coordinates are still the latest available either way).
+    var hasAppliedFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(loadState, webViewRef, focusLat, focusLng) {
+        if (loadState != MapLoadState.LOADED || hasAppliedFocus) return@LaunchedEffect
+        val lat = focusLat
+        val lng = focusLng
+        if (lat == null || lng == null) return@LaunchedEffect
+        hasAppliedFocus = true
+        applySelection(MapFilterOption.PUBLISHERS)
+        val nearest = points.filter { it.kind == MapPointKind.PUBLISHER }.minByOrNull { haversineMeters(lat, lng, it.lat, it.lng) }
+        if (nearest != null && haversineMeters(lat, lng, nearest.lat, nearest.lng) < 100) {
+            selectedPointId = nearest.id
+            webViewRef?.evaluateJavascript("if (window.focusNearby) { window.focusNearby($lat, $lng, ['${jsEscape(nearest.id)}']); }", null)
+        } else {
+            webViewRef?.evaluateJavascript("if (window.territoryMap) { window.territoryMap.setView([$lat, $lng], 17); }", null)
         }
     }
 

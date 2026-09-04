@@ -348,7 +348,24 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(Destinations.MANAGE_TERRITORIES) {
+        composable(
+            route = Destinations.MANAGE_TERRITORIES,
+            arguments = listOf(
+                navArgument("focusLat") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("focusLng") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("focusName") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) { backStackEntry ->
+            // "Clicking coordinates should open the Territory Map centered
+            // on the Publisher's latest location" — Share Location's own
+            // "open in Territory Map" action is the only caller that ever
+            // supplies these (see Destinations.territoryMapFocusedOn); every
+            // plain Territory Map entry point (side panel, dashboard tiles)
+            // navigates to MANAGE_TERRITORIES_BASE, which leaves all three
+            // null here, and the screen behaves exactly as before.
+            val focusLat = backStackEntry.arguments?.getString("focusLat")?.toDoubleOrNull()
+            val focusLng = backStackEntry.arguments?.getString("focusLng")?.toDoubleOrNull()
+            val focusName = backStackEntry.arguments?.getString("focusName")
             // "Territory Module will be a map of location of every Search,
             // Interested, Return Visit, Bible Study" — no CRUD anymore, see
             // TerritoryMapScreen's own doc comment (always view-only, so a
@@ -380,6 +397,9 @@ fun GoPreachNavGraph(
                 canSeePublisherLocations = currentRole == AdminRole.SUPER_ADMIN ||
                     currentRole in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER) ||
                     ownPublisherAssignment != null,
+                focusLat = focusLat,
+                focusLng = focusLng,
+                focusName = focusName,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -662,11 +682,13 @@ fun GoPreachNavGraph(
             )
             ShareLocationScreen(
                 currentPersonId = currentPersonId,
+                currentPersonName = session.person?.fullName.orEmpty(),
                 visibleCongregationId = visibleCongregationId,
                 canShareOwnLocation = ownPublisherAssignment != null,
                 canManageLocationSettings = canManageLocationSettings,
                 ownCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (visibleCongregationId ?: ownCongregationId),
                 onBack = { navController.popBackStack() },
+                onOpenTerritoryMap = { lat, lng, name -> navController.navigate(Destinations.territoryMapFocusedOn(lat, lng, name)) },
             )
         }
         composable(Destinations.FIND_LOCATION) {

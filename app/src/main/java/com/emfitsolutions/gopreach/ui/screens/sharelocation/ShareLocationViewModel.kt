@@ -119,36 +119,17 @@ class ShareLocationViewModel @Inject constructor(
      * reached Firestore; see [LocationSharingService.syncState]. */
     val syncState: StateFlow<LocationSharingService.LocationSyncState> = LocationSharingService.syncState
 
-    /** Last coordinates successfully fetched this session — reused by
-     * [refreshMyLocation] and updated live from [SharedLocation] rows this
-     * device published, so "My Current Location" stays current without a
-     * second GPS poll of its own while actively sharing. */
+    /** Last coordinates [LocationSharingService] published for this
+     * publisher — updated live from [SharedLocation], so the status card's
+     * Latitude/Longitude/Last Updated stay current without this screen ever
+     * polling GPS itself. "Simplify Share Location" spec — no manual refresh
+     * control exists any more; the automatic 5-minute update cycle (plus the
+     * near-instant first fix) is the only way this ever changes. */
     private val _myLocation = MutableStateFlow<MyLocationState?>(null)
     val myLocation: StateFlow<MyLocationState?> = _myLocation.asStateFlow()
 
-    private val _isRefreshing = MutableStateFlow(false)
-    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
-
     fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
     fun isLocationServicesEnabled(): Boolean = locationTracker.isLocationServicesEnabled()
-
-    /** [REFRESH LOCATION] — works whether or not Share Location is currently
-     * on; a Publisher may just want to see where the device thinks they are.
-     * [onComplete] reports success/failure so the caller can show "Unable to
-     * update your location. Please try again." — [refreshMyLocation] used to
-     * fail completely silently (no fix -> nothing happened, no explanation),
-     * exactly the "application fail silently" spec §13 says not to do. */
-    fun refreshMyLocation(onComplete: (success: Boolean) -> Unit = {}) {
-        _isRefreshing.value = true
-        viewModelScope.launch {
-            val fix = locationTracker.getCurrentLocation()
-            _isRefreshing.value = false
-            if (fix != null) {
-                _myLocation.value = MyLocationState(fix, System.currentTimeMillis())
-            }
-            onComplete(fix != null)
-        }
-    }
 
     /** Keeps "My Current Location" in sync with whatever [LocationSharingService]
      * just published for this publisher, without a second GPS poll. */
@@ -202,15 +183,6 @@ class ShareLocationViewModel @Inject constructor(
                 }
                 .sortedBy { it.person.fullName }
         }
-
-    /** Best-effort human-readable address for one coordinate pair — see
-     * [LocationTracker.reverseGeocode]'s doc comment for why this can come
-     * back null. Deliberately re-resolved on every call rather than cached
-     * here: this screen only ever has a handful of active sharers on it at
-     * once, and the caller (see AnnouncementsScreen-style `produceState`
-     * usage in [ShareLocationScreen]) already only calls this once per row
-     * per composition. */
-    suspend fun addressFor(lat: Double, lng: Double): String? = locationTracker.reverseGeocode(lat, lng)
 
     fun settingsFor(congregationId: String): Flow<LocationSharingSettings> = locationSharingSettingsRepository.observeFor(congregationId)
 

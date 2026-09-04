@@ -55,7 +55,21 @@ object Destinations {
     // Phase 4
     const val MANAGE_PUBLISHERS = "manage_publishers"
     const val MANAGE_GROUPS = "manage_groups"
-    const val MANAGE_TERRITORIES = "manage_territories"
+    // "Clicking coordinates should open the Territory Map centered on the
+    // Publisher's latest location" — [MANAGE_TERRITORIES] (with the literal
+    // `{focusLat}`-style placeholders) is the route *pattern*, used only to
+    // register the composable; every plain "open Territory Map" entry point
+    // (side panel, dashboard tiles) navigates to [MANAGE_TERRITORIES_BASE]
+    // instead — the three query args are optional, so the base path alone
+    // still matches the pattern and simply omits them. Only Share
+    // Location's own "open in Territory Map" action supplies real values,
+    // via [territoryMapFocusedOn].
+    const val MANAGE_TERRITORIES_BASE = "manage_territories"
+    const val MANAGE_TERRITORIES = "$MANAGE_TERRITORIES_BASE?focusLat={focusLat}&focusLng={focusLng}&focusName={focusName}"
+    fun territoryMapFocusedOn(lat: Double, lng: Double, name: String): String {
+        val encodedName = java.net.URLEncoder.encode(name, "UTF-8")
+        return "$MANAGE_TERRITORIES_BASE?focusLat=$lat&focusLng=$lng&focusName=$encodedName"
+    }
     const val MANAGE_CHAT_SCHEDULES = "manage_chat_schedules"
     const val REPORTS = "reports"
 

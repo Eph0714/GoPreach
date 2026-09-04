@@ -1,36 +1,25 @@
 package com.emfitsolutions.gopreach.ui.screens.sharelocation
 
 import android.Manifest
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.LocationOn
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material.icons.rounded.LocationOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -49,21 +38,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.emfitsolutions.gopreach.data.location.LocationSharingService
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.LocationSharingSettings
-import androidx.compose.ui.text.font.FontWeight
-import com.emfitsolutions.gopreach.ui.components.ClickableCoordinatesText
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
@@ -71,55 +58,66 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private enum class PendingLocationAction { ENABLE_SHARING, REFRESH }
-
 /**
- * Spec §6.1 — Share Location. [canShareOwnLocation] gates the "share my
- * location" toggle to publishers only, per spec ("Publisher: can share own
- * location while preaching"); every role can view whoever's currently sharing
- * within their own scope. [canManageLocationSettings] additionally shows the
+ * "Simplify Share Location Module with Automatic Real-Time Updates" spec —
+ * §6.1 Share Location. [canShareOwnLocation] gates the "share my location"
+ * toggle to publishers only, per spec ("Publisher: can share own location
+ * while preaching"); every role can view whoever's currently sharing within
+ * their own scope. [canManageLocationSettings] additionally shows the
  * "SHARE LOCATION SETTINGS" gear (Super-Admin/Admin/Service Overseer/
  * Coordinator Elder/Regular Elder, own congregation for anyone but
- * Super-Admin).
+ * Super-Admin). [onOpenTerritoryMap] is how a coordinate pair (this
+ * publisher's own, or any "sharing now" row's) opens GoPreach's own
+ * Territory Map centered on that point — internal navigation, deliberately
+ * not an external Maps app, per this spec's "clicking should open the app's
+ * own Map View" requirement.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShareLocationScreen(
     currentPersonId: String,
+    currentPersonName: String,
     visibleCongregationId: String?,
     canShareOwnLocation: Boolean,
     canManageLocationSettings: Boolean = false,
     ownCongregationId: String? = null,
     onBack: () -> Unit,
+    onOpenTerritoryMap: (lat: Double, lng: Double, name: String) -> Unit,
     viewModel: ShareLocationViewModel = hiltViewModel(),
 ) {
-    val context = LocalContext.current
     val isSharingFlow = remember(currentPersonId) { viewModel.isSharingFor(currentPersonId) }
     val isSharing by isSharingFlow.collectAsStateWithLifecycle(initialValue = false)
-    // "Clearly distinguish between Sharing Activated / Location Acquired /
-    // Location Synchronized" — three separate signals, never conflated:
-    // [isSharing] can (and, right after a tap, does) read true before
-    // either of these has happened yet.
-    val locationAcquired by viewModel.locationAcquired.collectAsStateWithLifecycle()
-    val syncState by viewModel.syncState.collectAsStateWithLifecycle()
     LaunchedEffect(currentPersonId) { viewModel.observeOwnSharedLocation(currentPersonId) }
     val myLocation by viewModel.myLocation.collectAsStateWithLifecycle()
-    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
     val rowsFlow = remember(visibleCongregationId, searchQuery) {
         viewModel.rowsFor(visibleCongregationId, currentPersonId, searchQuery)
     }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val dateFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
+    val dateFormat = remember { SimpleDateFormat("MMMM d, yyyy – h:mm a", Locale.getDefault()) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showConsentDialog by remember { mutableStateOf(false) }
     val showToast = rememberActionToast()
 
-    // "Enable sharing" and "refresh my own coordinates" both need the same
-    // permission, so one launcher covers both — which action triggered it is
-    // tracked so the right thing happens once the user responds to the
-    // system dialog, rather than always defaulting to one of the two.
-    var pendingAction by remember { mutableStateOf<PendingLocationAction?>(null) }
+    // "Do not show repetitive notifications every time the automatic
+    // 5-minute update occurs" — this one-time flag is reset whenever a new
+    // sharing session starts, and consumed the first time a real fix lands
+    // for that session, so the "Your current location has been updated."
+    // toast fires exactly once per ON period, never on the later 5-minute
+    // refreshes that follow it silently.
+    var hasShownFirstLocationToast by remember { mutableStateOf(false) }
+    var wasSharing by remember { mutableStateOf(isSharing) }
+    LaunchedEffect(isSharing) {
+        if (isSharing && !wasSharing) hasShownFirstLocationToast = false
+        wasSharing = isSharing
+    }
+    LaunchedEffect(isSharing, myLocation?.capturedAt) {
+        if (isSharing && myLocation != null && !hasShownFirstLocationToast) {
+            hasShownFirstLocationToast = true
+            showToast("Your current location has been updated.")
+        }
+    }
+
     // "Immediately display a clear system action message... Immediately
     // change the button/status to Location Sharing ON" — both happen right
     // here, synchronously with the call that actually activates sharing
@@ -128,47 +126,29 @@ fun ShareLocationScreen(
     // or server round-trip confirms anything.
     fun activateSharing() {
         viewModel.toggleSharing(true, currentPersonId, visibleCongregationId, null)
-        showToast("Your location is now being shared.")
+        showToast("Location sharing is now active.")
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
-            when (pendingAction) {
-                PendingLocationAction.ENABLE_SHARING -> activateSharing()
-                PendingLocationAction.REFRESH -> viewModel.refreshMyLocation { success ->
-                    if (!success) showToast("Unable to update your location. Please try again.")
-                }
-                null -> Unit
-            }
+            activateSharing()
         } else {
             // "Provide clear instructions... rather than allowing the
             // application to fail silently" — a denied permission used to
             // just leave the Switch off with zero explanation.
             showToast("Location permission is required to share your location.")
         }
-        pendingAction = null
-    }
-
-    // "Check whether GPS/location services are enabled" — shared by Start
-    // Sharing and Refresh Location, since both need a real fix; a specific
-    // message here instead of a generic failure once getCurrentLocation()
-    // predictably comes back null.
-    fun withLocationServicesEnabled(thenRun: () -> Unit) {
-        if (viewModel.isLocationServicesEnabled()) {
-            thenRun()
-        } else {
-            showToast("Location services are disabled. Please enable GPS to continue.")
-        }
     }
 
     fun startSharing() {
-        withLocationServicesEnabled {
+        if (viewModel.isLocationServicesEnabled()) {
             if (viewModel.hasLocationPermission()) {
                 activateSharing()
             } else {
-                pendingAction = PendingLocationAction.ENABLE_SHARING
                 permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
             }
+        } else {
+            showToast("Location services are disabled. Please enable GPS to continue.")
         }
     }
 
@@ -193,31 +173,31 @@ fun ShareLocationScreen(
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (canShareOwnLocation) {
-                // A colored status card — surfaceVariant off, primaryContainer
-                // on — makes "am I currently sharing" readable at a glance
-                // rather than only from the Switch's own tiny visual state.
+                // "Show only essential location information: Publisher Name,
+                // Sharing Status, Latitude, Longitude, Last Updated. Do not
+                // display unnecessary map previews or complicated location
+                // controls." — a colored status card, nothing more.
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = if (isSharing) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                     ),
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(currentPersonName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                // "Immediately change the button/status to
-                                // Location Sharing ON" — [isSharing] already
-                                // reflects the tap itself (an optimistic
-                                // override — see ShareLocationViewModel
-                                // .toggleSharing), not whatever GPS/server
-                                // round-trip is still happening underneath.
-                                if (isSharing) "🟢 Location Sharing ON" else "Share my location while preaching",
+                                // [isSharing] already reflects the tap itself
+                                // (an optimistic override — see
+                                // ShareLocationViewModel.toggleSharing), not
+                                // whatever GPS/server round-trip is still
+                                // happening underneath.
+                                if (isSharing) "🟢 Location Sharing: ON" else "Location Sharing: OFF",
                                 style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.weight(1f),
                             )
                             Switch(
@@ -232,68 +212,43 @@ fun ShareLocationScreen(
                                         // permission prompt below.
                                         showConsentDialog = true
                                     } else {
-                                        // "The Stop Sharing process should
-                                        // also respond immediately" — same
-                                        // optimistic override, the other way.
+                                        // "Stop all scheduled location updates
+                                        // immediately when Location Sharing is
+                                        // turned OFF" — same optimistic
+                                        // override, the other way.
                                         viewModel.toggleSharing(false, currentPersonId, visibleCongregationId, null)
-                                        showToast("Location sharing stopped.")
+                                        showToast("Location sharing stopped successfully.")
                                     }
                                 },
                             )
                         }
-                        if (isSharing) {
-                            // "Clearly distinguish between Sharing Activated
-                            // / Location Acquired / Location Synchronized" —
-                            // spec's own three-line example, using the exact
-                            // same emoji.
+                        if (isSharing && myLocation != null) {
+                            InternalCoordinatesText(
+                                lat = myLocation!!.fix.lat,
+                                lng = myLocation!!.fix.lng,
+                                onClick = { onOpenTerritoryMap(myLocation!!.fix.lat, myLocation!!.fix.lng, currentPersonName) },
+                            )
                             Text(
-                                "Visible to other publishers in your congregation",
+                                "Last Updated: ${dateFormat.format(Date(myLocation!!.capturedAt))}",
                                 style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            SharingStatusRow(
-                                emoji = "📍",
-                                label = "Location",
-                                value = if (locationAcquired) "Updated" else "Updating…",
-                            )
-                            SharingStatusRow(
-                                emoji = "☁",
-                                label = "Synchronization",
-                                value = when (syncState) {
-                                    LocationSharingService.LocationSyncState.SYNCED -> "Synced"
-                                    LocationSharingService.LocationSyncState.FAILED -> "Waiting for network synchronization"
-                                    LocationSharingService.LocationSyncState.CONNECTING -> "Connecting…"
-                                },
+                        } else if (isSharing) {
+                            Text(
+                                "Acquiring your current location…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         } else {
                             Text(
                                 "Only other publishers in your congregation see it, and it stops on its own after the configured time.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 8.dp),
                             )
                         }
                     }
                 }
-
-                MyCurrentLocationCard(
-                    hasPermission = viewModel.hasLocationPermission(),
-                    location = myLocation,
-                    isRefreshing = isRefreshing,
-                    onRefresh = {
-                        withLocationServicesEnabled {
-                            if (viewModel.hasLocationPermission()) {
-                                viewModel.refreshMyLocation { success ->
-                                    if (!success) showToast("Unable to update your location. Please try again.")
-                                }
-                            } else {
-                                pendingAction = PendingLocationAction.REFRESH
-                                permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                )
-                HorizontalDivider(modifier = Modifier.padding(top = 16.dp))
+                HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
             }
 
             OutlinedTextField(
@@ -327,18 +282,7 @@ fun ShareLocationScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(rows, key = { it.person.id }) { row ->
-                        val address by produceState<String?>(initialValue = null, row.location.lat, row.location.lng) {
-                            value = viewModel.addressFor(row.location.lat, row.location.lng)
-                        }
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = {
-                                val uri = Uri.parse(
-                                    "geo:${row.location.lat},${row.location.lng}?q=${row.location.lat},${row.location.lng}(${row.person.fullName})",
-                                )
-                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                            },
-                        ) {
+                        Card(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
                                     row.groupName?.let { "${row.person.fullName} ($it)" } ?: row.person.fullName,
@@ -348,19 +292,13 @@ fun ShareLocationScreen(
                                     Text("Status: ${row.category.name.replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
                                 }
                                 Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
-                                ClickableCoordinatesText(
+                                InternalCoordinatesText(
                                     lat = row.location.lat,
                                     lng = row.location.lng,
-                                    label = row.person.fullName,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    onClick = { onOpenTerritoryMap(row.location.lat, row.location.lng, row.person.fullName) },
                                 )
                                 Text(
-                                    "Location: ${address ?: "Resolving address…"}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    "Updated ${dateFormat.format(Date(row.location.updatedAt))}",
+                                    "Last Updated: ${dateFormat.format(Date(row.location.updatedAt))}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -403,6 +341,29 @@ fun ShareLocationScreen(
             onDismiss = { showSettingsDialog = false },
         )
     }
+}
+
+/** "Make the coordinates clickable... open the app's own Map View, centered
+ * on the Publisher's latest location" — deliberately separate from the
+ * shared [com.emfitsolutions.gopreach.ui.components.ClickableCoordinatesText]
+ * component (which the rest of the app uses to open an *external* Maps app):
+ * this screen's coordinates navigate to GoPreach's own Territory Map
+ * instead, so the two must not share an implementation. */
+@Composable
+private fun InternalCoordinatesText(
+    lat: Double,
+    lng: Double,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyMedium,
+) {
+    Text(
+        "Latitude: $lat   Longitude: $lng",
+        style = style,
+        color = MaterialTheme.colorScheme.primary,
+        textDecoration = TextDecoration.Underline,
+        modifier = modifier.clickable(onClick = onClick),
+    )
 }
 
 /** "SHARE LOCATION SETTINGS" — Location Sharing Time + Accuracy Radius, per
@@ -516,82 +477,6 @@ private fun CongregationSettingsDropdown(congregations: List<Congregation>, sele
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             congregations.forEach { congregation ->
                 DropdownMenuItem(text = { Text(congregation.name) }, onClick = { onSelected(congregation.id); expanded = false })
-            }
-        }
-    }
-}
-
-/** One line of the status card's own three-state readout — "🟢 Location
- * Sharing / ON", "📍 Location / Updating...", "☁ Synchronization /
- * Connecting..." per spec's own worked example. */
-@Composable
-private fun SharingStatusRow(emoji: String, label: String, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-        Text(emoji, style = MaterialTheme.typography.bodyMedium)
-        Text(
-            "$label: $value",
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(start = 8.dp),
-        )
-    }
-}
-
-/**
- * "Share Location – Show Current Coordinates" spec §1. Deliberately
- * independent of the sharing toggle above — "where am I right now" and "is
- * my group allowed to see where I am" are two different questions, and a
- * Publisher may want the former without the latter.
- */
-@Composable
-private fun MyCurrentLocationCard(
-    hasPermission: Boolean,
-    location: MyLocationState?,
-    isRefreshing: Boolean,
-    onRefresh: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val timeFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
-    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text("My Current Location", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 4.dp))
-            }
-            when {
-                // Spec §1: "If location permission is disabled, provide an
-                // appropriate message directing the user to enable it" —
-                // rather than a silent no-op or a raw platform error.
-                !hasPermission -> Text(
-                    "Location permission is turned off. Tap Refresh Location to grant it and see your current coordinates.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                location != null -> {
-                    ClickableCoordinatesText(lat = location.fix.lat, lng = location.fix.lng)
-                    if (location.fix.accuracyMeters != null) {
-                        Text("Accuracy: ${location.fix.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    // Spec §1: "clearly indicate when the location was
-                    // successfully captured" — a timestamp, not just numbers.
-                    Text(
-                        "Captured at ${timeFormat.format(Date(location.capturedAt))}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                else -> Text(
-                    "Not captured yet.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Button(onClick = onRefresh, enabled = !isRefreshing, modifier = Modifier.padding(top = 8.dp)) {
-                if (isRefreshing) {
-                    CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
-                } else {
-                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                }
-                Text("REFRESH LOCATION")
             }
         }
     }

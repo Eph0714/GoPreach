@@ -111,14 +111,16 @@ class LocationSharingService : Service() {
         return START_NOT_STICKY
     }
 
-    /** Same fix-every-30s / accuracy-gate / auto-stop-after-duration logic
+    /** Fix-every-5-minutes / accuracy-gate / auto-stop-after-duration logic
      * that used to live in the ViewModel's while loop — unchanged behavior,
      * just running somewhere that survives leaving the screen.
      *
-     * Bug fix ("the publisher cannot open Share Location fast, it will take
-     * time"): two separate things used to make the very first publish slow
-     * even once the toggle was tapped —
-     *   1. Every attempt, including the first, called [LocationTracker
+     * "Immediately obtain and save the first available valid location...
+     * automatically update every 5 minutes" — the very first fix bypasses
+     * the 5-minute cadence entirely (see [isFirstAttempt] below), for two
+     * reasons found while fixing an earlier "cannot open Share Location
+     * fast" report:
+     *   1. Every attempt, including the first, used to call [LocationTracker
      *      .getCurrentLocation] alone, which forces Play Services to obtain
      *      a genuinely *new* PRIORITY_HIGH_ACCURACY GPS fix rather than
      *      answering from any cache — commonly several seconds, sometimes
@@ -126,14 +128,15 @@ class LocationSharingService : Service() {
      *   2. A first fix that failed the accuracy gate (very plausible — a
      *      fresh chip's first fix is often worse than [LocationSharingSettings
      *      .accuracyRadiusMeters]'s tight default) published nothing and
-     *      then waited the *full* 30-second cadence before trying again,
-     *      compounding into a genuinely long wait before the Publisher's
-     *      toggle/status ever reflected reality.
+     *      would otherwise wait the *full* 5-minute cadence before trying
+     *      again, compounding into an unacceptably long wait before the
+     *      Publisher's toggle/status ever reflected reality.
      * Fixed by trying Play Services' own already-cached last-known fix
      * first (near-instant when available) before ever falling back to a
-     * fresh one, and retrying every 5s instead of 30s until the very first
-     * publish actually succeeds — settling into the normal 30s cadence only
-     * once sharing is genuinely up and running. */
+     * fresh one, and retrying every 5s (not the full 5-minute cadence)
+     * until the very first publish actually succeeds — settling into the
+     * normal 5-minute cadence only once sharing is genuinely up and
+     * running. */
     private suspend fun runSharingLoop(publisherPersonId: String, congregationId: String?, groupId: String?) {
         val settings = congregationId?.let { locationSharingSettingsRepository.currentFor(it) }
             ?: LocationSharingSettings.defaultsFor(congregationId.orEmpty())
@@ -175,7 +178,7 @@ class LocationSharingService : Service() {
                     // UI can say "Waiting for network synchronization"
                     // instead of falsely claiming a sync that never
                     // happened (§5/§7). A failure here doesn't stop the
-                    // loop — the next 5s/30s cycle retries automatically
+                    // loop — the next 5s/5-minute cycle retries automatically
                     // (§6 "keep retrying... do not silently fail").
                     runCatching { sharedLocationRepository.update(location) }
                         .onSuccess { _syncState.value = LocationSyncState.SYNCED }
@@ -186,7 +189,11 @@ class LocationSharingService : Service() {
                     hasPublishedOnce = true
                 }
             }
-            delay(if (hasPublishedOnce) 30_000 else 5_000)
+            // "Implement automatic location updates every 5 minutes" —
+            // once the very first publish succeeds; until then, retry every
+            // 5s (see this function's own doc comment on why the first
+            // publish specifically must not wait a full cycle).
+            delay(if (hasPublishedOnce) 5 * 60_000L else 5_000L)
         }
     }
 

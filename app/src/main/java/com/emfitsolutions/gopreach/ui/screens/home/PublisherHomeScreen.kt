@@ -468,7 +468,7 @@ private fun FeatureTileGrid(
         // TerritoryMapScreen), so reaching it here is already read-only by
         // construction; scoped to the Publisher's own congregation (see
         // GoPreachNavGraph's MANAGE_TERRITORIES composable).
-        add(Tile("Territory Map", "All Saved Locations", Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES))
+        add(Tile("Territory Map", "All Saved Locations", Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES_BASE))
         // "The record will be seen in the publishers module... called
         // 'Meeting Assignments.' The publisher will see only meeting
         // assignments under their congregation" — read-only, see
