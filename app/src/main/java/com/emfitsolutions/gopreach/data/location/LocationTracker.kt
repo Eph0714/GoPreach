@@ -67,6 +67,23 @@ class LocationTracker @Inject constructor(
         return LatLng(location.latitude, location.longitude, location.accuracy)
     }
 
+    /** "The publisher cannot open Share Location fast, it will take time" —
+     * a fresh [getCurrentLocation] fix genuinely can take many seconds
+     * (sometimes tens of seconds indoors on a cold GPS chip), since
+     * PRIORITY_HIGH_ACCURACY deliberately forces a real new fix rather than
+     * answering from cache. Play Services keeps its *own* rolling cache of
+     * the device's last fix across every app that's asked recently, usually
+     * only seconds old outdoors — [LocationSharingService] tries this first
+     * so sharing can visibly turn on immediately, then upgrades to a fresh
+     * [getCurrentLocation] fix on its very next cycle regardless. */
+    @SuppressLint("MissingPermission") // caller checks hasLocationPermission() first
+    suspend fun getLastKnownLocation(): LatLng? {
+        if (!hasLocationPermission()) return null
+        val client = LocationServices.getFusedLocationProviderClient(context)
+        val location = client.lastLocation.await() ?: return null
+        return LatLng(location.latitude, location.longitude, location.accuracy)
+    }
+
     /** "Shared Location Reports" spec — the human-readable "Location" line
      * next to each record's raw coordinates, via Android's own on-device
      * [Geocoder] (no API key/new dependency, same "no new dependency"

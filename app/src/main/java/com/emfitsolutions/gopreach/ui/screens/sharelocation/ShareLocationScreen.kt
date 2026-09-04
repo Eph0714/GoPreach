@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -94,6 +95,7 @@ fun ShareLocationScreen(
     val context = LocalContext.current
     val isSharingFlow = remember(currentPersonId) { viewModel.isSharingFor(currentPersonId) }
     val isSharing by isSharingFlow.collectAsStateWithLifecycle(initialValue = false)
+    val isStarting by viewModel.isStarting.collectAsStateWithLifecycle()
     LaunchedEffect(currentPersonId) { viewModel.observeOwnSharedLocation(currentPersonId) }
     val myLocation by viewModel.myLocation.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
@@ -115,10 +117,7 @@ fun ShareLocationScreen(
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
             when (pendingAction) {
-                PendingLocationAction.ENABLE_SHARING -> {
-                    viewModel.toggleSharing(true, currentPersonId, visibleCongregationId, null)
-                    showToast("Location sharing started successfully.")
-                }
+                PendingLocationAction.ENABLE_SHARING -> viewModel.toggleSharing(true, currentPersonId, visibleCongregationId, null)
                 PendingLocationAction.REFRESH -> viewModel.refreshMyLocation { success ->
                     if (!success) showToast("Unable to update your location. Please try again.")
                 }
@@ -149,12 +148,21 @@ fun ShareLocationScreen(
         withLocationServicesEnabled {
             if (viewModel.hasLocationPermission()) {
                 viewModel.toggleSharing(true, currentPersonId, visibleCongregationId, null)
-                showToast("Location sharing started successfully.")
             } else {
                 pendingAction = PendingLocationAction.ENABLE_SHARING
                 permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
             }
         }
+    }
+
+    // "Location sharing started successfully." — fired once sharing is
+    // genuinely confirmed live (isSharing flips true), not the instant the
+    // toggle is tapped; the status card's "Starting location sharing…" text
+    // already covers the in-between wait (see [viewModel.isStarting]).
+    var wasSharing by remember { mutableStateOf(false) }
+    LaunchedEffect(isSharing) {
+        if (isSharing && !wasSharing) showToast("Location sharing started successfully.")
+        wasSharing = isSharing
     }
 
     Scaffold(
@@ -184,7 +192,7 @@ fun ShareLocationScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isSharing) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        containerColor = if (isSharing || isStarting) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                     ),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -195,7 +203,16 @@ fun ShareLocationScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    if (isSharing) "You are sharing your location" else "Share my location while preaching",
+                                    when {
+                                        isSharing -> "You are sharing your location"
+                                        // "The publisher cannot open Share
+                                        // Location fast" — this responds the
+                                        // instant the toggle is tapped, well
+                                        // before the first real fix confirms,
+                                        // so it never reads as unresponsive.
+                                        isStarting -> "Starting location sharing…"
+                                        else -> "Share my location while preaching"
+                                    },
                                     style = MaterialTheme.typography.bodyLarge,
                                     fontWeight = FontWeight.SemiBold,
                                 )
@@ -204,10 +221,20 @@ fun ShareLocationScreen(
                                         "Visible to other publishers in your congregation",
                                         style = MaterialTheme.typography.bodySmall,
                                     )
+                                } else if (isStarting) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
+                                        Text(
+                                            "Getting your location…",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(start = 6.dp),
+                                        )
+                                    }
                                 }
                             }
                             Switch(
-                                checked = isSharing,
+                                checked = isSharing || isStarting,
+                                enabled = !isStarting,
                                 onCheckedChange = { enabled ->
                                     if (enabled) {
                                         // "There must be a pop up message that
@@ -224,7 +251,7 @@ fun ShareLocationScreen(
                                 },
                             )
                         }
-                        if (!isSharing) {
+                        if (!isSharing && !isStarting) {
                             Text(
                                 "Only other publishers in your congregation see it, and it stops on its own after the configured time.",
                                 style = MaterialTheme.typography.bodySmall,

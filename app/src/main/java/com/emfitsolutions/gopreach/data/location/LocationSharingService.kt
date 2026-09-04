@@ -107,16 +107,44 @@ class LocationSharingService : Service() {
 
     /** Same fix-every-30s / accuracy-gate / auto-stop-after-duration logic
      * that used to live in the ViewModel's while loop — unchanged behavior,
-     * just running somewhere that survives leaving the screen. */
+     * just running somewhere that survives leaving the screen.
+     *
+     * Bug fix ("the publisher cannot open Share Location fast, it will take
+     * time"): two separate things used to make the very first publish slow
+     * even once the toggle was tapped —
+     *   1. Every attempt, including the first, called [LocationTracker
+     *      .getCurrentLocation] alone, which forces Play Services to obtain
+     *      a genuinely *new* PRIORITY_HIGH_ACCURACY GPS fix rather than
+     *      answering from any cache — commonly several seconds, sometimes
+     *      tens of seconds indoors on a cold GPS chip.
+     *   2. A first fix that failed the accuracy gate (very plausible — a
+     *      fresh chip's first fix is often worse than [LocationSharingSettings
+     *      .accuracyRadiusMeters]'s tight default) published nothing and
+     *      then waited the *full* 30-second cadence before trying again,
+     *      compounding into a genuinely long wait before the Publisher's
+     *      toggle/status ever reflected reality.
+     * Fixed by trying Play Services' own already-cached last-known fix
+     * first (near-instant when available) before ever falling back to a
+     * fresh one, and retrying every 5s instead of 30s until the very first
+     * publish actually succeeds — settling into the normal 30s cadence only
+     * once sharing is genuinely up and running. */
     private suspend fun runSharingLoop(publisherPersonId: String, congregationId: String?, groupId: String?) {
         val settings = congregationId?.let { locationSharingSettingsRepository.currentFor(it) }
             ?: LocationSharingSettings.defaultsFor(congregationId.orEmpty())
         val durationMillis = settings.sharingDurationMinutes * 60_000L
         val startedAt = System.currentTimeMillis()
+        var hasPublishedOnce = false
+        var isFirstAttempt = true
 
         while (serviceScope.isActive) {
             if (System.currentTimeMillis() - startedAt >= durationMillis) return
-            val fix = runCatching { locationTracker.getCurrentLocation() }.getOrNull()
+            val fix = if (isFirstAttempt) {
+                runCatching { locationTracker.getLastKnownLocation() }.getOrNull()
+                    ?: runCatching { locationTracker.getCurrentLocation() }.getOrNull()
+            } else {
+                runCatching { locationTracker.getCurrentLocation() }.getOrNull()
+            }
+            isFirstAttempt = false
             if (fix != null) {
                 val meetsAccuracy = fix.accuracyMeters == null || fix.accuracyMeters <= settings.accuracyRadiusMeters
                 if (meetsAccuracy) {
@@ -133,9 +161,10 @@ class LocationSharingService : Service() {
                     lastPublished = location
                     runCatching { sharedLocationRepository.update(location) }
                         .onFailure { Log.e(TAG, "Failed to publish shared location", it) }
+                    hasPublishedOnce = true
                 }
             }
-            delay(30_000)
+            delay(if (hasPublishedOnce) 30_000 else 5_000)
         }
     }
 

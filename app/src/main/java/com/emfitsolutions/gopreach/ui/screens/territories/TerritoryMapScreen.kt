@@ -363,7 +363,7 @@ private fun TerritoryLiveMap(
                     lat = lat,
                     lng = lng,
                     name = row.person.fullName,
-                    status = "Regular Publisher",
+                    status = row.category?.name?.replace('_', ' ')?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Publisher",
                     location = "—",
                     congregation = row.congregationName,
                     coords = formatCoordinatesDms(lat, lng),

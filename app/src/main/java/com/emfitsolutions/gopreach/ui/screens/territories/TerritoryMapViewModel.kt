@@ -133,16 +133,23 @@ class TerritoryMapViewModel @Inject constructor(
      * *caller* is even allowed to ask for this at all is a navigation-level
      * concern (see [com.emfitsolutions.gopreach.ui.navigation.GoPreachNavGraph]'s
      * `canSeePublisherLocations`), not enforced here. */
-    // "Only Regular Publishers enrolled in the congregation and actively
-    // sharing their location may appear in the Publisher – All Congregation
-    // and Nearest Publisher results" — a Bible Study/Return Visit record
-    // never reaches here at all (this only ever reads SharedLocation docs,
-    // which only a Publisher-track RoleAssignment can ever produce — see
-    // ShareLocationViewModel.toggleSharing's own callers), but the
-    // Publisher *category* itself is checked too: a Coordinator Elder who
-    // also happens to hold a Regular Pioneer RoleAssignment, say, would
-    // otherwise show up here just because they COULD share, not because
-    // they're a Regular Publisher.
+    // "Publisher – All Congregation and Nearest Publisher" — a Bible Study/
+    // Return Visit record never reaches here at all (this only ever reads
+    // SharedLocation docs, which only a Publisher-track RoleAssignment can
+    // ever produce — see ShareLocationViewModel.toggleSharing's own
+    // callers), but the Publisher category itself is checked too: a
+    // Coordinator Elder who also happens to hold a Publisher RoleAssignment
+    // in [REMOVED_PUBLISHER] status (blocked from signing in at all — see
+    // that enum's own doc comment) shouldn't be able to show up here even
+    // if a stale doc somehow existed.
+    //
+    // Bug fix ("I cannot see shared location of Publisher in Territory
+    // map"): this used to require the *exact* category REGULAR_PUBLISHER,
+    // which silently excluded every Pioneer (Regular or Auxiliary) — most
+    // of a real congregation's actively-preaching publishers — even though
+    // they're genuinely enrolled, active Publishers sharing their real
+    // location. Any active Publisher category counts now; only a removed
+    // Publisher is excluded.
     fun publisherRowsFor(congregationId: String?, excludePersonId: String): Flow<List<TerritoryPublisherRow>> =
         combine(
             sharedLocationRepository.observeAll(),
@@ -158,7 +165,7 @@ class TerritoryMapViewModel @Inject constructor(
                     val category = assignments.firstOrNull {
                         it.personId == person.id && it.congregationId == location.congregationId && it.resolvedRoleTypeOrNull() is RoleType.Publisher
                     }?.let { (it.resolvedRoleTypeOrNull() as RoleType.Publisher).category }
-                    if (category != PublisherCategory.REGULAR_PUBLISHER) return@mapNotNull null
+                    if (category == null || category == PublisherCategory.REMOVED_PUBLISHER) return@mapNotNull null
                     val congregationName = congregations.firstOrNull { it.id == location.congregationId }?.name ?: "—"
                     TerritoryPublisherRow(person, location.lat, location.lng, category, congregationName, location.updatedAt, location.isCurrentlyFresh())
                 }

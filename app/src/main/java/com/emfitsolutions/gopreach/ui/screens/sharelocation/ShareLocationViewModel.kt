@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -90,6 +91,19 @@ class ShareLocationViewModel @Inject constructor(
      * reality regardless of when or how the screen is reopened. */
     fun isSharingFor(publisherPersonId: String): Flow<Boolean> =
         sharedLocationRepository.observeFor(publisherPersonId).map { it?.isCurrentlyFresh() == true }
+
+    /** "The publisher cannot open Share Location fast, it will take time" —
+     * [isSharingFor] only flips true once [LocationSharingService] has
+     * actually obtained a fix and written the first doc, which (even with
+     * that Service's own speed fix) can still take a few seconds — long
+     * enough that the Switch looked unresponsive, like the tap hadn't
+     * registered at all. This flips true the instant Start Sharing is
+     * tapped (see [toggleSharing]) so the toggle and status card respond
+     * immediately, and clears itself the moment the real doc confirms
+     * sharing actually started — a purely optimistic, local-only signal,
+     * never itself treated as "sharing is really on." */
+    private val _isStarting = MutableStateFlow(false)
+    val isStarting: StateFlow<Boolean> = _isStarting.asStateFlow()
 
     /** Last coordinates successfully fetched this session — reused by
      * [refreshMyLocation] and updated live from [SharedLocation] rows this
@@ -201,11 +215,21 @@ class ShareLocationViewModel @Inject constructor(
     }
 
     /** Starts/stops [LocationSharingService] — see that class's doc comment
-     * for why the actual sharing loop lives there now instead of here. */
+     * for why the actual sharing loop lives there now instead of here.
+     * [_isStarting] gives the toggle its instant feedback (see that
+     * property's own doc comment) — set the moment Start is tapped, cleared
+     * the moment the real doc confirms sharing actually began, or if this
+     * ViewModel is torn down (screen closed) before that ever happens. */
     fun toggleSharing(enabled: Boolean, publisherPersonId: String, congregationId: String?, groupId: String?) {
         if (enabled) {
+            _isStarting.value = true
             LocationSharingService.start(context, publisherPersonId, congregationId, groupId)
+            viewModelScope.launch {
+                isSharingFor(publisherPersonId).first { it }
+                _isStarting.value = false
+            }
         } else {
+            _isStarting.value = false
             LocationSharingService.stop(context, publisherPersonId)
         }
     }
