@@ -37,35 +37,56 @@ data class ContactRow(
     /** Phone number for a Person-backed row; blank for an Interested Person
      * (this app's [com.emfitsolutions.gopreach.data.model.InterestedPerson]
      * has no phone field — see its own doc comment — so [address] is the
-     * only contact detail available for that source). */
+     * only contact detail available for that source, and Call/Message stay
+     * unavailable for these rows). */
     val contact: String,
     val address: String,
     val congregationId: String,
     val congregationName: String,
+    val profileImageUrl: String? = null,
 )
 
-/** Every source label a [ContactRow] can carry — shared with
- * [ContactRecordScreen]'s "By Status" filter so that dropdown's options can
- * never drift out of sync with what this ViewModel actually produces. */
-val CONTACT_SOURCE_LABELS = listOf(PUBLISHER, SEARCHING, RETURN_VISIT, BIBLE_STUDY, COORDINATOR_ELDER, SERVICE_OVERSEER, MINISTERIAL_SERVANT)
+/** "Add the exact role filters" — the dropdown's own fixed option list;
+ * kept separate from whatever labels a [ContactRow] can actually carry
+ * (broader — Ministerial Servant and the pipeline stages still show up
+ * under "All," just without their own dedicated filter chip, since spec's
+ * own filter list doesn't mention them). */
+val CONTACT_ROLE_FILTERS = listOf(REGULAR_PUBLISHER, REGULAR_PIONEER, AUXILIARY_PIONEER, SERVICE_OVERSEER, CONGREGATION_ELDER, REGULAR_ELDER)
 
-private const val PUBLISHER = "Publisher"
-private const val SEARCHING = "Searching"
-private const val RETURN_VISIT = "Return Visit"
-private const val BIBLE_STUDY = "Bible Study"
-private const val COORDINATOR_ELDER = "Coordinator Elder"
-private const val SERVICE_OVERSEER = "Service Overseer"
-private const val MINISTERIAL_SERVANT = "Ministerial Servant"
+const val REGULAR_PUBLISHER = "Regular Publisher"
+const val REGULAR_PIONEER = "Regular Pioneer"
+const val AUXILIARY_PIONEER = "Auxiliary Pioneer"
+const val UNBAPTIZED_PUBLISHER = "Unbaptized Publisher"
+const val IRREGULAR_PUBLISHER = "Irregular Publisher"
+const val INACTIVE_PUBLISHER = "Inactive Publisher"
+const val REPROOF_PUBLISHER = "Reproof Publisher"
+const val SEARCHING = "Searching"
+const val RETURN_VISIT = "Return Visit"
+const val BIBLE_STUDY = "Bible Study"
+/** "Congregation Elder" per this feature's own naming — same
+ * [AdminRole.COORDINATOR_ELDER] this app calls "Coordinator Elder"
+ * everywhere else; only this module's own display label changed; the
+ * underlying role/permissions are untouched. */
+const val CONGREGATION_ELDER = "Congregation Elder"
+const val SERVICE_OVERSEER = "Service Overseer"
+const val REGULAR_ELDER = "Regular Elder"
+const val MINISTERIAL_SERVANT = "Ministerial Servant"
 
 /** "Contact Record" module — one consolidated directory of every Publisher,
  * Interested Person (Searching/Return Visit/Bible Study), Coordinator Elder,
  * Service Overseer, and Ministerial Servant's contact details, in one place
- * instead of hunting through five separate Manage screens. Visible to
- * Coordinator Elder, Super-Admin, and Regular Elder (wired from
- * GoPreachNavGraph/AdminHomeScreen's canViewContactRecord) — congregation-
- * scoped for the first and third, all congregations for Super-Admin, the same
+ * instead of hunting through five separate Manage screens. "Super Admin can
+ * see all congregation Contact Records. Admin, Congregation Elder, Regular
+ * Elder, and Service Overseer can only see Contact Records from their own
+ * congregation" — visible to Super-Admin, Admin, Coordinator Elder
+ * ("Congregation Elder" in this module), Service Overseer, and Regular
+ * Elder (wired from GoPreachNavGraph/AdminHomeScreen's canViewContactRecord),
+ * congregation-scoped for everyone but Super-Admin via the same
  * `visibleCongregationId == null` convention every other Manage screen here
- * already uses.
+ * already uses — enforced here, in the query itself, not just by hiding rows
+ * in the UI: a caller passing a non-null `visibleCongregationId` can never
+ * get back a row from a different congregation no matter what the screen
+ * does with the result.
  */
 @HiltViewModel
 class ContactRecordViewModel @Inject constructor(
@@ -99,14 +120,29 @@ class ContactRecordViewModel @Inject constructor(
             .filter { it.status == RoleAssignmentStatus.ACTIVE && it.personId in peopleById }
             .forEach { assignment ->
                 val congregationId = assignment.congregationId ?: return@forEach
+                // "The role/category shown in the Contact Record must come
+                // from the actual user's existing GoPreach role/status data"
+                // — the real [PublisherCategory] (Regular Publisher, Regular
+                // Pioneer, ...) and Admin role, not a generic "Publisher"
+                // bucket a person's real category used to collapse into.
                 val label = when (val role = assignment.resolvedRoleTypeOrNull()) {
                     is RoleType.Admin -> when (role.role) {
-                        AdminRole.COORDINATOR_ELDER -> COORDINATOR_ELDER
+                        AdminRole.COORDINATOR_ELDER -> CONGREGATION_ELDER
                         AdminRole.SERVICE_OVERSEER -> SERVICE_OVERSEER
+                        AdminRole.REGULAR_ELDER -> REGULAR_ELDER
                         AdminRole.MINISTERIAL_SERVANT -> MINISTERIAL_SERVANT
                         else -> null
                     }
-                    is RoleType.Publisher -> if (role.category != PublisherCategory.REMOVED_PUBLISHER) PUBLISHER else null
+                    is RoleType.Publisher -> when (role.category) {
+                        PublisherCategory.REGULAR_PUBLISHER -> REGULAR_PUBLISHER
+                        PublisherCategory.REGULAR_PIONEER -> REGULAR_PIONEER
+                        PublisherCategory.AUXILIARY_PIONEER -> AUXILIARY_PIONEER
+                        PublisherCategory.UNBAPTIZED_PUBLISHER -> UNBAPTIZED_PUBLISHER
+                        PublisherCategory.IRREGULAR_PUBLISHER -> IRREGULAR_PUBLISHER
+                        PublisherCategory.INACTIVE_PUBLISHER -> INACTIVE_PUBLISHER
+                        PublisherCategory.REPROOF_PUBLISHER -> REPROOF_PUBLISHER
+                        PublisherCategory.REMOVED_PUBLISHER -> null
+                    }
                     null -> null
                 } ?: return@forEach
                 val key = PersonKey(assignment.personId, congregationId)
@@ -123,6 +159,7 @@ class ContactRecordViewModel @Inject constructor(
                 address = person.address,
                 congregationId = key.congregationId,
                 congregationName = congregationNameFor(key.congregationId),
+                profileImageUrl = person.profileImageUrl,
             )
         }
 

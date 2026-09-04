@@ -172,10 +172,14 @@ fun AdminHomeScreen(
     val canAccessControlPanel = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION
     // User logs: Super-Admin (all) and Admin/Coordinator Elder (own congregation); Regular Elder has no access.
     val canViewUserLogs = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION || role == AdminRole.COORDINATOR_ELDER
-    // "Contact Record" module — explicitly Super-Admin/Coordinator Elder/
-    // Regular Elder only, not the wider admin-track set [canViewUserLogs]
-    // above uses (no Admin, no Service Overseer/Ministerial Servant).
-    val canViewContactRecord = role == AdminRole.SUPER_ADMIN || role == AdminRole.COORDINATOR_ELDER || role == AdminRole.REGULAR_ELDER
+    // "Contact Record" module — "Super Admin can see all congregation
+    // Contact Records. Admin, Congregation Elder, Regular Elder, and
+    // Service Overseer can only see Contact Records from their own
+    // congregation" (Call/Message/Search/Filter redesign) — widened from
+    // Super-Admin/Coordinator Elder/Regular Elder only to also include
+    // Admin and Service Overseer, per that explicit access list.
+    val canViewContactRecord = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION ||
+        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.REGULAR_ELDER
     // Publishers/Groups: Super-Admin/Admin/Coordinator Elder only (spec §3 permission matrix — Regular Elder ❌).
     val canManagePublishersAndGroups = canViewUserLogs
     // "Territory Map" — "allow the publishers, coordinator elders, regular
