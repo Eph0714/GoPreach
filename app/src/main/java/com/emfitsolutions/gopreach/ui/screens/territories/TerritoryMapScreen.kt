@@ -132,7 +132,7 @@ fun TerritoryMapScreen(
 
             if (filtered.isEmpty()) {
                 Column(
-                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
@@ -141,10 +141,18 @@ fun TerritoryMapScreen(
                     )
                 }
             } else if (viewMode == TerritoryViewMode.MAP) {
-                TerritoryPinsMap(rows = filtered, modifier = Modifier.fillMaxSize())
+                // Bug fix ("I cannot see anything in map view"): this used to
+                // be `Modifier.fillMaxSize()` on a plain (non-weighted) Column
+                // child — inside a Column, a fillMaxSize() child is measured
+                // against the *entire* incoming height constraint regardless
+                // of the search field/segmented row already placed above it,
+                // so the WebView ended up measured/placed past the bottom of
+                // the visible Scaffold content instead of filling the actual
+                // remaining space. `weight(1f)` claims exactly what's left.
+                TerritoryPinsMap(rows = filtered, modifier = Modifier.weight(1f).fillMaxWidth())
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -207,6 +215,12 @@ private fun TerritoryPinsMap(rows: List<TerritoryMapRow>, modifier: Modifier = M
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 webViewClient = WebViewClient()
+                // A WebView embedded via Compose interop can render solid
+                // black/blank on some devices under hardware-accelerated
+                // layering — a known WebView quirk, not specific to this
+                // page. Software layering is slightly slower to draw but
+                // reliably shows the actual page.
+                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
             }
         },
         update = { webView ->
