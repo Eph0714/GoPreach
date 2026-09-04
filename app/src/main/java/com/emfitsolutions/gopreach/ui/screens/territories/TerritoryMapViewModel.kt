@@ -9,6 +9,7 @@ import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
+import com.emfitsolutions.gopreach.data.model.isCurrentlyFresh
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
@@ -50,25 +51,13 @@ data class TerritoryPublisherRow(
     val category: PublisherCategory?,
     val congregationName: String,
     val updatedAt: Long,
-) {
-    /** "Currently sharing" vs. "last known location" — a location older than
-     * [LOCATION_FRESHNESS_MS] is treated as stale ("the system does not
-     * incorrectly display an old location as a current location") even
-     * though the underlying doc still says `isSharing = true` — e.g. the
-     * publisher's [com.emfitsolutions.gopreach.data.location.LocationSharingService]
-     * process died without ever getting a chance to write the "stopped"
-     * doc. [TerritoryPublisherRow] is only ever built from `isSharing`
-     * docs to begin with (see [TerritoryMapViewModel.publisherRowsFor]), so
-     * this is purely about freshness, not the sharing flag itself. */
-    val isCurrentlySharing: Boolean
-        get() = System.currentTimeMillis() - updatedAt <= LOCATION_FRESHNESS_MS
-}
-
-/** "Implement a reasonable location freshness/expiration rule" — twice
- * [LocationSharingService]'s own fix interval (30s) plus real margin for a
- * slow network/GPS fix, so a single missed cycle doesn't flicker a still-
- * actively-sharing publisher in and out of "currently sharing." */
-private const val LOCATION_FRESHNESS_MS = 5 * 60_000L
+    /** "Currently sharing" vs. "last known location" — see
+     * [com.emfitsolutions.gopreach.data.model.isCurrentlyFresh]'s own doc
+     * comment for the shared freshness rule this reads (also used by Share
+     * Location's own "who's sharing" list, so the two screens can never
+     * disagree about whether a given publisher still counts as live). */
+    val isCurrentlySharing: Boolean,
+)
 
 /**
  * "The Territory Module will be a map of location of every Search,
@@ -171,7 +160,7 @@ class TerritoryMapViewModel @Inject constructor(
                     }?.let { (it.resolvedRoleTypeOrNull() as RoleType.Publisher).category }
                     if (category != PublisherCategory.REGULAR_PUBLISHER) return@mapNotNull null
                     val congregationName = congregations.firstOrNull { it.id == location.congregationId }?.name ?: "—"
-                    TerritoryPublisherRow(person, location.lat, location.lng, category, congregationName, location.updatedAt)
+                    TerritoryPublisherRow(person, location.lat, location.lng, category, congregationName, location.updatedAt, location.isCurrentlyFresh())
                 }
         }
 

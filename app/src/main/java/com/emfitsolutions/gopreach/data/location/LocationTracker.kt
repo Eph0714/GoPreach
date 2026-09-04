@@ -5,7 +5,9 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Geocoder
+import android.location.LocationManager
 import android.os.Build
+import androidx.core.location.LocationManagerCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.location.LocationServices
@@ -36,6 +38,17 @@ class LocationTracker @Inject constructor(
     fun hasLocationPermission(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    /** "GPS is currently disabled. Please enable location services." — a
+     * separate question from [hasLocationPermission]: the app can be fully
+     * permitted and the device's location services (GPS/network provider)
+     * still switched off entirely (airplane mode's location-off toggle,
+     * device settings, a work profile restriction). [getCurrentLocation]
+     * returning null on its own can't distinguish "no fix yet" from "no
+     * provider is even on," so callers check this first and give the
+     * specific message instead of a generic failure. */
+    fun isLocationServicesEnabled(): Boolean =
+        LocationManagerCompat.isLocationEnabled(context.getSystemService(Context.LOCATION_SERVICE) as LocationManager)
 
     @SuppressLint("MissingPermission") // caller checks hasLocationPermission() first
     suspend fun getCurrentLocation(): LatLng? {

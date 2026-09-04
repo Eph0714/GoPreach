@@ -13,6 +13,7 @@ import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.model.SharedLocation
+import com.emfitsolutions.gopreach.data.model.isCurrentlyFresh
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
@@ -88,7 +89,7 @@ class ShareLocationViewModel @Inject constructor(
      * publisher's row on this screen already reads from — so it reflects
      * reality regardless of when or how the screen is reopened. */
     fun isSharingFor(publisherPersonId: String): Flow<Boolean> =
-        sharedLocationRepository.observeFor(publisherPersonId).map { it?.isSharing == true }
+        sharedLocationRepository.observeFor(publisherPersonId).map { it?.isCurrentlyFresh() == true }
 
     /** Last coordinates successfully fetched this session — reused by
      * [refreshMyLocation] and updated live from [SharedLocation] rows this
@@ -101,15 +102,23 @@ class ShareLocationViewModel @Inject constructor(
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
+    fun isLocationServicesEnabled(): Boolean = locationTracker.isLocationServicesEnabled()
 
     /** [REFRESH LOCATION] — works whether or not Share Location is currently
-     * on; a Publisher may just want to see where the device thinks they are. */
-    fun refreshMyLocation() {
+     * on; a Publisher may just want to see where the device thinks they are.
+     * [onComplete] reports success/failure so the caller can show "Unable to
+     * update your location. Please try again." — [refreshMyLocation] used to
+     * fail completely silently (no fix -> nothing happened, no explanation),
+     * exactly the "application fail silently" spec §13 says not to do. */
+    fun refreshMyLocation(onComplete: (success: Boolean) -> Unit = {}) {
         _isRefreshing.value = true
         viewModelScope.launch {
             val fix = locationTracker.getCurrentLocation()
             _isRefreshing.value = false
-            if (fix != null) _myLocation.value = MyLocationState(fix, System.currentTimeMillis())
+            if (fix != null) {
+                _myLocation.value = MyLocationState(fix, System.currentTimeMillis())
+            }
+            onComplete(fix != null)
         }
     }
 
@@ -139,7 +148,13 @@ class ShareLocationViewModel @Inject constructor(
             congregationRepository.observeAll(),
         ) { locations, people, assignments, groups, congregations ->
             locations
-                .filter { it.isSharing && it.publisherPersonId != excludePersonId }
+                // "Location Sharing = ON... Location data is not expired" —
+                // isCurrentlyFresh() checks both the isSharing flag and its
+                // own recency, so a publisher whose sharing Service died
+                // without writing a clean "stopped" doc drops off this list
+                // the same way they already drop off the Territory Map's
+                // Publisher layer, rather than lingering as a stale "sharer."
+                .filter { it.isCurrentlyFresh() && it.publisherPersonId != excludePersonId }
                 .filter { visibleCongregationId == null || it.congregationId == visibleCongregationId }
                 .mapNotNull { location ->
                     val person = people.firstOrNull { it.id == location.publisherPersonId } ?: return@mapNotNull null

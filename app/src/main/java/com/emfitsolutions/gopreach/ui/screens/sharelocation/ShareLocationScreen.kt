@@ -28,6 +28,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.rounded.LocationOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,6 +60,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.LocationSharingSettings
+import androidx.compose.ui.text.font.FontWeight
 import com.emfitsolutions.gopreach.ui.components.ClickableCoordinatesText
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -103,6 +105,7 @@ fun ShareLocationScreen(
     val dateFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showConsentDialog by remember { mutableStateOf(false) }
+    val showToast = rememberActionToast()
 
     // "Enable sharing" and "refresh my own coordinates" both need the same
     // permission, so one launcher covers both — which action triggered it is
@@ -112,12 +115,46 @@ fun ShareLocationScreen(
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
             when (pendingAction) {
-                PendingLocationAction.ENABLE_SHARING -> viewModel.toggleSharing(true, currentPersonId, visibleCongregationId, null)
-                PendingLocationAction.REFRESH -> viewModel.refreshMyLocation()
+                PendingLocationAction.ENABLE_SHARING -> {
+                    viewModel.toggleSharing(true, currentPersonId, visibleCongregationId, null)
+                    showToast("Location sharing started successfully.")
+                }
+                PendingLocationAction.REFRESH -> viewModel.refreshMyLocation { success ->
+                    if (!success) showToast("Unable to update your location. Please try again.")
+                }
                 null -> Unit
             }
+        } else {
+            // "Provide clear instructions... rather than allowing the
+            // application to fail silently" — a denied permission used to
+            // just leave the Switch off with zero explanation.
+            showToast("Location permission is required to share your location.")
         }
         pendingAction = null
+    }
+
+    // "Check whether GPS/location services are enabled" — shared by Start
+    // Sharing and Refresh Location, since both need a real fix; a specific
+    // message here instead of a generic failure once getCurrentLocation()
+    // predictably comes back null.
+    fun withLocationServicesEnabled(thenRun: () -> Unit) {
+        if (viewModel.isLocationServicesEnabled()) {
+            thenRun()
+        } else {
+            showToast("Location services are disabled. Please enable GPS to continue.")
+        }
+    }
+
+    fun startSharing() {
+        withLocationServicesEnabled {
+            if (viewModel.hasLocationPermission()) {
+                viewModel.toggleSharing(true, currentPersonId, visibleCongregationId, null)
+                showToast("Location sharing started successfully.")
+            } else {
+                pendingAction = PendingLocationAction.ENABLE_SHARING
+                permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+        }
     }
 
     Scaffold(
@@ -141,27 +178,61 @@ fun ShareLocationScreen(
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (canShareOwnLocation) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                // A colored status card — surfaceVariant off, primaryContainer
+                // on — makes "am I currently sharing" readable at a glance
+                // rather than only from the Switch's own tiny visual state.
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isSharing) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                    ),
                 ) {
-                    Text("Share my location while preaching", style = MaterialTheme.typography.bodyLarge)
-                    Switch(
-                        checked = isSharing,
-                        onCheckedChange = { enabled ->
-                            if (enabled) {
-                                // "There must be a pop up message that the
-                                // user will allow the app to share location
-                                // coordinates" — an app-level consent step,
-                                // separate from (and shown before) the OS
-                                // location-permission prompt below.
-                                showConsentDialog = true
-                            } else {
-                                viewModel.toggleSharing(false, currentPersonId, visibleCongregationId, null)
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    if (isSharing) "You are sharing your location" else "Share my location while preaching",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                if (isSharing) {
+                                    Text(
+                                        "Visible to other publishers in your congregation",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
                             }
-                        },
-                    )
+                            Switch(
+                                checked = isSharing,
+                                onCheckedChange = { enabled ->
+                                    if (enabled) {
+                                        // "There must be a pop up message that
+                                        // the user will allow the app to share
+                                        // location coordinates" — an app-level
+                                        // consent step, separate from (and
+                                        // shown before) the OS location-
+                                        // permission prompt below.
+                                        showConsentDialog = true
+                                    } else {
+                                        viewModel.toggleSharing(false, currentPersonId, visibleCongregationId, null)
+                                        showToast("Location sharing stopped successfully.")
+                                    }
+                                },
+                            )
+                        }
+                        if (!isSharing) {
+                            Text(
+                                "Only other publishers in your congregation see it, and it stops on its own after the configured time.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                        }
+                    }
                 }
 
                 MyCurrentLocationCard(
@@ -169,11 +240,15 @@ fun ShareLocationScreen(
                     location = myLocation,
                     isRefreshing = isRefreshing,
                     onRefresh = {
-                        if (viewModel.hasLocationPermission()) {
-                            viewModel.refreshMyLocation()
-                        } else {
-                            pendingAction = PendingLocationAction.REFRESH
-                            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        withLocationServicesEnabled {
+                            if (viewModel.hasLocationPermission()) {
+                                viewModel.refreshMyLocation { success ->
+                                    if (!success) showToast("Unable to update your location. Please try again.")
+                                }
+                            } else {
+                                pendingAction = PendingLocationAction.REFRESH
+                                permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -189,6 +264,13 @@ fun ShareLocationScreen(
                 leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                 visualTransformation = VisualTransformation.None,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+
+            Text(
+                "Sharing now (${rows.size})",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
 
             if (rows.isEmpty()) {
@@ -264,8 +346,7 @@ fun ShareLocationScreen(
                 TextButton(
                     onClick = {
                         showConsentDialog = false
-                        pendingAction = PendingLocationAction.ENABLE_SHARING
-                        permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        startSharing()
                     },
                 ) { Text("Allow") }
             },
