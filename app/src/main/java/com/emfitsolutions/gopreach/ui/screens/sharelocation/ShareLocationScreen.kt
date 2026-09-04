@@ -15,8 +15,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.ViewList
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -58,6 +60,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** "Shared Location Module — List View and Map View... same design,
+ * behavior, and functionality already implemented in the Territory Map
+ * Module" — same toggle concept/wording/icon convention as Territory Map's
+ * own `TerritoryViewMode` (a distinct, private enum rather than a shared
+ * one: two independent, unrelated screens that happen to offer the same two
+ * modes shouldn't be coupled just because their labels currently match). */
+private enum class ShareLocationViewMode(val label: String) { LIST("List View"), MAP("Map View") }
+
 /**
  * "Simplify Share Location Module with Automatic Real-Time Updates" spec —
  * §6.1 Share Location. [canShareOwnLocation] gates the "share my location"
@@ -95,6 +105,10 @@ fun ShareLocationScreen(
     }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val dateFormat = remember { SimpleDateFormat("MMMM d, yyyy – h:mm a", Locale.getDefault()) }
+    // "The default view can be List View" — same [rows] backs both views
+    // (already scoped/searched identically), so switching never loses the
+    // active search/filter.
+    var viewMode by remember { mutableStateOf(ShareLocationViewMode.LIST) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showConsentDialog by remember { mutableStateOf(false) }
     val showToast = rememberActionToast()
@@ -162,6 +176,16 @@ fun ShareLocationScreen(
                     }
                 },
                 actions = {
+                    // "Provide clear buttons, tabs, or a toggle for
+                    // switching between List View and Map View" — same
+                    // icon-toggle convention as Territory Map's own top-bar
+                    // action.
+                    IconButton(onClick = { viewMode = if (viewMode == ShareLocationViewMode.MAP) ShareLocationViewMode.LIST else ShareLocationViewMode.MAP }) {
+                        Icon(
+                            if (viewMode == ShareLocationViewMode.MAP) Icons.Rounded.ViewList else Icons.Rounded.Map,
+                            contentDescription = if (viewMode == ShareLocationViewMode.MAP) "Switch to List View" else "Switch to Map View",
+                        )
+                    }
                     if (canManageLocationSettings) {
                         IconButton(onClick = { showSettingsDialog = true }) {
                             Icon(Icons.Rounded.Settings, contentDescription = "Share Location Settings")
@@ -251,57 +275,70 @@ fun ShareLocationScreen(
                 HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
             }
 
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                label = { Text("Search: Name, Status, Group" + if (visibleCongregationId == null) ", Congregation" else "") },
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                visualTransformation = VisualTransformation.None,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-
             Text(
                 "Sharing now (${rows.size})",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).padding(top = if (canShareOwnLocation) 0.dp else 8.dp),
             )
 
-            if (rows.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text("No one is currently sharing their location.", style = MaterialTheme.typography.bodyMedium)
-                }
+            if (viewMode == ShareLocationViewMode.MAP) {
+                // "Use the same working map implementation and functionality
+                // as the Territory Map Module... ensure the map loads
+                // correctly and does not display a blank screen" — built on
+                // the exact same [com.emfitsolutions.gopreach.ui.components
+                // .map.LeafletMapView] wrapper Territory Map itself uses.
+                ShareLocationMapView(
+                    rows = rows,
+                    onOpenTerritoryMap = onOpenTerritoryMap,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(rows, key = { it.person.id }) { row ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(
-                                    row.groupName?.let { "${row.person.fullName} ($it)" } ?: row.person.fullName,
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                                if (row.category != null) {
-                                    Text("Status: ${row.category.name.replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    label = { Text("Search: Name, Status, Group" + if (visibleCongregationId == null) ", Congregation" else "") },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+
+                if (rows.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text("No one is currently sharing their location.", style = MaterialTheme.typography.bodyMedium)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(rows, key = { it.person.id }) { row ->
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        row.groupName?.let { "${row.person.fullName} ($it)" } ?: row.person.fullName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                    )
+                                    if (row.category != null) {
+                                        Text("Status: ${row.category.name.replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
+                                    InternalCoordinatesText(
+                                        lat = row.location.lat,
+                                        lng = row.location.lng,
+                                        onClick = { onOpenTerritoryMap(row.location.lat, row.location.lng, row.person.fullName) },
+                                    )
+                                    Text(
+                                        "Last Updated: ${dateFormat.format(Date(row.location.updatedAt))}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
-                                Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
-                                InternalCoordinatesText(
-                                    lat = row.location.lat,
-                                    lng = row.location.lng,
-                                    onClick = { onOpenTerritoryMap(row.location.lat, row.location.lng, row.person.fullName) },
-                                )
-                                Text(
-                                    "Last Updated: ${dateFormat.format(Date(row.location.updatedAt))}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
                             }
                         }
                     }
