@@ -92,6 +92,18 @@ class SyncScheduler @Inject constructor(
             .enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, request)
     }
 
+    /** Called by [OfflineFirestoreRepository] right after a local write is
+     * queued, so a change made *while already online* reaches the server
+     * within moments instead of waiting for the next connectivity transition
+     * or the [AUTO_SYNC_INTERVAL_MINUTES] periodic floor — closing the gap
+     * where "automatic sync" otherwise only fired on offline→online edges.
+     * A no-op while offline (the write just stays queued, as always).
+     * [ExistingWorkPolicy.KEEP] means this never interrupts a run already in
+     * flight (including one the user is watching via [requestSyncNow]). */
+    fun triggerSyncIfOnline() {
+        if (connectivityObserver.isOnline()) enqueueAutomaticSyncNow()
+    }
+
     /** Enqueues a flush of the pending-operations queue and returns that specific
      * request's id — the *tracked* path, called by an explicit user action:
      * the "SYNC TO SERVER" button, the header

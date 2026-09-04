@@ -45,6 +45,9 @@ class OfflineFirestoreRepository @Inject constructor(
     @PublishedApi internal val cacheDao: CacheDao,
     private val syncQueueDao: SyncQueueDao,
     @PublishedApi internal val gson: Gson,
+    private val syncScheduler: SyncScheduler,
+    private val syncStatusCenter: SyncStatusCenter,
+    private val connectivityObserver: ConnectivityObserver,
 ) {
     inline fun <reified T> observeCollection(collectionPath: String): Flow<List<T>> =
         cacheDao.observeCollection(collectionPath).map { rows ->
@@ -96,6 +99,18 @@ class OfflineFirestoreRepository @Inject constructor(
                 createdAt = now,
             )
         )
+        onWriteQueued()
+    }
+
+    /** Common tail of every write that enqueues a pending upload ([saveRawJson],
+     * [delete]) — reports the queue-worthy event to [SyncStatusCenter] (for the
+     * "saved locally, waiting for internet" message) and, when the device is
+     * actually online right now, asks [SyncScheduler] to flush the queue almost
+     * immediately rather than waiting for the next connectivity transition or
+     * periodic floor. */
+    private fun onWriteQueued() {
+        syncStatusCenter.onWriteQueued(connectivityObserver.isOnline())
+        syncScheduler.triggerSyncIfOnline()
     }
 
     /**
@@ -148,6 +163,7 @@ class OfflineFirestoreRepository @Inject constructor(
                 createdAt = System.currentTimeMillis(),
             )
         )
+        onWriteQueued()
     }
 
     /** Cache-only write that — unlike [save] — never enqueues a pending

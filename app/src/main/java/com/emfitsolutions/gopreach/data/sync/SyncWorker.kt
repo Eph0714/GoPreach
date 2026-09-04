@@ -37,6 +37,7 @@ class SyncWorker @AssistedInject constructor(
     private val cacheDao: CacheDao,
     private val firestore: FirebaseFirestore,
     private val gson: Gson,
+    private val syncStatusCenter: SyncStatusCenter,
 ) : CoroutineWorker(context, params) {
 
     companion object {
@@ -53,6 +54,7 @@ class SyncWorker @AssistedInject constructor(
             return Result.success()
         }
 
+        syncStatusCenter.onSyncStarted()
         var uploaded = 0
         var failed = 0
         for ((index, op) in pending.withIndex()) {
@@ -74,6 +76,7 @@ class SyncWorker @AssistedInject constructor(
         // populated for a truly terminal SUCCEEDED/FAILED state, which a retrying
         // worker on a partial failure never reaches for this attempt.
         setProgress(workDataOf(KEY_UPLOADED to uploaded, KEY_FAILED to failed, KEY_TOTAL to pending.size, KEY_FINISHED to true))
+        syncStatusCenter.onSyncFinished(uploaded, failed)
         // Partial failure still asks WorkManager to retry later (unchanged background
         // reliability behavior) — the manual UI already has its summary from the
         // progress update above and doesn't need to wait for that retry to resolve.

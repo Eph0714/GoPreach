@@ -141,6 +141,11 @@ fun SyncToServerButton(viewModel: ManualSyncViewModel = hiltViewModel()) {
     val syncing = state as? ManualSyncState.Syncing
 
     Column(modifier = Modifier.fillMaxWidth()) {
+        // Real-time 🟢/🔴/🟡/⚠️ status — reflects the sync system as a whole
+        // (including automatic background syncs), not just this button's own
+        // manually-triggered runs.
+        SyncStatusIndicator(modifier = Modifier.padding(bottom = 4.dp))
+
         Button(
             onClick = viewModel::syncToServer,
             enabled = syncing == null,

@@ -19,6 +19,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.repository.ThemePreference
 import com.emfitsolutions.gopreach.data.repository.ThemePreferenceRepository
+import com.emfitsolutions.gopreach.ui.components.SyncMessageHost
 import com.emfitsolutions.gopreach.ui.components.update.UpdateHost
 import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
 import com.emfitsolutions.gopreach.ui.navigation.GoPreachNavGraph
@@ -93,6 +94,12 @@ class MainActivity : FragmentActivity() {
                     }
 
                     UpdateHost(updateViewModel)
+
+                    // App-wide "Changes saved locally...", "Synchronization
+                    // completed successfully.", etc. system messages — one
+                    // instance for the whole process, same reasoning as
+                    // UpdateHost above.
+                    SyncMessageHost()
                 }
             }
         }
