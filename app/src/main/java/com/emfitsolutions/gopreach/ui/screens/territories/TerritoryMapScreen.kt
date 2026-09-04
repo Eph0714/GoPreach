@@ -1,24 +1,30 @@
 package com.emfitsolutions.gopreach.ui.screens.territories
 
-import android.annotation.SuppressLint
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.ViewList
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -30,6 +36,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,11 +45,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
@@ -59,9 +67,12 @@ private enum class TerritoryViewMode(val label: String) { LIST("List View"), MAP
  * Location: F5M2+57Q, 1, Bayombong, Nueva Vizcaya." List View's rows tap
  * out to Google Maps (or whatever the device offers for a `geo:` URI), same
  * as every other saved coordinate in this app; Map View plots every visible
- * row as a pin on one embedded map instead — see [TerritoryPinsMap]'s own
- * doc comment for why that's a WebView/Leaflet map rather than Google Maps
- * Compose (no bundled Maps API key anywhere in this app).
+ * row as a labeled pin on one scatter-plot "map" instead — see
+ * [TerritoryScatterMap]'s own doc comment for why that's drawn directly in
+ * Compose rather than an embedded WebView/tile map or Google Maps Compose
+ * (no bundled Maps API key anywhere in this app, and a WebView-hosted map
+ * depends on a CDN/tile server actually being reachable, which turned out
+ * not to reliably render at all on some devices/networks).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -141,15 +152,7 @@ fun TerritoryMapScreen(
                     )
                 }
             } else if (viewMode == TerritoryViewMode.MAP) {
-                // Bug fix ("I cannot see anything in map view"): this used to
-                // be `Modifier.fillMaxSize()` on a plain (non-weighted) Column
-                // child — inside a Column, a fillMaxSize() child is measured
-                // against the *entire* incoming height constraint regardless
-                // of the search field/segmented row already placed above it,
-                // so the WebView ended up measured/placed past the bottom of
-                // the visible Scaffold content instead of filling the actual
-                // remaining space. `weight(1f)` claims exactly what's left.
-                TerritoryPinsMap(rows = filtered, modifier = Modifier.weight(1f).fillMaxWidth())
+                TerritoryScatterMap(rows = filtered, modifier = Modifier.weight(1f).fillMaxWidth())
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -195,97 +198,128 @@ private fun PipelineStage.statusLabel(): String = when (this) {
 }
 
 /**
- * "Map View" — every row plotted as a pin on one map, tap a pin for its
- * Name/Status/Location. A `WebView` running Leaflet over OpenStreetMap
- * tiles, not Google Maps Compose: this app has never bundled a Google Maps
- * API key (every other screen that touches a map hands off to the device's
- * own Maps app instead — see [com.emfitsolutions.gopreach.ui.screens
- * .findlocation.FindLocationScreen]'s own doc comment), and Leaflet+OSM
- * needs no key/new Gradle dependency at all — just the CDN scripts loaded
- * inside the page HTML this generates.
+ * "Map View" — every row plotted as a labeled pin (Name always visible;
+ * Status/Location on tap) over a plain grid, positioned by projecting each
+ * record's own lat/lng into the box's own pixel space. Deliberately drawn
+ * directly in Compose rather than an embedded WebView/tile map: a tile-based
+ * map (Leaflet/OSM, Google Maps Compose, anything with real cartography)
+ * depends on a CDN and a tile server actually being reachable over the
+ * network *and* the device's WebView component behaving — that turned out
+ * not to reliably render at all on some devices/networks ("I cannot see
+ * anything in map view"), and this app has never bundled a Google Maps API
+ * key to begin with (every other screen that touches a map hands routing
+ * off to the device's own Maps app instead — see [com.emfitsolutions
+ * .gopreach.ui.screens.findlocation.FindLocationScreen]'s own doc comment).
+ * A pure-Compose scatter plot has no network dependency at all, so it
+ * always renders; tapping a pin still offers "Open in Maps" for real
+ * turn-by-turn/satellite imagery via the device's own Maps app.
  */
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun TerritoryPinsMap(rows: List<TerritoryMapRow>, modifier: Modifier = Modifier) {
-    val html = remember(rows) { buildTerritoryMapHtml(rows) }
-    AndroidView(
-        modifier = modifier,
-        factory = { ctx ->
-            WebView(ctx).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                webViewClient = WebViewClient()
-                // A WebView embedded via Compose interop can render solid
-                // black/blank on some devices under hardware-accelerated
-                // layering — a known WebView quirk, not specific to this
-                // page. Software layering is slightly slower to draw but
-                // reliably shows the actual page.
-                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-            }
-        },
-        update = { webView ->
-            // A stable https base URL (rather than null/about:blank) so the
-            // CDN script/tile requests aren't treated as mixed content.
-            webView.loadDataWithBaseURL("https://gopreach.app/", html, "text/html", "UTF-8", null)
-        },
-    )
-}
-
-private fun buildTerritoryMapHtml(rows: List<TerritoryMapRow>): String {
-    val points = rows.mapNotNull { row ->
-        val lat = row.person.gpsLat
-        val lng = row.person.gpsLng
-        if (lat == null || lng == null) return@mapNotNull null
-        val location = row.resolvedLocation ?: formatCoordinatesDms(lat, lng)
-        """{lat:$lat,lng:$lng,name:"${jsEscape(row.person.name)}",status:"${jsEscape(row.person.pipelineStage.statusLabel())}",location:"${jsEscape(location)}"}"""
+private fun TerritoryScatterMap(rows: List<TerritoryMapRow>, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val points = remember(rows) {
+        rows.mapNotNull { row ->
+            val lat = row.person.gpsLat
+            val lng = row.person.gpsLng
+            if (lat != null && lng != null) Triple(row, lat, lng) else null
+        }
     }
-    val pointsJson = points.joinToString(",", prefix = "[", postfix = "]")
-    // Falls back to a wide view of the Philippines (this app's own primary
-    // territory) when nothing has coordinates to center on yet, rather than
-    // an undefined/blank Leaflet view.
-    val fallbackCenter = "12.8797,121.7740"
-    return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-        <style>
-          html, body, #map { height: 100%; margin: 0; padding: 0; }
-        </style>
-        </head>
-        <body>
-        <div id="map"></div>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-        <script>
-          var points = $pointsJson;
-          var map = L.map('map');
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; OpenStreetMap contributors'
-          }).addTo(map);
-          if (points.length > 0) {
-            var markers = [];
-            points.forEach(function(p) {
-              var marker = L.marker([p.lat, p.lng]).addTo(map);
-              marker.bindPopup('<b>' + p.name + '</b><br>Status: ' + p.status + '<br>Location: ' + p.location);
-              markers.push(marker);
-            });
-            if (points.length === 1) {
-              map.setView([points[0].lat, points[0].lng], 16);
-            } else {
-              var group = L.featureGroup(markers);
-              map.fitBounds(group.getBounds().pad(0.2));
-            }
-          } else {
-            map.setView([$fallbackCenter], 6);
-          }
-        </script>
-        </body>
-        </html>
-    """.trimIndent()
-}
+    var selected by remember { mutableStateOf<TerritoryMapRow?>(null) }
 
-private fun jsEscape(text: String): String =
-    text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ")
+    if (points.isEmpty()) {
+        Box(modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+            Text(
+                "None of the matching records have a saved GPS coordinate yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(24.dp),
+            )
+        }
+        return
+    }
+
+    // The bounding box of every point, padded 20% on each side so a pin
+    // never sits flush against the edge — and widened to a minimum span so
+    // a single point (or several nearly on top of each other) doesn't
+    // divide by (near) zero.
+    val minLat = points.minOf { it.second }
+    val maxLat = points.maxOf { it.second }
+    val minLng = points.minOf { it.third }
+    val maxLng = points.maxOf { it.third }
+    val latSpan = (maxLat - minLat).coerceAtLeast(0.01)
+    val lngSpan = (maxLng - minLng).coerceAtLeast(0.01)
+    val latCenter = (minLat + maxLat) / 2.0
+    val lngCenter = (minLng + maxLng) / 2.0
+    val paddedLatSpan = latSpan * 1.4
+    val paddedLngSpan = lngSpan * 1.4
+    val latLow = latCenter - paddedLatSpan / 2.0
+    val latHigh = latCenter + paddedLatSpan / 2.0
+    val lngLow = lngCenter - paddedLngSpan / 2.0
+    val lngHigh = lngCenter + paddedLngSpan / 2.0
+
+    val density = LocalDensity.current
+    BoxWithConstraints(
+        modifier = modifier
+            .background(Color(0xFFE8EEE4))
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)),
+    ) {
+        val widthPx = with(density) { maxWidth.toPx() }
+        val heightPx = with(density) { maxHeight.toPx() }
+
+        points.forEach { (row, lat, lng) ->
+            val xFrac = ((lng - lngLow) / (lngHigh - lngLow)).coerceIn(0.0, 1.0)
+            val yFrac = (1.0 - (lat - latLow) / (latHigh - latLow)).coerceIn(0.0, 1.0)
+            val xDp = with(density) { (xFrac * widthPx).toFloat().toDp() }
+            val yDp = with(density) { (yFrac * heightPx).toFloat().toDp() }
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .offset(x = xDp - 12.dp, y = yDp - 28.dp)
+                    .clickable { selected = row },
+            ) {
+                Icon(
+                    Icons.Rounded.LocationOn,
+                    contentDescription = row.person.name,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(24.dp),
+                )
+                Text(
+                    row.person.name,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(3.dp))
+                        .padding(horizontal = 3.dp),
+                )
+            }
+        }
+    }
+
+    val toShow = selected
+    if (toShow != null) {
+        val lat = toShow.person.gpsLat
+        val lng = toShow.person.gpsLng
+        AlertDialog(
+            onDismissRequest = { selected = null },
+            title = { Text(toShow.person.name) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Status: ${toShow.person.pipelineStage.statusLabel()}", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Location: ${toShow.resolvedLocation ?: (if (lat != null && lng != null) formatCoordinatesDms(lat, lng) else "—")}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text("Congregation: ${toShow.congregationName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = {
+                if (lat != null && lng != null) {
+                    TextButton(onClick = { openCoordinatesInMaps(context, lat, lng, toShow.person.name); selected = null }) { Text("Open in Maps") }
+                }
+            },
+            dismissButton = { TextButton(onClick = { selected = null }) { Text("Close") } },
+        )
+    }
+}
