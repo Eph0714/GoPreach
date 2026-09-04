@@ -19,6 +19,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +37,7 @@ import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
+import kotlinx.coroutines.flow.first
 
 @Composable
 fun ManageServiceOverseersScreen(
@@ -98,15 +100,25 @@ private fun ServiceOverseerEditDialog(
     var pickedCongregationId by remember { mutableStateOf(row.assignment.congregationId) }
     val congregationId = fixedCongregationId ?: pickedCongregationId
 
+    // Bug fix ("the checkbox for user role is not checked for the current
+    // state when Editing"): this used to seed [isGroupOverseer]/
+    // [publisherCategory] from `additionalRolesFlow.collectAsStateWithLifecycle
+    // (initialValue = false to null)` guarded by a `rolesLoaded` flag checked
+    // directly in the composable body — but that body runs *before*
+    // [roleAssignmentRepository.observeForPerson]'s real Firestore-backed
+    // value has had a chance to arrive, so it always locked in the
+    // placeholder `false to null` on the very first composition and never
+    // looked again, regardless of this Service Overseer's actual current
+    // roles. `LaunchedEffect` + `.first()` instead suspends for the flow's
+    // genuine first emission before ever assigning anything, so the
+    // checkboxes always reflect reality the moment they're shown.
     val additionalRolesFlow = remember(row.person.id) { viewModel.additionalRolesFor(row.person.id) }
-    val additionalRoles by additionalRolesFlow.collectAsStateWithLifecycle(initialValue = false to null)
-    var rolesLoaded by remember { mutableStateOf(false) }
     var isGroupOverseer by remember { mutableStateOf(false) }
     var publisherCategory by remember { mutableStateOf<PublisherCategory?>(null) }
-    if (!rolesLoaded) {
-        isGroupOverseer = additionalRoles.first
-        publisherCategory = additionalRoles.second
-        rolesLoaded = true
+    LaunchedEffect(additionalRolesFlow) {
+        val (loadedIsGroupOverseer, loadedPublisherCategory) = additionalRolesFlow.first()
+        isGroupOverseer = loadedIsGroupOverseer
+        publisherCategory = loadedPublisherCategory
     }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }

@@ -16,6 +16,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
+import kotlinx.coroutines.flow.first
 
 @Composable
 fun ManageRegularEldersScreen(
@@ -81,14 +83,21 @@ private fun RegularElderEditDialog(
     var contact by remember { mutableStateOf(row.person.contact) }
     var email by remember { mutableStateOf(row.person.email ?: "") }
 
+    // Bug fix ("the checkbox for user role is not checked for the current
+    // state when Editing"): same root cause as Coordinator Elder/Service
+    // Overseer's own edit dialogs — seeding [publisherCategory] from
+    // `collectAsStateWithLifecycle(initialValue = null)` guarded by a
+    // `rolesLoaded` flag checked directly in the composable body locked in
+    // that `null` placeholder before [viewModel.publisherCategoryFor]'s real
+    // Firestore-backed value had a chance to arrive. `LaunchedEffect` +
+    // `.first()` suspends for the flow's genuine first emission instead.
+    // [isGroupOverseer] is unaffected — it's seeded directly from [row]
+    // itself, already loaded synchronously, not from a separate flow.
     val publisherCategoryFlow = remember(row.person.id) { viewModel.publisherCategoryFor(row.person.id) }
-    val loadedPublisherCategory by publisherCategoryFlow.collectAsStateWithLifecycle(initialValue = null)
-    var rolesLoaded by remember { mutableStateOf(false) }
     var isGroupOverseer by remember { mutableStateOf(row.regularElderRole == RegularElderRole.GROUP_OVERSEER) }
     var publisherCategory by remember { mutableStateOf<PublisherCategory?>(null) }
-    if (!rolesLoaded) {
-        publisherCategory = loadedPublisherCategory
-        rolesLoaded = true
+    LaunchedEffect(publisherCategoryFlow) {
+        publisherCategory = publisherCategoryFlow.first()
     }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
