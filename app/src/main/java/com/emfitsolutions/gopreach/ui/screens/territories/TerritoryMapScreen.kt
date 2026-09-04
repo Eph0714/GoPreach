@@ -1,7 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.territories
 
 import android.annotation.SuppressLint
-import android.graphics.Bitmap
+import android.util.Log
 import android.view.View
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -49,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
@@ -58,7 +59,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
 import com.emfitsolutions.gopreach.data.model.PipelineStage
+import com.emfitsolutions.gopreach.ui.components.isValidLatitude
+import com.emfitsolutions.gopreach.ui.components.isValidLongitude
 import com.emfitsolutions.gopreach.ui.components.openCoordinatesInMaps
+
+private const val TAG = "TerritoryMap"
 
 private enum class TerritoryViewMode(val label: String) { LIST("List View"), MAP("Map View") }
 
@@ -219,18 +224,40 @@ private fun PipelineStage.statusLabel(): String = when (this) {
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun TerritoryLiveMap(rows: List<TerritoryMapRow>, modifier: Modifier = Modifier) {
+    // STEP 4 — validate every coordinate before it ever reaches the map:
+    // not null, numeric (guaranteed by the Double type itself, but NaN/
+    // Infinite still slip through arithmetic and aren't valid geographic
+    // points), and within real lat/lng range. A record that fails this
+    // never reaches Leaflet at all — it's counted separately instead, so
+    // one bad row can't take the whole map down.
     val points = remember(rows) {
         rows.mapNotNull { row ->
             val lat = row.person.gpsLat
             val lng = row.person.gpsLng
-            if (lat != null && lng != null) Triple(row, lat, lng) else null
+            if (lat != null && lng != null && lat.isFinite() && lng.isFinite() && isValidLatitude(lat) && isValidLongitude(lng)) {
+                Triple(row, lat, lng)
+            } else {
+                null
+            }
         }
+    }
+    val invalidCount = rows.size - points.size
+
+    // STEP 8 — diagnostics: same information a `debug` panel would show,
+    // just in Logcat rather than on-screen (this app's other diagnostic UI —
+    // SyncStatusButton, etc. — is text/user-facing, not a raw debug dump).
+    LaunchedEffect(rows) {
+        Log.d(TAG, "Records retrieved: ${rows.size}; valid GPS: ${points.size}; invalid/missing GPS: $invalidCount")
     }
 
     if (points.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
             Text(
-                "None of the matching records have a saved GPS coordinate yet.",
+                if (invalidCount > 0) {
+                    "Some records do not have valid GPS locations and cannot yet be displayed on the map."
+                } else {
+                    "None of the matching records have a saved GPS coordinate yet."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(24.dp),
@@ -265,7 +292,26 @@ private fun TerritoryLiveMap(rows: List<TerritoryMapRow>, modifier: Modifier = M
 
     Box(modifier = modifier) {
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            // Bug fix #2 ("still not working" after the reload-loop fix):
+            // Leaflet measures its container's pixel size exactly once, the
+            // moment `L.map(...)` runs, and never re-measures on its own —
+            // if this WebView's own Android View hadn't been given its
+            // final layout size yet at that exact instant (a real race:
+            // the page can finish loading from cached CDN resources before
+            // Compose/the Android View system has finished measuring this
+            // AndroidView), Leaflet permanently thinks the viewport is 0×0
+            // and never requests a single tile — a genuinely blank map
+            // forever, even though the WebView/HTML/CSS are all otherwise
+            // fine. `onSizeChanged` fires with this View's *actual* settled
+            // pixel size every time Compose lays it out (including the
+            // first time), and telling Leaflet to `invalidateSize()` right
+            // then — its own official fix for exactly this — makes it
+            // re-measure and actually start requesting tiles.
+            modifier = Modifier.fillMaxSize().onSizeChanged { size ->
+                if (size.width > 0 && size.height > 0) {
+                    webViewRef?.evaluateJavascript("if (window.territoryMap) { window.territoryMap.invalidateSize(); }", null)
+                }
+            },
             factory = { ctx ->
                 WebView(ctx).apply {
                     settings.javaScriptEnabled = true
@@ -285,6 +331,15 @@ private fun TerritoryLiveMap(rows: List<TerritoryMapRow>, modifier: Modifier = M
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             loadState = MapLoadState.LOADED
+                            // Belt-and-suspenders alongside onSizeChanged
+                            // above and the JS-side setTimeout fallbacks in
+                            // the generated page itself (see
+                            // buildTerritoryMapHtml) — three independent
+                            // triggers for the same one-line fix, since a
+                            // blank Leaflet map from this exact cause is
+                            // otherwise silent and easy to still hit on some
+                            // device/timing combination.
+                            view?.evaluateJavascript("if (window.territoryMap) { window.territoryMap.invalidateSize(); }", null)
                         }
                         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                             // Only the top-level page failing counts as the
@@ -319,6 +374,20 @@ private fun TerritoryLiveMap(rows: List<TerritoryMapRow>, modifier: Modifier = M
                     Text("Retry")
                 }
             }
+        } else if (invalidCount > 0) {
+            // Some records mapped fine; a note (not an error — the map is
+            // working) that the rest are sitting out for now.
+            Card(
+                modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
+                colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
+            ) {
+                Text(
+                    "$invalidCount record${if (invalidCount == 1) "" else "s"} without a valid GPS location ${if (invalidCount == 1) "isn't" else "aren't"} shown on the map.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
         }
     }
 }
@@ -351,7 +420,11 @@ private fun buildTerritoryMapHtml(points: List<Triple<TerritoryMapRow, Double, D
         <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
         <script>
           var points = $pointsJson;
+          // Exposed on window (not just a local `var`) so the Android side
+          // can reach it via evaluateJavascript for the invalidateSize()
+          // fix — see TerritoryLiveMap's own comment on why that's needed.
           var map = L.map('map', { zoomControl: true });
+          window.territoryMap = map;
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; OpenStreetMap contributors'
@@ -382,6 +455,15 @@ private fun buildTerritoryMapHtml(points: List<Triple<TerritoryMapRow, Double, D
             var group = L.featureGroup(markers);
             map.fitBounds(group.getBounds().pad(0.2));
           }
+          // JS-side fallback for the exact same "container wasn't its final
+          // size yet when L.map() ran" issue the Android side's onSizeChanged/
+          // onPageFinished hooks already cover — belt-and-suspenders across
+          // both layers rather than trusting only one of them to always win
+          // the race on every device.
+          window.addEventListener('resize', function() { map.invalidateSize(); });
+          setTimeout(function() { map.invalidateSize(); }, 100);
+          setTimeout(function() { map.invalidateSize(); }, 500);
+          setTimeout(function() { map.invalidateSize(); }, 1500);
         </script>
         </body>
         </html>
