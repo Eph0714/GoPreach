@@ -394,7 +394,32 @@ private fun TerritoryLiveMap(
     var selectedFilter by remember { mutableStateOf<MapFilterOption?>(null) }
     var filterMenuExpanded by remember { mutableStateOf(false) }
     var selectedPointId by remember { mutableStateOf<String?>(null) }
-    val selectedPoint = remember(selectedPointId, points) { points.firstOrNull { it.id == selectedPointId } }
+    // "Show details in all categories in territory map even 'My Location'" —
+    // a synthetic point built from the live GPS fix, id "me", so tapping the
+    // "you are here" dot opens the exact same bottom sheet every other
+    // marker already does, without making it a real member of [points]
+    // (which would risk it being counted by a dropdown filter/nearest search
+    // it was never meant to participate in).
+    val myLocationPoint = remember(myLocation) {
+        myLocation?.let { fix ->
+            MapPoint(
+                id = "me",
+                kind = MapPointKind.ME,
+                lat = fix.lat,
+                lng = fix.lng,
+                name = "My Location",
+                status = "Your Current Location",
+                location = "—",
+                congregation = "",
+                coords = formatCoordinatesDms(fix.lat, fix.lng),
+                updatedAt = null,
+                isCurrentlySharing = null,
+            )
+        }
+    }
+    val selectedPoint = remember(selectedPointId, points, myLocationPoint) {
+        if (selectedPointId == "me") myLocationPoint else points.firstOrNull { it.id == selectedPointId }
+    }
 
     val html = remember(points) { buildTerritoryMapHtml(points) }
     // Bumped on a manual "Retry" tap to force a reload of the same [html].
@@ -894,19 +919,26 @@ private fun MapPointDetailsSheet(
             }
             Text(point.status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
 
-            DetailRow(
-                label = "Location",
-                value = when {
-                    point.kind == MapPointKind.PUBLISHER && point.isCurrentlySharing == true -> "Currently Sharing"
-                    point.kind == MapPointKind.PUBLISHER -> "Last Known Location"
-                    else -> "Registered Location"
-                },
-            )
-            if (myLocation != null) {
-                DetailRow(label = "Distance", value = formatDistance(haversineMeters(myLocation.lat, myLocation.lng, point.lat, point.lng)))
-            }
-            if (point.kind == MapPointKind.PUBLISHER && point.updatedAt != null) {
-                DetailRow(label = "Last Updated", value = formatRelativeTime(point.updatedAt))
+            if (point.kind == MapPointKind.ME) {
+                // "You are here" — its own coordinates in place of the
+                // Location/Distance rows every other kind shows (a distance
+                // from yourself to yourself is meaningless).
+                DetailRow(label = "Coordinates", value = point.coords)
+            } else {
+                DetailRow(
+                    label = "Location",
+                    value = when {
+                        point.kind == MapPointKind.PUBLISHER && point.isCurrentlySharing == true -> "Currently Sharing"
+                        point.kind == MapPointKind.PUBLISHER -> "Last Known Location"
+                        else -> "Registered Location"
+                    },
+                )
+                if (myLocation != null) {
+                    DetailRow(label = "Distance", value = formatDistance(haversineMeters(myLocation.lat, myLocation.lng, point.lat, point.lng)))
+                }
+                if (point.kind == MapPointKind.PUBLISHER && point.updatedAt != null) {
+                    DetailRow(label = "Last Updated", value = formatRelativeTime(point.updatedAt))
+                }
             }
 
             Button(onClick = onOpenInMaps, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
@@ -929,6 +961,7 @@ private fun markerColorFor(kind: MapPointKind): Color = when (kind) {
     MapPointKind.BIBLE_STUDY -> Color(0xFF8E24AA)
     MapPointKind.RETURN_VISIT -> Color(0xFFFB8C00)
     MapPointKind.SEARCHING -> Color(0xFF616161)
+    MapPointKind.ME -> Color(0xFF34A853)
 }
 
 /** "Juan Dela Cruz — 350 meters away" — meters under 1km, one decimal of
@@ -962,6 +995,15 @@ private enum class MapPointKind(val jsValue: String) {
     RETURN_VISIT("RETURN_VISIT"),
     BIBLE_STUDY("BIBLE_STUDY"),
     PUBLISHER("PUBLISHER"),
+    /** "Show details in all categories in territory map even 'My Location'"
+     * — the "you are here" dot is otherwise never a member of [points] at
+     * all (see [TerritoryLiveMap]'s own "do not treat the logged-in user's
+     * location as a Bible Study or Return Visit"); this exists purely so
+     * tapping it can open the same bottom sheet every other marker already
+     * does, via a synthetic point built from [TerritoryLiveMap.myLocation]
+     * (see `myLocationPoint`) rather than a real [TerritoryMapRow]/
+     * [TerritoryPublisherRow]. */
+    ME("ME"),
 }
 
 /** One plottable dot on the Territory Map — a pipeline record ([MapPointKind.SEARCHING]/
@@ -1170,6 +1212,13 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
           window.setMyLocation = function(lat, lng) {
             if (window.myLocationMarker) { map.removeLayer(window.myLocationMarker); }
             window.myLocationMarker = L.marker([lat, lng], { icon: buildIcon('ME'), zIndexOffset: 1000 }).addTo(map);
+            // "Show details in all categories... even 'My Location'" — same
+            // AndroidBridge.showDetails('me') hop every other marker's tap
+            // already uses; Kotlin builds the matching synthetic point
+            // itself (see TerritoryLiveMap's `myLocationPoint`).
+            window.myLocationMarker.on('click', function() {
+              if (window.AndroidBridge) { AndroidBridge.showDetails('me'); }
+            });
           };
 
           // JS-side fallback for the exact same "container wasn't its final
