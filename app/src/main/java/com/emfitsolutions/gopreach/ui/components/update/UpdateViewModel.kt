@@ -15,6 +15,7 @@ import com.emfitsolutions.gopreach.data.update.InstalledUpdateInfoStore
 import com.emfitsolutions.gopreach.data.update.UpdateInfo
 import com.emfitsolutions.gopreach.data.update.UpdateInstaller
 import com.emfitsolutions.gopreach.data.update.UpdateManifestRepository
+import com.emfitsolutions.gopreach.data.update.UpdateReminderStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +48,7 @@ class UpdateViewModel @Inject constructor(
     private val downloader: ApkDownloader,
     private val installer: UpdateInstaller,
     private val installedUpdateInfoStore: InstalledUpdateInfoStore,
+    private val reminderStore: UpdateReminderStore,
     private val authRepository: AuthRepository,
     connectivityObserver: ConnectivityObserver,
 ) : ViewModel() {
@@ -121,8 +123,20 @@ class UpdateViewModel @Inject constructor(
      * so switching back to GoPreach repeatedly doesn't re-check every time. */
     fun checkOnAppForeground() = maybeAutoCheck()
 
+    /** "Upon User Login... immediately after the user successfully logs in,
+     * the system should check whether a newer version is available" —
+     * called from LoginScreen the moment sign-in succeeds. Shares
+     * [maybeAutoCheck]'s throttle with every other automatic trigger, so it
+     * doesn't duplicate whatever [checkOnAppStart] already did moments
+     * earlier for the same app launch — this mainly matters for a session
+     * that's been running a while (biometric re-login, switching accounts)
+     * where enough time has passed for a genuinely fresh check to be worth
+     * it. */
+    fun checkOnLogin() = maybeAutoCheck()
+
     /** Called from Settings' "Check for Updates" — always shows a result,
-     * including the explicit "GoPreach is up to date" message. */
+     * including the explicit "GoPreach is up to date" message, and ignores
+     * any "Remind Me Later" snooze in effect (the user asked directly). */
     fun checkManually() = check(silent = false)
 
     private fun check(silent: Boolean) {
@@ -130,10 +144,20 @@ class UpdateViewModel @Inject constructor(
         viewModelScope.launch {
             manifestRepository.fetchLatest()
                 .onSuccess { info ->
-                    _state.value = if (manifestRepository.isNewer(currentVersion, info.version)) {
-                        UpdateCheckState.Available(info, currentVersion)
-                    } else {
-                        UpdateCheckState.UpToDate(currentVersion)
+                    val isNewer = manifestRepository.isNewer(currentVersion, info.version)
+                    // "The notification should not continuously interrupt the
+                    // user after selecting Remind Me Later" — a silent/
+                    // automatic check honors an active snooze for this exact
+                    // version; a critical update is never snoozed (spec: "do
+                    // not provide the Remind Me Later option for mandatory
+                    // updates" — nothing to honor if it was never offered),
+                    // and an explicit manual check (silent = false) always
+                    // shows regardless, since the user asked directly.
+                    val snoozed = silent && !info.isCritical && reminderStore.isSnoozed(info.version)
+                    _state.value = when {
+                        isNewer && !snoozed -> UpdateCheckState.Available(info, currentVersion)
+                        isNewer -> UpdateCheckState.Idle
+                        else -> UpdateCheckState.UpToDate(currentVersion)
                     }
                 }
                 .onFailure { e ->
@@ -149,7 +173,26 @@ class UpdateViewModel @Inject constructor(
         }
     }
 
+    /** [REMIND ME LATER] — never offered for a critical update (see
+     * [UpdateInfo.isCritical]'s doc comment); the screen itself never shows
+     * the button in that case, but this is the actual enforcement so a
+     * theoretical stray call can't snooze a mandatory update either. */
+    fun remindLater() {
+        val info = (_state.value as? UpdateCheckState.Available)?.info ?: return
+        if (info.isCritical) return
+        reminderStore.snooze(info.version)
+        _state.value = UpdateCheckState.Idle
+    }
+
+    /** A critical update's dialog has no close button/back-press dismissal
+     * on the UI side (see [UpdateDialog]'s `onDismissRequest = {}` for that
+     * state) — this is the matching backstop so a stray call here can't
+     * dismiss one either. Every other state (UpToDate/Failed/a *non*-
+     * critical Available closed some other way than Remind Me Later, if it
+     * ever is) dismisses normally. */
     fun dismiss() {
+        val info = (_state.value as? UpdateCheckState.Available)?.info
+        if (info?.isCritical == true) return
         _state.value = UpdateCheckState.Idle
     }
 
@@ -191,6 +234,8 @@ class UpdateViewModel @Inject constructor(
                         installedAt = System.currentTimeMillis(),
                     ),
                 )
+                // No snooze should ever outlive the update it was for.
+                reminderStore.clear()
                 // Bug fix: an update install replaces the APK but never
                 // touches app data — Firebase Auth's persisted session (see
                 // UserSession's doc comment: "survives process death, no

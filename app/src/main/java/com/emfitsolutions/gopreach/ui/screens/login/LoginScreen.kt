@@ -51,6 +51,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.ui.components.GradientHero
+import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
 
 private val FieldShape = RoundedCornerShape(16.dp)
 
@@ -98,8 +99,16 @@ fun LoginScreen(
     var passwordVisible by remember { mutableStateOf(false) }
     val activity = LocalContext.current as FragmentActivity
 
+    // "Upon User Login... immediately after the user successfully logs in,
+    // the system should check whether a newer version is available" — same
+    // Activity-scoped UpdateViewModel instance MainActivity's own UpdateHost
+    // renders the result of (see that screen's own comment on why), so this
+    // doesn't spin up a second, unobserved one.
+    val updateViewModel: UpdateViewModel = hiltViewModel(activity)
+
     LaunchedEffect(uiState.signedIn) {
         if (uiState.signedIn) {
+            updateViewModel.checkOnLogin()
             onSignedIn(uiState.requiresPasswordChange == true)
             viewModel.consumeNavigationEvent()
         }

@@ -89,13 +89,17 @@ class UpdateManifestRepository @Inject constructor(
             val asset = release.assets.firstOrNull { it.name.endsWith(".apk") }
                 ?: return@withContext Result.failure(Exception("Latest release has no APK asset").also { Log.e(TAG, it.message ?: "") })
 
+            val notes = release.body?.trim().takeUnless { it.isNullOrBlank() } ?: "Bug fixes and improvements."
             Result.success(
                 UpdateInfo(
                     version = release.tagName.removePrefix("v"),
                     apkUrl = asset.browserDownloadUrl,
-                    releaseNotes = release.body?.trim().takeUnless { it.isNullOrBlank() } ?: "Bug fixes and improvements.",
+                    releaseNotes = notes,
                     releaseDate = release.publishedAt?.substringBefore("T") ?: "",
                     sha256 = asset.digest?.removePrefix("sha256:"),
+                    // "Required/Critical Update" — see UpdateInfo.isCritical's
+                    // own doc comment for the `[CRITICAL]` marker convention.
+                    isCritical = notes.contains("[CRITICAL]", ignoreCase = true),
                 )
             )
         } catch (e: Exception) {

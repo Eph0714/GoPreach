@@ -51,16 +51,39 @@ fun UpdateHost(viewModel: UpdateViewModel = hiltViewModel()) {
 
     when (val s = state) {
         is UpdateCheckState.Available -> {
+            // "Required/Critical Update... the user must update before
+            // continuing to use certain parts of the application. Do not
+            // provide the Remind Me Later option" — no dismiss request
+            // (back press/outside-tap do nothing), no Remind Me Later, no
+            // Share APK button either (this dialog isn't going anywhere
+            // until Update Now is tapped, so there's nothing to relay to
+            // someone else in the meantime).
             AlertDialog(
-                onDismissRequest = viewModel::dismiss,
-                title = { Text("Update Available") },
+                onDismissRequest = if (s.info.isCritical) ({}) else viewModel::dismiss,
+                title = { Text(if (s.info.isCritical) "Update Required" else "Update Available") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("A new version of GoPreach is available.")
+                        Text(
+                            if (s.info.isCritical) {
+                                "This update is required and includes an important fix. Please update to continue using GoPreach."
+                            } else {
+                                "A new version of GoPreach is available."
+                            },
+                        )
                         Text("Current Version: ${s.currentVersion}")
                         Text("New Version: ${s.info.version}", fontWeight = FontWeight.Bold)
                         if (s.info.releaseNotes.isNotBlank()) {
                             Text(s.info.releaseNotes, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (!s.info.isCritical) {
+                            val shareText = viewModel.shareText(s.info)
+                            TextButton(
+                                onClick = { launchShare(context, shareText) },
+                                modifier = Modifier.padding(top = 4.dp),
+                            ) {
+                                Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                                Text("SHARE APK")
+                            }
                         }
                     }
                 },
@@ -68,10 +91,9 @@ fun UpdateHost(viewModel: UpdateViewModel = hiltViewModel()) {
                     Button(onClick = viewModel::updateNow) { Text("UPDATE NOW") }
                 },
                 dismissButton = {
-                    val shareText = viewModel.shareText(s.info)
-                    OutlinedButton(onClick = { launchShare(context, shareText) }) {
-                        Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
-                        Text("SHARE APK")
+                    // "Remind Me Later" — optional updates only (see above).
+                    if (!s.info.isCritical) {
+                        OutlinedButton(onClick = viewModel::remindLater) { Text("REMIND ME LATER") }
                     }
                 },
             )
