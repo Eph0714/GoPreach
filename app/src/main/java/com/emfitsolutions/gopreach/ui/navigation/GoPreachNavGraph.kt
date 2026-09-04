@@ -13,6 +13,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.PipelineStage
+import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.domain.PermissionChecker
 import com.emfitsolutions.gopreach.domain.SessionContext
@@ -92,15 +93,34 @@ fun GoPreachNavGraph(
     // RoleAssignment on this session's own list used to crash the app the
     // instant Compose evaluated this line, right when the Main Form should
     // appear. A malformed assignment is now just skipped instead.
+    // Bug fix ("the publisher cannot see other publisher in shared
+    // location... under the same congregation"): none of these three used
+    // to filter to RoleAssignmentStatus.ACTIVE, unlike every other role
+    // lookup in this app (see PermissionChecker.highestAdminRole, which
+    // this exact function's own `session.roleAssignments` list feeds).
+    // `observeForPerson` returns *every* RoleAssignment a person has ever
+    // held, any status — a re-enrolled or congregation-transferred
+    // Publisher (or Elder) can have an old, inactive RoleAssignment sitting
+    // in that list too, and `firstOrNull` had no way to skip past it if it
+    // happened to come first. Picking that stale assignment's congregationId
+    // meant Share Location started/queried under the *wrong* (or blank)
+    // congregation id for that one Publisher — invisible to them, since a
+    // publisher only ever notices this as "I can't see anyone else," not as
+    // an error — while every other Publisher in the same real congregation
+    // still worked fine, since the bug only strikes when a stale
+    // assignment exists at all and happens to be ordered first.
     val ownCongregationId = session.roleAssignments.firstOrNull {
-        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT)
+        it.status == RoleAssignmentStatus.ACTIVE &&
+            (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT)
     }?.congregationId
     // A Regular Elder's own group (spec §3: their CRUD/view scope is "own group", not congregation-wide).
     val ownGroupAssignment = session.roleAssignments.firstOrNull {
-        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
+        it.status == RoleAssignmentStatus.ACTIVE && (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
     }
     // A Publisher's own group/congregation (spec §6.1: publishers share within, and only see, their own group).
-    val ownPublisherAssignment = session.roleAssignments.firstOrNull { it.resolvedRoleTypeOrNull() is RoleType.Publisher }
+    val ownPublisherAssignment = session.roleAssignments.firstOrNull {
+        it.status == RoleAssignmentStatus.ACTIVE && it.resolvedRoleTypeOrNull() is RoleType.Publisher
+    }
 
     val targetRoute = when {
         session.isLoading -> null
