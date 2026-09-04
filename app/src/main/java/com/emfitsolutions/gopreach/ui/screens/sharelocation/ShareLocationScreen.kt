@@ -113,12 +113,12 @@ fun ShareLocationScreen(
     var showConsentDialog by remember { mutableStateOf(false) }
     val showToast = rememberActionToast()
 
-    // "Do not show repetitive notifications every time the automatic
-    // 5-minute update occurs" — this one-time flag is reset whenever a new
+    // "Do not show repetitive notifications every time... an automatic
+    // background update occurs" — this one-time flag is reset whenever a new
     // sharing session starts, and consumed the first time a real fix lands
     // for that session, so the "Your current location has been updated."
-    // toast fires exactly once per ON period, never on the later 5-minute
-    // refreshes that follow it silently.
+    // toast fires exactly once per ON period, never on the many
+    // near-real-time refreshes that follow it silently.
     var hasShownFirstLocationToast by remember { mutableStateOf(false) }
     var wasSharing by remember { mutableStateOf(isSharing) }
     LaunchedEffect(isSharing) {

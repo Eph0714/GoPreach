@@ -117,23 +117,44 @@ fun ShareLocationMapView(
     var selectedRowId by remember { mutableStateOf<String?>(null) }
     val selectedRow = remember(selectedRowId, allPoints) { allPoints.firstOrNull { it.id == selectedRowId }?.row }
 
-    val html = remember(allPoints) { buildShareLocationMapHtml(allPoints) }
+    // "Fix the delay in the Shared Location feature... avoid reloading the
+    // entire map when only marker coordinates change" — [html] is now built
+    // exactly once per mount (empty initial marker set), never re-derived
+    // from [allPoints]/[rows], so a live location update from
+    // ShareLocationViewModel's Firestore listener can never trigger
+    // LeafletMapView's own reload-on-html-change path. Every marker
+    // add/move/remove after the very first load goes through
+    // [window.syncMarkers] instead — see that JS function's own comment.
+    val html = remember { buildShareLocationMapHtml() }
     var reloadToken by remember { mutableIntStateOf(0) }
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
     val consoleMessages = remember { mutableStateListOf<String>() }
     val controller = rememberLeafletMapController()
 
-    // Filter Behavior spec: "When the user changes the dropdown selection:
-    // filter immediately, update markers dynamically without a manual page
-    // reload, remove non-matching markers, refresh while keeping the map
-    // functional." Same id-list-based `applyFilter` pattern as Territory
-    // Map's own kind-based one — no full HTML reload on a filter change,
-    // only ever on [allPoints] itself changing (new/updated shared
-    // locations arriving live).
-    LaunchedEffect(loadState, filteredPoints) {
-        if (loadState == MapLoadState.LOADED) {
-            val idsCsv = filteredPoints.joinToString(",") { jsEscapeShare(it.id) }
-            controller.evaluateJavascript("if (window.applyFilter) { window.applyFilter('$idsCsv'); }")
+    // Incremental sync — "Update existing markers efficiently... prevent
+    // duplicate markers... remove old markers when a Publisher stops
+    // sharing" — [window.syncMarkers] diffs against its own already-existing
+    // marker set every time (moves an existing marker's L.marker in place
+    // via setLatLng rather than destroying/recreating it, adds only genuinely
+    // new ids, removes only ids no longer present at all), and also carries
+    // the current filter's visible-id set so a brand-new marker respects the
+    // active Publisher-type filter immediately rather than flashing visible
+    // first. Re-fits the camera only the first time this runs after a (re)
+    // load, and again whenever [selectedFilter] itself actually changes —
+    // never on a plain data refresh, so the camera doesn't jump every time
+    // someone's coordinates update.
+    var lastFitFilter by remember { mutableStateOf<PublisherTypeFilter?>(null) }
+    LaunchedEffect(loadState, allPoints, filteredPoints) {
+        if (loadState != MapLoadState.LOADED) return@LaunchedEffect
+        val pointsLiteral = allPoints.joinToString(",", prefix = "[", postfix = "]") { p ->
+            val label = p.row.groupName?.let { "${p.row.person.fullName} (${it})" } ?: p.row.person.fullName
+            """{id:"${jsEscapeShare(p.id)}",lat:${p.lat},lng:${p.lng},name:"${jsEscapeShare(label)}"}"""
+        }
+        val visibleIdsLiteral = filteredPoints.joinToString(",", prefix = "[", postfix = "]") { "\"${jsEscapeShare(it.id)}\"" }
+        controller.evaluateJavascript("if (window.syncMarkers) { window.syncMarkers($pointsLiteral, $visibleIdsLiteral); }")
+        if (lastFitFilter != selectedFilter) {
+            lastFitFilter = selectedFilter
+            controller.evaluateJavascript("if (window.fitToVisible) { window.fitToVisible(); }")
         }
     }
 
@@ -328,15 +349,11 @@ private fun jsEscapeShare(text: String): String =
 
 /** Same proven Leaflet+OpenStreetMap+marker-cluster structure as Territory
  * Map's own `buildTerritoryMapHtml` — cluster group, tile-error diagnostics,
- * `fitToVisible`, an `applyFilter` that shows/hides by id (Territory Map's
- * own is by category "kind"; this map only ever shows one kind of marker —
- * Publisher — so filtering by id list is simpler and equivalent), and the
- * same triple `setTimeout` invalidateSize/fit fallback. */
-private fun buildShareLocationMapHtml(points: List<SharePoint>): String {
-    val pointsJson = points.joinToString(",", prefix = "[", postfix = "]") { p ->
-        val label = p.row.groupName?.let { "${p.row.person.fullName} ($it)" } ?: p.row.person.fullName
-        """{id:"${jsEscapeShare(p.id)}",lat:${p.lat},lng:${p.lng},name:"${jsEscapeShare(label)}"}"""
-    }
+ * the same triple `setTimeout` invalidateSize/fit fallback. Starts with an
+ * empty marker set on purpose: every real point arrives afterward through
+ * [window.syncMarkers], called from Kotlin — see [ShareLocationMapView]'s own
+ * comment on why the map's initial HTML is never rebuilt from live data. */
+private fun buildShareLocationMapHtml(): String {
     return """
         <!DOCTYPE html>
         <html>
@@ -359,7 +376,6 @@ private fun buildShareLocationMapHtml(points: List<SharePoint>): String {
         <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
         <script>
         try {
-          var points = $pointsJson;
           var map = L.map('map', { zoomControl: true });
           window.shareLocationMap = map;
           var tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -393,62 +409,81 @@ private fun buildShareLocationMapHtml(points: List<SharePoint>): String {
           var cluster = L.markerClusterGroup();
           var markers = [];
           var markersById = {};
-
-          points.forEach(function(p) {
-            var marker = L.marker([p.lat, p.lng], { icon: buildIcon(false) });
-            marker.bindTooltip('👤 ' + p.name, { permanent: true, direction: 'right', offset: [8, 0], className: 'share-label' });
-            marker.on('click', function() {
-              window.setSelectedMarker(p.id);
-              if (window.AndroidBridge) { AndroidBridge.showDetails(p.id); }
-            });
-            marker._id = p.id;
-            marker._inCluster = true;
-            cluster.addLayer(marker);
-            markers.push(marker);
-            markersById[p.id] = marker;
-          });
+          var lastVisible = [];
           map.addLayer(cluster);
 
-          var lastVisible = markers.slice();
-          function fitToVisible(list) {
+          function fitTo(list) {
             if (list.length === 1) {
               map.setView(list[0].getLatLng(), 16);
             } else if (list.length > 1) {
               map.fitBounds(L.featureGroup(list).getBounds().pad(0.2));
-            } else {
-              map.setView([0, 0], 2);
             }
           }
-          fitToVisible(lastVisible);
+          // Re-fits the camera to whatever's currently visible — called by
+          // Kotlin only on first load and on an explicit filter change, per
+          // [window.syncMarkers]'s own comment, never on a plain data
+          // refresh (so the camera doesn't jump every time someone's
+          // coordinates update).
+          window.fitToVisible = function() { fitTo(lastVisible); };
 
-          // "Update the map markers dynamically without requiring a manual
-          // page reload... remove markers that do not match the selected
-          // category" — [idsCsv] is the exact set of point ids that should
-          // stay visible, computed in Kotlin from whichever Publisher-type
-          // filter is selected.
-          window.applyFilter = function(idsCsv) {
-            var ids = idsCsv ? idsCsv.split(',') : [];
+          // "Fix the delay in the Shared Location feature... update Publisher
+          // markers dynamically... avoid reloading the entire map when only
+          // marker coordinates change... update existing markers
+          // efficiently... prevent duplicate markers... remove old markers
+          // when a Publisher stops sharing" — [points] is the *complete*
+          // current set of shared-location markers (every call passes the
+          // full set, not a delta) and [visibleIds] is which of those should
+          // actually be shown (the current Publisher-type filter, already
+          // applied in Kotlin). A marker whose id already exists just moves
+          // in place via setLatLng — its identity, click handler, and
+          // selection state are all untouched, so nothing flickers or
+          // duplicates. A marker whose id no longer appears in [points] at
+          // all (that Publisher stopped sharing, or their location expired)
+          // is removed for good.
+          window.syncMarkers = function(points, visibleIds) {
+            var seen = {};
             var visible = [];
-            markers.forEach(function(m) {
-              var shouldShow = ids.indexOf(m._id) !== -1;
-              if (shouldShow && !m._inCluster) { cluster.addLayer(m); m._inCluster = true; }
-              if (!shouldShow && m._inCluster) { cluster.removeLayer(m); m._inCluster = false; }
-              if (shouldShow) visible.push(m);
+            points.forEach(function(p) {
+              seen[p.id] = true;
+              var shouldShow = visibleIds.indexOf(p.id) !== -1;
+              var marker = markersById[p.id];
+              if (!marker) {
+                marker = L.marker([p.lat, p.lng], { icon: buildIcon(selectedMarkerId === p.id) });
+                marker.bindTooltip('👤 ' + p.name, { permanent: true, direction: 'right', offset: [8, 0], className: 'share-label' });
+                marker.on('click', function() {
+                  window.setSelectedMarker(p.id);
+                  if (window.AndroidBridge) { AndroidBridge.showDetails(p.id); }
+                });
+                marker._id = p.id;
+                marker._inCluster = false;
+                markersById[p.id] = marker;
+                markers.push(marker);
+              } else {
+                marker.setLatLng([p.lat, p.lng]);
+                marker.setTooltipContent('👤 ' + p.name);
+              }
+              if (shouldShow && !marker._inCluster) { cluster.addLayer(marker); marker._inCluster = true; }
+              if (!shouldShow && marker._inCluster) { cluster.removeLayer(marker); marker._inCluster = false; }
+              if (shouldShow) visible.push(marker);
+            });
+            markers = markers.filter(function(m) {
+              if (seen[m._id]) return true;
+              if (m._inCluster) { cluster.removeLayer(m); }
+              delete markersById[m._id];
+              return false;
             });
             lastVisible = visible;
-            fitToVisible(visible);
           };
 
-          window.addEventListener('resize', function() { map.invalidateSize(); fitToVisible(lastVisible); });
+          window.addEventListener('resize', function() { map.invalidateSize(); fitTo(lastVisible); });
           setTimeout(function() {
             map.invalidateSize();
-            fitToVisible(lastVisible);
             var size = map.getSize();
             var container = document.getElementById('map');
             console.log('Diag: map size=' + size.x + 'x' + size.y + ', container clientWidth/Height=' + container.clientWidth + '/' + container.clientHeight + ', markers=' + markers.length);
           }, 100);
-          setTimeout(function() { map.invalidateSize(); fitToVisible(lastVisible); }, 500);
-          setTimeout(function() { map.invalidateSize(); fitToVisible(lastVisible); }, 1500);
+          setTimeout(function() { map.invalidateSize(); }, 500);
+          setTimeout(function() { map.invalidateSize(); }, 1500);
         } catch (e) {
           console.error('Share location map script threw: ' + e.message);
         }

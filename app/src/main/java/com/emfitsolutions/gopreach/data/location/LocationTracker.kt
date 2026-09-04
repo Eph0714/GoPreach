@@ -7,13 +7,20 @@ import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.location.LocationManager
 import android.os.Build
+import android.os.Looper
 import androidx.core.location.LocationManagerCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.CurrentLocationRequest
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -82,6 +89,56 @@ class LocationTracker @Inject constructor(
         val client = LocationServices.getFusedLocationProviderClient(context)
         val location = client.lastLocation.await() ?: return null
         return LatLng(location.latitude, location.longitude, location.accuracy)
+    }
+
+    /** "Fix the delay in the Shared Location feature" — root cause: the old
+     * approach called [getCurrentLocation] (or [getLastKnownLocation]) once
+     * per fixed-interval polling cycle. Every one of those calls pays a
+     * fresh GPS fix's own multi-second acquisition latency *on top of* the
+     * polling interval itself — the real source of the reported delay, not
+     * the interval length alone (which is why simply shortening it was never
+     * going to fully fix this). [requestLocationUpdates] instead keeps one
+     * continuous subscription open with Play Services and calls back
+     * immediately every time a new fix is genuinely available — no polling,
+     * no repeated fresh-fix latency, and Play Services itself coalesces
+     * anything more frequent than [minUpdateIntervalMillis] so this can't
+     * flood Firestore with near-duplicate writes either.
+     *
+     * [intervalMillis]/[minUpdateIntervalMillis] bound how *often* Play
+     * Services is asked to produce a fix (the legitimate battery/accuracy
+     * trade-off knob — spec §5's "optimized update interval to balance
+     * speed, battery consumption, and accuracy"), not an artificial wait
+     * layered on top of an already-slow fetch. PRIORITY_HIGH_ACCURACY for
+     * the same reason [getCurrentLocation] uses it — see that function's own
+     * doc comment. */
+    @SuppressLint("MissingPermission") // caller checks hasLocationPermission() first
+    fun requestLocationUpdatesFlow(intervalMillis: Long = 15_000L, minUpdateIntervalMillis: Long = 8_000L): Flow<LatLng> = callbackFlow {
+        if (!hasLocationPermission()) {
+            close()
+            return@callbackFlow
+        }
+        val client = LocationServices.getFusedLocationProviderClient(context)
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMillis)
+            .setMinUpdateIntervalMillis(minUpdateIntervalMillis)
+            .build()
+        val callback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.lastLocation?.let { location ->
+                    trySend(LatLng(location.latitude, location.longitude, location.accuracy))
+                }
+            }
+        }
+        // A permission revoked *after* the [hasLocationPermission] check
+        // above (rare, but possible mid-session) can still throw here —
+        // closing the flow rather than letting a SecurityException escape
+        // uncaught, same defensive posture the old polling loop's own
+        // `runCatching` around every fetch already had.
+        runCatching { client.requestLocationUpdates(request, callback, Looper.getMainLooper()) }
+            .onFailure {
+                close(it)
+                return@callbackFlow
+            }
+        awaitClose { client.removeLocationUpdates(callback) }
     }
 
     /** "Shared Location Reports" spec — the human-readable "Location" line

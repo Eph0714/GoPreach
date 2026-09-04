@@ -123,8 +123,9 @@ class ShareLocationViewModel @Inject constructor(
      * publisher — updated live from [SharedLocation], so the status card's
      * Latitude/Longitude/Last Updated stay current without this screen ever
      * polling GPS itself. "Simplify Share Location" spec — no manual refresh
-     * control exists any more; the automatic 5-minute update cycle (plus the
-     * near-instant first fix) is the only way this ever changes. */
+     * control exists any more; the continuous, push-based location
+     * subscription [LocationSharingService] now runs (see that class's own
+     * doc comment) is the only way this ever changes. */
     private val _myLocation = MutableStateFlow<MyLocationState?>(null)
     val myLocation: StateFlow<MyLocationState?> = _myLocation.asStateFlow()
 

@@ -29,14 +29,16 @@ data class SharedLocation(
  * .isSharing] flag still says true (e.g. the publisher's
  * [com.emfitsolutions.gopreach.data.location.LocationSharingService]
  * process died — killed, doze, network loss — without ever getting a
- * chance to write the "stopped" doc). Just over twice that Service's own
- * fix interval (5 minutes) plus real margin for a slow network/GPS fix,
- * so a single missed publish cycle doesn't flicker a still-actively-sharing
- * publisher in and out of "currently sharing." Single source of truth —
- * the Territory Map's Publisher layer and Share Location's own "who's
- * sharing" list both read this rather than each keeping their own
- * threshold. */
-const val LOCATION_FRESHNESS_MS = 12 * 60_000L
+ * chance to write the "stopped" doc). [LocationSharingService] now
+ * publishes continuously via a push-based location subscription (typically
+ * every 8-15s while sharing — see that class's own doc comment on why this
+ * replaced a slower poll-based cadence), so this window only needs to
+ * comfortably outlast a couple of missed callbacks (a brief network hiccup,
+ * one slow Firestore write), not a whole multi-minute polling cycle like it
+ * used to. Single source of truth — the Territory Map's Publisher layer and
+ * Share Location's own "who's sharing" list both read this rather than each
+ * keeping their own threshold. */
+const val LOCATION_FRESHNESS_MS = 60_000L
 
 /** True only when [SharedLocation.isSharing] is set *and* the fix is still
  * within [LOCATION_FRESHNESS_MS] of [nowMillis] — see that constant's own

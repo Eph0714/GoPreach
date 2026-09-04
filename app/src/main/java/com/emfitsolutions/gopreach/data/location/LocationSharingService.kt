@@ -20,10 +20,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -111,90 +111,102 @@ class LocationSharingService : Service() {
         return START_NOT_STICKY
     }
 
-    /** Fix-every-5-minutes / accuracy-gate / auto-stop-after-duration logic
-     * that used to live in the ViewModel's while loop — unchanged behavior,
-     * just running somewhere that survives leaving the screen.
+    /** "Fix the delay in the Shared Location feature" — root-cause rewrite.
+     * The previous version was a `while` loop that called [LocationTracker
+     * .getCurrentLocation] (a fresh PRIORITY_HIGH_ACCURACY fix — several
+     * seconds, sometimes tens of seconds indoors) once per fixed-interval
+     * cycle, then slept for the rest of that interval. That paid a full
+     * fresh-fix's own acquisition latency *every single cycle*, on top of
+     * the interval itself — a genuine, compounding delay no amount of
+     * shortening the interval alone could fully fix, since each cycle still
+     * blocked on its own fresh GPS request from scratch.
      *
-     * "Immediately obtain and save the first available valid location...
-     * automatically update every 5 minutes" — the very first fix bypasses
-     * the 5-minute cadence entirely (see [isFirstAttempt] below), for two
-     * reasons found while fixing an earlier "cannot open Share Location
-     * fast" report:
-     *   1. Every attempt, including the first, used to call [LocationTracker
-     *      .getCurrentLocation] alone, which forces Play Services to obtain
-     *      a genuinely *new* PRIORITY_HIGH_ACCURACY GPS fix rather than
-     *      answering from any cache — commonly several seconds, sometimes
-     *      tens of seconds indoors on a cold GPS chip.
-     *   2. A first fix that failed the accuracy gate (very plausible — a
-     *      fresh chip's first fix is often worse than [LocationSharingSettings
-     *      .accuracyRadiusMeters]'s tight default) published nothing and
-     *      would otherwise wait the *full* 5-minute cadence before trying
-     *      again, compounding into an unacceptably long wait before the
-     *      Publisher's toggle/status ever reflected reality.
-     * Fixed by trying Play Services' own already-cached last-known fix
-     * first (near-instant when available) before ever falling back to a
-     * fresh one, and retrying every 5s (not the full 5-minute cadence)
-     * until the very first publish actually succeeds — settling into the
-     * normal 5-minute cadence only once sharing is genuinely up and
-     * running. */
+     * This version subscribes once to [LocationTracker
+     * .requestLocationUpdatesFlow] — a continuous, push-based Play Services
+     * subscription that calls back immediately every time a new fix is
+     * genuinely ready, never polling or re-requesting from scratch. The very
+     * first fix still comes from [LocationTracker.getLastKnownLocation]'s
+     * cache first (near-instant when available, same "cannot open Share
+     * Location fast" fix as before) so the toggle/status reflects reality
+     * without waiting even for that first continuous callback.
+     *
+     * Accuracy gate, auto-stop-after-duration, and Firestore publish/sync
+     * tracking are otherwise unchanged from before. */
     private suspend fun runSharingLoop(publisherPersonId: String, congregationId: String?, groupId: String?) {
         val settings = congregationId?.let { locationSharingSettingsRepository.currentFor(it) }
             ?: LocationSharingSettings.defaultsFor(congregationId.orEmpty())
         val durationMillis = settings.sharingDurationMinutes * 60_000L
         val startedAt = System.currentTimeMillis()
-        var hasPublishedOnce = false
-        var isFirstAttempt = true
 
-        while (serviceScope.isActive) {
-            if (System.currentTimeMillis() - startedAt >= durationMillis) return
-            val fix = if (isFirstAttempt) {
-                runCatching { locationTracker.getLastKnownLocation() }.getOrNull()
-                    ?: runCatching { locationTracker.getCurrentLocation() }.getOrNull()
-            } else {
-                runCatching { locationTracker.getCurrentLocation() }.getOrNull()
-            }
-            isFirstAttempt = false
-            if (fix != null) {
-                // "Location Acquired" — a valid GPS fix, distinct from
-                // whether it met the accuracy gate or ever reached the
-                // server; §7's own three-state example ("📍 Location:
-                // Updating...") only needs a fix to exist on-device.
-                _locationAcquired.value = true
-                val meetsAccuracy = fix.accuracyMeters == null || fix.accuracyMeters <= settings.accuracyRadiusMeters
-                if (meetsAccuracy) {
-                    val location = SharedLocation(
-                        publisherPersonId = publisherPersonId,
-                        congregationId = congregationId.orEmpty(),
-                        groupId = groupId,
-                        lat = fix.lat,
-                        lng = fix.lng,
-                        accuracyMeters = fix.accuracyMeters,
-                        isSharing = true,
-                        updatedAt = System.currentTimeMillis(),
-                    )
-                    lastPublished = location
-                    // "Location Synchronized" — whether this specific fix
-                    // actually reached Firestore, tracked separately so the
-                    // UI can say "Waiting for network synchronization"
-                    // instead of falsely claiming a sync that never
-                    // happened (§5/§7). A failure here doesn't stop the
-                    // loop — the next 5s/5-minute cycle retries automatically
-                    // (§6 "keep retrying... do not silently fail").
-                    runCatching { sharedLocationRepository.update(location) }
-                        .onSuccess { _syncState.value = LocationSyncState.SYNCED }
-                        .onFailure {
-                            _syncState.value = LocationSyncState.FAILED
-                            Log.e(TAG, "Failed to publish shared location", it)
-                        }
-                    hasPublishedOnce = true
+        suspend fun publish(fix: LatLng) {
+            // "Location Acquired" — a valid GPS fix, distinct from whether
+            // it met the accuracy gate or ever reached the server; §7's own
+            // three-state example ("📍 Location: Updating...") only needs a
+            // fix to exist on-device.
+            _locationAcquired.value = true
+            val meetsAccuracy = fix.accuracyMeters == null || fix.accuracyMeters <= settings.accuracyRadiusMeters
+            if (!meetsAccuracy) return
+            val location = SharedLocation(
+                publisherPersonId = publisherPersonId,
+                congregationId = congregationId.orEmpty(),
+                groupId = groupId,
+                lat = fix.lat,
+                lng = fix.lng,
+                accuracyMeters = fix.accuracyMeters,
+                isSharing = true,
+                updatedAt = System.currentTimeMillis(),
+            )
+            // "Avoid duplicate location submissions" — a genuinely unmoved
+            // fix (same coordinates as the last one actually published) is
+            // still worth republishing here: [updatedAt] is what
+            // isCurrentlyFresh() reads to decide "still live," so a
+            // stationary Publisher would otherwise silently drop off
+            // everyone else's map after the freshness window elapsed. This
+            // still isn't wasteful — Play Services itself already coalesces
+            // callbacks tighter than [minUpdateIntervalMillis] (see
+            // requestLocationUpdatesFlow's own doc comment), so a duplicate
+            // coordinate pair here reflects a genuinely new fix, not a
+            // re-request of an old one.
+            lastPublished = location
+            // "Location Synchronized" — whether this specific fix actually
+            // reached Firestore, tracked separately so the UI can say
+            // "Waiting for network synchronization" instead of falsely
+            // claiming a sync that never happened (§5/§7). A failure here
+            // doesn't stop the subscription — the next push-based update
+            // retries automatically (§6 "keep retrying... do not silently
+            // fail").
+            runCatching { sharedLocationRepository.update(location) }
+                .onSuccess { _syncState.value = LocationSyncState.SYNCED }
+                .onFailure {
+                    _syncState.value = LocationSyncState.FAILED
+                    Log.e(TAG, "Failed to publish shared location", it)
                 }
-            }
-            // "Implement automatic location updates every 5 minutes" —
-            // once the very first publish succeeds; until then, retry every
-            // 5s (see this function's own doc comment on why the first
-            // publish specifically must not wait a full cycle).
-            delay(if (hasPublishedOnce) 5 * 60_000L else 5_000L)
         }
+
+        // Fast start: Play Services' own already-cached last-known fix,
+        // near-instant when available, published immediately rather than
+        // waiting for the first continuous-subscription callback below.
+        runCatching { locationTracker.getLastKnownLocation() }.getOrNull()?.let { publish(it) }
+
+        // The actual delay fix: one continuous push-based subscription,
+        // instead of a poll-sleep-refetch loop. `takeWhile` (rather than a
+        // manual elapsed-time check inside the collector) naturally ends the
+        // subscription — and so this whole function, letting the caller's
+        // own `stopSharingAndSelf` run right after — the first time a fix
+        // arrives at or past the configured sharing duration.
+        // Wrapped in runCatching, not left to propagate: a permission
+        // revoked mid-session (see requestLocationUpdatesFlow's own doc
+        // comment) closes the flow with an exception rather than silently
+        // ending it, and this loop shouldn't crash the Service over that —
+        // same "keep retrying... do not silently fail, but also don't
+        // crash" posture §6 asks for. The Service simply stops publishing
+        // further updates; [stopSharingAndSelf] still runs normally right
+        // after this function returns either way.
+        runCatching {
+            locationTracker.requestLocationUpdatesFlow()
+                .takeWhile { serviceScope.isActive && System.currentTimeMillis() - startedAt < durationMillis }
+                .collect { fix -> publish(fix) }
+        }.onFailure { Log.e(TAG, "Location updates subscription ended unexpectedly", it) }
     }
 
     /** Awaits the stop-sharing write before tearing anything down, so it
