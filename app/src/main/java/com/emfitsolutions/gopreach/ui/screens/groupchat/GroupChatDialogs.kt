@@ -5,11 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Checkbox
@@ -107,8 +103,19 @@ private fun ParticipantPicker(
                 modifier = Modifier.padding(vertical = 8.dp),
             )
         } else {
-            LazyColumn(modifier = Modifier.fillMaxWidth().height(260.dp)) {
-                items(filtered, key = { it.personId }) { candidate ->
+            // Deliberately NOT a LazyColumn: FormDialog's own content Column
+            // is already vertically scrollable (that's what keeps Save/
+            // Create reachable above the keyboard — see its doc comment), and
+            // nesting a second same-axis scrollable inside it let this list
+            // swallow the drag gesture before it ever reached the Create/Save
+            // button below, making the dialog effectively unscrollable past
+            // this list on a real device ("there is no save button" — it was
+            // there, just unreachable). A plain Column has no scroll gesture
+            // of its own to compete for, so the *one* outer scroll always
+            // reaches the button; congregation rosters here are small enough
+            // (tens, not thousands) that this costs nothing in practice.
+            Column(modifier = Modifier.fillMaxWidth()) {
+                filtered.forEach { candidate ->
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
