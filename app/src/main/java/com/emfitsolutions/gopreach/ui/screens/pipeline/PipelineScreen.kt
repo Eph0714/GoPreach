@@ -108,6 +108,33 @@ private fun PipelineStage.label(): String = when (this) {
     PipelineStage.BIBLE_STUDY -> "Bible Study"
 }
 
+/** "Searching Interested Person / Return Visit / Bible Study" — the full
+ * spec wording for the reverse-status-movement confirmation dialog and
+ * success message specifically, kept separate from [label] (used
+ * everywhere else in this screen as the shorter "Searching") so this one
+ * feature's exact required copy doesn't change any other screen's wording. */
+private fun PipelineStage.fullLabel(): String = if (this == PipelineStage.SEARCHING) "Searching Interested Person" else label()
+
+/** The single stage one step *forward* of [this] in the Searching → Return
+ * Visit → Bible Study sequence, or null from Bible Study (the end of the
+ * line). */
+private fun PipelineStage.nextStage(): PipelineStage? = when (this) {
+    PipelineStage.SEARCHING -> PipelineStage.RETURN_VISIT
+    PipelineStage.RETURN_VISIT -> PipelineStage.BIBLE_STUDY
+    PipelineStage.BIBLE_STUDY -> null
+}
+
+/** "Add Reverse Status Movement" — the single stage one step *backward* of
+ * [this], or null from Searching (nothing precedes it). Only Return Visit ↔
+ * Searching Interested Person and Bible Study ↔ Return Visit are ever
+ * reachable in one move either direction — never Searching ↔ Bible Study
+ * directly, in either direction. */
+private fun PipelineStage.previousStage(): PipelineStage? = when (this) {
+    PipelineStage.SEARCHING -> null
+    PipelineStage.RETURN_VISIT -> PipelineStage.SEARCHING
+    PipelineStage.BIBLE_STUDY -> PipelineStage.RETURN_VISIT
+}
+
 /** "Visited by" for a Return Visit, "Studied by" for a Bible Study (spec's
  * own wording for each module's Visit History). */
 private fun PipelineStage.visitorLabel(): String = if (this == PipelineStage.BIBLE_STUDY) "Studied by" else "Visited by"
@@ -546,6 +573,10 @@ private fun PipelinePersonDetailScreen(
     var selectedVisit by remember { mutableStateOf<Visit?>(null) }
     var pendingEditVisit by remember { mutableStateOf<Visit?>(null) }
     var pendingDeleteVisit by remember { mutableStateOf<Visit?>(null) }
+    // "Add Reverse Status Movement" — a tapped Move-to button only *requests*
+    // the change here; the actual advanceStage() call waits for the
+    // confirmation dialog below (see [pendingStageChange]'s own AlertDialog).
+    var pendingStageChange by remember { mutableStateOf<PipelineStage?>(null) }
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
     val sortedVisits = remember(visits) { visits.sortedByDescending { it.visitDate } }
     val createdByName by remember(livePerson.createdByPersonId) { viewModel.personName(livePerson.createdByPersonId) }.collectAsStateWithLifecycle(initialValue = null)
@@ -611,10 +642,7 @@ private fun PipelinePersonDetailScreen(
                     stage = stage,
                     forwardRequest = forwardRequest,
                     publisherForwardRequest = publisherForwardRequest,
-                    onAdvanceStage = { newStage ->
-                        viewModel.advanceStage(livePerson, newStage, currentPersonId)
-                        showToast("Moved to ${newStage.label()}.")
-                    },
+                    onAdvanceStage = { newStage -> pendingStageChange = newStage },
                     onShowForwardDialog = { showForwardDialog = true },
                     onShowForwardToPublisherDialog = { showForwardToPublisherDialog = true },
                 )
@@ -707,6 +735,41 @@ private fun PipelinePersonDetailScreen(
         )
     }
 
+    // "Add Reverse Status Movement" — one confirmation dialog for every
+    // stage move, forward or backward: "Move Bible Study to Return Visit?"
+    // / "This record will be moved from Bible Study to Return Visit. Do you
+    // want to continue?" for a forward move, and the spec's own "moved
+    // back" wording for a backward one. Confirming reuses the exact same
+    // advanceStage() the forward-only flow already used — see that
+    // function's own doc comment for why nothing about the underlying
+    // status-change/history/module-sync logic needed to change at all.
+    val toStage = pendingStageChange
+    if (toStage != null) {
+        val movingBackward = toStage == livePerson.pipelineStage.previousStage()
+        AlertDialog(
+            onDismissRequest = { pendingStageChange = null },
+            title = { Text("Move ${livePerson.pipelineStage.fullLabel()} to ${toStage.fullLabel()}?") },
+            text = {
+                Text(
+                    if (movingBackward) {
+                        "This record will be moved back from ${livePerson.pipelineStage.fullLabel()} to ${toStage.fullLabel()}. Do you want to continue?"
+                    } else {
+                        "This record will be moved from ${livePerson.pipelineStage.fullLabel()} to ${toStage.fullLabel()}. Do you want to continue?"
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val fromLabel = livePerson.pipelineStage.fullLabel()
+                    viewModel.advanceStage(livePerson, toStage, currentPersonId)
+                    showToast("Status successfully changed from $fromLabel to ${toStage.fullLabel()}.")
+                    pendingStageChange = null
+                }) { Text("Confirm") }
+            },
+            dismissButton = { TextButton(onClick = { pendingStageChange = null }) { Text("Cancel") } },
+        )
+    }
+
     if (showEditDialog) {
         PipelinePersonDialog(
             existingPerson = livePerson,
@@ -759,15 +822,27 @@ private fun PipelineActionButtons(
 ) {
     val iconModifier = Modifier.size(18.dp).padding(end = 8.dp)
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        val nextStage = when (stage) {
-            PipelineStage.SEARCHING -> PipelineStage.RETURN_VISIT
-            PipelineStage.RETURN_VISIT -> PipelineStage.BIBLE_STUDY
-            PipelineStage.BIBLE_STUDY -> null
-        }
+        // "Add Reverse Status Movement" — Searching only ever offers the
+        // forward move (nothing precedes it); Bible Study only the backward
+        // one (nothing follows it); Return Visit is the one stage with
+        // both, per the spec's own table:
+        //   Searching Interested Person -> Return Visit
+        //   Return Visit -> Searching Interested Person OR Bible Study
+        //   Bible Study -> Return Visit
+        // Never a direct Searching<->Bible Study jump — nextStage()/
+        // previousStage() only ever return the immediately adjacent stage.
+        val nextStage = stage.nextStage()
+        val previousStage = stage.previousStage()
         if (nextStage != null) {
             Button(onClick = { onAdvanceStage(nextStage) }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null, modifier = iconModifier)
                 Text("Move to ${nextStage.label()}")
+            }
+        }
+        if (previousStage != null) {
+            OutlinedButton(onClick = { onAdvanceStage(previousStage) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null, modifier = iconModifier)
+                Text("Move to ${previousStage.label()}")
             }
         }
         OutlinedButton(

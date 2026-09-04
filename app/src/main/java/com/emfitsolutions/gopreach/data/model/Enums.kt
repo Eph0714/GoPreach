@@ -160,9 +160,13 @@ enum class VisitOutcome {
 /** Where one [InterestedPerson] currently sits in the Searching → Return
  * Visit → Bible Study pipeline (spec's three-module redesign). Distinct from
  * [RecordStatus] (active/inactive soft-delete) — a record can be inactive at
- * any stage. Advancing a stage is a one-way action from the Searching/Return
- * Visit module's own screen (see PipelineViewModel.advanceStage); there is no
- * spec'd path backward. */
+ * any stage. Moves one stage at a time in either direction — forward
+ * (Searching → Return Visit → Bible Study) or, per "Add Reverse Status
+ * Movement," backward (Bible Study → Return Visit → Searching Interested
+ * Person) — from the Searching/Return Visit/Bible Study module's own screen
+ * (see PipelineViewModel.advanceStage, and that same screen's own
+ * `nextStage()`/`previousStage()`); never a direct Searching↔Bible Study
+ * jump in either direction. */
 enum class PipelineStage { SEARCHING, RETURN_VISIT, BIBLE_STUDY }
 
 /** Lifecycle of one cross-congregation [ForwardRequest] ("Forward to Other

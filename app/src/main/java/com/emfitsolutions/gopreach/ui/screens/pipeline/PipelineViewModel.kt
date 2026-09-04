@@ -119,11 +119,23 @@ class PipelineViewModel @Inject constructor(
         }
     }
 
-    /** "MOVE TO RETURN VISIT MODULE" / "MOVE TO BIBLE STUDY MODULE" — the
-     * one-way stage advance described by the Searching/Return Visit module
-     * spec. Bumps [InterestedPerson.stageEnteredAt] so date-range reports
-     * (Consolidated Report, Publisher Dashboard) count this transition on the
-     * day it actually happened, not this record's original creation date. */
+    /** "MOVE TO RETURN VISIT MODULE" / "MOVE TO BIBLE STUDY MODULE" — and,
+     * per "Add Reverse Status Movement," the same one-step move backward
+     * (Bible Study → Return Visit → Searching Interested Person) reuses this
+     * exact function; [newStage] was never restricted to "forward" in code,
+     * only by which buttons [PipelineScreen] chose to show (see that
+     * screen's own `previousStage()`/`nextStage()`). Updates the *same*
+     * [InterestedPerson] record in place — no new record is ever created,
+     * and every other field (personal info, GPS, notes, assigned Publisher,
+     * Visit History, prior audit-log entries) is untouched — only
+     * [InterestedPerson.pipelineStage] changes. Bumps
+     * [InterestedPerson.stageEnteredAt] so date-range reports (Consolidated
+     * Report, Publisher Dashboard) count this transition on the day it
+     * actually happened; a move backward re-enters the earlier module the
+     * same way a forward move enters the next one, and [peopleFor]'s own
+     * `pipelineStage == stage` filter is what makes the record vanish from
+     * its old module's list and appear in the new one automatically — no
+     * separate "module sync" step exists to reuse or duplicate. */
     fun advanceStage(person: InterestedPerson, newStage: PipelineStage, actorPersonId: String) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
