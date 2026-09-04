@@ -31,14 +31,17 @@ import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.contentColorFor
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -239,52 +242,71 @@ fun GroupChatScreen(
 @Composable
 private fun MessageBubble(message: GroupChatMessage, isOwnMessage: Boolean) {
     val bubbleColor = if (isOwnMessage) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+    // "Check if the background color is suited to the text" — the bubble's
+    // background is a theme color (primaryContainer/surfaceVariant, which on
+    // this app's violet theme skews dark and saturated for the sent side),
+    // so its text can't just default to whatever LocalContentColor happens
+    // to be from the surrounding screen; it needs the actual "on" color
+    // Material3 defines *for that specific container color* — the same
+    // pairing the design system itself guarantees is readable (e.g.
+    // onPrimaryContainer for a primaryContainer/violet background). Providing
+    // it once here, instead of hard-coding a color on every Text/Icon below,
+    // is also what makes every child inside this bubble correct automatically.
+    val contentColor = MaterialTheme.colorScheme.contentColorFor(bubbleColor)
+    val mutedContentColor = contentColor.copy(alpha = 0.75f)
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isOwnMessage) Arrangement.End else Arrangement.Start) {
-        Column(
-            modifier = Modifier
-                .widthIn(max = 320.dp)
-                .background(bubbleColor, RoundedCornerShape(14.dp))
-                .padding(10.dp),
-        ) {
-            if (!isOwnMessage) {
-                Text(message.senderName, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                Text(message.senderRole, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (message.attachmentUrl != null) {
-                val context = LocalContext.current
-                if (message.attachmentType == GroupChatAttachmentType.IMAGE) {
-                    AsyncImage(
-                        model = message.attachmentUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxWidth().height(160.dp).padding(top = 4.dp, bottom = 4.dp)
-                            .clickable { com.emfitsolutions.gopreach.data.export.CsvExporter.openWithChooser(context, Uri.parse(message.attachmentUrl), "image/*") },
-                    )
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                            .clickable { com.emfitsolutions.gopreach.data.export.CsvExporter.openWithChooser(context, Uri.parse(message.attachmentUrl), "*/*") },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(message.attachmentType.icon(), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            message.attachmentFileName ?: "Attachment",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(start = 6.dp),
+        CompositionLocalProvider(LocalContentColor provides contentColor) {
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 320.dp)
+                    .background(bubbleColor, RoundedCornerShape(14.dp))
+                    .padding(10.dp),
+            ) {
+                if (!isOwnMessage) {
+                    Text(message.senderName, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = contentColor)
+                    Text(message.senderRole, style = MaterialTheme.typography.labelSmall, color = mutedContentColor)
+                }
+                if (message.attachmentUrl != null) {
+                    val context = LocalContext.current
+                    if (message.attachmentType == GroupChatAttachmentType.IMAGE) {
+                        AsyncImage(
+                            model = message.attachmentUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxWidth().height(160.dp).padding(top = 4.dp, bottom = 4.dp)
+                                .clickable { com.emfitsolutions.gopreach.data.export.CsvExporter.openWithChooser(context, Uri.parse(message.attachmentUrl), "image/*") },
                         )
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                .clickable { com.emfitsolutions.gopreach.data.export.CsvExporter.openWithChooser(context, Uri.parse(message.attachmentUrl), "*/*") },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // A plain "primary" tint here would fight the
+                            // bubble's own contrast pairing (that's the exact
+                            // bug being fixed) — this stays legible on
+                            // primaryContainer or surfaceVariant either way.
+                            Icon(message.attachmentType.icon(), contentDescription = null, tint = contentColor)
+                            Text(
+                                message.attachmentFileName ?: "Attachment",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = contentColor,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(start = 6.dp),
+                            )
+                        }
                     }
                 }
+                if (message.text.isNotBlank()) {
+                    Text(message.text, style = MaterialTheme.typography.bodyMedium, color = contentColor)
+                }
+                Text(
+                    formatRecordTimestamp(message.createdAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = mutedContentColor,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
             }
-            if (message.text.isNotBlank()) {
-                Text(message.text, style = MaterialTheme.typography.bodyMedium)
-            }
-            Text(
-                formatRecordTimestamp(message.createdAt),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp),
-            )
         }
     }
 }
