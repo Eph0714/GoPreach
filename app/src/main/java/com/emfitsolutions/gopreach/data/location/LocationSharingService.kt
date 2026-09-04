@@ -96,6 +96,12 @@ class LocationSharingService : Service() {
         NotificationHelper.ensureChannel(this)
         startForeground(NOTIFICATION_ID, buildNotification())
         _isRunning.value = true
+        // "Sharing Activated" vs. "Location Acquired" vs. "Location
+        // Synchronized" are different events — reset both for this fresh
+        // session so a screen reopened mid-share doesn't show stale
+        // "Synced"/"acquired" state left over from a previous share.
+        _locationAcquired.value = false
+        _syncState.value = LocationSyncState.CONNECTING
 
         sharingJob?.cancel()
         sharingJob = serviceScope.launch {
@@ -146,6 +152,11 @@ class LocationSharingService : Service() {
             }
             isFirstAttempt = false
             if (fix != null) {
+                // "Location Acquired" — a valid GPS fix, distinct from
+                // whether it met the accuracy gate or ever reached the
+                // server; §7's own three-state example ("📍 Location:
+                // Updating...") only needs a fix to exist on-device.
+                _locationAcquired.value = true
                 val meetsAccuracy = fix.accuracyMeters == null || fix.accuracyMeters <= settings.accuracyRadiusMeters
                 if (meetsAccuracy) {
                     val location = SharedLocation(
@@ -159,8 +170,19 @@ class LocationSharingService : Service() {
                         updatedAt = System.currentTimeMillis(),
                     )
                     lastPublished = location
+                    // "Location Synchronized" — whether this specific fix
+                    // actually reached Firestore, tracked separately so the
+                    // UI can say "Waiting for network synchronization"
+                    // instead of falsely claiming a sync that never
+                    // happened (§5/§7). A failure here doesn't stop the
+                    // loop — the next 5s/30s cycle retries automatically
+                    // (§6 "keep retrying... do not silently fail").
                     runCatching { sharedLocationRepository.update(location) }
-                        .onFailure { Log.e(TAG, "Failed to publish shared location", it) }
+                        .onSuccess { _syncState.value = LocationSyncState.SYNCED }
+                        .onFailure {
+                            _syncState.value = LocationSyncState.FAILED
+                            Log.e(TAG, "Failed to publish shared location", it)
+                        }
                     hasPublishedOnce = true
                 }
             }
@@ -188,6 +210,8 @@ class LocationSharingService : Service() {
                 .onFailure { Log.e(TAG, "Failed to persist stop-sharing", it) }
         }
         _isRunning.value = false
+        _locationAcquired.value = false
+        _syncState.value = LocationSyncState.CONNECTING
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -219,6 +243,11 @@ class LocationSharingService : Service() {
         super.onDestroy()
     }
 
+    /** "Clearly distinguish between... Sharing Activated / Location
+     * Acquired / Location Synchronized — these are different states and
+     * should not be incorrectly treated as the same event." */
+    enum class LocationSyncState { CONNECTING, SYNCED, FAILED }
+
     companion object {
         private val _isRunning = MutableStateFlow(false)
         /** Immediate (no Room round-trip) "is the service itself alive right
@@ -226,6 +255,23 @@ class LocationSharingService : Service() {
          * the toggle; [SharedLocationRepository.observeFor] is still the
          * authoritative source of truth once this settles. */
         val isRunning: StateFlow<Boolean> = _isRunning
+
+        private val _locationAcquired = MutableStateFlow(false)
+        /** "Location Acquired" — a valid GPS fix obtained since the current
+         * sharing session started, independent of whether it met the
+         * accuracy gate or reached the server yet. Only ever meaningful
+         * while [isRunning] is true; reset false the moment a session starts
+         * or stops. Process-wide rather than per-publisher — this Service
+         * only ever runs for the signed-in device's own share, never
+         * someone else's, so there's exactly one "my own sharing session"
+         * to track at a time. */
+        val locationAcquired: StateFlow<Boolean> = _locationAcquired
+
+        private val _syncState = MutableStateFlow(LocationSyncState.CONNECTING)
+        /** "Location Synchronized" — whether the most recent fix actually
+         * reached Firestore, distinct from [locationAcquired] (obtained on
+         * the device) and [isRunning] (the sharing session itself). */
+        val syncState: StateFlow<LocationSyncState> = _syncState
 
         fun start(context: Context, publisherPersonId: String, congregationId: String?, groupId: String?) {
             val intent = Intent(context, LocationSharingService::class.java).apply {

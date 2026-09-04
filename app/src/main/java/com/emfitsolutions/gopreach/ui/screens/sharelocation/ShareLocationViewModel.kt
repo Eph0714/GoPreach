@@ -88,22 +88,36 @@ class ShareLocationViewModel @Inject constructor(
      * genuinely active. Now derived from the actual persisted/synced
      * [SharedLocation] doc — the same source of truth every *other*
      * publisher's row on this screen already reads from — so it reflects
-     * reality regardless of when or how the screen is reopened. */
-    fun isSharingFor(publisherPersonId: String): Flow<Boolean> =
-        sharedLocationRepository.observeFor(publisherPersonId).map { it?.isCurrentlyFresh() == true }
+     * reality regardless of when or how the screen is reopened.
+     *
+     * "Do not wait for GPS or server synchronization before telling the
+     * user that Share Location has been activated" — [_optimisticSharing]
+     * is set the instant the toggle is tapped (see [toggleSharing]) and
+     * takes priority over the real doc for as long as it's set, so the
+     * Switch/status card respond to the tap itself, not to however long the
+     * first GPS fix and Firestore round-trip take. Cleared the moment the
+     * real doc actually confirms the same state, so it can never
+     * permanently mask reality (sharing auto-expiring server-side later,
+     * say, must still eventually show as OFF). */
+    private val _optimisticSharing = MutableStateFlow<Boolean?>(null)
 
-    /** "The publisher cannot open Share Location fast, it will take time" —
-     * [isSharingFor] only flips true once [LocationSharingService] has
-     * actually obtained a fix and written the first doc, which (even with
-     * that Service's own speed fix) can still take a few seconds — long
-     * enough that the Switch looked unresponsive, like the tap hadn't
-     * registered at all. This flips true the instant Start Sharing is
-     * tapped (see [toggleSharing]) so the toggle and status card respond
-     * immediately, and clears itself the moment the real doc confirms
-     * sharing actually started — a purely optimistic, local-only signal,
-     * never itself treated as "sharing is really on." */
-    private val _isStarting = MutableStateFlow(false)
-    val isStarting: StateFlow<Boolean> = _isStarting.asStateFlow()
+    fun isSharingFor(publisherPersonId: String): Flow<Boolean> =
+        combine(
+            sharedLocationRepository.observeFor(publisherPersonId).map { it?.isCurrentlyFresh() == true },
+            _optimisticSharing,
+        ) { real, optimistic -> optimistic ?: real }
+
+    /** "Location Acquired" — a valid GPS fix obtained since the current
+     * sharing session started, distinct from whether it's reached the
+     * server yet (see [syncState]) or from sharing being on at all (see
+     * [isSharingFor]). Passed straight through from the Service that
+     * actually does the work — see [LocationSharingService.locationAcquired]'s
+     * own doc comment for why this is safe as a process-wide signal. */
+    val locationAcquired: StateFlow<Boolean> = LocationSharingService.locationAcquired
+
+    /** "Location Synchronized" — whether the most recent fix has actually
+     * reached Firestore; see [LocationSharingService.syncState]. */
+    val syncState: StateFlow<LocationSharingService.LocationSyncState> = LocationSharingService.syncState
 
     /** Last coordinates successfully fetched this session — reused by
      * [refreshMyLocation] and updated live from [SharedLocation] rows this
@@ -216,21 +230,21 @@ class ShareLocationViewModel @Inject constructor(
 
     /** Starts/stops [LocationSharingService] — see that class's doc comment
      * for why the actual sharing loop lives there now instead of here.
-     * [_isStarting] gives the toggle its instant feedback (see that
-     * property's own doc comment) — set the moment Start is tapped, cleared
-     * the moment the real doc confirms sharing actually began, or if this
+     * [_optimisticSharing] gives the toggle its instant feedback (see that
+     * property's own doc comment) — set the moment this is called, in
+     * *both* directions (Stop responds just as immediately as Start),
+     * cleared once the real doc confirms the same state, or if this
      * ViewModel is torn down (screen closed) before that ever happens. */
     fun toggleSharing(enabled: Boolean, publisherPersonId: String, congregationId: String?, groupId: String?) {
+        _optimisticSharing.value = enabled
         if (enabled) {
-            _isStarting.value = true
             LocationSharingService.start(context, publisherPersonId, congregationId, groupId)
-            viewModelScope.launch {
-                isSharingFor(publisherPersonId).first { it }
-                _isStarting.value = false
-            }
         } else {
-            _isStarting.value = false
             LocationSharingService.stop(context, publisherPersonId)
+        }
+        viewModelScope.launch {
+            sharedLocationRepository.observeFor(publisherPersonId).map { it?.isCurrentlyFresh() == true }.first { it == enabled }
+            _optimisticSharing.value = null
         }
     }
 }

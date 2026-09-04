@@ -59,6 +59,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.location.LocationSharingService
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.LocationSharingSettings
 import androidx.compose.ui.text.font.FontWeight
@@ -95,7 +96,12 @@ fun ShareLocationScreen(
     val context = LocalContext.current
     val isSharingFlow = remember(currentPersonId) { viewModel.isSharingFor(currentPersonId) }
     val isSharing by isSharingFlow.collectAsStateWithLifecycle(initialValue = false)
-    val isStarting by viewModel.isStarting.collectAsStateWithLifecycle()
+    // "Clearly distinguish between Sharing Activated / Location Acquired /
+    // Location Synchronized" — three separate signals, never conflated:
+    // [isSharing] can (and, right after a tap, does) read true before
+    // either of these has happened yet.
+    val locationAcquired by viewModel.locationAcquired.collectAsStateWithLifecycle()
+    val syncState by viewModel.syncState.collectAsStateWithLifecycle()
     LaunchedEffect(currentPersonId) { viewModel.observeOwnSharedLocation(currentPersonId) }
     val myLocation by viewModel.myLocation.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
@@ -114,10 +120,21 @@ fun ShareLocationScreen(
     // tracked so the right thing happens once the user responds to the
     // system dialog, rather than always defaulting to one of the two.
     var pendingAction by remember { mutableStateOf<PendingLocationAction?>(null) }
+    // "Immediately display a clear system action message... Immediately
+    // change the button/status to Location Sharing ON" — both happen right
+    // here, synchronously with the call that actually activates sharing
+    // (toggleSharing sets its own optimistic override before doing anything
+    // else — see that function's doc comment), not deferred until a GPS fix
+    // or server round-trip confirms anything.
+    fun activateSharing() {
+        viewModel.toggleSharing(true, currentPersonId, visibleCongregationId, null)
+        showToast("Your location is now being shared.")
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
             when (pendingAction) {
-                PendingLocationAction.ENABLE_SHARING -> viewModel.toggleSharing(true, currentPersonId, visibleCongregationId, null)
+                PendingLocationAction.ENABLE_SHARING -> activateSharing()
                 PendingLocationAction.REFRESH -> viewModel.refreshMyLocation { success ->
                     if (!success) showToast("Unable to update your location. Please try again.")
                 }
@@ -147,22 +164,12 @@ fun ShareLocationScreen(
     fun startSharing() {
         withLocationServicesEnabled {
             if (viewModel.hasLocationPermission()) {
-                viewModel.toggleSharing(true, currentPersonId, visibleCongregationId, null)
+                activateSharing()
             } else {
                 pendingAction = PendingLocationAction.ENABLE_SHARING
                 permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
             }
         }
-    }
-
-    // "Location sharing started successfully." — fired once sharing is
-    // genuinely confirmed live (isSharing flips true), not the instant the
-    // toggle is tapped; the status card's "Starting location sharing…" text
-    // already covers the in-between wait (see [viewModel.isStarting]).
-    var wasSharing by remember { mutableStateOf(false) }
-    LaunchedEffect(isSharing) {
-        if (isSharing && !wasSharing) showToast("Location sharing started successfully.")
-        wasSharing = isSharing
     }
 
     Scaffold(
@@ -192,7 +199,7 @@ fun ShareLocationScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isSharing || isStarting) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        containerColor = if (isSharing) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                     ),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -201,40 +208,20 @@ fun ShareLocationScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    when {
-                                        isSharing -> "You are sharing your location"
-                                        // "The publisher cannot open Share
-                                        // Location fast" — this responds the
-                                        // instant the toggle is tapped, well
-                                        // before the first real fix confirms,
-                                        // so it never reads as unresponsive.
-                                        isStarting -> "Starting location sharing…"
-                                        else -> "Share my location while preaching"
-                                    },
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                if (isSharing) {
-                                    Text(
-                                        "Visible to other publishers in your congregation",
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                } else if (isStarting) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
-                                        Text(
-                                            "Getting your location…",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            modifier = Modifier.padding(start = 6.dp),
-                                        )
-                                    }
-                                }
-                            }
+                            Text(
+                                // "Immediately change the button/status to
+                                // Location Sharing ON" — [isSharing] already
+                                // reflects the tap itself (an optimistic
+                                // override — see ShareLocationViewModel
+                                // .toggleSharing), not whatever GPS/server
+                                // round-trip is still happening underneath.
+                                if (isSharing) "🟢 Location Sharing ON" else "Share my location while preaching",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.weight(1f),
+                            )
                             Switch(
-                                checked = isSharing || isStarting,
-                                enabled = !isStarting,
+                                checked = isSharing,
                                 onCheckedChange = { enabled ->
                                     if (enabled) {
                                         // "There must be a pop up message that
@@ -245,13 +232,39 @@ fun ShareLocationScreen(
                                         // permission prompt below.
                                         showConsentDialog = true
                                     } else {
+                                        // "The Stop Sharing process should
+                                        // also respond immediately" — same
+                                        // optimistic override, the other way.
                                         viewModel.toggleSharing(false, currentPersonId, visibleCongregationId, null)
-                                        showToast("Location sharing stopped successfully.")
+                                        showToast("Location sharing stopped.")
                                     }
                                 },
                             )
                         }
-                        if (!isSharing && !isStarting) {
+                        if (isSharing) {
+                            // "Clearly distinguish between Sharing Activated
+                            // / Location Acquired / Location Synchronized" —
+                            // spec's own three-line example, using the exact
+                            // same emoji.
+                            Text(
+                                "Visible to other publishers in your congregation",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            SharingStatusRow(
+                                emoji = "📍",
+                                label = "Location",
+                                value = if (locationAcquired) "Updated" else "Updating…",
+                            )
+                            SharingStatusRow(
+                                emoji = "☁",
+                                label = "Synchronization",
+                                value = when (syncState) {
+                                    LocationSharingService.LocationSyncState.SYNCED -> "Synced"
+                                    LocationSharingService.LocationSyncState.FAILED -> "Waiting for network synchronization"
+                                    LocationSharingService.LocationSyncState.CONNECTING -> "Connecting…"
+                                },
+                            )
+                        } else {
                             Text(
                                 "Only other publishers in your congregation see it, and it stops on its own after the configured time.",
                                 style = MaterialTheme.typography.bodySmall,
@@ -505,6 +518,21 @@ private fun CongregationSettingsDropdown(congregations: List<Congregation>, sele
                 DropdownMenuItem(text = { Text(congregation.name) }, onClick = { onSelected(congregation.id); expanded = false })
             }
         }
+    }
+}
+
+/** One line of the status card's own three-state readout — "🟢 Location
+ * Sharing / ON", "📍 Location / Updating...", "☁ Synchronization /
+ * Connecting..." per spec's own worked example. */
+@Composable
+private fun SharingStatusRow(emoji: String, label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+        Text(emoji, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            "$label: $value",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(start = 8.dp),
+        )
     }
 }
 
