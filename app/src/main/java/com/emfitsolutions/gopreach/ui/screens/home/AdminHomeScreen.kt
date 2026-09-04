@@ -93,6 +93,7 @@ fun AdminHomeScreen(
     onNavigate: (String) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
     notificationCenterViewModel: NotificationCenterViewModel = hiltViewModel(),
+    groupChatViewModel: com.emfitsolutions.gopreach.ui.screens.groupchat.GroupChatViewModel = hiltViewModel(),
 ) {
     val session by viewModel.state.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
@@ -311,6 +312,13 @@ fun AdminHomeScreen(
         ),
     )
 
+    // "Group Chat Setting" Chat Box icon (spec §6) — every active member
+    // gets this regardless of account context; membership is keyed by
+    // personId (GroupChat.participantIds), so it needs no role-specific
+    // wiring beyond currentPersonId, already resolved above.
+    val chatBoxEntriesFlow = remember(currentPersonId) { groupChatViewModel.chatBoxEntriesFor(currentPersonId) }
+    val chatBoxEntries by chatBoxEntriesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -483,6 +491,11 @@ fun AdminHomeScreen(
                                 onItemClick = { onNavigate(it.route) },
                             )
                         }
+                        com.emfitsolutions.gopreach.ui.components.ChatBoxIcon(
+                            entries = chatBoxEntries,
+                            onOpenGroupChat = { chatId -> onNavigate(Destinations.groupChatDetail(chatId)) },
+                            onViewAll = { onNavigate(Destinations.GROUP_CHAT_SETTING) },
+                        )
                         ProfileMenuButton(
                             fullName = session.person?.fullName ?: "—",
                             roleLabel = role?.name?.replace('_', ' ') ?: "GoPreach Admin",
@@ -562,7 +575,7 @@ fun AdminHomeScreen(
 
                         if (role != null) {
                             DashboardSection("Ministry") {
-                                DashboardTile("Chat Schedule", Icons.Rounded.Chat, { onNavigate(Destinations.MANAGE_CHAT_SCHEDULES) })
+                                DashboardTile("Group Chat Setting", Icons.Rounded.Chat, { onNavigate(Destinations.GROUP_CHAT_SETTING) })
                                 DashboardTile("Reports Summary", Icons.Rounded.Assessment, { onNavigate(Destinations.REPORTS) })
                                 DashboardTile("Share Location", Icons.Rounded.LocationOn, { onNavigate(Destinations.SHARE_LOCATION) })
                                 DashboardTile("Calendar", Icons.Rounded.CalendarMonth, { onNavigate(Destinations.CALENDAR) })

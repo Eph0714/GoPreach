@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.automirrored.rounded.Forward
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
@@ -112,6 +113,7 @@ fun PublisherHomeScreen(
     publisherForwardViewModel: com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsViewModel = hiltViewModel(),
     pipelineViewModel: com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineViewModel = hiltViewModel(),
     notificationCenterViewModel: NotificationCenterViewModel = hiltViewModel(),
+    groupChatViewModel: com.emfitsolutions.gopreach.ui.screens.groupchat.GroupChatViewModel = hiltViewModel(),
 ) {
     val session by viewModel.state.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
@@ -156,6 +158,13 @@ fun PublisherHomeScreen(
             com.emfitsolutions.gopreach.data.repository.NotificationCategory.CALENDAR_SCHEDULE,
         ),
     )
+
+    // "Group Chat Setting" Chat Box icon (spec §6) — same membership-by-
+    // personId flow AdminHomeScreen wires in, so it's the identical set of
+    // group chats whether this account is currently in its Publisher or a
+    // higher-rank context.
+    val chatBoxEntriesFlow = remember(currentPersonId) { groupChatViewModel.chatBoxEntriesFor(currentPersonId) }
+    val chatBoxEntries by chatBoxEntriesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     // "FORWARD TO OTHER PUBLISHER" — this Publisher's own incoming queue
     // count, for the "Forwarded to Me" tile's badge (same pattern as the
@@ -209,6 +218,9 @@ fun PublisherHomeScreen(
                 notificationUnseenCount = notificationUnseenCount,
                 onOpenNotifications = { notificationCenterViewModel.markAllSeen(currentPersonId) },
                 onNotificationClick = onNavigate,
+                chatBoxEntries = chatBoxEntries,
+                onOpenGroupChat = { chatId -> onNavigate(Destinations.groupChatDetail(chatId)) },
+                onViewAllGroupChats = { onNavigate(Destinations.GROUP_CHAT_SETTING) },
                 onOpenSettings = { onNavigate(Destinations.SETTINGS) },
                 onImagePicked = { uri ->
                     viewModel.updateProfileImage(uri, onImageUploadFailed = {
@@ -298,6 +310,9 @@ private fun PublisherWelcomeHeader(
     notificationUnseenCount: Int,
     onOpenNotifications: () -> Unit,
     onNotificationClick: (String) -> Unit,
+    chatBoxEntries: List<com.emfitsolutions.gopreach.ui.components.ChatBoxEntry>,
+    onOpenGroupChat: (String) -> Unit,
+    onViewAllGroupChats: () -> Unit,
     onOpenSettings: () -> Unit,
     onImagePicked: (android.net.Uri) -> Unit,
     onSignOut: () -> Unit,
@@ -328,6 +343,11 @@ private fun PublisherWelcomeHeader(
                     unseenCount = notificationUnseenCount,
                     onOpen = onOpenNotifications,
                     onItemClick = { onNotificationClick(it.route) },
+                )
+                com.emfitsolutions.gopreach.ui.components.ChatBoxIcon(
+                    entries = chatBoxEntries,
+                    onOpenGroupChat = onOpenGroupChat,
+                    onViewAll = onViewAllGroupChats,
                 )
                 IconButton(onClick = onOpenSettings) {
                     Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
@@ -476,6 +496,11 @@ private fun FeatureTileGrid(
         // GoPreachNavGraph's PUBLISHER_MEETING_ASSIGNMENTS composable.
         add(Tile("Meeting Assignments", "Midweek & Weekend Schedule", Icons.Rounded.Event, Destinations.PUBLISHER_MEETING_ASSIGNMENTS))
         add(Tile("Announcement", "Latest Updates", Icons.Rounded.Campaign, Destinations.PUBLISHER_ANNOUNCEMENTS, unseenAnnouncements))
+        // "Group Chat Setting" module — also reachable from the persistent
+        // Chat Box icon in the header (see PublisherWelcomeHeader), this
+        // tile is just a second, more discoverable entry point to the same
+        // GROUP_CHAT_SETTING list.
+        add(Tile("Group Chat", "Congregation Chats", Icons.AutoMirrored.Rounded.Chat, Destinations.GROUP_CHAT_SETTING))
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

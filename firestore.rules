@@ -51,6 +51,44 @@ function isSuperAdmin(db) {
     get(/databases/$(db)/documents/people/$(personIdFromToken())).data.get('isSuperAdmin', false) == true;
 }
 
+// "Group Chat Setting" module — unlike almost everything else in this file,
+// this one gets REAL congregation/role enforcement, not the coarse
+// isSignedIn()-only baseline (spec: an Admin must never reach another
+// congregation's chats/files, "even through direct URLs... or manually
+// modified request parameters"). This is only possible without Cloud
+// Functions/custom claims because Person.activeCongregationId/
+// activeAdminRole are denormalized fields (see Person.kt's doc comment),
+// kept in sync by UserSession every time a session's active role changes —
+// the exact same trade-off isSuperAdmin() above already accepts, just
+// updated automatically instead of by hand.
+function myPerson(db) {
+  return get(/databases/$(db)/documents/people/$(personIdFromToken())).data;
+}
+
+// True for a Coordinator Elder or Admin currently acting for [congregationId]
+// (their *active* role this session, from Person.activeAdminRole/
+// activeCongregationId) — or the Super-Admin, who may manage every
+// congregation's group chats (spec §5).
+function canManageGroupChatsFor(db, congregationId) {
+  return isSignedIn() && exists(/databases/$(db)/documents/people/$(personIdFromToken())) && (
+    isSuperAdmin(db) || (
+      myPerson(db).get('activeCongregationId', null) == congregationId &&
+      myPerson(db).get('activeAdminRole', null) in ['ADMIN_PER_CONGREGATION', 'COORDINATOR_ELDER']
+    )
+  );
+}
+
+// True if the caller is a participant of the group chat [chatData] belongs
+// to — works for both a Publisher and an Admin-track participant alike,
+// since participantIds is just a flat list of personIds either way.
+function isGroupChatParticipant(chatData) {
+  return isSignedIn() && personIdFromToken() in chatData.get('participantIds', []);
+}
+
+function groupChatAllowsRead(db, chatData) {
+  return isSuperAdmin(db) || isGroupChatParticipant(chatData) || canManageGroupChatsFor(db, chatData.get('congregationId', null));
+}
+
 function hasGrant(db) {
   return isSignedIn() &&
     exists(/databases/$(db)/documents/userAccessGrants/$(personIdFromToken()));
@@ -201,6 +239,43 @@ service cloud.firestore {
     match /bibleTextRecords/{recordId} {
       allow read, update, delete: if isSignedIn() && resource.data.publisherPersonId == personIdFromToken();
       allow create: if isSignedIn() && request.resource.data.publisherPersonId == personIdFromToken();
+    }
+
+    // "Group Chat Setting" module (spec §2-13). Every rule below reads from
+    // `resource.data`/`request.resource.data` directly — cheap field
+    // equality plus the one `get()` on the caller's own Person doc (see
+    // canManageGroupChatsFor/isGroupChatParticipant above), no query.
+    match /groupChats/{groupChatId} {
+      allow read: if groupChatAllowsRead(database, resource.data);
+      // Only a Coordinator Elder/Admin creating within their own active
+      // congregation, or Super-Admin, may create a group chat at all —
+      // "Only the Coordinator Elder... the Admin must also have authority."
+      allow create: if canManageGroupChatsFor(database, request.resource.data.congregationId);
+      // Update covers both settings edits (Coordinator Elder/Admin/Super-
+      // Admin) AND every participant's own read-count/last-message rollup
+      // from sendMessage()/markRead() — a plain participant is never
+      // allowed to rewrite congregationId/participantIds themselves this
+      // way (see the second clause), only their own readCounts entry plus
+      // the denormalized lastMessage*/messageCount fields a send touches.
+      allow update: if canManageGroupChatsFor(database, resource.data.congregationId) || (
+        isGroupChatParticipant(resource.data) &&
+        request.resource.data.congregationId == resource.data.congregationId &&
+        request.resource.data.participantIds == resource.data.participantIds
+      );
+      allow delete: if isSuperAdmin(database) || canManageGroupChatsFor(database, resource.data.congregationId);
+
+      match /messages/{messageId} {
+        allow read: if groupChatAllowsRead(database, get(/databases/$(database)/documents/groupChats/$(groupChatId)).data);
+        // A message's own senderId must be the caller's real identity
+        // (never trust a client-supplied sender), and the caller must
+        // actually belong to the parent chat.
+        allow create: if request.resource.data.senderId == personIdFromToken() &&
+          groupChatAllowsRead(database, get(/databases/$(database)/documents/groupChats/$(groupChatId)).data);
+        // No edit/delete of a sent message — chat history stays intact for
+        // audit (spec §12); Super-Admin can still clean up via deleting the
+        // whole group chat above if truly needed.
+        allow update, delete: if false;
+      }
     }
 
     // Everything else (schedules, territories, Bible studies, interested

@@ -1,5 +1,6 @@
 package com.emfitsolutions.gopreach.domain
 
+import android.util.Log
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
@@ -22,10 +23,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -170,6 +173,43 @@ class UserSession @Inject constructor(
         _selectedRoleAssignmentId.value = assignmentId
     }
 
+    /** Group Chat Setting's security-rules trick (see [Person
+     * .activeCongregationId]'s doc comment) — keeps that denormalized copy
+     * current every time this session's own active role changes. Admin/
+     * Coordinator Elder/Service Overseer/Ministerial Servant get their
+     * congregation; a Regular Elder or Publisher's own group/congregation
+     * isn't a "manage every group chat in this congregation" scope the same
+     * way, so those resolve to null here (unaffected: they can still be
+     * added as a participant and reach a chat through [GroupChat
+     * .participantIds] alone, which needs no congregation match). Fires
+     * once per actual change, not on every recomposition-driven re-read of
+     * [state] — [distinctUntilChanged] on the resolved pair below, not on
+     * [SessionState] itself (which differs on every roleAssignments/grant
+     * emission even when the *active* role hasn't moved).
+     */
+    private fun syncActiveRoleContext(appScope: CoroutineScope, personRepository: PersonRepository) {
+        appScope.launch {
+            state
+                .map { s ->
+                    val person = s.person ?: return@map null
+                    val role = (s.activeRoleAssignment?.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role
+                    val congregationId = s.activeRoleAssignment?.congregationId.takeIf {
+                        role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT)
+                    }
+                    Triple(person, congregationId, role?.name)
+                }
+                .distinctUntilChanged { old, new -> old?.second == new?.second && old?.third == new?.third && old?.first?.id == new?.first?.id }
+                .collect { triple ->
+                    val (person, congregationId, roleName) = triple ?: return@collect
+                    if (person.activeCongregationId != congregationId || person.activeAdminRole != roleName) {
+                        runCatching {
+                            personRepository.saveNow(person.copy(activeCongregationId = congregationId, activeAdminRole = roleName))
+                        }.onFailure { Log.w("UserSession", "Failed to sync active role context: ${it.message}") }
+                    }
+                }
+        }
+    }
+
     val state: StateFlow<SessionState> = signedInPersonIdFlow()
         .let { personIdFlow ->
             var lastPersonId: String? = null
@@ -199,4 +239,8 @@ class UserSession @Inject constructor(
             }
         }
         .stateIn(appScope, SharingStarted.Eagerly, SessionState(isLoading = true))
+
+    init {
+        syncActiveRoleContext(appScope, personRepository)
+    }
 }

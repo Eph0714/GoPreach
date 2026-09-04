@@ -151,7 +151,7 @@ fun GoPreachSidePanelContent(
             // grid used to give everyone, rather than stranding whoever's
             // tile grid gets hidden next.
             add(SideItem("Dashboard", Icons.Rounded.BarChart, Destinations.DASHBOARD_REPORTS))
-            add(SideItem("Chat Schedule", Icons.AutoMirrored.Rounded.Chat, Destinations.MANAGE_CHAT_SCHEDULES))
+            add(SideItem("Group Chat Setting", Icons.AutoMirrored.Rounded.Chat, Destinations.GROUP_CHAT_SETTING))
             add(SideItem("Reports Summary", Icons.Rounded.Assessment, Destinations.REPORTS))
             if (canViewConsolidatedReport) {
                 add(SideItem("Consolidated Report", Icons.Rounded.Assessment, Destinations.CONSOLIDATED_REPORT))

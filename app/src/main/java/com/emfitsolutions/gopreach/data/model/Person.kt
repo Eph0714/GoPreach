@@ -85,6 +85,24 @@ data class Person(
      */
     @get:PropertyName("isSuperAdmin")
     val isSuperAdmin: Boolean = false,
+
+    /**
+     * Denormalized copy of this session's currently-active
+     * [RoleAssignment.congregationId]/[AdminRole] (as its `name`), kept in
+     * sync by [com.emfitsolutions.gopreach.domain.UserSession] every time
+     * the signed-in account's active role changes (login, or picking a role
+     * on [com.emfitsolutions.gopreach.ui.screens.login.SelectRoleScreen]).
+     * Same trade-off as [isSuperAdmin] above: exists only so Group Chat
+     * Firestore/Storage rules can check "which congregation/role is this
+     * caller currently acting as" with a single `get()` on this known-path
+     * document — [com.emfitsolutions.gopreach.domain.PermissionChecker]
+     * never reads these, [com.emfitsolutions.gopreach.domain.SessionState
+     * .activeRoleAssignment] is still the real in-app source of truth. Null
+     * for a Publisher-only active role (Publisher access is participant-list
+     * based, not congregation-role based — see firestore.rules).
+     */
+    val activeCongregationId: String? = null,
+    val activeAdminRole: String? = null,
 ) {
     val fullName: String
         get() = listOfNotNull(firstName, middleInitial?.let { "$it." }, lastName, extensionName)

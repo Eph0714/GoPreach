@@ -75,7 +75,15 @@ object Destinations {
         val encodedName = java.net.URLEncoder.encode(name, "UTF-8")
         return "$MANAGE_TERRITORIES_BASE?focusLat=$lat&focusLng=$lng&focusName=$encodedName"
     }
-    const val MANAGE_CHAT_SCHEDULES = "manage_chat_schedules"
+    // "Group Chat Setting" module — replaces the old Chat Schedule (which was
+    // never a real chat, just a calendar-style event CRUD screen reusing
+    // Schedule/ScheduleKind.CHAT_SCHEDULE). GROUP_CHAT_SETTING is the list/
+    // management entry point (own chats +, for Coordinator Elder/Admin/
+    // Super-Admin, a "+ New Group Chat" affordance); GROUP_CHAT_DETAIL opens
+    // one group's chat/participants/shared-documents, all in that one screen.
+    const val GROUP_CHAT_SETTING = "group_chat_setting"
+    const val GROUP_CHAT_DETAIL = "group_chat_detail/{groupChatId}"
+    fun groupChatDetail(groupChatId: String) = "group_chat_detail/$groupChatId"
     const val REPORTS = "reports"
 
     // Phase 5 — Ministry Report App (Publisher context)

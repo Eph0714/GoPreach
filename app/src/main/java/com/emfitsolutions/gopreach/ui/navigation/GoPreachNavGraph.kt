@@ -14,6 +14,7 @@ import androidx.navigation.navArgument
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.RoleType
+import com.emfitsolutions.gopreach.data.model.displayLabel
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.screens.about.AboutScreen
 import com.emfitsolutions.gopreach.ui.screens.account.AccountSettingsScreen
@@ -57,7 +58,8 @@ import com.emfitsolutions.gopreach.ui.screens.meetingassignments.MeetingAssignme
 import com.emfitsolutions.gopreach.ui.screens.publisherreports.ManagePublisherReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.reports.ConsolidatedReportScreen
 import com.emfitsolutions.gopreach.ui.screens.reports.ReportsScreen
-import com.emfitsolutions.gopreach.ui.screens.schedules.ManageChatSchedulesScreen
+import com.emfitsolutions.gopreach.ui.screens.groupchat.GroupChatListScreen
+import com.emfitsolutions.gopreach.ui.screens.groupchat.GroupChatScreen
 import com.emfitsolutions.gopreach.ui.screens.settings.SettingsScreen
 import com.emfitsolutions.gopreach.ui.screens.sharelocation.ShareLocationScreen
 import com.emfitsolutions.gopreach.ui.screens.territories.TerritoryMapScreen
@@ -411,7 +413,7 @@ fun GoPreachNavGraph(
             // ownPublisherAssignment above) — `ownCongregationId` alone is
             // null for both of them, and null here means "every
             // congregation," same fix as MANAGE_ANNOUNCEMENTS/
-            // MANAGE_CHAT_SCHEDULES already use. Explicit Super-Admin check
+            // GROUP_CHAT_SETTING already use. Explicit Super-Admin check
             // first (also null in ownCongregationId) so they still see every
             // congregation regardless of any other assignment they might
             // also hold.
@@ -438,12 +440,35 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(Destinations.MANAGE_CHAT_SCHEDULES) {
-            ManageChatSchedulesScreen(
+        // "Group Chat Setting" module (spec §2-6) — canManage/fixedCongregationId
+        // follow the exact same convention as every other Manage screen here
+        // (visibleCongregationId == null means Super-Admin's "all
+        // congregations"); the real enforcement for who may create/manage a
+        // group chat still lives server-side in firestore.rules'
+        // canManageGroupChatsFor, since a UI value alone is never trusted for
+        // that (spec §17).
+        val canManageGroupChats = currentRole == AdminRole.SUPER_ADMIN || currentRole == AdminRole.ADMIN_PER_CONGREGATION || currentRole == AdminRole.COORDINATOR_ELDER
+        val activeRoleLabel = currentRole?.displayLabel() ?: if (ownPublisherAssignment != null) "Publisher" else "Member"
+        composable(Destinations.GROUP_CHAT_SETTING) {
+            GroupChatListScreen(
                 currentPersonId = currentPersonId,
-                visibleCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
-                visibleGroupId = ownGroupAssignment?.groupId,
-                canEdit = currentRole != null, // any Admin-track role reaching this screen may create/edit within their scope
+                canManage = canManageGroupChats,
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+                onBack = { navController.popBackStack() },
+                onOpenGroupChat = { chatId -> navController.navigate(Destinations.groupChatDetail(chatId)) },
+            )
+        }
+        composable(
+            Destinations.GROUP_CHAT_DETAIL,
+            arguments = listOf(navArgument("groupChatId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val groupChatId = backStackEntry.arguments?.getString("groupChatId").orEmpty()
+            GroupChatScreen(
+                groupChatId = groupChatId,
+                currentPersonId = currentPersonId,
+                currentPersonName = session.person?.fullName ?: "—",
+                currentPersonRoleLabel = activeRoleLabel,
+                canManageSettings = canManageGroupChats,
                 onBack = { navController.popBackStack() },
             )
         }
