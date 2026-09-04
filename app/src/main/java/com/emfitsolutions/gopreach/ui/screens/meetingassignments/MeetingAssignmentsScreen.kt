@@ -182,32 +182,17 @@ private fun MidweekMeetingScheduleTab(
     currentPersonId: String,
     viewModel: MeetingAssignmentsViewModel,
 ) {
-    val context = LocalContext.current
     var weekStart by remember { mutableStateOf(mondayOfWeek(System.currentTimeMillis())) }
     val scheduleFlow = remember(congregationId, weekStart) { viewModel.scheduleFor(congregationId, weekStart) }
     val schedule by scheduleFlow.collectAsStateWithLifecycle(initialValue = null)
     var editingItem by remember { mutableStateOf<Triple<MidweekSection, Int?, MidweekAssignmentItem?>?>(null) }
     var pendingDelete by remember { mutableStateOf<Pair<MidweekSection, Int>?>(null) }
 
-    OutlinedButton(
-        onClick = {
-            val calendar = Calendar.getInstance().apply { timeInMillis = weekStart }
-            DatePickerDialog(
-                context,
-                { _, year, month, day ->
-                    val picked = Calendar.getInstance().apply { set(year, month, day) }.timeInMillis
-                    weekStart = mondayOfWeek(picked)
-                },
-                calendar.get(Calendar.YEAR),
-                calendar.get(Calendar.MONTH),
-                calendar.get(Calendar.DAY_OF_MONTH),
-            ).show()
-        },
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Icon(Icons.Rounded.CalendarMonth, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-        Text("Week of ${formatWeekRange(weekStart)}")
-    }
+    // "Make the week selectable, e.g. <August 31-September 6 2026>
+    // <September 7 2026-September 14 2026>" — a dropdown of actual
+    // Monday-Sunday weeks (spanning well before/after today), rather than a
+    // raw date picker that just happened to snap to a Monday.
+    WeekPickerDropdown(weekStart = weekStart, onSelected = { weekStart = it })
 
     Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         MidweekSection.entries.forEach { section ->
@@ -366,13 +351,13 @@ private fun MidweekItemDialog(
 private fun MidweekSection.backgroundColor(): Color = when (this) {
     MidweekSection.TREASURES -> Color(0xFF616161)
     MidweekSection.FIELD_MINISTRY -> Color(0xFFFFD54F)
-    MidweekSection.LIVING_AS_CHRISTIANS -> Color(0xFFFFD54F)
+    MidweekSection.LIVING_AS_CHRISTIANS -> Color(0xFF8B0000)
 }
 
 private fun MidweekSection.textColor(): Color = when (this) {
     MidweekSection.TREASURES -> Color.White
     MidweekSection.FIELD_MINISTRY -> Color(0xFF3E2E00)
-    MidweekSection.LIVING_AS_CHRISTIANS -> Color(0xFF3E2E00)
+    MidweekSection.LIVING_AS_CHRISTIANS -> Color.White
 }
 
 private fun formatWeekRange(weekStart: Long): String {
@@ -383,6 +368,40 @@ private fun formatWeekRange(weekStart: Long): String {
         "${SimpleDateFormat("MMMM d", Locale.getDefault()).format(startCal.time)} - ${SimpleDateFormat("d, yyyy", Locale.getDefault()).format(endCal.time)}"
     } else {
         "${SimpleDateFormat("MMMM d", Locale.getDefault()).format(startCal.time)} - ${SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(endCal.time)}"
+    }
+}
+
+/** "Make the week selectable, e.g. <August 31-September 6 2026>
+ * <September 7 2026-September 14 2026>" — every Monday-Sunday week from 8
+ * weeks ago through a year ahead, each shown as its own formatted range
+ * (see [formatWeekRange]) rather than a raw calendar date picker. Widest
+ * reasonable window for scheduling meetings ahead of time; still a closed
+ * list (like [MonthPickerField] in Monthly Report), so there's no way to
+ * land on a non-Monday week start by construction. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WeekPickerDropdown(weekStart: Long, onSelected: (Long) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val weeks = remember {
+        val thisWeek = mondayOfWeek(System.currentTimeMillis())
+        (-8..52).map { offset -> Calendar.getInstance().apply { timeInMillis = thisWeek; add(Calendar.WEEK_OF_YEAR, offset) }.timeInMillis }
+    }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = formatWeekRange(weekStart),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Select Week") },
+            leadingIcon = { Icon(Icons.Rounded.CalendarMonth, contentDescription = null) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            weeks.forEach { week ->
+                DropdownMenuItem(text = { Text(formatWeekRange(week)) }, onClick = { onSelected(week); expanded = false })
+            }
+        }
     }
 }
 
