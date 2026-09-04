@@ -41,6 +41,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -239,12 +240,28 @@ private fun TerritoryLiveMap(rows: List<TerritoryMapRow>, modifier: Modifier = M
     }
 
     val html = remember(points) { buildTerritoryMapHtml(points) }
-    // Bumped to force the AndroidView's `update` to actually reload the
-    // WebView on a manual retry — reassigning the same [html] string alone
-    // wouldn't trigger a reload since `update` only re-runs when one of its
-    // own read values changes.
+    // Bumped on a manual "Retry" tap to force a reload of the same [html].
     var reloadToken by remember { mutableIntStateOf(0) }
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    // Bug fix ("I cannot see any actual map"): loading used to happen
+    // directly inside AndroidView's `update` lambda, which Compose re-runs
+    // on *every* recomposition of this composable — and writing `loadState`
+    // there is itself read by the loading/error overlay below, so each
+    // write triggered another recomposition, which re-ran `update`, which
+    // reloaded the page again, forever. The map never got a chance to
+    // finish loading — visually indistinguishable from "nothing renders."
+    // A `LaunchedEffect` keyed on the content that should actually trigger
+    // a (re)load — not on every recomposition — fixes that: it only re-runs
+    // when [html], [reloadToken], or the WebView instance itself changes.
+    LaunchedEffect(html, reloadToken, webViewRef) {
+        val webView = webViewRef ?: return@LaunchedEffect
+        loadState = MapLoadState.LOADING
+        // A stable https base URL (rather than null/about:blank) so the CDN
+        // script/tile requests aren't treated as mixed content.
+        webView.loadDataWithBaseURL("https://gopreach.app/", html, "text/html", "UTF-8", null)
+    }
 
     Box(modifier = modifier) {
         AndroidView(
@@ -278,16 +295,9 @@ private fun TerritoryLiveMap(rows: List<TerritoryMapRow>, modifier: Modifier = M
                             if (request?.isForMainFrame == true) loadState = MapLoadState.FAILED
                         }
                     }
-                }
+                }.also { webViewRef = it }
             },
-            update = { webView ->
-                loadState = MapLoadState.LOADING
-                // A stable https base URL (rather than null/about:blank) so
-                // the CDN script/tile requests aren't treated as mixed
-                // content.
-                @Suppress("UNUSED_EXPRESSION") reloadToken
-                webView.loadDataWithBaseURL("https://gopreach.app/", html, "text/html", "UTF-8", null)
-            },
+            update = {},
         )
         if (loadState == MapLoadState.LOADING) {
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -318,7 +328,8 @@ private enum class MapLoadState { LOADING, LOADED, FAILED }
 private fun buildTerritoryMapHtml(points: List<Triple<TerritoryMapRow, Double, Double>>): String {
     val pointsJson = points.joinToString(",", prefix = "[", postfix = "]") { (row, lat, lng) ->
         val location = row.resolvedLocation ?: formatCoordinatesDms(lat, lng)
-        """{lat:$lat,lng:$lng,name:"${jsEscape(row.person.name)}",status:"${jsEscape(row.person.pipelineStage.statusLabel())}",location:"${jsEscape(location)}"}"""
+        val coords = formatCoordinatesDms(lat, lng)
+        """{lat:$lat,lng:$lng,name:"${jsEscape(row.person.name)}",status:"${jsEscape(row.person.pipelineStage.statusLabel())}",location:"${jsEscape(location)}",coords:"${jsEscape(coords)}",congregation:"${jsEscape(row.congregationName)}"}"""
     }
     return """
         <!DOCTYPE html>
@@ -327,6 +338,8 @@ private fun buildTerritoryMapHtml(points: List<Triple<TerritoryMapRow, Double, D
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css">
         <style>
           html, body, #map { height: 100%; margin: 0; padding: 0; }
           .territory-label { background: rgba(255,255,255,0.9); border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.3); padding: 1px 6px; font-size: 12px; }
@@ -335,6 +348,7 @@ private fun buildTerritoryMapHtml(points: List<Triple<TerritoryMapRow, Double, D
         <body>
         <div id="map"></div>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
         <script>
           var points = $pointsJson;
           var map = L.map('map', { zoomControl: true });
@@ -342,13 +356,26 @@ private fun buildTerritoryMapHtml(points: List<Triple<TerritoryMapRow, Double, D
             maxZoom: 19,
             attribution: '&copy; OpenStreetMap contributors'
           }).addTo(map);
+          // Clusters nearby markers into one numbered bubble that expands on
+          // tap/zoom — keeps a congregation with many records close together
+          // (a housing subdivision, say) from turning into an unreadable
+          // pile of overlapping pins.
+          var cluster = L.markerClusterGroup();
           var markers = [];
           points.forEach(function(p) {
-            var marker = L.marker([p.lat, p.lng]).addTo(map);
+            var marker = L.marker([p.lat, p.lng]);
             marker.bindTooltip(p.name, { permanent: true, direction: 'right', offset: [8, 0], className: 'territory-label' });
-            marker.bindPopup('<b>' + p.name + '</b><br>Status: ' + p.status + '<br>Location: ' + p.location);
+            marker.bindPopup(
+              '<b>' + p.name + '</b><br>' +
+              'Status: ' + p.status + '<br>' +
+              'Location: ' + p.location + '<br>' +
+              'Congregation: ' + p.congregation + '<br>' +
+              'Coordinates: ' + p.coords
+            );
+            cluster.addLayer(marker);
             markers.push(marker);
           });
+          map.addLayer(cluster);
           if (points.length === 1) {
             map.setView([points[0].lat, points[0].lng], 16);
           } else {
