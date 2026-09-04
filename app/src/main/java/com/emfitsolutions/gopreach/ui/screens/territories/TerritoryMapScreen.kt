@@ -25,41 +25,47 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
-import androidx.compose.material.icons.rounded.MyLocation
-import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.ViewList
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.AssistChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,6 +77,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -89,6 +97,7 @@ import com.emfitsolutions.gopreach.ui.components.isValidLongitude
 import com.emfitsolutions.gopreach.ui.components.openCoordinatesInMaps
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -97,17 +106,13 @@ private const val TAG = "TerritoryMap"
 private enum class TerritoryViewMode(val label: String) { LIST("List View"), MAP("Map View") }
 
 /**
- * "Territory Module" — no longer a Territory Master File CRUD (Add/Edit/
- * Delete a Territory entity); a read-only directory of every Searching/
- * Return Visit/Bible Study record that has a saved GPS location, searchable
- * by name or location, e.g. "Name: Richard Ortega. Status: Bible Study.
- * Location: F5M2+57Q, 1, Bayombong, Nueva Vizcaya." List View's rows tap
- * out to Google Maps (or whatever the device offers for a `geo:` URI), same
- * as every other saved coordinate in this app; Map View plots every visible
- * row as a labeled, pinch-zoomable pin on one real embedded map instead —
- * see [TerritoryLiveMap]'s own doc comment for why that's a WebView running
- * Leaflet over OpenStreetMap tiles rather than Google Maps Compose (no
- * bundled Google Maps API key anywhere in this app).
+ * "Territory Module" — a read-only directory of every Searching/Return
+ * Visit/Bible Study record that has a saved GPS location, searchable by
+ * name or location in [TerritoryViewMode.LIST]; [TerritoryViewMode.MAP] is
+ * the primary, full-screen experience — see [TerritoryLiveMap]'s own doc
+ * comment for the redesign this screen defers to it for. List View's rows
+ * tap out to Google Maps (or whatever the device offers for a `geo:` URI),
+ * same as every other saved coordinate in this app.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -131,7 +136,12 @@ fun TerritoryMapScreen(
     }
     val publisherRows by publisherRowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var searchQuery by remember { mutableStateOf("") }
-    var viewMode by remember { mutableStateOf(TerritoryViewMode.LIST) }
+    // "Full-Screen Map View... the map occupies the entire available
+    // screen" — Map View is now the default landing mode; List View is
+    // still reachable (existing functionality preserved per spec §17.11)
+    // via the toggle in the top bar's own actions instead of a persistent
+    // segmented-button row that used to eat vertical space in both modes.
+    var viewMode by remember { mutableStateOf(TerritoryViewMode.MAP) }
 
     // Matches the resolved (reverse-geocoded) address once it's in, but also
     // the person's own typed address and raw coordinates, so a search never
@@ -161,80 +171,82 @@ fun TerritoryMapScreen(
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    IconButton(onClick = { viewMode = if (viewMode == TerritoryViewMode.MAP) TerritoryViewMode.LIST else TerritoryViewMode.MAP }) {
+                        Icon(
+                            if (viewMode == TerritoryViewMode.MAP) Icons.Rounded.ViewList else Icons.Rounded.Map,
+                            contentDescription = if (viewMode == TerritoryViewMode.MAP) "Switch to List View" else "Switch to Map View",
+                        )
+                    }
+                },
             )
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                label = { Text("Search by Name or Location") },
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                visualTransformation = VisualTransformation.None,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-
-            // "The Territory Map has an option. (List View) or (Map View)."
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                TerritoryViewMode.entries.forEachIndexed { index, mode ->
-                    SegmentedButton(
-                        selected = viewMode == mode,
-                        onClick = { viewMode = mode },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = TerritoryViewMode.entries.size),
-                        icon = { Icon(if (mode == TerritoryViewMode.LIST) Icons.Rounded.ViewList else Icons.Rounded.Map, contentDescription = null) },
-                    ) { Text(mode.label) }
-                }
-            }
-
-            if (filtered.isEmpty()) {
-                Column(
-                    modifier = Modifier.weight(1f).fillMaxWidth().padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        if (rows.isEmpty()) "No saved locations yet — every Searching, Return Visit, and Bible Study record with a saved location will show up here." else "No matches for \"$searchQuery\".",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            } else if (viewMode == TerritoryViewMode.MAP) {
+        if (viewMode == TerritoryViewMode.MAP) {
+            // Full-bleed — no search bar, no segmented row, nothing between
+            // the top bar and the map itself; every remaining control floats
+            // over the map (see TerritoryLiveMap).
+            Box(modifier = Modifier.fillMaxSize().padding(padding)) {
                 TerritoryLiveMap(
-                    rows = filtered,
+                    rows = rows,
                     publisherRows = publisherRows,
                     canSeePublisherLocations = canSeePublisherLocations,
                     isAllCongregations = fixedCongregationId == null,
                     getCurrentLocation = viewModel::currentLocation,
                     hasLocationPermission = viewModel::hasLocationPermission,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier.fillMaxSize(),
                 )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(filtered, key = { it.person.id }) { row ->
-                        val lat = row.person.gpsLat
-                        val lng = row.person.gpsLng
-                        Card(
-                            modifier = Modifier.fillMaxWidth().let {
-                                if (lat != null && lng != null) it.clickable { openCoordinatesInMaps(context, lat, lng, row.person.name) } else it
-                            },
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                verticalAlignment = Alignment.Top,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    label = { Text("Search by Name or Location") },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                if (filtered.isEmpty()) {
+                    Column(
+                        modifier = Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            if (rows.isEmpty()) "No saved locations yet — every Searching, Return Visit, and Bible Study record with a saved location will show up here." else "No matches for \"$searchQuery\".",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(filtered, key = { it.person.id }) { row ->
+                            val lat = row.person.gpsLat
+                            val lng = row.person.gpsLng
+                            Card(
+                                modifier = Modifier.fillMaxWidth().let {
+                                    if (lat != null && lng != null) it.clickable { openCoordinatesInMaps(context, lat, lng, row.person.name) } else it
+                                },
                             ) {
-                                Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(row.person.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                    Text("Status: ${row.person.pipelineStage.statusLabel()}", style = MaterialTheme.typography.bodySmall)
-                                    Text(
-                                        "Location: ${row.resolvedLocation ?: (if (lat != null && lng != null) formatCoordinatesDms(lat, lng) else "—")}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                    Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    verticalAlignment = Alignment.Top,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(row.person.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                        Text("Status: ${row.person.pipelineStage.statusLabel()}", style = MaterialTheme.typography.bodySmall)
+                                        Text(
+                                            "Location: ${row.resolvedLocation ?: (if (lat != null && lng != null) formatCoordinatesDms(lat, lng) else "—")}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                        Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
                             }
                         }
@@ -251,25 +263,42 @@ private fun PipelineStage.statusLabel(): String = when (this) {
     PipelineStage.BIBLE_STUDY -> "Bible Study"
 }
 
+/** The Territory Map's own filter — "the dropdown must contain exactly
+ * these options." A `null` [MapFilterOption] (nothing picked yet, or after
+ * Refresh) is the default/original view: every pipeline record, no
+ * publishers — not itself one of the seven, since the dropdown lists
+ * exactly these seven and no more. */
+private enum class MapFilterOption(val label: String) {
+    MY_LOCATION("My Location"),
+    BIBLE_STUDY("Bible Study"),
+    RETURN_VISIT("Return Visit"),
+    PUBLISHERS("Publisher – All Congregation"),
+    NEAREST_PUBLISHER("Nearest Publisher"),
+    NEAREST_BIBLE_STUDY("Nearest Bible Study"),
+    NEAREST_RETURN_VISIT("Nearest Return Visit"),
+}
+
 /**
- * "Map View" — a real, pinch-zoomable embedded map (spec: "show the real
- * map... allow the user to zoom in and out"), every visible row plotted as
- * a pin with its name shown as a permanent label beside it (tap the pin for
- * Status/Location too). A `WebView` running Leaflet over OpenStreetMap
- * tiles, not Google Maps Compose — this app has never bundled a Google Maps
- * API key (every other screen that touches a map hands routing off to the
- * device's own Maps app instead — see [com.emfitsolutions.gopreach.ui
- * .screens.findlocation.FindLocationScreen]'s own doc comment) — and
- * Leaflet+OSM needs no key or new Gradle dependency at all, just the CDN
- * scripts loaded inside the page HTML this generates. Leaflet's own touch
- * handling gives pinch-to-zoom, double-tap-to-zoom, and its usual +/-
- * on-screen buttons for free once the page actually loads; [webViewClient]
- * surfaces a "Map failed to load" retry state instead of a silent blank
- * screen if the tiles/scripts genuinely can't be reached (e.g. no
- * connection), rather than leaving the Publisher staring at nothing with no
- * explanation.
+ * "Map View" — a real, full-screen, pinch-zoomable embedded map. A
+ * `WebView` running Leaflet over OpenStreetMap tiles, not Google Maps
+ * Compose — this app has never bundled a Google Maps API key (every other
+ * screen that touches a map hands routing off to the device's own Maps app
+ * instead — see [com.emfitsolutions.gopreach.ui.screens.findlocation
+ * .FindLocationScreen]'s own doc comment) — and Leaflet+OSM needs no key or
+ * new Gradle dependency at all, just the CDN scripts loaded inside the page
+ * HTML this generates.
+ *
+ * "Publishers, Bible Studies, and Return Visits are separate
+ * classifications. A person having a GPS location does not automatically
+ * make that person a Publisher." — enforced structurally: [MapPoint.kind]
+ * is set once, at construction, from the record's *own* type ([pipelinePoints]
+ * from [TerritoryMapRow.person]'s [PipelineStage], [publisherPoints] only
+ * from an actively-sharing, [com.emfitsolutions.gopreach.data.model.PublisherCategory.REGULAR_PUBLISHER]
+ * [TerritoryPublisherRow] — see [TerritoryMapViewModel.publisherRowsFor]'s
+ * own doc comment for that filter). Nothing downstream (the dropdown, the
+ * marker style, the bottom sheet) can blur that line — there is no path
+ * from "has coordinates" to "counts as a Publisher."
  */
-@OptIn(ExperimentalLayoutApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun TerritoryLiveMap(
@@ -283,6 +312,7 @@ private fun TerritoryLiveMap(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // STEP 4 — validate every coordinate before it ever reaches the map:
     // not null, numeric (guaranteed by the Double type itself, but NaN/
@@ -309,16 +339,19 @@ private fun TerritoryLiveMap(
                     location = row.resolvedLocation ?: formatCoordinatesDms(lat, lng),
                     congregation = row.congregationName,
                     coords = formatCoordinatesDms(lat, lng),
+                    updatedAt = null,
+                    isCurrentlySharing = null,
                 )
             } else {
                 null
             }
         }
     }
-    // "For publisher account they can see other publishers that share their
-    // location in the map" — a distinct marker style ([buildTerritoryMapHtml]),
-    // hidden by default (same "original state" the Refresh button restores)
-    // until the "Publishers..." filter chip below is switched on.
+    // "Only Regular Publishers enrolled in the congregation and actively
+    // sharing their location may appear" — [publisherRows] already enforces
+    // that upstream (see TerritoryMapViewModel.publisherRowsFor); hidden by
+    // default here too (opt-in via the dropdown's own "Publisher – All
+    // Congregation"/"Nearest Publisher" entries), never automatic.
     val publisherPoints = remember(publisherRows) {
         publisherRows.mapNotNull { row ->
             val lat = row.lat
@@ -330,10 +363,12 @@ private fun TerritoryLiveMap(
                     lat = lat,
                     lng = lng,
                     name = row.person.fullName,
-                    status = row.category?.name?.replace('_', ' ')?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Publisher",
+                    status = "Regular Publisher",
                     location = "—",
                     congregation = row.congregationName,
                     coords = formatCoordinatesDms(lat, lng),
+                    updatedAt = row.updatedAt,
+                    isCurrentlySharing = row.isCurrentlySharing,
                 )
             } else {
                 null
@@ -350,35 +385,16 @@ private fun TerritoryLiveMap(
         Log.d(TAG, "Records retrieved: ${rows.size}; valid GPS: ${pipelinePoints.size}; invalid/missing GPS: $invalidCount; publishers sharing: ${publisherPoints.size}")
     }
 
-    if (points.isEmpty()) {
-        Box(modifier = modifier, contentAlignment = Alignment.Center) {
-            Text(
-                if (invalidCount > 0) {
-                    "Some records do not have valid GPS locations and cannot yet be displayed on the map."
-                } else {
-                    "None of the matching records have a saved GPS coordinate yet."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(24.dp),
-            )
-        }
-        return
-    }
-
-    // "Add a filter showing Map View (Bible Study, Return Visit, Publishers
-    // in my congregation...)" — empty [selectedStages] is the default/
-    // "original state" (every pipeline stage shown, same as before this
-    // feature existed); selecting one or more narrows the map to just those.
-    // [showPublishers] is its own independent toggle, off by default even
-    // when [canSeePublisherLocations] is true — showing every other
-    // publisher's live position is opt-in, not automatic.
-    var selectedStages by remember { mutableStateOf(setOf<MapPointKind>()) }
-    var showPublishers by remember { mutableStateOf(false) }
-    val visibleKinds = remember(selectedStages, showPublishers) {
-        val stages = selectedStages.ifEmpty { setOf(MapPointKind.SEARCHING, MapPointKind.RETURN_VISIT, MapPointKind.BIBLE_STUDY) }
-        if (showPublishers) stages + MapPointKind.PUBLISHER else stages
-    }
+    // "Add the user current location in the map view" — fetched on demand
+    // (the "My Location" filter, or automatically the first time a "Nearest…"
+    // filter needs it), not on every screen open, so this never surprises
+    // anyone with a permission prompt they didn't ask for.
+    var myLocation by remember { mutableStateOf<LatLng?>(null) }
+    var pendingPermissionFilter by remember { mutableStateOf<MapFilterOption?>(null) }
+    var selectedFilter by remember { mutableStateOf<MapFilterOption?>(null) }
+    var filterMenuExpanded by remember { mutableStateOf(false) }
+    var selectedPointId by remember { mutableStateOf<String?>(null) }
+    val selectedPoint = remember(selectedPointId, points) { points.firstOrNull { it.id == selectedPointId } }
 
     val html = remember(points) { buildTerritoryMapHtml(points) }
     // Bumped on a manual "Retry" tap to force a reload of the same [html].
@@ -412,69 +428,103 @@ private fun TerritoryLiveMap(
     // same way a properly-sized browser window would.
     var containerReady by remember { mutableStateOf(false) }
 
-    // "Add the user current location in the map view" — fetched on demand
-    // (the "My Location" chip, or automatically the first time a "Show
-    // Nearest..." action needs it), not on every screen open, so this never
-    // surprises anyone with a permission prompt they didn't ask for.
-    var myLocation by remember { mutableStateOf<LatLng?>(null) }
-    var pendingPermissionAction by remember { mutableStateOf<PendingLocationAction?>(null) }
-
     // Pushes a fresh GPS fix into the page as a distinct "You are here"
     // marker ([buildTerritoryMapHtml]'s `window.setMyLocation`) — shared by
-    // the "My Location" chip and every "Show Nearest..." action below, so a
-    // fix obtained once during this screen's lifetime never needs asking
-    // twice.
+    // every filter below that needs one, so a fix obtained once during this
+    // screen's lifetime never needs asking twice. Surfaces the two specific
+    // failure states §14 calls out ("Location permission is required…",
+    // "GPS is currently disabled…") as Snackbars rather than silently doing
+    // nothing.
     suspend fun ensureMyLocation(): LatLng? {
         myLocation?.let { return it }
-        val fix = getCurrentLocation() ?: return null
+        if (!hasLocationPermission()) {
+            snackbarHostState.showSnackbar("Location permission is required to display your current position.")
+            return null
+        }
+        val fix = getCurrentLocation()
+        if (fix == null) {
+            snackbarHostState.showSnackbar("GPS is currently disabled. Please enable location services.")
+            return null
+        }
         myLocation = fix
         webViewRef?.evaluateJavascript("if (window.setMyLocation) { window.setMyLocation(${fix.lat}, ${fix.lng}); }", null)
         return fix
     }
 
-    // "Show Nearest Publisher"/"Show Nearest Bible Study"/"Show Nearest
-    // Return Visit" — narrows the filter to just that one kind (so the map
-    // reads as "here's the nearest Bible Study," not "here's a Bible Study
-    // buried among everything else"), then pans/zooms to and opens whichever
-    // of [points] of that kind is closest to [myLocation] (haversine — small
-    // distances, no need for anything fancier). Silently does nothing if a
-    // fix genuinely can't be obtained (no signal, permission denied) or
-    // there's no record of that kind to find — same "fail quiet, not
-    // crash" convention as [openCoordinatesInMaps].
-    suspend fun runPendingLocationAction(action: PendingLocationAction) {
-        val fix = ensureMyLocation() ?: return
-        when (action) {
-            is PendingLocationAction.MyLocation -> {
-                webViewRef?.evaluateJavascript("if (window.territoryMap) { window.territoryMap.setView([${fix.lat}, ${fix.lng}], 16); }", null)
+    // "The selected option determines what markers and information are
+    // displayed on the map" + "§12 Automatic Map Behavior" — the one place
+    // every dropdown entry (and Refresh, and a fresh page load) routes
+    // through, so the camera/filter/empty-state logic for each option lives
+    // in exactly one spot.
+    suspend fun applySelection(option: MapFilterOption?) {
+        val webView = webViewRef
+        selectedFilter = option
+        selectedPointId = null
+        when (option) {
+            null -> {
+                // "Original state" — every pipeline stage, no publishers.
+                val kinds = listOf(MapPointKind.SEARCHING, MapPointKind.RETURN_VISIT, MapPointKind.BIBLE_STUDY)
+                webView?.evaluateJavascript("if (window.applyFilter) { window.applyFilter('${kinds.joinToString(",") { it.jsValue }}'); }", null)
             }
-            is PendingLocationAction.Nearest -> {
-                when (action.kind) {
-                    MapPointKind.PUBLISHER -> { showPublishers = true; selectedStages = emptySet() }
-                    else -> { selectedStages = setOf(action.kind); showPublishers = false }
+            MapFilterOption.MY_LOCATION -> {
+                val fix = ensureMyLocation() ?: return
+                // "Do not treat the logged-in user's location as a Bible
+                // Study or Return Visit" — shows nothing from [points] at
+                // all while this is selected, only the distinct "you are
+                // here" marker (never a member of [points] to begin with).
+                webView?.evaluateJavascript("if (window.applyFilter) { window.applyFilter(''); }", null)
+                webView?.evaluateJavascript("if (window.territoryMap) { window.territoryMap.setView([${fix.lat}, ${fix.lng}], 16); }", null)
+            }
+            MapFilterOption.BIBLE_STUDY, MapFilterOption.RETURN_VISIT, MapFilterOption.PUBLISHERS -> {
+                val kind = when (option) {
+                    MapFilterOption.BIBLE_STUDY -> MapPointKind.BIBLE_STUDY
+                    MapFilterOption.RETURN_VISIT -> MapPointKind.RETURN_VISIT
+                    else -> MapPointKind.PUBLISHER
                 }
-                val nearest = points
-                    .filter { it.kind == action.kind }
-                    .minByOrNull { haversineMeters(fix.lat, fix.lng, it.lat, it.lng) }
-                    ?: return
-                webViewRef?.evaluateJavascript("if (window.focusPoint) { window.focusPoint('${jsEscape(nearest.id)}'); }", null)
+                if (points.none { it.kind == kind }) {
+                    snackbarHostState.showSnackbar("No locations found for the selected category.")
+                }
+                webView?.evaluateJavascript("if (window.applyFilter) { window.applyFilter('${kind.jsValue}'); }", null)
+            }
+            MapFilterOption.NEAREST_PUBLISHER, MapFilterOption.NEAREST_BIBLE_STUDY, MapFilterOption.NEAREST_RETURN_VISIT -> {
+                val kind = when (option) {
+                    MapFilterOption.NEAREST_PUBLISHER -> MapPointKind.PUBLISHER
+                    MapFilterOption.NEAREST_BIBLE_STUDY -> MapPointKind.BIBLE_STUDY
+                    else -> MapPointKind.RETURN_VISIT
+                }
+                val fix = ensureMyLocation() ?: return
+                val candidates = points.filter { it.kind == kind }
+                if (candidates.isEmpty()) {
+                    snackbarHostState.showSnackbar("No locations found for the selected category.")
+                    webView?.evaluateJavascript("if (window.applyFilter) { window.applyFilter(''); }", null)
+                    return
+                }
+                val nearest = candidates.sortedBy { haversineMeters(fix.lat, fix.lng, it.lat, it.lng) }.take(3)
+                webView?.evaluateJavascript("if (window.applyFilter) { window.applyFilter('${kind.jsValue}'); }", null)
+                webView?.evaluateJavascript("if (window.focusNearby) { window.focusNearby(${fix.lat}, ${fix.lng}, [${nearest.joinToString(",") { "'${jsEscape(it.id)}'" }}]); }", null)
+                selectedPointId = nearest.first().id
             }
         }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val action = pendingPermissionAction
-        pendingPermissionAction = null
-        if (granted && action != null) {
-            scope.launch { runPendingLocationAction(action) }
+        val option = pendingPermissionFilter
+        pendingPermissionFilter = null
+        if (granted && option != null) {
+            scope.launch { applySelection(option) }
+        } else if (!granted) {
+            scope.launch { snackbarHostState.showSnackbar("Location permission is required to display your current position.") }
         }
     }
 
-    fun requestLocationThen(action: PendingLocationAction) {
-        if (hasLocationPermission()) {
-            scope.launch { runPendingLocationAction(action) }
-        } else {
-            pendingPermissionAction = action
+    fun selectFilter(option: MapFilterOption?) {
+        val needsLocation = option == MapFilterOption.MY_LOCATION ||
+            option == MapFilterOption.NEAREST_PUBLISHER || option == MapFilterOption.NEAREST_BIBLE_STUDY || option == MapFilterOption.NEAREST_RETURN_VISIT
+        if (needsLocation && myLocation == null && !hasLocationPermission()) {
+            pendingPermissionFilter = option
             permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        } else {
+            scope.launch { applySelection(option) }
         }
     }
 
@@ -509,101 +559,22 @@ private fun TerritoryLiveMap(
         }
     }
 
-    // Pushes the filter chips' current selection into the already-loaded
-    // page (window.applyFilter — see buildTerritoryMapHtml) rather than
-    // regenerating/reloading the whole WebView per toggle, which would
-    // needlessly re-run every load-timing fix above for a plain filter tap.
-    LaunchedEffect(visibleKinds, webViewRef, loadState) {
+    // Re-applies whatever's currently selected once the (re)loaded page is
+    // actually ready for JS calls — covers both the very first load and any
+    // later reload triggered by [points] changing underneath (new/updated
+    // records arriving live), so a live update never silently reverts the
+    // map to "everything" out from under an active filter.
+    LaunchedEffect(loadState, webViewRef) {
         if (loadState == MapLoadState.LOADED) {
-            val csv = visibleKinds.joinToString(",") { it.jsValue }
-            webViewRef?.evaluateJavascript("if (window.applyFilter) { window.applyFilter('$csv'); }", null)
+            if (myLocation != null) {
+                val fix = myLocation!!
+                webViewRef?.evaluateJavascript("if (window.setMyLocation) { window.setMyLocation(${fix.lat}, ${fix.lng}); }", null)
+            }
+            applySelection(selectedFilter)
         }
     }
 
-    Column(modifier = modifier) {
-        // "Add a filter showing Map View (Bible Study, Return Visit,
-        // Publishers in my congregation (All Congregation for super admin),
-        // show Nearest Publisher, show nearest Bible Study, show nearest
-        // return Visit). Add a refresh map button." — bug fix ("I cannot see
-        // other buttons in map view"): this used to be a *horizontally
-        // scrollable* LazyRow, which technically had every chip reachable
-        // but with zero visual signal beyond a sliver of the next chip
-        // peeking off the right edge — easy to swipe right past without
-        // ever noticing there was more. A wrapping FlowRow instead lays out
-        // every chip that fits per line and wraps the rest onto additional
-        // lines, so all of them are always on-screen at once, nothing
-        // hidden behind a scroll a Publisher might never think to try.
-        FlowRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            AssistChip(
-                onClick = { requestLocationThen(PendingLocationAction.MyLocation) },
-                label = { Text("My Location") },
-                leadingIcon = { Icon(Icons.Rounded.MyLocation, contentDescription = null) },
-            )
-            FilterChip(
-                selected = selectedStages.contains(MapPointKind.BIBLE_STUDY),
-                onClick = {
-                    selectedStages = if (selectedStages.contains(MapPointKind.BIBLE_STUDY)) {
-                        selectedStages - MapPointKind.BIBLE_STUDY
-                    } else {
-                        selectedStages + MapPointKind.BIBLE_STUDY
-                    }
-                },
-                label = { Text("Bible Study") },
-            )
-            FilterChip(
-                selected = selectedStages.contains(MapPointKind.RETURN_VISIT),
-                onClick = {
-                    selectedStages = if (selectedStages.contains(MapPointKind.RETURN_VISIT)) {
-                        selectedStages - MapPointKind.RETURN_VISIT
-                    } else {
-                        selectedStages + MapPointKind.RETURN_VISIT
-                    }
-                },
-                label = { Text("Return Visit") },
-            )
-            if (canSeePublisherLocations) {
-                FilterChip(
-                    selected = showPublishers,
-                    onClick = { showPublishers = !showPublishers },
-                    label = { Text(if (isAllCongregations) "Publishers (All Congregations)" else "Publishers in My Congregation") },
-                )
-                AssistChip(
-                    onClick = { requestLocationThen(PendingLocationAction.Nearest(MapPointKind.PUBLISHER)) },
-                    label = { Text("Nearest Publisher") },
-                    leadingIcon = { Icon(Icons.Rounded.NearMe, contentDescription = null) },
-                )
-            }
-            AssistChip(
-                onClick = { requestLocationThen(PendingLocationAction.Nearest(MapPointKind.BIBLE_STUDY)) },
-                label = { Text("Nearest Bible Study") },
-                leadingIcon = { Icon(Icons.Rounded.NearMe, contentDescription = null) },
-            )
-            AssistChip(
-                onClick = { requestLocationThen(PendingLocationAction.Nearest(MapPointKind.RETURN_VISIT)) },
-                label = { Text("Nearest Return Visit") },
-                leadingIcon = { Icon(Icons.Rounded.NearMe, contentDescription = null) },
-            )
-            // "It will return to original state" — every pipeline stage
-            // shown, publishers hidden, whatever the last "Show Nearest…"
-            // narrowed the view to cleared. Re-fitting the camera happens
-            // for free: the [visibleKinds] LaunchedEffect above re-runs the
-            // instant these two reset, which calls window.applyFilter
-            // again, which always re-fits bounds to whatever's visible.
-            AssistChip(
-                onClick = {
-                    selectedStages = emptySet()
-                    showPublishers = false
-                },
-                label = { Text("Refresh") },
-                leadingIcon = { Icon(Icons.Rounded.Refresh, contentDescription = null) },
-            )
-        }
-
-    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+    Box(modifier = modifier) {
         AndroidView(
             // Bug fix #2 ("still not working" after the reload-loop fix):
             // Leaflet measures its container's pixel size exactly once, the
@@ -647,20 +618,22 @@ private fun TerritoryLiveMap(
                     // specific to this page. Software layering is slightly
                     // slower to draw but reliably shows the actual page.
                     setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-                    // "Allow the user to click the coordinates in the maps
-                    // view and then show the location" — the same
-                    // openCoordinatesInMaps() every other screen's saved
-                    // coordinates already use (opens Google Maps, or
-                    // whatever the device offers for a `geo:` URI), exposed
-                    // to the popup's JS via a thin bridge — content loaded
-                    // here is always this screen's own generated HTML, never
-                    // arbitrary/remote content, so exposing one narrow method
-                    // isn't the security risk addJavascriptInterface usually is.
+                    // "Display a compact information card/bottom sheet" —
+                    // a marker tap calls back into Kotlin with just its id;
+                    // the native ModalBottomSheet below looks the rest up
+                    // from [points] itself, rather than round-tripping every
+                    // field back out through the bridge as strings.
+                    // @JavascriptInterface methods run on the WebView's own
+                    // JS thread, not the UI thread — `self.post {}` (View.post
+                    // always targets the UI thread's own Handler regardless
+                    // of the calling thread) is what makes it safe to touch
+                    // Compose state from here.
+                    val self = this
                     addJavascriptInterface(
                         object {
                             @JavascriptInterface
-                            fun openInMaps(lat: Double, lng: Double, name: String) {
-                                openCoordinatesInMaps(ctx, lat, lng, name)
+                            fun showDetails(id: String) {
+                                self.post { selectedPointId = id }
                             }
                         },
                         "AndroidBridge",
@@ -745,6 +718,7 @@ private fun TerritoryLiveMap(
             },
             update = {},
         )
+
         if (loadState == MapLoadState.LOADING) {
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
@@ -771,11 +745,11 @@ private fun TerritoryLiveMap(
                     OutlinedButton(onClick = { showDiagnostics = true }) { Text("Details") }
                 }
             }
-        } else if (invalidCount > 0) {
-            // Some records mapped fine; a note (not an error — the map is
-            // working) that the rest are sitting out for now.
+        }
+
+        if (loadState == MapLoadState.LOADED && invalidCount > 0) {
             Card(
-                modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 76.dp).padding(horizontal = 16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
             ) {
                 Text(
@@ -785,6 +759,61 @@ private fun TerritoryLiveMap(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                 )
             }
+        }
+
+        // "Add a prominent dropdown/filter control at the top of the map" —
+        // floats directly over the map itself rather than taking its own
+        // layout row, matching "keep only essential floating controls."
+        Surface(
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp, start = 16.dp, end = 16.dp).fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 4.dp,
+        ) {
+            Box {
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { filterMenuExpanded = true }.padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(Icons.Rounded.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Text(
+                        selectedFilter?.let { if (it == MapFilterOption.PUBLISHERS && !isAllCongregations) "Publisher – My Congregation" else it.label } ?: "All Records",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(Icons.Rounded.ArrowDropDown, contentDescription = null)
+                }
+                DropdownMenu(expanded = filterMenuExpanded, onDismissRequest = { filterMenuExpanded = false }) {
+                    MapFilterOption.entries.forEach { option ->
+                        if (option == MapFilterOption.PUBLISHERS || option == MapFilterOption.NEAREST_PUBLISHER) {
+                            if (!canSeePublisherLocations) return@forEach
+                        }
+                        DropdownMenuItem(
+                            text = { Text(if (option == MapFilterOption.PUBLISHERS && !isAllCongregations) "Publisher – My Congregation" else option.label) },
+                            onClick = {
+                                filterMenuExpanded = false
+                                selectFilter(option)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        // "Add a floating Refresh button" — resets the dropdown back to its
+        // unselected/original state and re-fetches location data.
+        SmallFloatingActionButton(
+            onClick = {
+                myLocation = null
+                scope.launch {
+                    applySelection(null)
+                    snackbarHostState.showSnackbar("Territory map updated successfully.")
+                }
+            },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 76.dp),
+        ) {
+            Icon(Icons.Rounded.Refresh, contentDescription = "Refresh map")
         }
 
         // Always available, not just on failure — lets whoever's testing
@@ -798,7 +827,17 @@ private fun TerritoryLiveMap(
         ) {
             Icon(Icons.Rounded.Info, contentDescription = "Map diagnostics", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+
+        SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp))
     }
+
+    if (selectedPoint != null) {
+        MapPointDetailsSheet(
+            point = selectedPoint,
+            myLocation = myLocation,
+            onDismiss = { selectedPointId = null },
+            onOpenInMaps = { openCoordinatesInMaps(context, selectedPoint.lat, selectedPoint.lng, selectedPoint.name) },
+        )
     }
 
     if (showDiagnostics) {
@@ -832,10 +871,92 @@ private fun TerritoryLiveMap(
     }
 }
 
+/** "Display a compact information card/bottom sheet" — the exact field set
+ * and wording from the spec's own three worked examples, built from
+ * whichever [MapPoint] was last tapped ([TerritoryLiveMap.selectedPointId]). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MapPointDetailsSheet(
+    point: MapPoint,
+    myLocation: LatLng?,
+    onDismiss: () -> Unit,
+    onOpenInMaps: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).padding(bottom = 24.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    modifier = Modifier.size(14.dp).clip(if (point.kind == MapPointKind.BIBLE_STUDY) RoundedCornerShape(3.dp) else CircleShape)
+                        .background(markerColorFor(point.kind)),
+                )
+                Text(point.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            }
+            Text(point.status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+
+            DetailRow(
+                label = "Location",
+                value = when {
+                    point.kind == MapPointKind.PUBLISHER && point.isCurrentlySharing == true -> "Currently Sharing"
+                    point.kind == MapPointKind.PUBLISHER -> "Last Known Location"
+                    else -> "Registered Location"
+                },
+            )
+            if (myLocation != null) {
+                DetailRow(label = "Distance", value = formatDistance(haversineMeters(myLocation.lat, myLocation.lng, point.lat, point.lng)))
+            }
+            if (point.kind == MapPointKind.PUBLISHER && point.updatedAt != null) {
+                DetailRow(label = "Last Updated", value = formatRelativeTime(point.updatedAt))
+            }
+
+            Button(onClick = onOpenInMaps, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                Text("Open in Maps")
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Column(modifier = Modifier.padding(top = 10.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+private fun markerColorFor(kind: MapPointKind): Color = when (kind) {
+    MapPointKind.PUBLISHER -> Color(0xFF1A73E8)
+    MapPointKind.BIBLE_STUDY -> Color(0xFF8E24AA)
+    MapPointKind.RETURN_VISIT -> Color(0xFFFB8C00)
+    MapPointKind.SEARCHING -> Color(0xFF616161)
+}
+
+/** "Juan Dela Cruz — 350 meters away" — meters under 1km, one decimal of
+ * kilometers beyond that. */
+private fun formatDistance(meters: Double): String =
+    if (meters < 1000) "${meters.roundToInt()} m" else "${"%.1f".format(meters / 1000)} km"
+
+/** "Last Updated: Just now" — coarse, human buckets rather than a raw
+ * timestamp; matches the spec's own worked example verbatim for the first
+ * bucket. */
+private fun formatRelativeTime(updatedAtMillis: Long): String {
+    val minutes = (System.currentTimeMillis() - updatedAtMillis) / 60_000
+    return when {
+        minutes < 1 -> "Just now"
+        minutes < 60 -> "$minutes minute${if (minutes == 1L) "" else "s"} ago"
+        minutes < 24 * 60 -> "${minutes / 60} hour${if (minutes / 60 == 1L) "" else "s"} ago"
+        else -> "${minutes / (24 * 60)} day${if (minutes / (24 * 60) == 1L) "" else "s"} ago"
+    }
+}
+
 private enum class MapLoadState { LOADING, LOADED, FAILED }
 
 /** What kind of thing a [MapPoint] represents — drives both its marker style
- * ([buildTerritoryMapHtml]) and which filter chip controls its visibility. */
+ * ([buildTerritoryMapHtml]) and which dropdown entry controls its visibility.
+ * "Publishers, Bible Studies, and Return Visits are separate
+ * classifications" — this is the one place that classification is decided,
+ * at construction (see [TerritoryLiveMap]'s `pipelinePoints`/`publisherPoints`),
+ * never inferred later from "has coordinates." */
 private enum class MapPointKind(val jsValue: String) {
     SEARCHING("SEARCHING"),
     RETURN_VISIT("RETURN_VISIT"),
@@ -846,7 +967,8 @@ private enum class MapPointKind(val jsValue: String) {
 /** One plottable dot on the Territory Map — a pipeline record ([MapPointKind.SEARCHING]/
  * [MapPointKind.RETURN_VISIT]/[MapPointKind.BIBLE_STUDY]) or a publisher
  * currently sharing their location ([MapPointKind.PUBLISHER]), unified into
- * one shape so [buildTerritoryMapHtml] only has to know one JSON structure. */
+ * one shape so [buildTerritoryMapHtml] only has to know one JSON structure.
+ * [updatedAt]/[isCurrentlySharing] are only ever non-null for [MapPointKind.PUBLISHER]. */
 private data class MapPoint(
     val id: String,
     val kind: MapPointKind,
@@ -857,19 +979,9 @@ private data class MapPoint(
     val location: String,
     val congregation: String,
     val coords: String,
+    val updatedAt: Long?,
+    val isCurrentlySharing: Boolean?,
 )
-
-/** What to do once a GPS fix is actually in hand — requested via the
- * permission flow if needed, then run through [TerritoryLiveMap]'s
- * `runPendingLocationAction`. */
-private sealed class PendingLocationAction {
-    /** "My Location" chip — just center the map on the fix, no filter change. */
-    data object MyLocation : PendingLocationAction()
-
-    /** "Show Nearest Publisher/Bible Study/Return Visit" — see that
-     * function's own doc comment. */
-    data class Nearest(val kind: MapPointKind) : PendingLocationAction()
-}
 
 /** Great-circle distance in meters — plenty accurate for "which of these
  * handful of nearby records is closest," not meant for long-range routing. */
@@ -885,7 +997,7 @@ private fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Doub
 
 private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
     val pointsJson = points.joinToString(",", prefix = "[", postfix = "]") { p ->
-        """{id:"${jsEscape(p.id)}",kind:"${p.kind.jsValue}",lat:${p.lat},lng:${p.lng},name:"${jsEscape(p.name)}",status:"${jsEscape(p.status)}",location:"${jsEscape(p.location)}",coords:"${jsEscape(p.coords)}",congregation:"${jsEscape(p.congregation)}"}"""
+        """{id:"${jsEscape(p.id)}",kind:"${p.kind.jsValue}",lat:${p.lat},lng:${p.lng},name:"${jsEscape(p.name)}"}"""
     }
     return """
         <!DOCTYPE html>
@@ -907,6 +1019,7 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
           html, body { height: 100%; margin: 0; padding: 0; }
           #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
           .territory-label { background: rgba(255,255,255,0.9); border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.3); padding: 1px 6px; font-size: 12px; }
+          .territory-marker { background: transparent; border: none; }
         </style>
         </head>
         <body>
@@ -942,55 +1055,46 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
           tiles.on('load', function() {
             console.log('Tile layer reported load complete. Errors so far: ' + tileErrorCount);
           });
+
+          // "Use visually distinct markers... do not rely on color alone" —
+          // a colored circle for Publishers, a rotated square (diamond) for
+          // Bible Studies, a triangle for Return Visits; "you are here" (see
+          // setMyLocation) reuses the circle shape in its own green.
+          function buildIcon(kind) {
+            var color = kind === 'PUBLISHER' ? '#1a73e8' : kind === 'BIBLE_STUDY' ? '#8e24aa' : kind === 'RETURN_VISIT' ? '#fb8c00' : kind === 'ME' ? '#34a853' : '#616161';
+            var html, size, anchor;
+            if (kind === 'RETURN_VISIT') {
+              html = '<div style="width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:18px solid ' + color + ';filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))"></div>';
+              size = [20, 18]; anchor = [10, 18];
+            } else if (kind === 'BIBLE_STUDY') {
+              html = '<div style="width:16px;height:16px;background:' + color + ';border:2px solid #fff;transform:rotate(45deg);box-shadow:0 1px 3px rgba(0,0,0,.45)"></div>';
+              size = [16, 16]; anchor = [8, 8];
+            } else {
+              html = '<div style="width:16px;height:16px;border-radius:50%;background:' + color + ';border:3px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.45)"></div>';
+              size = [16, 16]; anchor = [8, 8];
+            }
+            return L.divIcon({ className: 'territory-marker', html: html, iconSize: size, iconAnchor: anchor });
+          }
+
           // Clusters nearby markers into one numbered bubble that expands on
           // tap/zoom — keeps a congregation with many records close together
           // (a housing subdivision, say) from turning into an unreadable
-          // pile of overlapping pins. Publisher markers (kind PUBLISHER) get
-          // their own green dot style rather than the default pin, so a
-          // shared live position never reads as just another pipeline
-          // record; "you are here" (see setMyLocation below) is a third,
-          // distinct style, and never joins the cluster at all — it should
-          // always stay visible regardless of the filter chips.
+          // pile of overlapping pins. "You are here" (see setMyLocation) is
+          // a separate marker outside this cluster entirely — it should
+          // always stay visible regardless of the selected filter.
           var cluster = L.markerClusterGroup();
           var markers = [];
           var markersById = {};
 
-          function buildPopup(p) {
-            var popupEl = document.createElement('div');
-            popupEl.innerHTML =
-              '<b>' + p.name + '</b><br>' +
-              'Status: ' + p.status + '<br>' +
-              (p.location && p.location !== '—' ? 'Location: ' + p.location + '<br>' : '') +
-              'Congregation: ' + p.congregation + '<br>';
-            // Popup content built as a real DOM element (not an HTML string)
-            // so the coordinates line can carry a genuine click listener with
-            // p's actual lat/lng/name captured safely by closure — no string-
-            // escaping footguns from splicing a name with a quote/apostrophe
-            // into an inline onclick="..." attribute.
-            var coordsLink = document.createElement('a');
-            coordsLink.href = 'javascript:void(0)';
-            coordsLink.textContent = 'Coordinates: ' + p.coords;
-            coordsLink.style.color = '#1a73e8';
-            coordsLink.style.textDecoration = 'underline';
-            // "Click the coordinates, then show the location" — same
-            // openCoordinatesInMaps() every other saved-coordinate spot in
-            // the app already uses, via the AndroidBridge exposed on this
-            // WebView (see TerritoryLiveMap's factory).
-            coordsLink.addEventListener('click', function() {
-              if (window.AndroidBridge) {
-                AndroidBridge.openInMaps(p.lat, p.lng, p.name);
-              }
-            });
-            popupEl.appendChild(coordsLink);
-            return popupEl;
-          }
-
           points.forEach(function(p) {
-            var marker = (p.kind === 'PUBLISHER')
-              ? L.circleMarker([p.lat, p.lng], { radius: 9, fillColor: '#34a853', color: '#ffffff', weight: 2, fillOpacity: 0.9 })
-              : L.marker([p.lat, p.lng]);
+            var marker = L.marker([p.lat, p.lng], { icon: buildIcon(p.kind) });
             marker.bindTooltip(p.name, { permanent: true, direction: 'right', offset: [8, 0], className: 'territory-label' });
-            marker.bindPopup(buildPopup(p));
+            // "Display a compact information card/bottom sheet" — a tap
+            // hands off to the native side (which already has every other
+            // field for this point) rather than building an HTML popup here.
+            marker.on('click', function() {
+              if (window.AndroidBridge) { AndroidBridge.showDetails(p.id); }
+            });
             marker._kind = p.kind;
             marker._inCluster = true;
             cluster.addLayer(marker);
@@ -1021,15 +1125,14 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
           }
           fitToVisible(lastVisible);
 
-          // "Add a filter showing Map View (Bible Study, Return Visit,
-          // Publishers...)" — kindsCsv is the exact comma-separated set of
-          // kinds that should stay visible; Kotlin always sends the full
-          // default set explicitly for "show everything" (the Refresh
-          // button's "original state"), never relying on an empty string
-          // meaning "all." Markers already in/out of the cluster are left
-          // alone (Leaflet has no cheap "is this already a member" check of
-          // its own, hence the _inCluster flag) so toggling a filter twice
-          // in a row never double-adds or double-removes a layer.
+          // "The selected option determines what markers... are displayed" —
+          // kindsCsv is the exact comma-separated set of kinds that should
+          // stay visible; an empty string hides every pipeline/publisher
+          // marker (used by "My Location," which shows only the distinct
+          // "you are here" dot). Markers already in/out of the cluster are
+          // left alone (Leaflet has no cheap "is this already a member"
+          // check of its own, hence the _inCluster flag) so re-applying the
+          // same filter twice never double-adds or double-removes a layer.
           window.applyFilter = function(kindsCsv) {
             var kinds = kindsCsv ? kindsCsv.split(',') : [];
             var visible = [];
@@ -1043,29 +1146,30 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
             fitToVisible(visible);
           };
 
-          // "Show Nearest Publisher/Bible Study/Return Visit" — Kotlin
-          // already narrowed the filter to the matching kind and picked the
-          // nearest record itself (it has the device's own GPS fix, which
-          // this page never sees); this just pans/zooms to that one marker
-          // and opens its popup once the pan/zoom animation has settled.
-          window.focusPoint = function(id) {
-            var m = markersById[id];
-            if (!m) return;
-            if (!m._inCluster) { cluster.addLayer(m); m._inCluster = true; }
-            map.setView(m.getLatLng(), 17);
-            setTimeout(function() { m.openPopup(); }, 350);
+          // "Automatically center the map around the user's location and
+          // the nearest publisher(s)" — Kotlin already computed which ids
+          // are nearest (it has the device's own GPS fix, which this page
+          // never sees) and already called applyFilter for the matching
+          // kind; this just tightens the camera to fit the user's own
+          // position plus those specific nearby markers, rather than every
+          // marker of that kind congregation-wide.
+          window.focusNearby = function(lat, lng, ids) {
+            var group = [L.marker([lat, lng])];
+            ids.forEach(function(id) { if (markersById[id]) group.push(markersById[id]); });
+            if (group.length === 1) {
+              map.setView([lat, lng], 16);
+            } else {
+              map.fitBounds(L.featureGroup(group).getBounds().pad(0.3));
+            }
           };
 
           // "Add the user current location in the map view" — a distinct
-          // blue dot, outside the cluster group (always visible regardless
-          // of the filter above), added/updated once Android actually has a
-          // GPS fix; never present until then.
+          // green dot, outside the cluster group (always visible regardless
+          // of the selected filter), added/updated once Android actually
+          // has a GPS fix; never present until then.
           window.setMyLocation = function(lat, lng) {
             if (window.myLocationMarker) { map.removeLayer(window.myLocationMarker); }
-            window.myLocationMarker = L.circleMarker([lat, lng], {
-              radius: 8, fillColor: '#4285F4', color: '#ffffff', weight: 3, fillOpacity: 1
-            }).addTo(map);
-            window.myLocationMarker.bindPopup('<b>You are here</b>');
+            window.myLocationMarker = L.marker([lat, lng], { icon: buildIcon('ME'), zIndexOffset: 1000 }).addTo(map);
           };
 
           // JS-side fallback for the exact same "container wasn't its final

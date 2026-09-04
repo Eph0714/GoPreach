@@ -49,7 +49,26 @@ data class TerritoryPublisherRow(
     val lng: Double,
     val category: PublisherCategory?,
     val congregationName: String,
-)
+    val updatedAt: Long,
+) {
+    /** "Currently sharing" vs. "last known location" — a location older than
+     * [LOCATION_FRESHNESS_MS] is treated as stale ("the system does not
+     * incorrectly display an old location as a current location") even
+     * though the underlying doc still says `isSharing = true` — e.g. the
+     * publisher's [com.emfitsolutions.gopreach.data.location.LocationSharingService]
+     * process died without ever getting a chance to write the "stopped"
+     * doc. [TerritoryPublisherRow] is only ever built from `isSharing`
+     * docs to begin with (see [TerritoryMapViewModel.publisherRowsFor]), so
+     * this is purely about freshness, not the sharing flag itself. */
+    val isCurrentlySharing: Boolean
+        get() = System.currentTimeMillis() - updatedAt <= LOCATION_FRESHNESS_MS
+}
+
+/** "Implement a reasonable location freshness/expiration rule" — twice
+ * [LocationSharingService]'s own fix interval (30s) plus real margin for a
+ * slow network/GPS fix, so a single missed cycle doesn't flicker a still-
+ * actively-sharing publisher in and out of "currently sharing." */
+private const val LOCATION_FRESHNESS_MS = 5 * 60_000L
 
 /**
  * "The Territory Module will be a map of location of every Search,
@@ -125,6 +144,16 @@ class TerritoryMapViewModel @Inject constructor(
      * *caller* is even allowed to ask for this at all is a navigation-level
      * concern (see [com.emfitsolutions.gopreach.ui.navigation.GoPreachNavGraph]'s
      * `canSeePublisherLocations`), not enforced here. */
+    // "Only Regular Publishers enrolled in the congregation and actively
+    // sharing their location may appear in the Publisher – All Congregation
+    // and Nearest Publisher results" — a Bible Study/Return Visit record
+    // never reaches here at all (this only ever reads SharedLocation docs,
+    // which only a Publisher-track RoleAssignment can ever produce — see
+    // ShareLocationViewModel.toggleSharing's own callers), but the
+    // Publisher *category* itself is checked too: a Coordinator Elder who
+    // also happens to hold a Regular Pioneer RoleAssignment, say, would
+    // otherwise show up here just because they COULD share, not because
+    // they're a Regular Publisher.
     fun publisherRowsFor(congregationId: String?, excludePersonId: String): Flow<List<TerritoryPublisherRow>> =
         combine(
             sharedLocationRepository.observeAll(),
@@ -140,8 +169,9 @@ class TerritoryMapViewModel @Inject constructor(
                     val category = assignments.firstOrNull {
                         it.personId == person.id && it.congregationId == location.congregationId && it.resolvedRoleTypeOrNull() is RoleType.Publisher
                     }?.let { (it.resolvedRoleTypeOrNull() as RoleType.Publisher).category }
+                    if (category != PublisherCategory.REGULAR_PUBLISHER) return@mapNotNull null
                     val congregationName = congregations.firstOrNull { it.id == location.congregationId }?.name ?: "—"
-                    TerritoryPublisherRow(person, location.lat, location.lng, category, congregationName)
+                    TerritoryPublisherRow(person, location.lat, location.lng, category, congregationName, location.updatedAt)
                 }
         }
 
