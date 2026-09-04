@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.auth
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -72,6 +73,11 @@ fun ForgotPasswordScreen(
                     label = { Text("Username") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,
+                    // Same fix as LoginScreen's Username field — without
+                    // this, the keyboard auto-inserts a space after a "."
+                    // (treating it as end-of-sentence punctuation), silently
+                    // turning "user.test" into "user. test".
+                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Button(onClick = viewModel::submit, enabled = !uiState.isLoading, modifier = Modifier.fillMaxWidth()) {

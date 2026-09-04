@@ -171,7 +171,14 @@ fun LoginScreen(
                     leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null) },
                     // Plain text, never masked — per spec, only password fields mask input.
                     visualTransformation = VisualTransformation.None,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                    // autoCorrect = false — without it, Gboard (and most
+                    // other IMEs) treats a "." as end-of-sentence punctuation
+                    // and auto-inserts a space after it once the next
+                    // character is typed, silently turning "user.test" into
+                    // "user. test" for any dotted username. Usernames are
+                    // never a "sentence" the keyboard should be
+                    // autocorrecting/auto-spacing in the first place.
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth(),
                 )
 
