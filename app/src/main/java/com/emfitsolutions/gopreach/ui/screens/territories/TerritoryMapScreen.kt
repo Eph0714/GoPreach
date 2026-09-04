@@ -3,10 +3,13 @@ package com.emfitsolutions.gopreach.ui.screens.territories
 import android.annotation.SuppressLint
 import android.util.Log
 import android.view.View
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.emfitsolutions.gopreach.BuildConfig
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,17 +19,23 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.ViewList
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -37,6 +46,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -44,6 +54,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -271,6 +282,14 @@ private fun TerritoryLiveMap(rows: List<TerritoryMapRow>, modifier: Modifier = M
     var reloadToken by remember { mutableIntStateOf(0) }
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    // "Add debugging checks" — captured on-device (no adb/Logcat access
+    // needed to report back what actually happened) rather than only
+    // written to Logcat; a real JS-side failure (a CDN script genuinely
+    // unreachable, a syntax error, anything Leaflet itself threw) shows up
+    // here verbatim instead of this screen staying a silent, unexplained
+    // blank.
+    val consoleMessages = remember { mutableStateListOf<String>() }
+    var showDiagnostics by remember { mutableStateOf(false) }
 
     // Bug fix ("I cannot see any actual map"): loading used to happen
     // directly inside AndroidView's `update` lambda, which Compose re-runs
@@ -313,6 +332,11 @@ private fun TerritoryLiveMap(rows: List<TerritoryMapRow>, modifier: Modifier = M
                 }
             },
             factory = { ctx ->
+                // Lets a debug build be inspected live from a PC via
+                // chrome://inspect (USB debugging) — the single most direct
+                // way to see the *actual* browser-side error when the
+                // on-device diagnostics below aren't enough on their own.
+                if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
                 WebView(ctx).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
@@ -347,7 +371,24 @@ private fun TerritoryLiveMap(rows: List<TerritoryMapRow>, modifier: Modifier = M
                             // resource (one map tile timing out, say)
                             // shouldn't flip the whole view into an error
                             // state when the map is otherwise usable.
-                            if (request?.isForMainFrame == true) loadState = MapLoadState.FAILED
+                            if (request?.isForMainFrame == true) {
+                                loadState = MapLoadState.FAILED
+                                val detail = "Main frame load error: ${error?.errorCode} ${error?.description} (${request.url})"
+                                Log.e(TAG, detail)
+                                consoleMessages.add(detail)
+                            }
+                        }
+                    }
+                    // Surfaces real browser-side JS errors (a CDN script
+                    // that 404'd, a Leaflet exception, anything) directly
+                    // on-device — see [consoleMessages]'s own doc comment.
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                            val line = "${consoleMessage.messageLevel()}: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})"
+                            Log.d(TAG, "WebView console: $line")
+                            consoleMessages.add(line)
+                            if (consoleMessages.size > 30) consoleMessages.removeAt(0)
+                            return true
                         }
                     }
                 }.also { webViewRef = it }
@@ -365,13 +406,19 @@ private fun TerritoryLiveMap(rows: List<TerritoryMapRow>, modifier: Modifier = M
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    "Map failed to load. Check your internet connection and try again.",
+                    "Unable to load the map. Check your internet connection and try again.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(onClick = { reloadToken++ }) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text("Retry")
+                consoleMessages.lastOrNull()?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { reloadToken++ }) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text("Retry")
+                    }
+                    OutlinedButton(onClick = { showDiagnostics = true }) { Text("Details") }
                 }
             }
         } else if (invalidCount > 0) {
@@ -379,7 +426,7 @@ private fun TerritoryLiveMap(rows: List<TerritoryMapRow>, modifier: Modifier = M
             // working) that the rest are sitting out for now.
             Card(
                 modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
-                colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
             ) {
                 Text(
                     "$invalidCount record${if (invalidCount == 1) "" else "s"} without a valid GPS location ${if (invalidCount == 1) "isn't" else "aren't"} shown on the map.",
@@ -389,6 +436,47 @@ private fun TerritoryLiveMap(rows: List<TerritoryMapRow>, modifier: Modifier = M
                 )
             }
         }
+
+        // Always available, not just on failure — lets whoever's testing
+        // this confirm exactly what's happening (records/points counts,
+        // load state, any console error) even when the map *looks* like
+        // it's working but markers still aren't showing up right, without
+        // needing adb/Logcat access to report it back accurately.
+        IconButton(
+            onClick = { showDiagnostics = true },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+        ) {
+            Icon(Icons.Rounded.Info, contentDescription = "Map diagnostics", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
+    if (showDiagnostics) {
+        AlertDialog(
+            onDismissRequest = { showDiagnostics = false },
+            title = { Text("Map Diagnostics") },
+            text = {
+                Column(
+                    modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text("Records retrieved: ${rows.size}", style = MaterialTheme.typography.bodySmall)
+                    Text("Valid GPS locations: ${points.size}", style = MaterialTheme.typography.bodySmall)
+                    Text("Invalid/missing GPS: $invalidCount", style = MaterialTheme.typography.bodySmall)
+                    Text("Map status: ${loadState.name}", style = MaterialTheme.typography.bodySmall)
+                    if (consoleMessages.isEmpty()) {
+                        Text("No console messages yet.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Text("Console log:", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+                        consoleMessages.forEach { line ->
+                            Text(line, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDiagnostics = false }) { Text("Close") }
+            },
+        )
     }
 }
 
