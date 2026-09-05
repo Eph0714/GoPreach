@@ -64,12 +64,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.flow.collect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
@@ -196,10 +198,10 @@ fun PublisherHomeScreen(
     if (showExitConfirm) {
         AlertDialog(
             onDismissRequest = { showExitConfirm = false },
-            title = { Text("Exit GoPreach?") },
-            text = { Text("Are you sure you want to close the application?") },
-            confirmButton = { TextButton(onClick = { activity?.finish() }) { Text("EXIT") } },
-            dismissButton = { TextButton(onClick = { showExitConfirm = false }) { Text("CANCEL") } },
+            title = { Text(stringResource(R.string.home_exit_title)) },
+            text = { Text(stringResource(R.string.home_exit_message)) },
+            confirmButton = { TextButton(onClick = { activity?.finish() }) { Text(stringResource(R.string.home_exit_confirm)) } },
+            dismissButton = { TextButton(onClick = { showExitConfirm = false }) { Text(stringResource(R.string.home_exit_cancel)) } },
         )
     }
 
@@ -245,13 +247,13 @@ fun PublisherHomeScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "Keep Your Data Safe",
+                            stringResource(R.string.home_sync_card_title),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                         Text(
-                            "Sync your data regularly to keep your information secure.",
+                            stringResource(R.string.home_sync_card_message),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
@@ -283,7 +285,7 @@ fun PublisherHomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Icon(Icons.Rounded.SwapHoriz, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Text("Switch to Admin App", style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.home_switch_to_admin), style = MaterialTheme.typography.titleSmall)
                         }
                     }
                 }
@@ -357,7 +359,7 @@ private fun PublisherWelcomeHeader(
                 // standalone logout icon rather than duplicating it.
                 ProfileMenuButton(
                     fullName = fullName,
-                    roleLabel = categoryLabel ?: "Publisher",
+                    roleLabel = categoryLabel ?: stringResource(R.string.role_label_publisher),
                     profileImageUrl = profileImageUrl,
                     onImagePicked = onImagePicked,
                     onSignOut = onSignOut,
@@ -366,7 +368,7 @@ private fun PublisherWelcomeHeader(
 
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
                 Text(
-                    "Welcome, $greetingName 👋",
+                    stringResource(R.string.home_welcome, greetingName),
                     color = Color.White,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
@@ -375,8 +377,18 @@ private fun PublisherWelcomeHeader(
                 if (subtitle.isNotBlank()) {
                     Text(subtitle, color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodyMedium)
                 }
-                val statusCaption = if (isOnline) "Online" else "Offline" +
-                    (if (pendingSyncCount > 0) " · $pendingSyncCount pending sync" else " · All synced")
+                // Preserves the pre-existing behavior exactly (only "Online"
+                // ever shows for the online case, no sync suffix) — this is
+                // just the same three pieces now sourced from strings.xml.
+                val statusCaption = if (isOnline) {
+                    stringResource(R.string.home_status_online)
+                } else {
+                    stringResource(R.string.home_status_offline) + if (pendingSyncCount > 0) {
+                        stringResource(R.string.home_status_pending_sync_suffix, pendingSyncCount)
+                    } else {
+                        stringResource(R.string.home_status_all_synced_suffix)
+                    }
+                }
                 Text(
                     statusCaption,
                     color = Color.White.copy(alpha = 0.75f),
@@ -463,38 +475,38 @@ private fun FeatureTileGrid(
     data class Tile(val title: String, val subtitle: String, val icon: ImageVector, val route: String, val badge: Int = 0)
 
     val tiles = buildList {
-        add(Tile("Monthly Report", "Submit Report", Icons.Rounded.Assignment, Destinations.MONTHLY_REPORT))
+        add(Tile(stringResource(R.string.home_tile_monthly_report_title), stringResource(R.string.home_tile_monthly_report_subtitle), Icons.Rounded.Assignment, Destinations.MONTHLY_REPORT))
         // "Allow the publisher to see all his submitted Report record" —
         // its own tile since MONTHLY_REPORT's form only ever shows the
         // current/previous month, not the full history.
-        add(Tile("My Reports", "View Report History", Icons.AutoMirrored.Rounded.ListAlt, Destinations.MY_SUBMITTED_REPORTS))
-        add(Tile("Searching", "Find Interested Ones", Icons.Rounded.PersonSearch, Destinations.SEARCHING))
-        add(Tile("Return Visit", "Record & Follow-up", Icons.Rounded.PeopleAlt, Destinations.RETURN_VISIT))
-        add(Tile("Bible Study", "View & Manage", Icons.AutoMirrored.Rounded.MenuBook, Destinations.BIBLE_STUDY))
+        add(Tile(stringResource(R.string.home_tile_my_reports_title), stringResource(R.string.home_tile_my_reports_subtitle), Icons.AutoMirrored.Rounded.ListAlt, Destinations.MY_SUBMITTED_REPORTS))
+        add(Tile(stringResource(R.string.home_tile_searching_title), stringResource(R.string.home_tile_searching_subtitle), Icons.Rounded.PersonSearch, Destinations.SEARCHING))
+        add(Tile(stringResource(R.string.home_tile_return_visit_title), stringResource(R.string.home_tile_return_visit_subtitle), Icons.Rounded.PeopleAlt, Destinations.RETURN_VISIT))
+        add(Tile(stringResource(R.string.home_tile_bible_study_title), stringResource(R.string.home_tile_bible_study_subtitle), Icons.AutoMirrored.Rounded.MenuBook, Destinations.BIBLE_STUDY))
         // "FORWARD TO OTHER PUBLISHER" — this Publisher's own incoming queue.
-        add(Tile("Forwarded to Me", "Accept or Decline", Icons.AutoMirrored.Rounded.Forward, Destinations.PUBLISHER_FORWARD_REQUESTS, pendingPublisherForwards))
+        add(Tile(stringResource(R.string.home_tile_forwarded_to_me_title), stringResource(R.string.home_tile_forwarded_to_me_subtitle), Icons.AutoMirrored.Rounded.Forward, Destinations.PUBLISHER_FORWARD_REQUESTS, pendingPublisherForwards))
         if (isPioneer) {
-            add(Tile("My Total Hours", "Track Preaching Hours", Icons.Rounded.Timer, Destinations.PREACHING_TIME_RECORD))
+            add(Tile(stringResource(R.string.home_tile_my_total_hours_title), stringResource(R.string.home_tile_my_total_hours_subtitle), Icons.Rounded.Timer, Destinations.PREACHING_TIME_RECORD))
         }
         // "My Bible Text Record" module — every Publisher, not just Pioneers.
         // A distinct icon from "Bible Study" (also MenuBook) — this is a
         // personal saved-reference collection, not the ministry module.
-        add(Tile("My Bible Text Record", "Save Bible References", Icons.Rounded.Bookmarks, Destinations.MY_BIBLE_TEXT_RECORD))
-        add(Tile("My Calendar", "View Schedule", Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
-        add(Tile("Share My Location", "Share Live Location", Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
-        add(Tile("Find Location", "Get Directions", Icons.Rounded.Navigation, Destinations.FIND_LOCATION))
+        add(Tile(stringResource(R.string.home_tile_my_bible_text_record_title), stringResource(R.string.home_tile_my_bible_text_record_subtitle), Icons.Rounded.Bookmarks, Destinations.MY_BIBLE_TEXT_RECORD))
+        add(Tile(stringResource(R.string.home_tile_my_calendar_title), stringResource(R.string.home_tile_my_calendar_subtitle), Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
+        add(Tile(stringResource(R.string.home_tile_share_my_location_title), stringResource(R.string.home_tile_share_my_location_subtitle), Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
+        add(Tile(stringResource(R.string.home_tile_find_location_title), stringResource(R.string.home_tile_find_location_subtitle), Icons.Rounded.Navigation, Destinations.FIND_LOCATION))
         // "Add the Territory Module in Publisher. The publisher can see all
         // the location but cannot edit or delete, view only" — the screen
         // itself has no edit/delete actions for anyone anymore (see
         // TerritoryMapScreen), so reaching it here is already read-only by
         // construction; scoped to the Publisher's own congregation (see
         // GoPreachNavGraph's MANAGE_TERRITORIES composable).
-        add(Tile("Territory Map", "All Saved Locations", Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES_BASE))
+        add(Tile(stringResource(R.string.home_tile_territory_map_title), stringResource(R.string.home_tile_territory_map_subtitle), Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES_BASE))
         // "The record will be seen in the publishers module... called
         // 'Meeting Assignments.' The publisher will see only meeting
         // assignments under their congregation" — read-only, see
         // GoPreachNavGraph's PUBLISHER_MEETING_ASSIGNMENTS composable.
-        add(Tile("Meeting and Cart Assignment", "Midweek, Weekend & Cart Schedule", Icons.Rounded.Event, Destinations.PUBLISHER_MEETING_ASSIGNMENTS))
+        add(Tile(stringResource(R.string.home_tile_meeting_cart_assignment_title), stringResource(R.string.home_tile_meeting_cart_assignment_subtitle), Icons.Rounded.Event, Destinations.PUBLISHER_MEETING_ASSIGNMENTS))
         // "Add a Button under Meeting [and Cart] Assignment[:] 'My
         // Assignments'... the publisher can see all the assignments under
         // his name" — a cross-cut of every Midweek/Public Talk/Cart
@@ -502,13 +514,13 @@ private fun FeatureTileGrid(
         // own currently-selected week/date (see GoPreachNavGraph's
         // MY_ASSIGNMENTS composable / MeetingAssignmentsViewModel
         // .myAssignmentsFor).
-        add(Tile("My Assignments", "Assignments Under My Name", Icons.Rounded.Assignment, Destinations.MY_ASSIGNMENTS))
-        add(Tile("Announcement", "Latest Updates", Icons.Rounded.Campaign, Destinations.PUBLISHER_ANNOUNCEMENTS, unseenAnnouncements))
+        add(Tile(stringResource(R.string.home_tile_my_assignments_title), stringResource(R.string.home_tile_my_assignments_subtitle), Icons.Rounded.Assignment, Destinations.MY_ASSIGNMENTS))
+        add(Tile(stringResource(R.string.home_tile_announcement_title), stringResource(R.string.home_tile_announcement_subtitle), Icons.Rounded.Campaign, Destinations.PUBLISHER_ANNOUNCEMENTS, unseenAnnouncements))
         // "Group Chat Setting" module — also reachable from the persistent
         // Chat Box icon in the header (see PublisherWelcomeHeader), this
         // tile is just a second, more discoverable entry point to the same
         // GROUP_CHAT_SETTING list.
-        add(Tile("Group Chat", "Congregation Chats", Icons.AutoMirrored.Rounded.Chat, Destinations.GROUP_CHAT_SETTING))
+        add(Tile(stringResource(R.string.home_tile_group_chat_title), stringResource(R.string.home_tile_group_chat_subtitle), Icons.AutoMirrored.Rounded.Chat, Destinations.GROUP_CHAT_SETTING))
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -547,11 +559,11 @@ private fun PublisherBottomNavBar(activeRoute: String, onNavigate: (String) -> U
     data class NavTab(val label: String, val icon: ImageVector, val route: String)
 
     val tabs = listOf(
-        NavTab("Home", Icons.Rounded.Home, Destinations.PUBLISHER_HOME),
-        NavTab("Reports", Icons.Rounded.Assignment, Destinations.MONTHLY_REPORT),
-        NavTab("Calendar", Icons.Rounded.CalendarMonth, Destinations.CALENDAR),
-        NavTab("Bible Study", Icons.AutoMirrored.Rounded.MenuBook, Destinations.BIBLE_STUDY),
-        NavTab("Profile", Icons.Rounded.Person, Destinations.SETTINGS),
+        NavTab(stringResource(R.string.home_nav_home), Icons.Rounded.Home, Destinations.PUBLISHER_HOME),
+        NavTab(stringResource(R.string.home_nav_reports), Icons.Rounded.Assignment, Destinations.MONTHLY_REPORT),
+        NavTab(stringResource(R.string.home_nav_calendar), Icons.Rounded.CalendarMonth, Destinations.CALENDAR),
+        NavTab(stringResource(R.string.home_tile_bible_study_title), Icons.AutoMirrored.Rounded.MenuBook, Destinations.BIBLE_STUDY),
+        NavTab(stringResource(R.string.home_nav_profile), Icons.Rounded.Person, Destinations.SETTINGS),
     )
 
     NavigationBar {
@@ -608,7 +620,7 @@ private fun PublisherStatsSection(
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Rounded.Assignment, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text("Dashboard", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.home_dashboard_header), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
             DateRangeFilterBar(range = dateRange, onRangeChange = viewModel::setDateRange)
         }
@@ -624,7 +636,7 @@ private fun PublisherStatsSection(
     // than the screen.
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
         RoundIconActionButton(
-            label = "My Bible Study",
+            label = stringResource(R.string.home_stat_my_bible_study),
             value = stats.bibleStudiesCount.toString(),
             icon = Icons.AutoMirrored.Rounded.MenuBook,
             onClick = { onNavigate(Destinations.BIBLE_STUDY) },
@@ -635,7 +647,7 @@ private fun PublisherStatsSection(
         // have one). This used to be gated behind `isPioneer`, which is why
         // a Regular/Unbaptized Publisher never saw it at all.
         RoundIconActionButton(
-            label = "My Return Visit",
+            label = stringResource(R.string.home_stat_my_return_visit),
             value = stats.returnVisitsCount.toString(),
             icon = Icons.Rounded.PeopleAlt,
             onClick = { onNavigate(Destinations.RETURN_VISIT) },
@@ -643,7 +655,7 @@ private fun PublisherStatsSection(
         )
         if (isPioneer) {
             RoundIconActionButton(
-                label = "Preaching Hours",
+                label = stringResource(R.string.home_stat_preaching_hours),
                 value = "%.1f".format(stats.preachingHours),
                 icon = Icons.Rounded.Timer,
                 onClick = { onNavigate(Destinations.PREACHING_TIME_RECORD) },
@@ -651,8 +663,8 @@ private fun PublisherStatsSection(
             )
         } else {
             RoundIconActionButton(
-                label = "Attended Preaching",
-                value = if (stats.attendedPreaching) "Yes" else "No",
+                label = stringResource(R.string.home_stat_attended_preaching),
+                value = if (stats.attendedPreaching) stringResource(R.string.home_yes) else stringResource(R.string.home_no),
                 icon = Icons.Rounded.Assignment,
                 onClick = { onNavigate(Destinations.MONTHLY_REPORT) },
                 modifier = Modifier.weight(1f),

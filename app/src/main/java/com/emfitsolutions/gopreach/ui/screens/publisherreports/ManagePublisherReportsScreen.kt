@@ -49,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -56,6 +57,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Person
@@ -129,18 +131,22 @@ fun ManagePublisherReportsScreen(
     // Bug fix ("I cannot see any PDF or Excel"): see ReportsScreen's matching
     // fix — the Storage Access Framework picker just saves and closes with
     // no feedback of its own; now it confirms and opens the file immediately.
+    val exportCsvSuccess = stringResource(R.string.reports_export_csv_success)
+    val exportFailedWrite = stringResource(R.string.reports_export_failed_write)
+    val exportFailedUnknown = stringResource(R.string.reports_export_failed_unknown)
+    val exportFailedGenericTemplate = stringResource(R.string.reports_export_failed_generic)
     val csvExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
             try {
                 val wrote = CsvExporter.write(context, uri, reportTable.title, subtitle = null, columns = reportTable.columns, rows = reportTable.rows, totals = reportTable.totals)
                 if (wrote) {
-                    showToast("Exported to Excel (CSV).")
+                    showToast(exportCsvSuccess)
                     CsvExporter.openWithChooser(context, uri, "text/csv")
                 } else {
-                    showToast("Export failed: couldn't write the file.")
+                    showToast(exportFailedWrite)
                 }
             } catch (e: Exception) {
-                showToast("Export failed: ${e.localizedMessage ?: "unknown error"}")
+                showToast(exportFailedGenericTemplate.format(e.localizedMessage ?: exportFailedUnknown))
             }
         }
     }
@@ -149,10 +155,10 @@ fun ManagePublisherReportsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Publisher Reports") },
+                title = { Text(stringResource(R.string.manage_reports_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.dashboard_back_cd))
                     }
                 },
                 actions = {
@@ -164,12 +170,12 @@ fun ManagePublisherReportsScreen(
                     // renders at reduced alpha, which on this TopAppBar read
                     // as "not there at all." Always enabled now.
                     IconButton(onClick = { ReportPrinter.print(context, reportTable) }) {
-                        Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Export as PDF")
+                        Icon(Icons.Rounded.PictureAsPdf, contentDescription = stringResource(R.string.reports_export_pdf_cd))
                     }
                     // "Export as ... excel" — CSV, opens directly in any
                     // spreadsheet app.
                     IconButton(onClick = { csvExportLauncher.launch(csvExportFileName) }) {
-                        Icon(Icons.Rounded.TableChart, contentDescription = "Export as Excel (CSV)")
+                        Icon(Icons.Rounded.TableChart, contentDescription = stringResource(R.string.reports_export_excel_cd))
                     }
                 },
             )
@@ -182,17 +188,17 @@ fun ManagePublisherReportsScreen(
             ) {
                 DateRangeFilterBar(range = uiState.dateRange, onRangeChange = viewModel::setDateRange)
 
-                Text("Show", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.manage_reports_show_label), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = uiState.showMode == ReportShowMode.ALL,
                         onClick = { viewModel.setShowMode(ReportShowMode.ALL) },
-                        label = { Text("All") },
+                        label = { Text(stringResource(R.string.manage_reports_all)) },
                     )
                     FilterChip(
                         selected = uiState.showMode == ReportShowMode.BY_PUBLISHER,
                         onClick = { viewModel.setShowMode(ReportShowMode.BY_PUBLISHER) },
-                        label = { Text("By Publisher") },
+                        label = { Text(stringResource(R.string.manage_reports_by_publisher)) },
                     )
                     // Super-Admin only — an Admin/Coordinator Elder/Service
                     // Overseer is already scoped to exactly one congregation
@@ -202,7 +208,7 @@ fun ManagePublisherReportsScreen(
                         FilterChip(
                             selected = uiState.showMode == ReportShowMode.BY_CONGREGATION,
                             onClick = { viewModel.setShowMode(ReportShowMode.BY_CONGREGATION) },
-                            label = { Text("By Congregation/Group") },
+                            label = { Text(stringResource(R.string.manage_reports_by_congregation)) },
                         )
                     }
                 }
@@ -222,10 +228,15 @@ fun ManagePublisherReportsScreen(
                     )
                 }
 
+                val searchLabel = if (fixedCongregationId == null) {
+                    stringResource(R.string.manage_reports_search_label_with_congregation)
+                } else {
+                    stringResource(R.string.manage_reports_search_label)
+                }
                 OutlinedTextField(
                     value = uiState.searchQuery,
                     onValueChange = viewModel::setSearchQuery,
-                    label = { Text("Search: Name, Status" + if (fixedCongregationId == null) ", Congregation/Group" else "") },
+                    label = { Text(searchLabel) },
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                     visualTransformation = VisualTransformation.None,
@@ -242,14 +253,14 @@ fun ManagePublisherReportsScreen(
                 if (canMarkPosted && submittedCount > 0) {
                     Button(onClick = { showPostAllConfirm = true }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text("POST $submittedCount Submitted Report${if (submittedCount == 1) "" else "s"}")
+                        Text(stringResource(R.string.manage_reports_post_button, submittedCount, if (submittedCount == 1) "" else "s"))
                     }
                 }
             }
 
             if (uiState.rows.isEmpty()) {
                 Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("No reports for this period.", style = MaterialTheme.typography.bodyMedium)
+                    Text(stringResource(R.string.manage_reports_no_reports), style = MaterialTheme.typography.bodyMedium)
                 }
             } else {
                 Text(
@@ -274,39 +285,43 @@ fun ManagePublisherReportsScreen(
                                     Row {
                                         if (!readOnly) {
                                             IconButton(onClick = { pendingEdit = row }) {
-                                                Icon(Icons.Rounded.Edit, contentDescription = "Edit report")
+                                                Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.manage_reports_edit_cd))
                                             }
                                             if (row.isLocked) {
                                                 IconButton(onClick = { viewModel.unlock(row.report, currentPersonId) }) {
-                                                    Icon(Icons.Rounded.LockOpen, contentDescription = "Unlock for publisher")
+                                                    Icon(Icons.Rounded.LockOpen, contentDescription = stringResource(R.string.manage_reports_unlock_cd))
                                                 }
                                             } else if (canMarkPosted) {
                                                 // "The service overseer will mark it as 'Posted', that's
                                                 // the time the publisher can no longer edit the record."
                                                 IconButton(onClick = { viewModel.markPosted(row.report, currentPersonId) }) {
-                                                    Icon(Icons.Rounded.Lock, contentDescription = "Mark as Posted")
+                                                    Icon(Icons.Rounded.Lock, contentDescription = stringResource(R.string.manage_reports_mark_posted_cd))
                                                 }
                                             }
                                         }
                                         if (canPermanentlyDelete && !readOnly) {
                                             IconButton(onClick = { pendingDelete = row }) {
-                                                Icon(Icons.Rounded.Delete, contentDescription = "Delete report")
+                                                Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.manage_reports_delete_cd))
                                             }
                                         }
                                     }
                                 }
-                                Text("Status: ${row.category.name.replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
+                                Text(stringResource(R.string.manage_reports_status_prefix, row.category.name.replace('_', ' ')), style = MaterialTheme.typography.bodySmall)
                                 Text(
-                                    "Bible Study: ${row.report.bibleStudiesCount}    " +
-                                        (if (row.isPioneer) "Hours: ${row.report.hoursRendered ?: 0.0}" else "Participate in Preaching: ${if (row.report.participatedInPreaching == true) "YES" else "NO"}"),
+                                    if (row.isPioneer) {
+                                        stringResource(R.string.manage_reports_bible_study_hours, row.report.bibleStudiesCount, (row.report.hoursRendered ?: 0.0).toString())
+                                    } else {
+                                        val yesNo = if (row.report.participatedInPreaching == true) stringResource(R.string.consolidated_yes) else stringResource(R.string.consolidated_no)
+                                        stringResource(R.string.manage_reports_bible_study_participate, row.report.bibleStudiesCount, yesNo)
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                 )
-                                Text("Congregation/Group: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
+                                Text(stringResource(R.string.manage_reports_congregation_prefix, row.congregationName), style = MaterialTheme.typography.bodySmall)
                                 Text(
                                     when {
-                                        row.isPosted -> "Posted — locked for the publisher"
-                                        row.report.status == ReportStatus.SUBMITTED -> "Submitted — still editable by the publisher"
-                                        else -> "Draft — editable by the publisher"
+                                        row.isPosted -> stringResource(R.string.manage_reports_posted_locked)
+                                        row.report.status == ReportStatus.SUBMITTED -> stringResource(R.string.manage_reports_submitted_editable)
+                                        else -> stringResource(R.string.manage_reports_draft_editable)
                                     },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (row.isPosted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.secondary,
@@ -317,8 +332,8 @@ fun ManagePublisherReportsScreen(
                     item {
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text("Total Bible Study: ${uiState.totalBibleStudies}", style = MaterialTheme.typography.bodyMedium)
-                                Text("Total Hours by Pioneers: ${uiState.totalHoursByPioneers}", style = MaterialTheme.typography.bodyMedium)
+                                Text(stringResource(R.string.manage_reports_total_bible_study, uiState.totalBibleStudies), style = MaterialTheme.typography.bodyMedium)
+                                Text(stringResource(R.string.manage_reports_total_hours_pioneers, uiState.totalHoursByPioneers.toString()), style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
@@ -327,6 +342,8 @@ fun ManagePublisherReportsScreen(
         }
     }
 
+    val reportSavedToast = stringResource(R.string.manage_reports_report_saved)
+    val reportDeletedToast = stringResource(R.string.manage_reports_report_deleted)
     val toEdit = pendingEdit
     if (toEdit != null) {
         EditReportDialog(
@@ -334,7 +351,7 @@ fun ManagePublisherReportsScreen(
             onDismiss = { pendingEdit = null },
             onSave = { bibleStudies, hours, participated ->
                 viewModel.updateReport(toEdit.report, bibleStudies, hours, participated, currentPersonId)
-                showToast("Report saved.")
+                showToast(reportSavedToast)
             },
         )
     }
@@ -343,14 +360,14 @@ fun ManagePublisherReportsScreen(
     if (toDelete != null) {
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("Permanently Delete Report?") },
-            text = { Text("This will permanently delete ${toDelete.person.fullName}'s report for this period. This action cannot be undone.") },
+            title = { Text(stringResource(R.string.manage_reports_delete_title)) },
+            text = { Text(stringResource(R.string.manage_reports_delete_message, toDelete.person.fullName)) },
             confirmButton = {
-                TextButton(onClick = { viewModel.permanentlyDelete(toDelete.report, currentPersonId); showToast("Report deleted."); pendingDelete = null }) {
-                    Text("Delete Permanently")
+                TextButton(onClick = { viewModel.permanentlyDelete(toDelete.report, currentPersonId); showToast(reportDeletedToast); pendingDelete = null }) {
+                    Text(stringResource(R.string.manage_reports_delete_permanently))
                 }
             },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 
@@ -358,21 +375,18 @@ fun ManagePublisherReportsScreen(
         val submittedCount = uiState.rows.count { it.report.status == ReportStatus.SUBMITTED }
         AlertDialog(
             onDismissRequest = { showPostAllConfirm = false },
-            title = { Text("Post $submittedCount Report${if (submittedCount == 1) "" else "s"}?") },
+            title = { Text(stringResource(R.string.manage_reports_post_confirm_title, submittedCount, if (submittedCount == 1) "" else "s")) },
             text = {
-                Text(
-                    "Every submitted report shown for $reportTitle will be marked Posted and locked — " +
-                        "the publisher can no longer edit it themselves once posted.",
-                )
+                Text(stringResource(R.string.manage_reports_post_confirm_message, reportTitle))
             },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.markPostedAll(uiState.rows, currentPersonId)
-                    showToast("$submittedCount report${if (submittedCount == 1) "" else "s"} posted.")
+                    showToast(context.getString(R.string.manage_reports_posted_toast, submittedCount, if (submittedCount == 1) "" else "s"))
                     showPostAllConfirm = false
-                }) { Text("Post") }
+                }) { Text(stringResource(R.string.manage_reports_post_action)) }
             },
-            dismissButton = { TextButton(onClick = { showPostAllConfirm = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { showPostAllConfirm = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -432,19 +446,20 @@ private fun reportTitleFor(startMillis: Long, endMillis: Long, option: QuickDate
 @Composable
 private fun PublisherPickerDropdown(publishers: List<Person>, selectedId: String?, onSelected: (String?) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = publishers.firstOrNull { it.id == selectedId }?.fullName ?: "All"
+    val allLabel = stringResource(R.string.manage_reports_all)
+    val selectedName = publishers.firstOrNull { it.id == selectedId }?.fullName ?: allLabel
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Publisher") },
+            label = { Text(stringResource(R.string.manage_reports_publisher_label)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("All") }, onClick = { onSelected(null); expanded = false })
+            DropdownMenuItem(text = { Text(allLabel) }, onClick = { onSelected(null); expanded = false })
             publishers.forEach { person ->
                 DropdownMenuItem(text = { Text(person.fullName) }, onClick = { onSelected(person.id); expanded = false })
             }
@@ -456,19 +471,20 @@ private fun PublisherPickerDropdown(publishers: List<Person>, selectedId: String
 @Composable
 private fun CongregationPickerDropdown(congregations: List<Congregation>, selectedId: String?, onSelected: (String?) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: "All"
+    val allLabel = stringResource(R.string.manage_reports_all)
+    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: allLabel
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation/Group") },
+            label = { Text(stringResource(R.string.reports_congregation_group_label)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("All") }, onClick = { onSelected(null); expanded = false })
+            DropdownMenuItem(text = { Text(allLabel) }, onClick = { onSelected(null); expanded = false })
             congregations.forEach { congregation ->
                 DropdownMenuItem(text = { Text(congregation.name) }, onClick = { onSelected(congregation.id); expanded = false })
             }
@@ -500,15 +516,15 @@ private fun EditReportDialog(
 
     FormDialog(
         onDismissRequest = onDismiss,
-        title = "Edit ${row.person.fullName}'s Report",
+        title = stringResource(R.string.manage_reports_edit_title, row.person.fullName),
         onConfirm = ::submit,
-        confirmLabel = "Save Changes",
+        confirmLabel = stringResource(R.string.manage_reports_save_changes),
         maxContentHeight = 400.dp,
     ) {
                 OutlinedTextField(
                     value = bibleStudies,
                     onValueChange = { bibleStudies = it.filter { c -> c.isDigit() } },
-                    label = { Text("Number of Bible Studies Conducted") },
+                    label = { Text(stringResource(R.string.manage_reports_bible_studies_field)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     visualTransformation = VisualTransformation.None,
@@ -518,7 +534,7 @@ private fun EditReportDialog(
                     OutlinedTextField(
                         value = hours,
                         onValueChange = { hours = it.filter { c -> c.isDigit() || c == '.' } },
-                        label = { Text("Hours Rendered") },
+                        label = { Text(stringResource(R.string.manage_reports_hours_field)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         visualTransformation = VisualTransformation.None,
@@ -530,7 +546,7 @@ private fun EditReportDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Participated in preaching this month?")
+                        Text(stringResource(R.string.manage_reports_participated_question))
                         Switch(checked = participated, onCheckedChange = { participated = it })
                     }
                 }

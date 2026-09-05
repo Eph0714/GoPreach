@@ -25,9 +25,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.model.GroupChatAttachmentType
 import com.emfitsolutions.gopreach.data.model.GroupChatMessage
@@ -57,31 +59,31 @@ fun SharedDocumentsDialog(groupName: String, messages: List<GroupChatMessage>, o
 
     FormDialog(
         onDismissRequest = onDismiss,
-        title = "Shared Documents · $groupName",
+        title = stringResource(R.string.chat_shared_documents_header, groupName),
         onConfirm = onDismiss,
-        confirmLabel = "Close",
-        dismissLabel = "Close",
+        confirmLabel = stringResource(R.string.chat_close),
+        dismissLabel = stringResource(R.string.chat_close),
         maxContentHeight = 560.dp,
     ) {
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            label = { Text("Search files") },
+            label = { Text(stringResource(R.string.chat_search_files)) },
             leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
             singleLine = true,
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 6.dp)) {
-            AssistChip(onClick = { typeFilter = null }, label = { Text("All") })
-            AssistChip(onClick = { typeFilter = GroupChatAttachmentType.IMAGE }, label = { Text("Images") })
-            AssistChip(onClick = { typeFilter = GroupChatAttachmentType.PDF }, label = { Text("PDF") })
-            AssistChip(onClick = { typeFilter = GroupChatAttachmentType.WORD }, label = { Text("Word") })
-            AssistChip(onClick = { typeFilter = GroupChatAttachmentType.EXCEL }, label = { Text("Excel") })
+            AssistChip(onClick = { typeFilter = null }, label = { Text(stringResource(R.string.chat_filter_all)) })
+            AssistChip(onClick = { typeFilter = GroupChatAttachmentType.IMAGE }, label = { Text(stringResource(R.string.chat_filter_images)) })
+            AssistChip(onClick = { typeFilter = GroupChatAttachmentType.PDF }, label = { Text(stringResource(R.string.chat_filter_pdf)) })
+            AssistChip(onClick = { typeFilter = GroupChatAttachmentType.WORD }, label = { Text(stringResource(R.string.chat_filter_word)) })
+            AssistChip(onClick = { typeFilter = GroupChatAttachmentType.EXCEL }, label = { Text(stringResource(R.string.chat_filter_excel)) })
         }
         if (documents.isEmpty()) {
             Text(
-                "No shared documents yet.",
+                stringResource(R.string.chat_no_shared_documents),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 16.dp),
@@ -104,9 +106,9 @@ private fun DocumentRow(message: GroupChatMessage) {
     ) {
         Icon(Icons.Rounded.InsertDriveFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
-            Text(message.attachmentFileName ?: "Attachment", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(message.attachmentFileName ?: stringResource(R.string.chat_attachment_fallback), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
             Text(
-                "Uploaded by: ${message.senderName} · ${formatRecordTimestamp(message.createdAt)} · ${formatFileSize(message.attachmentSize)}",
+                stringResource(R.string.chat_uploaded_by, message.senderName, formatRecordTimestamp(message.createdAt), formatFileSize(message.attachmentSize)),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -119,7 +121,7 @@ private fun DocumentRow(message: GroupChatMessage) {
             }
             CsvExporter.openWithChooser(context, Uri.parse(message.attachmentUrl), mime)
         }) {
-            Icon(Icons.Rounded.Download, contentDescription = "Download")
+            Icon(Icons.Rounded.Download, contentDescription = stringResource(R.string.chat_download_cd))
         }
     }
 }

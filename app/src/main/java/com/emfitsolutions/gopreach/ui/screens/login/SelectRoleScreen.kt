@@ -26,9 +26,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.domain.RoleOption
 
 /**
@@ -63,13 +65,13 @@ fun SelectRoleScreen(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                "SELECT LOGIN ACCOUNT",
+                stringResource(R.string.select_role_title),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
             )
             Text(
-                "Welcome, $personName.",
+                stringResource(R.string.select_role_welcome, personName),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -78,20 +80,20 @@ fun SelectRoleScreen(
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Text(
                 // Spec §2/§10 — the exact required wording.
-                "Your account was detected with multiple roles. Please select the account you want to log in as.",
+                stringResource(R.string.select_role_banner),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(16.dp),
             )
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Login as:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.select_role_label), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
                 OutlinedTextField(
                     value = selected?.label ?: "",
                     onValueChange = {},
                     readOnly = true,
-                    placeholder = { Text("Select Role") },
+                    placeholder = { Text(stringResource(R.string.select_role_placeholder)) },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth().menuAnchor(),
@@ -122,11 +124,11 @@ fun SelectRoleScreen(
             enabled = selected != null,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("CONTINUE", fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.select_role_continue), fontWeight = FontWeight.Bold)
         }
 
         TextButton(onClick = onSignOut, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-            Text("Not you? Sign out")
+            Text(stringResource(R.string.select_role_sign_out))
         }
     }
 }

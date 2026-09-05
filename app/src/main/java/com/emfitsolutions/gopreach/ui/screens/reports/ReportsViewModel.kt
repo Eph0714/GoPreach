@@ -1,7 +1,9 @@
 package com.emfitsolutions.gopreach.ui.screens.reports
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
@@ -16,6 +18,7 @@ import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.domain.DateRangeStore
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -144,6 +147,7 @@ class ReportsViewModel @Inject constructor(
     private val groupRepository: GroupRepository,
     private val congregationRepository: CongregationRepository,
     private val dateRangeStore: DateRangeStore,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     /** Spec §8 — the same selected [DateRange] the Dashboard's Reports screen
@@ -247,7 +251,7 @@ class ReportsViewModel @Inject constructor(
             } else {
                 assignedSections + GroupReportSection(
                     groupId = null,
-                    groupName = "Unassigned",
+                    groupName = context.getString(R.string.reports_unassigned),
                     overseerName = null,
                     servantName = null,
                     assistantName = null,

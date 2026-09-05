@@ -2,7 +2,7 @@ package com.emfitsolutions.gopreach
 
 import android.os.Bundle
 import androidx.activity.compose.setContent
-import androidx.fragment.app.FragmentActivity
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,11 +28,15 @@ import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class MainActivity : FragmentActivity() {
-    // FragmentActivity, not the usual bare ComponentActivity, because
-    // androidx.biometric.BiometricPrompt (used by the login screen's fingerprint/
-    // face sign-in) needs a FragmentManager to host its internal dialog fragment.
-    // FragmentActivity is itself a ComponentActivity, so setContent{}/enableEdgeToEdge()
+class MainActivity : AppCompatActivity() {
+    // AppCompatActivity, not a bare ComponentActivity/FragmentActivity, for two
+    // independent reasons that both still hold: (1) androidx.biometric.BiometricPrompt
+    // (used by the login screen's fingerprint/face sign-in) needs a FragmentManager to
+    // host its internal dialog fragment — AppCompatActivity is itself a FragmentActivity,
+    // so that's unaffected; (2) per-app language (Settings -> Language) needs
+    // AppCompatDelegate's locale-aware attachBaseContext to actually take effect on
+    // API < 33 without extra manual Context-wrapping code (see AppLanguageRepository.kt).
+    // AppCompatActivity is itself a ComponentActivity, so setContent{}/enableEdgeToEdge()
     // below are unaffected.
 
     @Inject

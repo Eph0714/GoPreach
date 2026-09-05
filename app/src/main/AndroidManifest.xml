@@ -93,6 +93,20 @@
             android:exported="false"
             android:foregroundServiceType="location" />
 
+        <!-- Per-app language (Settings -> Language: English/Filipino/Iloko — see
+             data/repository/AppLanguageRepository.kt). Required boilerplate for
+             AndroidX's AppCompatDelegate.setApplicationLocales() backport to
+             correctly restore the chosen language on API < 33 after the app
+             process has died, before MainActivity's own attachBaseContext runs. -->
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false"
+            android:exported="false">
+            <meta-data
+                android:name="autoStoreLocales"
+                android:value="true" />
+        </service>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

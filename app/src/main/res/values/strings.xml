@@ -2,4 +2,342 @@
 <resources>
     <string name="app_name">GoPreach</string>
     <string name="powered_by">Powered by EMF IT Solutions, Est. 2026</string>
+
+    <!-- Login screen (Phase 1 of "Settings -> Language" — see
+         com.emfitsolutions.gopreach.domain.AppLanguage). English is the
+         default/fallback resource set: Android automatically falls back to
+         this file for any key missing from values-tl/ or values-b+ilo/. -->
+    <string name="login_tagline">Ministry Activity Tracking</string>
+    <string name="login_welcome_back">Welcome back!</string>
+    <string name="login_username">Username</string>
+    <string name="login_password">Password</string>
+    <string name="login_show_password">Show password</string>
+    <string name="login_hide_password">Hide password</string>
+    <string name="login_remember_me">Remember me</string>
+    <string name="login_forgot_password">Forgot Password?</string>
+    <string name="login_log_in">Log In</string>
+    <string name="login_biometric_button">Sign in with biometrics</string>
+    <string name="login_error_missing_fields">Enter both username and password.</string>
+    <string name="login_error_no_saved_credential">No saved sign-in found for biometric unlock.</string>
+    <string name="login_biometric_prompt_title">Sign in to GoPreach</string>
+    <string name="login_biometric_prompt_subtitle">Use your fingerprint or face to continue</string>
+    <string name="login_biometric_prompt_use_password">Use password instead</string>
+    <string name="login_powered_by">POWERED BY: EMF IT Solutions</string>
+
+    <!-- "Multiple Role Login Detection & Role Selection" — SelectRoleScreen.kt. -->
+    <string name="select_role_title">SELECT LOGIN ACCOUNT</string>
+    <string name="select_role_welcome">Welcome, %1$s.</string>
+    <string name="select_role_banner">Your account was detected with multiple roles. Please select the account you want to log in as.</string>
+    <string name="select_role_label">Login as:</string>
+    <string name="select_role_placeholder">Select Role</string>
+    <string name="select_role_continue">CONTINUE</string>
+    <string name="select_role_sign_out">Not you? Sign out</string>
+
+    <!-- "Settings -> Language" section header/labels. -->
+    <string name="settings_language_title">Language</string>
+
+    <!-- Publisher Home (Main Form) — Phase 2 of "Settings -> Language". -->
+    <string name="home_exit_title">Exit GoPreach?</string>
+    <string name="home_exit_message">Are you sure you want to close the application?</string>
+    <string name="home_exit_confirm">EXIT</string>
+    <string name="home_exit_cancel">CANCEL</string>
+    <string name="home_sync_card_title">Keep Your Data Safe</string>
+    <string name="home_sync_card_message">Sync your data regularly to keep your information secure.</string>
+    <string name="home_switch_to_admin">Switch to Admin App</string>
+    <string name="home_welcome">Welcome, %1$s 👋</string>
+    <string name="home_status_online">Online</string>
+    <string name="home_status_offline">Offline</string>
+    <string name="home_status_pending_sync_suffix"> · %1$d pending sync</string>
+    <string name="home_status_all_synced_suffix"> · All synced</string>
+
+    <string name="home_tile_monthly_report_title">Monthly Report</string>
+    <string name="home_tile_monthly_report_subtitle">Submit Report</string>
+    <string name="home_tile_my_reports_title">My Reports</string>
+    <string name="home_tile_my_reports_subtitle">View Report History</string>
+    <string name="home_tile_searching_title">Searching</string>
+    <string name="home_tile_searching_subtitle">Find Interested Ones</string>
+    <string name="home_tile_return_visit_title">Return Visit</string>
+    <string name="home_tile_return_visit_subtitle">Record &amp; Follow-up</string>
+    <string name="home_tile_bible_study_title">Bible Study</string>
+    <string name="home_tile_bible_study_subtitle">View &amp; Manage</string>
+    <string name="home_tile_forwarded_to_me_title">Forwarded to Me</string>
+    <string name="home_tile_forwarded_to_me_subtitle">Accept or Decline</string>
+    <string name="home_tile_my_total_hours_title">My Total Hours</string>
+    <string name="home_tile_my_total_hours_subtitle">Track Preaching Hours</string>
+    <string name="home_tile_my_bible_text_record_title">My Bible Text Record</string>
+    <string name="home_tile_my_bible_text_record_subtitle">Save Bible References</string>
+    <string name="home_tile_my_calendar_title">My Calendar</string>
+    <string name="home_tile_my_calendar_subtitle">View Schedule</string>
+    <string name="home_tile_share_my_location_title">Share My Location</string>
+    <string name="home_tile_share_my_location_subtitle">Share Live Location</string>
+    <string name="home_tile_find_location_title">Find Location</string>
+    <string name="home_tile_find_location_subtitle">Get Directions</string>
+    <string name="home_tile_territory_map_title">Territory Map</string>
+    <string name="home_tile_territory_map_subtitle">All Saved Locations</string>
+    <string name="home_tile_meeting_cart_assignment_title">Meeting and Cart Assignment</string>
+    <string name="home_tile_meeting_cart_assignment_subtitle">Midweek, Weekend &amp; Cart Schedule</string>
+    <string name="home_tile_my_assignments_title">My Assignments</string>
+    <string name="home_tile_my_assignments_subtitle">Assignments Under My Name</string>
+    <string name="home_tile_announcement_title">Announcement</string>
+    <string name="home_tile_announcement_subtitle">Latest Updates</string>
+    <string name="home_tile_group_chat_title">Group Chat</string>
+    <string name="home_tile_group_chat_subtitle">Congregation Chats</string>
+
+    <string name="home_nav_home">Home</string>
+    <string name="home_nav_reports">Reports</string>
+    <string name="home_nav_calendar">Calendar</string>
+    <string name="home_nav_profile">Profile</string>
+
+    <string name="home_dashboard_header">Dashboard</string>
+    <string name="home_stat_my_bible_study">My Bible Study</string>
+    <string name="home_stat_my_return_visit">My Return Visit</string>
+    <string name="home_stat_preaching_hours">Preaching Hours</string>
+    <string name="home_stat_attended_preaching">Attended Preaching</string>
+    <string name="home_yes">Yes</string>
+    <string name="home_no">No</string>
+    <string name="role_label_publisher">Publisher</string>
+
+    <!-- Admin-track side navigation drawer (SidePanel.kt) — Phase 2. -->
+    <string name="side_section_enrollment">Enrollment</string>
+    <string name="side_section_control_panel">Control Panel</string>
+    <string name="side_section_other">Other</string>
+    <string name="side_congregations_groups">Congregations/Groups</string>
+    <string name="side_admins">Admins</string>
+    <string name="side_coordinator_elder">Coordinator Elder</string>
+    <string name="side_service_overseer">Service Overseer</string>
+    <string name="side_ministerial_servant">Ministerial Servant</string>
+    <string name="side_announcements">Announcements</string>
+    <string name="side_groups">Groups</string>
+    <string name="side_regular_elder">Regular Elder</string>
+    <string name="side_publisher">Publisher</string>
+    <string name="side_territory_map">Territory Map</string>
+    <string name="side_backup_restore">Backup &amp; Restore</string>
+    <string name="side_appearance_app_logo">Appearance &amp; App Logo</string>
+    <string name="side_group_chat_setting">Group Chat Setting</string>
+    <string name="side_reports_summary">Reports Summary</string>
+    <string name="side_consolidated_report">Consolidated Report</string>
+    <string name="side_publisher_reports">Publisher Reports</string>
+    <string name="side_forward_requests">Forward Requests</string>
+    <string name="side_share_location_settings">Share Location Settings</string>
+    <string name="side_user_logs">User Logs</string>
+    <string name="side_contact_record">Contact Record</string>
+    <string name="side_interested_records_all_congregations">Interested Records (All Congregations)</string>
+    <string name="side_user_management">User Management</string>
+    <string name="side_account_settings">Account Settings</string>
+    <string name="side_ministry_report_app">Ministry Report App</string>
+    <string name="side_sign_out">Sign Out</string>
+
+    <!-- Admin Home / Main Form (AdminHomeScreen.kt) — Phase 2 continued. -->
+    <string name="greeting_fallback_name">there</string>
+    <string name="role_label_admin_fallback">GoPreach Admin</string>
+    <string name="dashboard_quick_action_publishers">Publishers</string>
+    <string name="dashboard_section_graphical_reports">Graphical Reports</string>
+    <string name="dashboard_section_management">Management</string>
+    <string name="dashboard_section_territory">Territory</string>
+    <string name="dashboard_section_ministry">Ministry</string>
+    <string name="dashboard_section_system">System</string>
+    <string name="dashboard_section_account">Account</string>
+    <string name="dashboard_tile_reports_dashboard">Reports Dashboard</string>
+    <string name="dashboard_tile_share_location">Share Location</string>
+    <string name="dashboard_tile_control_panel">Control Panel</string>
+
+    <!-- Monthly Report / My Reports (Phase 3). -->
+    <string name="monthly_report_title">Monthly Report</string>
+    <string name="monthly_report_category">Category: %1$s</string>
+    <string name="monthly_report_category_unknown">Unknown</string>
+    <string name="monthly_report_select_month">Select Month to Report</string>
+    <string name="monthly_report_posted_locked">This report has been posted and can now only be changed by your Service Overseer, Admin, or Super-Admin.</string>
+    <string name="monthly_report_bible_studies_label">Number of Bible Studies Conducted</string>
+    <string name="monthly_report_hours_rendered">Hours Rendered</string>
+    <string name="monthly_report_participated_question">Participated in preaching this month?</string>
+    <string name="monthly_report_remarks">Remarks (optional)</string>
+    <string name="monthly_report_submission_window_message">Submission for the current month opens 2 days before it ends. To report now, select the previous month instead.</string>
+    <string name="monthly_report_submit_button">Submit Report</string>
+
+    <string name="my_reports_empty">You haven\'t submitted any Monthly Reports yet.</string>
+    <string name="my_reports_bible_studies_conducted">Bible Studies Conducted: %1$d</string>
+    <string name="my_reports_hours_rendered">Hours Rendered: %1$s</string>
+    <string name="my_reports_participated">Participated in Preaching: %1$s</string>
+    <string name="my_reports_submitted_at">Submitted: %1$s</string>
+
+    <!-- Shared across nearly every dialog in the app (FormDialog.kt's own
+         default button labels) — fixing these here localizes "Save"/"Cancel"
+         everywhere a dialog doesn't explicitly override them, with no other
+         file needing to change. -->
+    <string name="action_save">Save</string>
+    <string name="action_cancel">Cancel</string>
+
+    <!-- Group Chat Setting module (Phase 4). -->
+    <string name="chat_setting_title">Group Chat Setting</string>
+    <string name="chat_new_group_chat">New Group Chat</string>
+    <string name="chat_empty_manage">No group chats yet. Tap + to create one.</string>
+    <string name="chat_empty_member">You\'re not in any group chat yet.</string>
+    <string name="chat_participants_count">%1$d participants</string>
+    <string name="chat_attachment_preview">📎 %1$s: attachment</string>
+    <string name="chat_message_preview">%1$s: %2$s</string>
+    <string name="chat_no_messages_yet">No messages yet.</string>
+    <string name="chat_title_fallback">Group Chat</string>
+    <string name="chat_participants_header">👥 %1$d Participants</string>
+    <string name="chat_shared_documents_cd">Shared Documents</string>
+    <string name="chat_group_settings_cd">Group Settings</string>
+    <string name="chat_unsupported_file_type">Unsupported file type. Choose an image, PDF, Word, or Excel file.</string>
+    <string name="chat_upload_failed">File failed to upload. Try again.</string>
+    <string name="chat_not_available_message">This Group Chat is no longer available to your account.</string>
+    <string name="chat_unauthorized_message">You are not authorized to access this Group Chat.</string>
+    <string name="chat_cancel_attachment_cd">Cancel attachment</string>
+    <string name="chat_attach_file_cd">Attach File</string>
+    <string name="chat_type_message_placeholder">Type your message…</string>
+    <string name="chat_send_cd">Send</string>
+    <string name="chat_delete_for_everyone_title">Delete for everyone?</string>
+    <string name="chat_delete_for_everyone_message">This message will be removed for everyone in this group chat. This cannot be undone.</string>
+    <string name="chat_delete_for_everyone_confirm">Delete for Everyone</string>
+    <string name="chat_edit_message_title">Edit Message</string>
+    <string name="chat_message_options_cd">Message options</string>
+    <string name="chat_edit">Edit</string>
+    <string name="chat_delete_for_me">Delete for Me</string>
+    <string name="chat_message_deleted">This message was deleted</string>
+    <string name="chat_edited_suffix"> · edited</string>
+    <string name="chat_select_congregation">Select Congregation</string>
+    <string name="chat_search_participants">Search by name, publisher name, or role</string>
+    <string name="chat_selected_count">%1$d selected</string>
+    <string name="chat_no_participants_found">No participants found in this congregation.</string>
+    <string name="chat_group_chat_name">Group Chat Name</string>
+    <string name="chat_description_optional">Description (optional)</string>
+    <string name="chat_participants_label">Participants</string>
+    <string name="chat_create">Create</string>
+    <string name="chat_settings_title">Group Chat Settings</string>
+    <string name="chat_delete_group_chat">Delete Group Chat</string>
+    <string name="chat_delete_group_chat_title">Delete this Group Chat?</string>
+    <string name="chat_delete_group_chat_message">\"%1$s\" and its entire message history will be permanently removed for every participant. This cannot be undone.</string>
+    <string name="chat_delete">Delete</string>
+    <string name="chat_shared_documents_header">Shared Documents · %1$s</string>
+    <string name="chat_close">Close</string>
+    <string name="chat_search_files">Search files</string>
+    <string name="chat_filter_all">All</string>
+    <string name="chat_filter_images">Images</string>
+    <string name="chat_filter_pdf">PDF</string>
+    <string name="chat_filter_word">Word</string>
+    <string name="chat_filter_excel">Excel</string>
+    <string name="chat_no_shared_documents">No shared documents yet.</string>
+    <string name="chat_attachment_fallback">Attachment</string>
+    <string name="chat_uploaded_by">Uploaded by: %1$s · %2$s · %3$s</string>
+    <string name="chat_download_cd">Download</string>
+    <string name="chat_view_all_group_chats">View All Group Chats</string>
+
+    <string name="action_close">Close</string>
+
+    <!-- Reports Summary (Phase 5, on-screen text only — see PDF/CSV export
+         deferral note in ReportsScreen.kt's own reportsTableFor). -->
+    <string name="reports_title">Reports</string>
+    <string name="reports_export_pdf_cd">Export as PDF</string>
+    <string name="reports_export_excel_cd">Export as Excel (CSV)</string>
+    <string name="reports_export_csv_success">Exported to Excel (CSV).</string>
+    <string name="reports_export_failed_write">Export failed: couldn\'t write the file.</string>
+    <string name="reports_export_failed_generic">Export failed: %1$s</string>
+    <string name="reports_export_failed_unknown">unknown error</string>
+    <string name="reports_all_groups">All Groups</string>
+    <string name="reports_per_group">Per Group</string>
+    <string name="reports_no_submitted_yet">No submitted reports yet. Totals appear here once publishers start submitting monthly reports.</string>
+    <string name="reports_all_publishers">All Publishers</string>
+    <string name="reports_bible_studies_count">Bible Studies: %1$d</string>
+    <string name="reports_hours_count">Hours: %1$s</string>
+    <string name="reports_interested_people_count">Interested People: %1$d</string>
+    <string name="reports_total_regular_pioneer">Total Regular Pioneer: %1$d</string>
+    <string name="reports_total_auxiliary_pioneer">Total Auxiliary Pioneer: %1$d</string>
+    <string name="reports_total_regular_publisher">Total Regular Publisher: %1$d</string>
+    <string name="reports_total_unbaptized_publisher">Total Unbaptized Publisher: %1$d</string>
+    <string name="reports_total_bible_studies_for">Total Bible Studies for %1$s: %2$d</string>
+    <string name="reports_total_hours_for">Total Hours for %1$s: %2$s</string>
+    <string name="reports_all_congregations_groups">All Congregations/Groups</string>
+    <string name="reports_congregation_group_label">Congregation/Group</string>
+    <string name="reports_group_label">Group</string>
+    <string name="reports_select_a_group">Select a Group</string>
+    <string name="reports_no_groups_yet">No groups yet</string>
+    <string name="reports_group_name">Group: %1$s</string>
+    <string name="reports_group_overseer">Group Overseer: %1$s</string>
+    <string name="reports_group_servant">Group Servant: %1$s</string>
+    <string name="reports_group_assistant">Group Assistant: %1$s</string>
+    <string name="reports_row_summary">Hours: %1$s · Bible Studies: %2$d · Attended Preaching: %3$s</string>
+    <string name="reports_edit_this_month_cd">Edit this month\'s report</string>
+    <string name="reports_summary_total_for">Summary Total for %1$s</string>
+    <string name="reports_total_category">Total %1$s: %2$d</string>
+    <string name="reports_na">N/A</string>
+    <string name="reports_unassigned">Unassigned</string>
+
+    <!-- Consolidated Monthly Report. -->
+    <string name="consolidated_title">Consolidated Monthly Report</string>
+    <string name="consolidated_all_congregations">ALL CONGREGATIONS/GROUPS</string>
+    <string name="consolidated_stat_bible_studies">Bible Studies</string>
+    <string name="consolidated_stat_preaching_hours">Preaching Hours</string>
+    <string name="consolidated_stat_participated_ministry">Participated in Ministry</string>
+    <string name="consolidated_per_publisher">Per Publisher</string>
+    <string name="consolidated_tap_publisher_hint">Tap a publisher to see their Bible Study, Return Visit, and Preaching Time records.</string>
+    <string name="consolidated_loading">Loading…</string>
+    <string name="consolidated_no_publishers_found">No publishers found in this scope.</string>
+    <string name="consolidated_bible_studies_return_visits">Bible Studies: %1$d  ·  Return Visits: %2$d</string>
+    <string name="consolidated_preaching_hours_value">Preaching Hours: %1$s</string>
+    <string name="consolidated_participated_ministry_value">Participated in Ministry: %1$s</string>
+    <string name="consolidated_yes">YES</string>
+    <string name="consolidated_no">NO</string>
+    <string name="consolidated_no_report_yet">No report yet</string>
+    <string name="consolidated_bible_study_records">Bible Study Records</string>
+    <string name="consolidated_return_visit_records">Return Visit Records</string>
+    <string name="consolidated_preaching_time_records">Preaching Time Records</string>
+    <string name="consolidated_none_recorded">None recorded.</string>
+    <string name="consolidated_hours_suffix">%1$s hours</string>
+
+    <!-- Reports Dashboard. -->
+    <string name="dashboard_title">Reports Dashboard</string>
+    <string name="dashboard_back_cd">Back</string>
+    <string name="dashboard_refresh_cd">Refresh</string>
+    <string name="dashboard_all_congregations">ALL CONGREGATIONS</string>
+    <string name="dashboard_stats_unavailable_title">Dashboard statistics are temporarily unavailable.</string>
+    <string name="dashboard_stats_unavailable_detail">Other GoPreach features are unaffected. (%1$s)</string>
+    <string name="dashboard_no_congregation_data">No congregation data available yet.</string>
+    <string name="dashboard_description">Bible Studies and Preaching Hours reflect the selected period above. Publisher/Elder counts always reflect current status. \"Total Elders\" counts Coordinator Elders, Regular Elders, and Service Overseers, and \"Total Ministerial\" counts Ministerial Servants — anyone holding more than one of the roles within a card\'s own count is counted once.</string>
+    <string name="dashboard_overview">Overview</string>
+    <string name="dashboard_preaching_hours_title">Preaching Hours</string>
+    <string name="dashboard_publishers_per_congregation">Publishers per Congregation/Group</string>
+    <string name="dashboard_publishers_per_congregation_hint">Tap a bar to drill into that congregation.</string>
+    <string name="dashboard_elders_per_congregation">Elders per Congregation/Group</string>
+    <string name="dashboard_elders_per_congregation_hint">Regular Elders only. Tap a bar to drill into that congregation.</string>
+
+    <!-- Manage Publisher Reports. -->
+    <string name="manage_reports_title">Publisher Reports</string>
+    <string name="manage_reports_show_label">Show</string>
+    <string name="manage_reports_all">All</string>
+    <string name="manage_reports_by_publisher">By Publisher</string>
+    <string name="manage_reports_by_congregation">By Congregation/Group</string>
+    <string name="manage_reports_search_label">Search: Name, Status</string>
+    <string name="manage_reports_search_label_with_congregation">Search: Name, Status, Congregation/Group</string>
+    <string name="manage_reports_post_button">POST %1$d Submitted Report%2$s</string>
+    <string name="manage_reports_no_reports">No reports for this period.</string>
+    <string name="manage_reports_edit_cd">Edit report</string>
+    <string name="manage_reports_unlock_cd">Unlock for publisher</string>
+    <string name="manage_reports_mark_posted_cd">Mark as Posted</string>
+    <string name="manage_reports_delete_cd">Delete report</string>
+    <string name="manage_reports_status_prefix">Status: %1$s</string>
+    <string name="manage_reports_bible_study_hours">Bible Study: %1$d    Hours: %2$s</string>
+    <string name="manage_reports_bible_study_participate">Bible Study: %1$d    Participate in Preaching: %2$s</string>
+    <string name="manage_reports_congregation_prefix">Congregation/Group: %1$s</string>
+    <string name="manage_reports_posted_locked">Posted — locked for the publisher</string>
+    <string name="manage_reports_submitted_editable">Submitted — still editable by the publisher</string>
+    <string name="manage_reports_draft_editable">Draft — editable by the publisher</string>
+    <string name="manage_reports_total_bible_study">Total Bible Study: %1$d</string>
+    <string name="manage_reports_total_hours_pioneers">Total Hours by Pioneers: %1$s</string>
+    <string name="manage_reports_report_saved">Report saved.</string>
+    <string name="manage_reports_delete_title">Permanently Delete Report?</string>
+    <string name="manage_reports_delete_message">This will permanently delete %1$s\'s report for this period. This action cannot be undone.</string>
+    <string name="manage_reports_delete_permanently">Delete Permanently</string>
+    <string name="manage_reports_report_deleted">Report deleted.</string>
+    <string name="manage_reports_post_confirm_title">Post %1$d Report%2$s?</string>
+    <string name="manage_reports_post_confirm_message">Every submitted report shown for %1$s will be marked Posted and locked — the publisher can no longer edit it themselves once posted.</string>
+    <string name="manage_reports_post_action">Post</string>
+    <string name="manage_reports_posted_toast">%1$d report%2$s posted.</string>
+    <string name="manage_reports_publisher_label">Publisher</string>
+    <string name="manage_reports_edit_title">Edit %1$s\'s Report</string>
+    <string name="manage_reports_save_changes">Save Changes</string>
+    <string name="manage_reports_bible_studies_field">Number of Bible Studies Conducted</string>
+    <string name="manage_reports_hours_field">Hours Rendered</string>
+    <string name="manage_reports_participated_question">Participated in preaching this month?</string>
 </resources>

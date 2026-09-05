@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -41,13 +42,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.activity.ComponentActivity
+import androidx.compose.material.icons.rounded.Language
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,14 +63,17 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.repository.ThemePreference
 import com.emfitsolutions.gopreach.notifications.AlarmScheduler
+import com.emfitsolutions.gopreach.domain.AppLanguage
 import com.emfitsolutions.gopreach.ui.components.ColorWheelPicker
 import com.emfitsolutions.gopreach.ui.components.EyedropperImagePicker
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import kotlinx.coroutines.launch
 import com.emfitsolutions.gopreach.ui.components.ThemeOptionRow
 import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
@@ -83,7 +90,10 @@ fun SettingsScreen(
     val theme by viewModel.theme.collectAsStateWithLifecycle()
     val colorOption by viewModel.colorOption.collectAsStateWithLifecycle()
     val customColor by viewModel.customColor.collectAsStateWithLifecycle()
+    val language by viewModel.language.collectAsStateWithLifecycle()
     var showCustomColorDialog by remember { mutableStateOf(false) }
+    val showToast = rememberActionToast()
+    LaunchedEffect(Unit) { viewModel.languageChanged.collect { showToast(it) } }
     // Explicitly Activity-scoped (not the default nav-entry scope) so this is
     // the *same* instance MainActivity's UpdateHost renders the result of —
     // otherwise tapping "Check for Updates" here would update a ViewModel
@@ -110,6 +120,15 @@ fun SettingsScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            Text(stringResource(com.emfitsolutions.gopreach.R.string.settings_language_title), style = MaterialTheme.typography.titleMedium)
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                    AppLanguage.entries.forEach { option ->
+                        LanguageOptionRow(option = option, selected = language, onSelected = viewModel::setLanguage)
+                    }
+                }
+            }
+
             Text("Appearance", style = MaterialTheme.typography.titleMedium)
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(vertical = 4.dp)) {
@@ -352,6 +371,26 @@ private fun launchAppShare(context: android.content.Context, text: String) {
         putExtra(android.content.Intent.EXTRA_TEXT, text)
     }
     context.startActivity(android.content.Intent.createChooser(intent, "Share GoPreach"))
+}
+
+/** "Settings -> Language" — English/Filipino/Iloko, same radio-row shape
+ * [ThemeOptionRow] already uses for the Appearance section right below this
+ * one. Picking a row applies immediately (see [SettingsViewModel.setLanguage]'s
+ * own doc comment for why — on-device first, then synced to the signed-in
+ * Person's profile). */
+@Composable
+private fun LanguageOptionRow(option: AppLanguage, selected: AppLanguage, onSelected: (AppLanguage) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected == option, onClick = { onSelected(option) })
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected == option, onClick = { onSelected(option) })
+        Icon(Icons.Rounded.Language, contentDescription = null, modifier = Modifier.padding(start = 8.dp, end = 8.dp))
+        Text(option.displayLabel, style = MaterialTheme.typography.bodyLarge)
+    }
 }
 
 /** One tappable swatch + label in the Theme Color picker — the swatch itself is

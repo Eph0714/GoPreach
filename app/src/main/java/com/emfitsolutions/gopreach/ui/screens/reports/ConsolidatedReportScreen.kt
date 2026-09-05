@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -50,6 +51,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.flow.collect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
@@ -94,18 +96,22 @@ fun ConsolidatedReportScreen(
     // Bug fix ("I cannot see any PDF or Excel"): see ReportsScreen's matching
     // fix — the Storage Access Framework picker just saves and closes with
     // no feedback of its own; now it confirms and opens the file immediately.
+    val exportCsvSuccess = stringResource(R.string.reports_export_csv_success)
+    val exportFailedWrite = stringResource(R.string.reports_export_failed_write)
+    val exportFailedUnknown = stringResource(R.string.reports_export_failed_unknown)
+    val exportFailedGenericTemplate = stringResource(R.string.reports_export_failed_generic)
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
             try {
                 val wrote = CsvExporter.write(context, uri, reportTable.title, subtitle = null, columns = reportTable.columns, rows = reportTable.rows, totals = reportTable.totals)
                 if (wrote) {
-                    showToast("Exported to Excel (CSV).")
+                    showToast(exportCsvSuccess)
                     CsvExporter.openWithChooser(context, uri, "text/csv")
                 } else {
-                    showToast("Export failed: couldn't write the file.")
+                    showToast(exportFailedWrite)
                 }
             } catch (e: Exception) {
-                showToast("Export failed: ${e.localizedMessage ?: "unknown error"}")
+                showToast(exportFailedGenericTemplate.format(e.localizedMessage ?: exportFailedUnknown))
             }
         }
     }
@@ -114,7 +120,7 @@ fun ConsolidatedReportScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Consolidated Monthly Report") },
+                title = { Text(stringResource(R.string.consolidated_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
                 },
@@ -126,10 +132,10 @@ fun ConsolidatedReportScreen(
                     // Always enabled now; printing/exporting with nothing to
                     // show just produces a heading-only result.
                     IconButton(onClick = { ReportPrinter.print(context, reportTable) }) {
-                        Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Export as PDF")
+                        Icon(Icons.Rounded.PictureAsPdf, contentDescription = stringResource(R.string.reports_export_pdf_cd))
                     }
                     IconButton(onClick = { exportLauncher.launch(exportFileName) }) {
-                        Icon(Icons.Rounded.TableChart, contentDescription = "Export as Excel (CSV)")
+                        Icon(Icons.Rounded.TableChart, contentDescription = stringResource(R.string.reports_export_excel_cd))
                     }
                 },
             )
@@ -158,30 +164,30 @@ fun ConsolidatedReportScreen(
                     )
 
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        StatCard("Bible Studies", uiState.totalBibleStudies.toString(), onClick = {}, modifier = Modifier.weight(1f))
-                        StatCard("Preaching Hours", "%.1f".format(uiState.totalPreachingHours), onClick = {}, modifier = Modifier.weight(1f))
+                        StatCard(stringResource(R.string.consolidated_stat_bible_studies), uiState.totalBibleStudies.toString(), onClick = {}, modifier = Modifier.weight(1f))
+                        StatCard(stringResource(R.string.consolidated_stat_preaching_hours), "%.1f".format(uiState.totalPreachingHours), onClick = {}, modifier = Modifier.weight(1f))
                     }
                     if (uiState.regularPublisherEntries.isNotEmpty()) {
                         StatCard(
-                            "Participated in Ministry",
+                            stringResource(R.string.consolidated_stat_participated_ministry),
                             "${uiState.participatedYesCount} / ${uiState.regularPublisherEntries.size}",
                             onClick = {},
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
                     HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
-                    Text("Per Publisher", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.consolidated_per_publisher), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Tap a publisher to see their Bible Study, Return Visit, and Preaching Time records.",
+                        stringResource(R.string.consolidated_tap_publisher_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             if (uiState.isLoading) {
-                item { Text("Loading…", style = MaterialTheme.typography.bodyMedium) }
+                item { Text(stringResource(R.string.consolidated_loading), style = MaterialTheme.typography.bodyMedium) }
             } else if (uiState.visibleEntries.isEmpty()) {
-                item { Text("No publishers found in this scope.", style = MaterialTheme.typography.bodyMedium) }
+                item { Text(stringResource(R.string.consolidated_no_publishers_found), style = MaterialTheme.typography.bodyMedium) }
             }
             items(uiState.visibleEntries, key = { it.person.id }) { entry ->
                 Card(
@@ -195,12 +201,21 @@ fun ConsolidatedReportScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Text("Bible Studies: ${entry.bibleStudiesCount}  ·  Return Visits: ${entry.returnVisitsCount}", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            stringResource(R.string.consolidated_bible_studies_return_visits, entry.bibleStudiesCount, entry.returnVisitsCount),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                         if (isPioneerCategory(entry.category)) {
-                            Text("Preaching Hours: ${"%.1f".format(entry.preachingHours)}", style = MaterialTheme.typography.bodyMedium)
-                        } else {
                             Text(
-                                "Participated in Ministry: ${entry.participatedInMinistry?.let { if (it) "YES" else "NO" } ?: "No report yet"}",
+                                stringResource(R.string.consolidated_preaching_hours_value, "%.1f".format(entry.preachingHours)),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        } else {
+                            val ministryValue = entry.participatedInMinistry?.let {
+                                if (it) stringResource(R.string.consolidated_yes) else stringResource(R.string.consolidated_no)
+                            } ?: stringResource(R.string.consolidated_no_report_yet)
+                            Text(
+                                stringResource(R.string.consolidated_participated_ministry_value, ministryValue),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                         }
@@ -247,19 +262,20 @@ private fun consolidatedReportTableFor(uiState: ConsolidatedReportUiState): Repo
 @Composable
 private fun CongregationScopeDropdown(congregationNames: List<Pair<String, String>>, selectedId: String?, onSelected: (String?) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = congregationNames.firstOrNull { it.first == selectedId }?.second ?: "ALL CONGREGATIONS/GROUPS"
+    val allCongregationsLabel = stringResource(R.string.consolidated_all_congregations)
+    val selectedName = congregationNames.firstOrNull { it.first == selectedId }?.second ?: allCongregationsLabel
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation/Group") },
+            label = { Text(stringResource(R.string.reports_congregation_group_label)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("ALL CONGREGATIONS/GROUPS") }, onClick = { onSelected(null); expanded = false })
+            DropdownMenuItem(text = { Text(allCongregationsLabel) }, onClick = { onSelected(null); expanded = false })
             congregationNames.forEach { (id, name) ->
                 DropdownMenuItem(text = { Text(name) }, onClick = { onSelected(id); expanded = false })
             }
@@ -293,18 +309,19 @@ private fun PublisherRecordsDialog(
                 modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()).imePadding(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Bible Study Records", style = MaterialTheme.typography.titleSmall)
+                val noneRecorded = stringResource(R.string.consolidated_none_recorded)
+                Text(stringResource(R.string.consolidated_bible_study_records), style = MaterialTheme.typography.titleSmall)
                 if (bibleStudies.isEmpty()) {
-                    Text("None recorded.", style = MaterialTheme.typography.bodySmall)
+                    Text(noneRecorded, style = MaterialTheme.typography.bodySmall)
                 } else {
                     bibleStudies.forEach { record ->
                         Text("• ${record.name} — ${record.address}", style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                Text("Return Visit Records", style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.consolidated_return_visit_records), style = MaterialTheme.typography.titleSmall)
                 if (visits.isEmpty()) {
-                    Text("None recorded.", style = MaterialTheme.typography.bodySmall)
+                    Text(noneRecorded, style = MaterialTheme.typography.bodySmall)
                 } else {
                     visits.sortedByDescending { it.visitDate }.forEach { visit ->
                         Text(
@@ -315,13 +332,13 @@ private fun PublisherRecordsDialog(
                 }
                 if (isPioneerCategory(entry.category)) {
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    Text("Preaching Time Records", style = MaterialTheme.typography.titleSmall)
+                    Text(stringResource(R.string.consolidated_preaching_time_records), style = MaterialTheme.typography.titleSmall)
                     if (preachingRecords.isEmpty()) {
-                        Text("None recorded.", style = MaterialTheme.typography.bodySmall)
+                        Text(noneRecorded, style = MaterialTheme.typography.bodySmall)
                     } else {
                         preachingRecords.sortedByDescending { it.date }.forEach { record ->
                             Text(
-                                "• ${dateFormat.format(Date(record.date))} — ${"%.2f".format(record.hoursConsumed)} hours",
+                                "• ${dateFormat.format(Date(record.date))} — ${stringResource(R.string.consolidated_hours_suffix, "%.2f".format(record.hoursConsumed))}",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
@@ -329,6 +346,6 @@ private fun PublisherRecordsDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) } },
     )
 }

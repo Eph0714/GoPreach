@@ -27,10 +27,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.GroupChat
 import com.emfitsolutions.gopreach.ui.components.FormDialog
@@ -53,7 +55,7 @@ private fun GroupChatCongregationPicker(congregations: List<Congregation>, selec
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Select Congregation") },
+            label = { Text(stringResource(R.string.chat_select_congregation)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
@@ -91,16 +93,16 @@ private fun ParticipantPicker(
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            label = { Text("Search by name, publisher name, or role") },
+            label = { Text(stringResource(R.string.chat_search_participants)) },
             leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
             singleLine = true,
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth(),
         )
-        Text("${selectedIds.size} selected", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.chat_selected_count, selectedIds.size), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (filtered.isEmpty()) {
             Text(
-                "No participants found in this congregation.",
+                stringResource(R.string.chat_no_participants_found),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 8.dp),
@@ -178,9 +180,9 @@ fun CreateGroupChatDialog(
 
     FormDialog(
         onDismissRequest = onDismiss,
-        title = "New Group Chat",
+        title = stringResource(R.string.chat_new_group_chat),
         onConfirm = ::submit,
-        confirmLabel = "Create",
+        confirmLabel = stringResource(R.string.chat_create),
         errorMessage = errorMessage,
         maxContentHeight = 560.dp,
     ) {
@@ -190,7 +192,7 @@ fun CreateGroupChatDialog(
         OutlinedTextField(
             value = groupName,
             onValueChange = { groupName = it },
-            label = { Text("Group Chat Name") },
+            label = { Text(stringResource(R.string.chat_group_chat_name)) },
             singleLine = true,
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth(),
@@ -198,12 +200,12 @@ fun CreateGroupChatDialog(
         OutlinedTextField(
             value = description,
             onValueChange = { description = it },
-            label = { Text("Description (optional)") },
+            label = { Text(stringResource(R.string.chat_description_optional)) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth(),
         )
         if (congregationId != null) {
-            Text("Participants", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.chat_participants_label), style = MaterialTheme.typography.labelLarge)
             ParticipantPicker(
                 candidates = candidates,
                 selectedIds = selectedIds,
@@ -256,16 +258,16 @@ fun ManageParticipantsDialog(
 
     FormDialog(
         onDismissRequest = onDismiss,
-        title = "Group Chat Settings",
+        title = stringResource(R.string.chat_settings_title),
         onConfirm = ::submit,
-        confirmLabel = "Save",
+        confirmLabel = stringResource(R.string.action_save),
         errorMessage = errorMessage,
         maxContentHeight = 560.dp,
     ) {
         OutlinedTextField(
             value = groupName,
             onValueChange = { groupName = it },
-            label = { Text("Group Chat Name") },
+            label = { Text(stringResource(R.string.chat_group_chat_name)) },
             singleLine = true,
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth(),
@@ -273,11 +275,11 @@ fun ManageParticipantsDialog(
         OutlinedTextField(
             value = description,
             onValueChange = { description = it },
-            label = { Text("Description (optional)") },
+            label = { Text(stringResource(R.string.chat_description_optional)) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth(),
         )
-        Text("Participants", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.chat_participants_label), style = MaterialTheme.typography.labelLarge)
         ParticipantPicker(
             candidates = candidates,
             selectedIds = selectedIds,
@@ -287,15 +289,15 @@ fun ManageParticipantsDialog(
             TextButton(
                 onClick = { showDeleteConfirm = true },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            ) { Text("Delete Group Chat") }
+            ) { Text(stringResource(R.string.chat_delete_group_chat)) }
         }
     }
 
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete this Group Chat?") },
-            text = { Text("\"${chat.groupName}\" and its entire message history will be permanently removed for every participant. This cannot be undone.") },
+            title = { Text(stringResource(R.string.chat_delete_group_chat_title)) },
+            text = { Text(stringResource(R.string.chat_delete_group_chat_message, chat.groupName)) },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteConfirm = false
@@ -303,9 +305,9 @@ fun ManageParticipantsDialog(
                         onDismiss()
                         onDeleted()
                     }
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                }) { Text(stringResource(R.string.chat_delete), color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }

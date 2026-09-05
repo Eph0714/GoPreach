@@ -45,8 +45,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 
 /** One leaf item in the Side Panel's treeview (spec §2). */
@@ -112,14 +114,14 @@ fun GoPreachSidePanelContent(
 ) {
     val sections = buildList {
         val enrollmentItems = buildList {
-            if (canManageCongregationsAndAdmins) add(SideItem("Congregations/Groups", Icons.Rounded.AccountBalance, Destinations.MANAGE_CONGREGATIONS))
-            if (canManageCongregationsAndAdmins) add(SideItem("Admins", Icons.Rounded.AdminPanelSettings, Destinations.MANAGE_ADMINS))
-            if (canEnrollCoordinatorElder) add(SideItem("Coordinator Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_COORDINATOR_ELDERS))
-            if (canEnrollServiceOverseer) add(SideItem("Service Overseer", Icons.Rounded.PersonAdd, Destinations.MANAGE_SERVICE_OVERSEERS))
-            if (canEnrollMinisterialServant) add(SideItem("Ministerial Servant", Icons.Rounded.PersonAdd, Destinations.MANAGE_MINISTERIAL_SERVANTS))
-            if (canManageAnnouncements) add(SideItem("Announcements", Icons.Rounded.Campaign, Destinations.MANAGE_ANNOUNCEMENTS))
-            if (canManageGroups) add(SideItem("Groups", Icons.Rounded.Groups, Destinations.MANAGE_GROUPS))
-            if (canEnrollRegularElderOrPublisher) add(SideItem("Regular Elder", Icons.Rounded.PersonAdd, Destinations.MANAGE_REGULAR_ELDERS))
+            if (canManageCongregationsAndAdmins) add(SideItem(stringResource(R.string.side_congregations_groups), Icons.Rounded.AccountBalance, Destinations.MANAGE_CONGREGATIONS))
+            if (canManageCongregationsAndAdmins) add(SideItem(stringResource(R.string.side_admins), Icons.Rounded.AdminPanelSettings, Destinations.MANAGE_ADMINS))
+            if (canEnrollCoordinatorElder) add(SideItem(stringResource(R.string.side_coordinator_elder), Icons.Rounded.PersonAdd, Destinations.MANAGE_COORDINATOR_ELDERS))
+            if (canEnrollServiceOverseer) add(SideItem(stringResource(R.string.side_service_overseer), Icons.Rounded.PersonAdd, Destinations.MANAGE_SERVICE_OVERSEERS))
+            if (canEnrollMinisterialServant) add(SideItem(stringResource(R.string.side_ministerial_servant), Icons.Rounded.PersonAdd, Destinations.MANAGE_MINISTERIAL_SERVANTS))
+            if (canManageAnnouncements) add(SideItem(stringResource(R.string.side_announcements), Icons.Rounded.Campaign, Destinations.MANAGE_ANNOUNCEMENTS))
+            if (canManageGroups) add(SideItem(stringResource(R.string.side_groups), Icons.Rounded.Groups, Destinations.MANAGE_GROUPS))
+            if (canEnrollRegularElderOrPublisher) add(SideItem(stringResource(R.string.side_regular_elder), Icons.Rounded.PersonAdd, Destinations.MANAGE_REGULAR_ELDERS))
             // Routes to the Manage Publishers *list* screen (which has its own
             // onAddNew FAB into ENROLL_PUBLISHER), matching every other entry
             // in this section (Congregations/Admins/Coordinator Elder/Regular
@@ -128,17 +130,17 @@ fun GoPreachSidePanelContent(
             // Elder had no way to reach the Publisher list/edit screen at all
             // once the old tile grid (their only other route to it) was
             // hidden for them.
-            if (canEnrollPublisher) add(SideItem("Publisher", Icons.Rounded.People, Destinations.MANAGE_PUBLISHERS))
-            if (canManageTerritories) add(SideItem("Territory Map", Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES_BASE))
-            if (canEditMeetingAssignments) add(SideItem("Meeting and Cart Assignment", Icons.Rounded.Event, Destinations.MEETING_ASSIGNMENTS))
+            if (canEnrollPublisher) add(SideItem(stringResource(R.string.side_publisher), Icons.Rounded.People, Destinations.MANAGE_PUBLISHERS))
+            if (canManageTerritories) add(SideItem(stringResource(R.string.side_territory_map), Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES_BASE))
+            if (canEditMeetingAssignments) add(SideItem(stringResource(R.string.home_tile_meeting_cart_assignment_title), Icons.Rounded.Event, Destinations.MEETING_ASSIGNMENTS))
         }
-        if (enrollmentItems.isNotEmpty()) add(SideSection("Enrollment", enrollmentItems))
+        if (enrollmentItems.isNotEmpty()) add(SideSection(stringResource(R.string.side_section_enrollment), enrollmentItems))
 
         val controlPanelItems = buildList {
-            if (isSuperAdmin) add(SideItem("Backup & Restore", Icons.Rounded.Backup, Destinations.BACKUP_RESTORE))
-            if (canAccessControlPanel) add(SideItem("Appearance & App Logo", Icons.Rounded.Tune, Destinations.CONTROL_PANEL))
+            if (isSuperAdmin) add(SideItem(stringResource(R.string.side_backup_restore), Icons.Rounded.Backup, Destinations.BACKUP_RESTORE))
+            if (canAccessControlPanel) add(SideItem(stringResource(R.string.side_appearance_app_logo), Icons.Rounded.Tune, Destinations.CONTROL_PANEL))
         }
-        if (controlPanelItems.isNotEmpty()) add(SideSection("Control Panel", controlPanelItems))
+        if (controlPanelItems.isNotEmpty()) add(SideSection(stringResource(R.string.side_section_control_panel), controlPanelItems))
 
         val otherItems = buildList {
             // "Elder Dashboard Consistent with Admin/Super-Admin Dashboard"
@@ -150,39 +152,39 @@ fun GoPreachSidePanelContent(
             // boolean is needed here — this restores the same reach the tile
             // grid used to give everyone, rather than stranding whoever's
             // tile grid gets hidden next.
-            add(SideItem("Dashboard", Icons.Rounded.BarChart, Destinations.DASHBOARD_REPORTS))
-            add(SideItem("Group Chat Setting", Icons.AutoMirrored.Rounded.Chat, Destinations.GROUP_CHAT_SETTING))
-            add(SideItem("Reports Summary", Icons.Rounded.Assessment, Destinations.REPORTS))
+            add(SideItem(stringResource(R.string.home_dashboard_header), Icons.Rounded.BarChart, Destinations.DASHBOARD_REPORTS))
+            add(SideItem(stringResource(R.string.side_group_chat_setting), Icons.AutoMirrored.Rounded.Chat, Destinations.GROUP_CHAT_SETTING))
+            add(SideItem(stringResource(R.string.side_reports_summary), Icons.Rounded.Assessment, Destinations.REPORTS))
             if (canViewConsolidatedReport) {
-                add(SideItem("Consolidated Report", Icons.Rounded.Assessment, Destinations.CONSOLIDATED_REPORT))
+                add(SideItem(stringResource(R.string.side_consolidated_report), Icons.Rounded.Assessment, Destinations.CONSOLIDATED_REPORT))
             }
             // "Manage Publisher Report" module — same access set as the
             // Consolidated Report (Super-Admin/Admin/Coordinator Elder/
             // Service Overseer).
             if (canManagePublisherReports) {
-                add(SideItem("Publisher Reports", Icons.Rounded.Assessment, Destinations.MANAGE_PUBLISHER_REPORTS))
+                add(SideItem(stringResource(R.string.side_publisher_reports), Icons.Rounded.Assessment, Destinations.MANAGE_PUBLISHER_REPORTS))
             }
             if (canViewForwardRequests) {
-                add(SideItem("Forward Requests", Icons.Rounded.SwapHoriz, Destinations.FORWARD_REQUESTS))
+                add(SideItem(stringResource(R.string.side_forward_requests), Icons.Rounded.SwapHoriz, Destinations.FORWARD_REQUESTS))
             }
-            add(SideItem("Calendar", Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
-            add(SideItem("Share Location Settings", Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
-            if (canViewUserLogs) add(SideItem("User Logs", Icons.Rounded.History, Destinations.USER_LOGS))
-            if (canViewContactRecord) add(SideItem("Contact Record", Icons.Rounded.Contacts, Destinations.CONTACT_RECORD))
+            add(SideItem(stringResource(R.string.home_nav_calendar), Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
+            add(SideItem(stringResource(R.string.side_share_location_settings), Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
+            if (canViewUserLogs) add(SideItem(stringResource(R.string.side_user_logs), Icons.Rounded.History, Destinations.USER_LOGS))
+            if (canViewContactRecord) add(SideItem(stringResource(R.string.side_contact_record), Icons.Rounded.Contacts, Destinations.CONTACT_RECORD))
             // "The super admin can see all congregation Search[ing]/Bible
             // Study/Return Visit record[s]... Add, Edit, [and permanently]
             // Delete the record" — Super-Admin only, unlike every other
             // Searching/Return Visit/Bible Study entry point in this app
             // (Publisher context, own records only).
-            if (isSuperAdmin) add(SideItem("Interested Records (All Congregations)", Icons.Rounded.Groups, Destinations.ALL_INTERESTED_RECORDS))
-            if (canManageUsers) add(SideItem("User Management", Icons.Rounded.ManageAccounts, Destinations.MANAGE_USERS))
+            if (isSuperAdmin) add(SideItem(stringResource(R.string.side_interested_records_all_congregations), Icons.Rounded.Groups, Destinations.ALL_INTERESTED_RECORDS))
+            if (canManageUsers) add(SideItem(stringResource(R.string.side_user_management), Icons.Rounded.ManageAccounts, Destinations.MANAGE_USERS))
         }
-        add(SideSection("Other", otherItems))
+        add(SideSection(stringResource(R.string.side_section_other), otherItems))
     }
 
     ModalDrawerSheet {
         Text(
-            "GoPreach",
+            stringResource(R.string.app_name),
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(16.dp),
         )
@@ -192,7 +194,7 @@ fun GoPreachSidePanelContent(
             item {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 NavigationDrawerItem(
-                    label = { SideItemLabel("Account Settings") },
+                    label = { SideItemLabel(stringResource(R.string.side_account_settings)) },
                     icon = { Icon(Icons.Rounded.Password, contentDescription = null) },
                     selected = activeRoute == Destinations.ACCOUNT_SETTINGS,
                     onClick = { onNavigate(Destinations.ACCOUNT_SETTINGS) },
@@ -200,7 +202,7 @@ fun GoPreachSidePanelContent(
                 )
                 if (onSwitchToPublisher != null) {
                     NavigationDrawerItem(
-                        label = { SideItemLabel("Ministry Report App") },
+                        label = { SideItemLabel(stringResource(R.string.side_ministry_report_app)) },
                         icon = { Icon(Icons.Rounded.SwapHoriz, contentDescription = null) },
                         selected = false,
                         onClick = onSwitchToPublisher,
@@ -208,7 +210,7 @@ fun GoPreachSidePanelContent(
                     )
                 }
                 NavigationDrawerItem(
-                    label = { SideItemLabel("Sign Out") },
+                    label = { SideItemLabel(stringResource(R.string.side_sign_out)) },
                     icon = { Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null) },
                     selected = false,
                     onClick = onSignOut,

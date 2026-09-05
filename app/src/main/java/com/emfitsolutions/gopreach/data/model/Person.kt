@@ -39,6 +39,19 @@ data class Person(
      * Publisher is a Person like any other role here. */
     val preferredBibleLanguageId: String? = null,
 
+    /** "Settings -> Language" — this Person's chosen app interface language
+     * (distinct from [preferredBibleLanguageId], which only affects a new
+     * Bible Text Record's default language, not the UI itself). One of
+     * [com.emfitsolutions.gopreach.domain.AppLanguage.code] ("en"/"tl"/
+     * "ilo"); `null` means never set, which resolves to English (see
+     * [com.emfitsolutions.gopreach.domain.AppLanguage.fromCode]). Synced
+     * like any other Person field — set on this device immediately via
+     * [com.emfitsolutions.gopreach.data.repository.AppLanguageRepository]
+     * when the user picks one, and re-applied on any other device they sign
+     * into once it syncs down (see [com.emfitsolutions.gopreach.domain
+     * .UserSession]'s own doc comment on this field). */
+    val language: String? = null,
+
     /** The profile-menu avatar shown at the top-right of the Admin/Publisher
      * Main Form for every role (Super-Admin, Admin, Coordinator/Regular
      * Elder, Publisher, ...) — uploaded to Firebase Storage at

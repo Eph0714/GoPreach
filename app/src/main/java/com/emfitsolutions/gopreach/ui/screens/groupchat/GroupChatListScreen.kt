@@ -31,11 +31,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.model.GroupChat
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 
@@ -68,7 +70,7 @@ fun GroupChatListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Group Chat Setting") },
+                title = { Text(stringResource(R.string.chat_setting_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -79,7 +81,7 @@ fun GroupChatListScreen(
         floatingActionButton = {
             if (canManage) {
                 FloatingActionButton(onClick = { showCreateDialog = true }) {
-                    Icon(Icons.Rounded.Add, contentDescription = "New Group Chat")
+                    Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.chat_new_group_chat))
                 }
             }
         },
@@ -90,7 +92,7 @@ fun GroupChatListScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    if (canManage) "No group chats yet. Tap + to create one." else "You're not in any group chat yet.",
+                    if (canManage) stringResource(R.string.chat_empty_manage) else stringResource(R.string.chat_empty_member),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -137,14 +139,14 @@ private fun GroupChatRow(chat: GroupChat, congregationName: String?, unreadCount
             Column(modifier = Modifier.weight(1f)) {
                 Text(chat.groupName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    listOfNotNull(congregationName, "${chat.participantIds.size} participants").joinToString(" · "),
+                    listOfNotNull(congregationName, stringResource(R.string.chat_participants_count, chat.participantIds.size)).joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 val preview = when {
-                    chat.lastMessageIsAttachment -> "📎 ${chat.lastMessageSenderName}: attachment"
-                    chat.lastMessageText != null -> "${chat.lastMessageSenderName}: ${chat.lastMessageText}"
-                    else -> "No messages yet."
+                    chat.lastMessageIsAttachment -> stringResource(R.string.chat_attachment_preview, chat.lastMessageSenderName ?: "")
+                    chat.lastMessageText != null -> stringResource(R.string.chat_message_preview, chat.lastMessageSenderName ?: "", chat.lastMessageText ?: "")
+                    else -> stringResource(R.string.chat_no_messages_yet)
                 }
                 Text(preview, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }

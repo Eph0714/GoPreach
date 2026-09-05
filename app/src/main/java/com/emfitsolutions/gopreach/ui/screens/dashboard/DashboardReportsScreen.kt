@@ -45,10 +45,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
@@ -157,9 +159,9 @@ fun DashboardStatsContent(
 
     if (uiState.error != null) {
         Column(modifier = modifier.fillMaxWidth().padding(24.dp)) {
-            Text("Dashboard statistics are temporarily unavailable.", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.dashboard_stats_unavailable_title), style = MaterialTheme.typography.titleMedium)
             Text(
-                "Other GoPreach features are unaffected. (${uiState.error})",
+                stringResource(R.string.dashboard_stats_unavailable_detail, uiState.error ?: ""),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -175,11 +177,12 @@ fun DashboardStatsContent(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         if (isMultiCongregation) {
-            Text("Congregation/Group", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.reports_congregation_group_label), style = MaterialTheme.typography.titleSmall)
             var expanded by remember { mutableStateOf(false) }
+            val allCongregationsLabel = stringResource(R.string.dashboard_all_congregations)
             val selectedLabel = uiState.selectedCongregationId
                 ?.let { id -> uiState.all.firstOrNull { it.congregationId == id }?.congregationName }
-                ?: "ALL CONGREGATIONS"
+                ?: allCongregationsLabel
             ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
                 OutlinedTextField(
                     value = selectedLabel,
@@ -191,7 +194,7 @@ fun DashboardStatsContent(
                 )
                 ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                     DropdownMenuItem(
-                        text = { Text("ALL CONGREGATIONS") },
+                        text = { Text(allCongregationsLabel) },
                         onClick = { viewModel.selectCongregation(null); expanded = false },
                     )
                     uiState.all.forEach { stats ->
@@ -209,17 +212,13 @@ fun DashboardStatsContent(
             onRangeChange = viewModel::setDateRange,
         )
         Text(
-            "Bible Studies and Preaching Hours reflect the selected period above. " +
-                "Publisher/Elder counts always reflect current status. " +
-                "\"Total Elders\" counts Coordinator Elders, Regular Elders, and Service Overseers, and " +
-                "\"Total Ministerial\" counts Ministerial Servants — anyone holding more than one of " +
-                "the roles within a card's own count is counted once.",
+            stringResource(R.string.dashboard_description),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         if (displayed == null) {
-            Text("No congregation data available yet.", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.dashboard_no_congregation_data), style = MaterialTheme.typography.bodyMedium)
             return@Column
         }
 
@@ -233,7 +232,7 @@ fun DashboardStatsContent(
             )
         }
 
-        Text("Overview", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.dashboard_overview), style = MaterialTheme.typography.titleMedium)
         // Per explicit request: no icons, no per-item color coding on these
         // cards — Total Publishers and Total Elders are also their own
         // separate cards here now, not one combined "Publishers vs Elders"
@@ -309,7 +308,7 @@ fun DashboardStatsContent(
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { selectedDetail = null }) { Text("Close") }
+                    TextButton(onClick = { selectedDetail = null }) { Text(stringResource(R.string.action_close)) }
                 },
             )
         }
@@ -323,7 +322,7 @@ fun DashboardStatsContent(
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Preaching Hours", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.dashboard_preaching_hours_title), style = MaterialTheme.typography.titleMedium)
                 SimpleBarChart(
                     slices = listOf(
                         BarSlice("Regular Pioneers", displayed.regularPioneerHours.toFloat(), COLOR_REGULAR_PIONEER),
@@ -337,9 +336,9 @@ fun DashboardStatsContent(
         if (isMultiCongregation && uiState.selectedCongregationId == null) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Publishers per Congregation/Group", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.dashboard_publishers_per_congregation), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Tap a bar to drill into that congregation.",
+                        stringResource(R.string.dashboard_publishers_per_congregation_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -363,9 +362,9 @@ fun DashboardStatsContent(
             // congregation's single Total Elders card above.
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Elders per Congregation/Group", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.dashboard_elders_per_congregation), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Regular Elders only. Tap a bar to drill into that congregation.",
+                        stringResource(R.string.dashboard_elders_per_congregation_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -414,19 +413,23 @@ fun DashboardReportsScreen(
     // Bug fix ("I cannot see any PDF or Excel"): see ReportsScreen's matching
     // fix — the Storage Access Framework picker just saves and closes with
     // no feedback of its own; now it confirms and opens the file immediately.
+    val exportCsvSuccess = stringResource(R.string.reports_export_csv_success)
+    val exportFailedWrite = stringResource(R.string.reports_export_failed_write)
+    val exportFailedUnknown = stringResource(R.string.reports_export_failed_unknown)
+    val exportFailedGenericTemplate = stringResource(R.string.reports_export_failed_generic)
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         val table = reportTable
         if (uri != null && table != null) {
             try {
                 val wrote = CsvExporter.write(context, uri, table.title, subtitle = null, columns = table.columns, rows = table.rows, totals = table.totals)
                 if (wrote) {
-                    showToast("Exported to Excel (CSV).")
+                    showToast(exportCsvSuccess)
                     CsvExporter.openWithChooser(context, uri, "text/csv")
                 } else {
-                    showToast("Export failed: couldn't write the file.")
+                    showToast(exportFailedWrite)
                 }
             } catch (e: Exception) {
-                showToast("Export failed: ${e.localizedMessage ?: "unknown error"}")
+                showToast(exportFailedGenericTemplate.format(e.localizedMessage ?: exportFailedUnknown))
             }
         }
     }
@@ -435,9 +438,9 @@ fun DashboardReportsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Reports Dashboard") },
+                title = { Text(stringResource(R.string.dashboard_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.dashboard_back_cd)) }
                 },
                 actions = {
                     // Data is already live (every source Flow updates this screen
@@ -445,7 +448,7 @@ fun DashboardReportsScreen(
                     // more than a functional necessity; kept per spec §3's explicit
                     // "refresh" requirement.
                     IconButton(onClick = { viewModel.selectCongregation(uiState.selectedCongregationId) }) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "Refresh")
+                        Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.dashboard_refresh_cd))
                     }
                     if (canExport) {
                         // Same "print preview always offers Save as PDF" +
@@ -455,13 +458,13 @@ fun DashboardReportsScreen(
                             onClick = { reportTable?.let { ReportPrinter.print(context, it) } },
                             enabled = reportTable != null,
                         ) {
-                            Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Export as PDF")
+                            Icon(Icons.Rounded.PictureAsPdf, contentDescription = stringResource(R.string.reports_export_pdf_cd))
                         }
                         IconButton(
                             onClick = { exportLauncher.launch(exportFileName) },
                             enabled = reportTable != null,
                         ) {
-                            Icon(Icons.Rounded.TableChart, contentDescription = "Export as Excel (CSV)")
+                            Icon(Icons.Rounded.TableChart, contentDescription = stringResource(R.string.reports_export_excel_cd))
                         }
                     }
                 },

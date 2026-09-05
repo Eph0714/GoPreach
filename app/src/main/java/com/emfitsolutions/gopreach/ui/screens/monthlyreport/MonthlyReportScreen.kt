@@ -34,11 +34,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -88,7 +90,7 @@ fun MonthlyReportScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Monthly Report") },
+                title = { Text(stringResource(R.string.monthly_report_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -97,7 +99,7 @@ fun MonthlyReportScreen(
                 actions = {
                     if (onViewHistory != null) {
                         IconButton(onClick = onViewHistory) {
-                            Icon(Icons.AutoMirrored.Rounded.ListAlt, contentDescription = "My Reports")
+                            Icon(Icons.AutoMirrored.Rounded.ListAlt, contentDescription = stringResource(R.string.home_tile_my_reports_title))
                         }
                     }
                 },
@@ -113,7 +115,7 @@ fun MonthlyReportScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                "Category: ${uiState.category?.name?.replace('_', ' ') ?: "Unknown"}",
+                stringResource(R.string.monthly_report_category, uiState.category?.name?.replace('_', ' ') ?: stringResource(R.string.monthly_report_category_unknown)),
                 style = MaterialTheme.typography.titleMedium,
             )
 
@@ -132,7 +134,7 @@ fun MonthlyReportScreen(
 
             if (effectivelyLocked) {
                 Text(
-                    "This report has been posted and can now only be changed by your Service Overseer, Admin, or Super-Admin.",
+                    stringResource(R.string.monthly_report_posted_locked),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -141,7 +143,7 @@ fun MonthlyReportScreen(
             OutlinedTextField(
                 value = uiState.bibleStudiesCount,
                 onValueChange = viewModel::onBibleStudiesChange,
-                label = { Text("Number of Bible Studies Conducted") },
+                label = { Text(stringResource(R.string.monthly_report_bible_studies_label)) },
                 singleLine = true,
                 enabled = !effectivelyLocked,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -153,7 +155,7 @@ fun MonthlyReportScreen(
                 OutlinedTextField(
                     value = uiState.hoursRendered,
                     onValueChange = viewModel::onHoursChange,
-                    label = { Text("Hours Rendered") },
+                    label = { Text(stringResource(R.string.monthly_report_hours_rendered)) },
                     singleLine = true,
                     enabled = !effectivelyLocked,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -166,7 +168,7 @@ fun MonthlyReportScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Participated in preaching this month?", style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.monthly_report_participated_question), style = MaterialTheme.typography.bodyLarge)
                     Switch(
                         checked = uiState.participatedInPreaching,
                         onCheckedChange = viewModel::onParticipatedChange,
@@ -178,7 +180,7 @@ fun MonthlyReportScreen(
             OutlinedTextField(
                 value = uiState.remarks,
                 onValueChange = viewModel::onRemarksChange,
-                label = { Text("Remarks (optional)") },
+                label = { Text(stringResource(R.string.monthly_report_remarks)) },
                 enabled = !effectivelyLocked,
                 visualTransformation = VisualTransformation.None,
                 modifier = Modifier.fillMaxWidth(),
@@ -190,7 +192,7 @@ fun MonthlyReportScreen(
 
             if (submitBlockedByWindow) {
                 Text(
-                    "Submission for the current month opens 2 days before it ends. To report now, select the previous month instead.",
+                    stringResource(R.string.monthly_report_submission_window_message),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -204,7 +206,7 @@ fun MonthlyReportScreen(
                 if (uiState.isSaving) {
                     CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
                 }
-                Text("Submit Report")
+                Text(stringResource(R.string.monthly_report_submit_button))
             }
         }
     }
@@ -226,7 +228,7 @@ private fun MonthPickerField(availableMonths: List<Long>, selectedMonth: Long, o
             value = monthFormat.format(Date(selectedMonth)),
             onValueChange = {},
             readOnly = true,
-            label = { Text("Select Month to Report") },
+            label = { Text(stringResource(R.string.monthly_report_select_month)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

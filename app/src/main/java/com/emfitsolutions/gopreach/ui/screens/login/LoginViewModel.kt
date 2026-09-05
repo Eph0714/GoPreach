@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.biometric.BiometricManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.repository.AuthRepository
 import com.emfitsolutions.gopreach.data.repository.AuthResult
 import com.emfitsolutions.gopreach.data.repository.CredentialStore
@@ -73,7 +74,7 @@ class LoginViewModel @Inject constructor(
     fun signIn() {
         val state = _uiState.value
         if (state.username.isBlank() || state.password.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Enter both username and password.") }
+            _uiState.update { it.copy(errorMessage = context.getString(R.string.login_error_missing_fields)) }
             return
         }
         performSignIn(state.username.trim(), state.password)
@@ -83,7 +84,7 @@ class LoginViewModel @Inject constructor(
      * the saved credential pair and signs in with it, same as a normal submit. */
     fun onBiometricAuthSucceeded() {
         val saved = credentialStore.read() ?: run {
-            _uiState.update { it.copy(errorMessage = "No saved sign-in found for biometric unlock.") }
+            _uiState.update { it.copy(errorMessage = context.getString(R.string.login_error_no_saved_credential)) }
             return
         }
         performSignIn(saved.first, saved.second)

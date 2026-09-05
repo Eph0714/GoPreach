@@ -41,11 +41,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
@@ -153,18 +155,22 @@ fun ReportsScreen(
     // confirms the export succeeded and immediately opens the file, instead
     // of leaving the user to go find it in a file manager (or wonder whether
     // it ever actually happened).
+    val exportCsvSuccess = stringResource(R.string.reports_export_csv_success)
+    val exportFailedWrite = stringResource(R.string.reports_export_failed_write)
+    val exportFailedUnknown = stringResource(R.string.reports_export_failed_unknown)
+    val exportFailedGenericTemplate = stringResource(R.string.reports_export_failed_generic)
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
             try {
                 val wrote = CsvExporter.write(context, uri, reportTable.title, subtitle = null, columns = reportTable.columns, rows = reportTable.rows, totals = reportTable.totals)
                 if (wrote) {
-                    showToast("Exported to Excel (CSV).")
+                    showToast(exportCsvSuccess)
                     CsvExporter.openWithChooser(context, uri, "text/csv")
                 } else {
-                    showToast("Export failed: couldn't write the file.")
+                    showToast(exportFailedWrite)
                 }
             } catch (e: Exception) {
-                showToast("Export failed: ${e.localizedMessage ?: "unknown error"}")
+                showToast(exportFailedGenericTemplate.format(e.localizedMessage ?: exportFailedUnknown))
             }
         }
     }
@@ -173,7 +179,7 @@ fun ReportsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Reports") },
+                title = { Text(stringResource(R.string.reports_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -195,10 +201,10 @@ fun ReportsScreen(
                     // Print/Share glyphs, so the two actions read at a glance
                     // as "export as PDF" and "export as Excel" specifically.
                     IconButton(onClick = { ReportPrinter.print(context, reportTable) }) {
-                        Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Export as PDF")
+                        Icon(Icons.Rounded.PictureAsPdf, contentDescription = stringResource(R.string.reports_export_pdf_cd))
                     }
                     IconButton(onClick = { exportLauncher.launch(exportFileName) }) {
-                        Icon(Icons.Rounded.TableChart, contentDescription = "Export as Excel (CSV)")
+                        Icon(Icons.Rounded.TableChart, contentDescription = stringResource(R.string.reports_export_excel_cd))
                     }
                 },
             )
@@ -234,12 +240,12 @@ fun ReportsScreen(
                     selected = groupFilterMode == GroupFilterMode.ALL_GROUPS,
                     onClick = { groupFilterMode = GroupFilterMode.ALL_GROUPS },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                ) { Text("All Groups") }
+                ) { Text(stringResource(R.string.reports_all_groups)) }
                 SegmentedButton(
                     selected = groupFilterMode == GroupFilterMode.PER_GROUP,
                     onClick = { groupFilterMode = GroupFilterMode.PER_GROUP },
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                ) { Text("Per Group") }
+                ) { Text(stringResource(R.string.reports_per_group)) }
             }
             if (groupFilterMode == GroupFilterMode.PER_GROUP) {
                 ReportsGroupDropdown(
@@ -261,7 +267,7 @@ fun ReportsScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    "No submitted reports yet. Totals appear here once publishers start submitting monthly reports.",
+                    stringResource(R.string.reports_no_submitted_yet),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -287,20 +293,20 @@ fun ReportsScreen(
                     val hoursByCategory = rows.categoryHours()
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text("All Publishers", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text("Bible Studies: ${rows.sumOf { it.totalBibleStudies }}", style = MaterialTheme.typography.bodyMedium)
-                            Text("Hours: ${"%.1f".format(rows.sumOf { it.totalHours })}", style = MaterialTheme.typography.bodyMedium)
+                            Text(stringResource(R.string.reports_all_publishers), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.reports_bible_studies_count, rows.sumOf { it.totalBibleStudies }), style = MaterialTheme.typography.bodyMedium)
+                            Text(stringResource(R.string.reports_hours_count, "%.1f".format(rows.sumOf { it.totalHours })), style = MaterialTheme.typography.bodyMedium)
                             Text(
-                                "Interested People: ${rows.sumOf { it.totalInterestedPeople }}",
+                                stringResource(R.string.reports_interested_people_count, rows.sumOf { it.totalInterestedPeople }),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                             Text(
-                                "Total Regular Pioneer: ${countsByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0}",
+                                stringResource(R.string.reports_total_regular_pioneer, countsByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Text(
-                                "Total Auxiliary Pioneer: ${countsByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0}",
+                                stringResource(R.string.reports_total_auxiliary_pioneer, countsByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             // "Include the total number of Regular
@@ -312,27 +318,27 @@ fun ReportsScreen(
                             // card only had the two Pioneer counts explicitly
                             // called out, so these two were missing here.
                             Text(
-                                "Total Regular Publisher: ${countsByCategory[PublisherCategory.REGULAR_PUBLISHER] ?: 0}",
+                                stringResource(R.string.reports_total_regular_publisher, countsByCategory[PublisherCategory.REGULAR_PUBLISHER] ?: 0),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Text(
-                                "Total Unbaptized Publisher: ${countsByCategory[PublisherCategory.UNBAPTIZED_PUBLISHER] ?: 0}",
+                                stringResource(R.string.reports_total_unbaptized_publisher, countsByCategory[PublisherCategory.UNBAPTIZED_PUBLISHER] ?: 0),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Text(
-                                "Total Bible Studies for Regular Pioneer: ${bibleStudiesByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0}",
+                                stringResource(R.string.reports_total_bible_studies_for, PublisherCategory.REGULAR_PIONEER.displayLabel(), bibleStudiesByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Text(
-                                "Total Bible Studies for Auxiliary Pioneer: ${bibleStudiesByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0}",
+                                stringResource(R.string.reports_total_bible_studies_for, PublisherCategory.AUXILIARY_PIONEER.displayLabel(), bibleStudiesByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Text(
-                                "Total Hours for Regular Pioneer: ${"%.1f".format(hoursByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0.0)}",
+                                stringResource(R.string.reports_total_hours_for, PublisherCategory.REGULAR_PIONEER.displayLabel(), "%.1f".format(hoursByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0.0)),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Text(
-                                "Total Hours for Auxiliary Pioneer: ${"%.1f".format(hoursByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0.0)}",
+                                stringResource(R.string.reports_total_hours_for, PublisherCategory.AUXILIARY_PIONEER.displayLabel(), "%.1f".format(hoursByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0.0)),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                         }
@@ -360,19 +366,20 @@ private fun ReportsCongregationDropdown(
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: "All Congregations/Groups"
+    val allCongregationsGroupsLabel = stringResource(R.string.reports_all_congregations_groups)
+    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: allCongregationsGroupsLabel
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         OutlinedTextField(
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation/Group") },
+            label = { Text(stringResource(R.string.reports_congregation_group_label)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("All Congregations/Groups") }, onClick = { onSelected(null); expanded = false })
+            DropdownMenuItem(text = { Text(allCongregationsGroupsLabel) }, onClick = { onSelected(null); expanded = false })
             congregations.forEach { c ->
                 DropdownMenuItem(text = { Text(c.name) }, onClick = { onSelected(c.id); expanded = false })
             }
@@ -391,20 +398,20 @@ private fun ReportsGroupDropdown(
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = groups.firstOrNull { it.id == selectedGroupId }?.name ?: "Select a Group"
+    val selectedName = groups.firstOrNull { it.id == selectedGroupId }?.name ?: stringResource(R.string.reports_select_a_group)
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         OutlinedTextField(
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Group") },
+            label = { Text(stringResource(R.string.reports_group_label)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             if (groups.isEmpty()) {
-                DropdownMenuItem(text = { Text("No groups yet") }, onClick = {}, enabled = false)
+                DropdownMenuItem(text = { Text(stringResource(R.string.reports_no_groups_yet)) }, onClick = {}, enabled = false)
             }
             groups.forEach { g ->
                 DropdownMenuItem(text = { Text(g.name) }, onClick = { onSelected(g.id); expanded = false })
@@ -420,12 +427,15 @@ private fun GroupReportCard(
     canEditReports: Boolean,
     onEditPublisher: (personId: String) -> Unit,
 ) {
+    val yes = stringResource(R.string.home_yes)
+    val no = stringResource(R.string.home_no)
+    val na = stringResource(R.string.reports_na)
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Group: ${section.groupName}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Group Overseer: ${section.overseerName ?: "—"}", style = MaterialTheme.typography.bodySmall)
-            Text("Group Servant: ${section.servantName ?: "—"}", style = MaterialTheme.typography.bodySmall)
-            Text("Group Assistant: ${section.assistantName ?: "—"}", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.reports_group_name, section.groupName), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.reports_group_overseer, section.overseerName ?: "—"), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.reports_group_servant, section.servantName ?: "—"), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.reports_group_assistant, section.assistantName ?: "—"), style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             section.rows.forEach { row ->
@@ -438,14 +448,13 @@ private fun GroupReportCard(
                         Text(row.person.fullName, style = MaterialTheme.typography.titleSmall)
                         Text(row.category.displayLabel(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         Text(
-                            "Hours: ${"%.1f".format(row.totalHours)} · Bible Studies: ${row.totalBibleStudies} · " +
-                                "Attended Preaching: ${row.attendedPreaching.toYesNoNa()}",
+                            stringResource(R.string.reports_row_summary, "%.1f".format(row.totalHours), row.totalBibleStudies, row.attendedPreaching.toYesNoNa(yes, no, na)),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
                     if (canEditReports) {
                         IconButton(onClick = { onEditPublisher(row.person.id) }) {
-                            Icon(Icons.Rounded.Edit, contentDescription = "Edit this month's report")
+                            Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.reports_edit_this_month_cd))
                         }
                     }
                 }
@@ -453,30 +462,30 @@ private fun GroupReportCard(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             Text(
-                "Summary Total for ${dateRange.periodLabel()}",
+                stringResource(R.string.reports_summary_total_for, dateRange.periodLabel()),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
             )
             section.categoryCounts.entries.sortedBy { it.key.displayLabel() }.forEach { (category, count) ->
-                Text("Total ${category.displayLabel()}: $count", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.reports_total_category, category.displayLabel(), count), style = MaterialTheme.typography.bodySmall)
             }
             // "Separate the Auxiliary and Regular Pioneer Bible Study" — same
             // per-category breakdown Hours already had, now for Bible
             // Studies too.
             section.categoryBibleStudies.entries.sortedBy { it.key.displayLabel() }.forEach { (category, count) ->
-                Text("Total Bible Studies for ${category.displayLabel()}: $count", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.reports_total_bible_studies_for, category.displayLabel(), count), style = MaterialTheme.typography.bodySmall)
             }
             section.categoryHours.entries.sortedBy { it.key.displayLabel() }.forEach { (category, hours) ->
-                Text("Total Hours for ${category.displayLabel()}: ${"%.1f".format(hours)}", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.reports_total_hours_for, category.displayLabel(), "%.1f".format(hours)), style = MaterialTheme.typography.bodySmall)
             }
         }
     }
 }
 
-private fun Boolean?.toYesNoNa(): String = when (this) {
-    true -> "Yes"
-    false -> "No"
-    null -> "N/A"
+private fun Boolean?.toYesNoNa(yes: String, no: String, na: String): String = when (this) {
+    true -> yes
+    false -> no
+    null -> na
 }
 
 private fun DateRange.periodLabel(): String {
@@ -506,7 +515,7 @@ private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateR
                 row.person.fullName,
                 "%.1f".format(row.totalHours),
                 row.totalBibleStudies.toString(),
-                row.attendedPreaching.toYesNoNa(),
+                row.attendedPreaching.toYesNoNa("Yes", "No", "N/A"),
             )
         }
         rows += listOf("SUMMARY TOTAL FOR THE PERIOD OF $periodLabel", "", "", "", "")

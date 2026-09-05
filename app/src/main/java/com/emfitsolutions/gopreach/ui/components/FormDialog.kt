@@ -15,8 +15,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.emfitsolutions.gopreach.R
 
 /**
  * "Do not allow the keyboard to override the button when saving. Always
@@ -46,8 +48,13 @@ fun FormDialog(
     onDismissRequest: () -> Unit,
     title: String,
     onConfirm: () -> Unit,
-    confirmLabel: String = "Save",
-    dismissLabel: String = "Cancel",
+    // "Settings -> Language" (see AppLanguage) — defaults sourced from
+    // strings.xml rather than a literal, so every one of this app's dozens
+    // of FormDialog call sites that don't override these picks up the
+    // signed-in user's language automatically, with no other file needing
+    // to change.
+    confirmLabel: String = stringResource(R.string.action_save),
+    dismissLabel: String = stringResource(R.string.action_cancel),
     confirmEnabled: Boolean = true,
     errorMessage: String? = null,
     maxContentHeight: Dp = 480.dp,

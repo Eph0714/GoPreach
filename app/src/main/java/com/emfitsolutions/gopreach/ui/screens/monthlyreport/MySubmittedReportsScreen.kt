@@ -25,10 +25,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.model.MonthlyReport
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.ReportStatus
@@ -58,7 +60,7 @@ fun MySubmittedReportsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("My Reports") },
+                title = { Text(stringResource(R.string.home_tile_my_reports_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -73,7 +75,7 @@ fun MySubmittedReportsScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    "You haven't submitted any Monthly Reports yet.",
+                    stringResource(R.string.my_reports_empty),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -113,18 +115,18 @@ private fun SubmittedReportCard(report: MonthlyReport) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text("Bible Studies Conducted: ${report.bibleStudiesCount}", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.my_reports_bible_studies_conducted, report.bibleStudiesCount), style = MaterialTheme.typography.bodyMedium)
             if (isPioneer) {
-                Text("Hours Rendered: ${report.hoursRendered ?: 0.0}", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.my_reports_hours_rendered, (report.hoursRendered ?: 0.0).toString()), style = MaterialTheme.typography.bodyMedium)
             } else {
                 Text(
-                    "Participated in Preaching: ${if (report.participatedInPreaching == true) "Yes" else "No"}",
+                    stringResource(R.string.my_reports_participated, if (report.participatedInPreaching == true) stringResource(R.string.home_yes) else stringResource(R.string.home_no)),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
             if (report.submittedAt != null) {
                 Text(
-                    "Submitted: ${formatRecordTimestamp(report.submittedAt)}",
+                    stringResource(R.string.my_reports_submitted_at, formatRecordTimestamp(report.submittedAt)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

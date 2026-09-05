@@ -8,6 +8,7 @@ import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.model.UserAccessGrant
 import com.emfitsolutions.gopreach.data.model.displayLabel
+import com.emfitsolutions.gopreach.data.repository.AppLanguageRepository
 import com.emfitsolutions.gopreach.data.repository.OfflineSessionMarker
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
@@ -140,6 +141,7 @@ class UserSession @Inject constructor(
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val userAccessGrantRepository: UserAccessGrantRepository,
     private val offlineSessionMarker: OfflineSessionMarker,
+    private val appLanguageRepository: AppLanguageRepository,
     @ApplicationScope appScope: CoroutineScope,
 ) {
     private fun authStateFlow(): Flow<String?> = callbackFlow {
@@ -240,7 +242,36 @@ class UserSession @Inject constructor(
         }
         .stateIn(appScope, SharingStarted.Eagerly, SessionState(isLoading = true))
 
+    /** "The same user logs in from Android [and] Desktop... should detect
+     * the [saved] language preference" — the cross-device half of this
+     * feature ([AppLanguageRepository] itself only ever applies a language
+     * already chosen, it doesn't know about Firestore). Fires once per
+     * signed-in Person (keyed on their id, not on every unrelated
+     * [SessionState] emission), and only actually calls
+     * [AppLanguageRepository.applyLanguage] when their stored
+     * [Person.language] doesn't already match what's applied on this
+     * device — so signing in fresh on a new device picks up whatever
+     * language they last chose elsewhere, but this never fights a change
+     * the user is mid-making on *this* device (see [SettingsViewModel
+     * .setLanguage], which applies locally first and saves to Firestore
+     * second — by the time that save round-trips back through this same
+     * flow, [AppLanguage.fromCode] already agrees, so this is a no-op). */
+    private fun syncLanguagePreference(appScope: CoroutineScope) {
+        appScope.launch {
+            state
+                .map { it.person }
+                .distinctUntilChanged { old, new -> old?.id == new?.id && old?.language == new?.language }
+                .collect { person ->
+                    val desired = AppLanguage.fromCode(person?.language)
+                    if (appLanguageRepository.current.value != desired) {
+                        appLanguageRepository.applyLanguage(desired)
+                    }
+                }
+        }
+    }
+
     init {
         syncActiveRoleContext(appScope, personRepository)
+        syncLanguagePreference(appScope)
     }
 }

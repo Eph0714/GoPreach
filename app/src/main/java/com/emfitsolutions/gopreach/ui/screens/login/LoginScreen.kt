@@ -44,12 +44,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.BuildConfig
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.ui.components.GradientHero
 import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
 
@@ -60,6 +62,9 @@ private val FieldShape = RoundedCornerShape(16.dp)
  * around the androidx.biometric API. */
 private fun launchBiometricPrompt(
     activity: FragmentActivity,
+    title: String,
+    subtitle: String,
+    negativeButtonText: String,
     onSuccess: () -> Unit,
     onError: (String) -> Unit,
 ) {
@@ -78,9 +83,9 @@ private fun launchBiometricPrompt(
         },
     )
     val promptInfo = BiometricPrompt.PromptInfo.Builder()
-        .setTitle("Sign in to GoPreach")
-        .setSubtitle("Use your fingerprint or face to continue")
-        .setNegativeButtonText("Use password instead")
+        .setTitle(title)
+        .setSubtitle(subtitle)
+        .setNegativeButtonText(negativeButtonText)
         .build()
     prompt.authenticate(promptInfo)
 }
@@ -139,9 +144,9 @@ fun LoginScreen(
                         .padding(bottom = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text("GoPreach", style = MaterialTheme.typography.headlineLarge, color = Color.White)
+                    Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineLarge, color = Color.White)
                     Text(
-                        "Ministry Activity Tracking",
+                        stringResource(R.string.login_tagline),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White,
@@ -156,7 +161,7 @@ fun LoginScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Text(
-                    "Welcome back!",
+                    stringResource(R.string.login_welcome_back),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -165,7 +170,7 @@ fun LoginScreen(
                 OutlinedTextField(
                     value = uiState.username,
                     onValueChange = viewModel::onUsernameChange,
-                    label = { Text("Username") },
+                    label = { Text(stringResource(R.string.login_username)) },
                     singleLine = true,
                     shape = FieldShape,
                     leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null) },
@@ -185,7 +190,7 @@ fun LoginScreen(
                 OutlinedTextField(
                     value = uiState.password,
                     onValueChange = viewModel::onPasswordChange,
-                    label = { Text("Password") },
+                    label = { Text(stringResource(R.string.login_password)) },
                     singleLine = true,
                     shape = FieldShape,
                     leadingIcon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
@@ -195,7 +200,7 @@ fun LoginScreen(
                         IconButton(onClick = { passwordVisible = !passwordVisible }) {
                             Icon(
                                 imageVector = if (passwordVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                                contentDescription = if (passwordVisible) stringResource(R.string.login_hide_password) else stringResource(R.string.login_show_password),
                             )
                         }
                     },
@@ -209,10 +214,10 @@ fun LoginScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = uiState.rememberMe, onCheckedChange = viewModel::onRememberMeChange)
-                        Text("Remember me", style = MaterialTheme.typography.bodyMedium)
+                        Text(stringResource(R.string.login_remember_me), style = MaterialTheme.typography.bodyMedium)
                     }
                     TextButton(onClick = onForgotPasswordClick) {
-                        Text("Forgot Password?")
+                        Text(stringResource(R.string.login_forgot_password))
                     }
                 }
 
@@ -231,14 +236,20 @@ fun LoginScreen(
                     if (uiState.isLoading) {
                         CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
                     }
-                    Text("Log In", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.login_log_in), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
 
                 if (uiState.biometricSignInAvailable) {
+                    val biometricTitle = stringResource(R.string.login_biometric_prompt_title)
+                    val biometricSubtitle = stringResource(R.string.login_biometric_prompt_subtitle)
+                    val biometricUsePassword = stringResource(R.string.login_biometric_prompt_use_password)
                     OutlinedButton(
                         onClick = {
                             launchBiometricPrompt(
                                 activity = activity,
+                                title = biometricTitle,
+                                subtitle = biometricSubtitle,
+                                negativeButtonText = biometricUsePassword,
                                 onSuccess = viewModel::onBiometricAuthSucceeded,
                                 onError = { /* user-visible errors already filtered above; ignore transient hardware errors */ },
                             )
@@ -248,7 +259,7 @@ fun LoginScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Icon(Icons.Rounded.Fingerprint, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text("Sign in with biometrics")
+                        Text(stringResource(R.string.login_biometric_button))
                     }
                 }
 
@@ -257,7 +268,7 @@ fun LoginScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        "POWERED BY: EMF IT Solutions",
+                        stringResource(R.string.login_powered_by),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
