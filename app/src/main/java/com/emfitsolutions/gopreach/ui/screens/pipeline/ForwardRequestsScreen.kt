@@ -135,6 +135,7 @@ private fun PublisherForwardRequestRow(request: PublisherForwardRequest) {
         ForwardRequestStatus.PENDING -> "Pending" to MaterialTheme.colorScheme.tertiary
         ForwardRequestStatus.ACCEPTED -> "Accepted" to MaterialTheme.colorScheme.primary
         ForwardRequestStatus.DECLINED -> "Declined" to MaterialTheme.colorScheme.error
+        ForwardRequestStatus.CANCELLED -> "Cancelled" to MaterialTheme.colorScheme.onSurfaceVariant
     }
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {

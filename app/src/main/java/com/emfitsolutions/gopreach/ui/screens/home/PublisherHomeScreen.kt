@@ -148,9 +148,12 @@ fun PublisherHomeScreen(
     val notificationItemsFlow = remember(ownPublisherAssignment?.congregationId, currentPersonId) {
         notificationCenterViewModel.itemsForPublisher(currentPersonId, ownPublisherAssignment?.congregationId)
     }
-    val notificationItems by notificationItemsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val notificationUnseenFlow = remember(notificationItemsFlow, currentPersonId) {
-        notificationCenterViewModel.unseenCountFor(notificationItemsFlow, currentPersonId)
+    val visibleNotificationItemsFlow = remember(notificationItemsFlow, currentPersonId) {
+        notificationCenterViewModel.visibleItemsFor(notificationItemsFlow, currentPersonId)
+    }
+    val notificationItems by visibleNotificationItemsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val notificationUnseenFlow = remember(visibleNotificationItemsFlow, currentPersonId) {
+        notificationCenterViewModel.unseenCountFor(visibleNotificationItemsFlow, currentPersonId)
     }
     val notificationUnseenCount by notificationUnseenFlow.collectAsStateWithLifecycle(initialValue = 0)
     com.emfitsolutions.gopreach.ui.components.NewItemNotifier(
@@ -220,6 +223,8 @@ fun PublisherHomeScreen(
                 notificationUnseenCount = notificationUnseenCount,
                 onOpenNotifications = { notificationCenterViewModel.markAllSeen(currentPersonId) },
                 onNotificationClick = onNavigate,
+                onDismissNotification = { notificationCenterViewModel.dismiss(it, currentPersonId) },
+                onClearAllNotifications = { notificationCenterViewModel.dismissAll(notificationItems, currentPersonId) },
                 chatBoxEntries = chatBoxEntries,
                 onOpenGroupChat = { chatId -> onNavigate(Destinations.groupChatDetail(chatId)) },
                 onViewAllGroupChats = { onNavigate(Destinations.GROUP_CHAT_SETTING) },
@@ -312,6 +317,8 @@ private fun PublisherWelcomeHeader(
     notificationUnseenCount: Int,
     onOpenNotifications: () -> Unit,
     onNotificationClick: (String) -> Unit,
+    onDismissNotification: (com.emfitsolutions.gopreach.ui.screens.notifications.NotificationItem) -> Unit,
+    onClearAllNotifications: () -> Unit,
     chatBoxEntries: List<com.emfitsolutions.gopreach.ui.components.ChatBoxEntry>,
     onOpenGroupChat: (String) -> Unit,
     onViewAllGroupChats: () -> Unit,
@@ -345,6 +352,8 @@ private fun PublisherWelcomeHeader(
                     unseenCount = notificationUnseenCount,
                     onOpen = onOpenNotifications,
                     onItemClick = { onNotificationClick(it.route) },
+                    onDismiss = onDismissNotification,
+                    onClearAll = onClearAllNotifications,
                 )
                 com.emfitsolutions.gopreach.ui.components.ChatBoxIcon(
                     entries = chatBoxEntries,
@@ -698,6 +707,7 @@ private fun PublisherForwardNotifier(
                 id = 9200,
                 title = "Record Forwarded to You",
                 text = "Another publisher forwarded a Bible Study/Return Visit record to you.",
+                category = com.emfitsolutions.gopreach.data.repository.NotificationCategory.TRANSFER_REQUEST,
             )
         }
         lastIncomingCount = current.size
@@ -712,12 +722,21 @@ private fun PublisherForwardNotifier(
         if (previousStatuses != null) {
             current.forEach { request ->
                 val wasPending = previousStatuses[request.id] == com.emfitsolutions.gopreach.data.model.ForwardRequestStatus.PENDING
-                if (wasPending && request.status != com.emfitsolutions.gopreach.data.model.ForwardRequestStatus.PENDING) {
+                // Cancelled is excluded here — that's the sending publisher's
+                // own action, on their own device, so there's nothing for
+                // this "someone else acted on your request" notifier to tell
+                // them; "was cancelled by [the recipient]" would also just be
+                // wrong, since the recipient never touched it.
+                if (wasPending &&
+                    request.status != com.emfitsolutions.gopreach.data.model.ForwardRequestStatus.PENDING &&
+                    request.status != com.emfitsolutions.gopreach.data.model.ForwardRequestStatus.CANCELLED
+                ) {
                     com.emfitsolutions.gopreach.notifications.NotificationHelper.notify(
                         context,
                         id = 9200 + request.id.hashCode(),
                         title = "Forward Request Update",
                         text = "${request.personNameSnapshot} was ${request.status.name.lowercase()} by ${request.toPublisherNameSnapshot}.",
+                        category = com.emfitsolutions.gopreach.data.repository.NotificationCategory.TRANSFER_REQUEST,
                     )
                 }
             }
@@ -747,12 +766,18 @@ private fun ForwardToCongregationSenderNotifier(
         if (previousStatuses != null) {
             current.forEach { request ->
                 val wasPending = previousStatuses[request.id] == com.emfitsolutions.gopreach.data.model.ForwardRequestStatus.PENDING
-                if (wasPending && request.status != com.emfitsolutions.gopreach.data.model.ForwardRequestStatus.PENDING) {
+                // Cancelled excluded — see the same-congregation notifier's
+                // matching comment above.
+                if (wasPending &&
+                    request.status != com.emfitsolutions.gopreach.data.model.ForwardRequestStatus.PENDING &&
+                    request.status != com.emfitsolutions.gopreach.data.model.ForwardRequestStatus.CANCELLED
+                ) {
                     com.emfitsolutions.gopreach.notifications.NotificationHelper.notify(
                         context,
                         id = 9300 + request.id.hashCode(),
                         title = "Forward Request Update",
                         text = "${request.personNameSnapshot} was ${request.status.name.lowercase()} by ${request.toCongregationNameSnapshot}.",
+                        category = com.emfitsolutions.gopreach.data.repository.NotificationCategory.TRANSFER_REQUEST,
                     )
                 }
             }

@@ -322,6 +322,7 @@ private fun ForwardStatusBadge(person: InterestedPerson, viewModel: PipelineView
         ForwardRequestStatus.PENDING -> "Forward status: Pending (${r.toCongregationNameSnapshot})" to MaterialTheme.colorScheme.tertiary
         ForwardRequestStatus.ACCEPTED -> "Forward status: Accepted (${r.toCongregationNameSnapshot})" to MaterialTheme.colorScheme.primary
         ForwardRequestStatus.DECLINED -> "Forward status: Declined" to MaterialTheme.colorScheme.error
+        ForwardRequestStatus.CANCELLED -> "Forward status: Cancelled" to MaterialTheme.colorScheme.onSurfaceVariant
     }
     Text(text, style = MaterialTheme.typography.bodySmall, color = color)
 }
@@ -335,6 +336,7 @@ private fun PublisherForwardStatusBadge(person: InterestedPerson, viewModel: Pip
         ForwardRequestStatus.PENDING -> "Forward status: Pending (${r.toPublisherNameSnapshot})" to MaterialTheme.colorScheme.tertiary
         ForwardRequestStatus.ACCEPTED -> "Forward status: Accepted (${r.toPublisherNameSnapshot})" to MaterialTheme.colorScheme.primary
         ForwardRequestStatus.DECLINED -> "Forward status: Declined" to MaterialTheme.colorScheme.error
+        ForwardRequestStatus.CANCELLED -> "Forward status: Cancelled" to MaterialTheme.colorScheme.onSurfaceVariant
     }
     Text(text, style = MaterialTheme.typography.bodySmall, color = color)
 }
@@ -645,6 +647,14 @@ internal fun PipelinePersonDetailScreen(
                     onAdvanceStage = { newStage -> pendingStageChange = newStage },
                     onShowForwardDialog = { showForwardDialog = true },
                     onShowForwardToPublisherDialog = { showForwardToPublisherDialog = true },
+                    onCancelForward = {
+                        viewModel.cancelForward(forwardRequest!!, currentPersonId)
+                        showToast("Forward request cancelled.")
+                    },
+                    onCancelPublisherForward = {
+                        viewModel.cancelPublisherForward(publisherForwardRequest!!, currentPersonId)
+                        showToast("Forward request cancelled.")
+                    },
                 )
             }
             if (stage != PipelineStage.SEARCHING) {
@@ -819,6 +829,8 @@ private fun PipelineActionButtons(
     onAdvanceStage: (PipelineStage) -> Unit,
     onShowForwardDialog: () -> Unit,
     onShowForwardToPublisherDialog: () -> Unit,
+    onCancelForward: () -> Unit,
+    onCancelPublisherForward: () -> Unit,
 ) {
     val iconModifier = Modifier.size(18.dp).padding(end = 8.dp)
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -869,35 +881,46 @@ private fun PipelineActionButtons(
             Icon(Icons.AutoMirrored.Rounded.Forward, contentDescription = null, modifier = iconModifier)
             Text("Forward to Other Publisher")
         }
-        ForwardStatusLine(forwardRequest)
-        PublisherForwardStatusLine(publisherForwardRequest)
+        ForwardStatusLine(forwardRequest, onCancel = onCancelForward)
+        PublisherForwardStatusLine(publisherForwardRequest, onCancel = onCancelPublisherForward)
     }
 }
 
 @Composable
-private fun ForwardStatusLine(r: ForwardRequest?) {
+private fun ForwardStatusLine(r: ForwardRequest?, onCancel: () -> Unit) {
     if (r == null) return
     Text(
         when (r.status) {
             ForwardRequestStatus.PENDING -> "Forward to congregation/group: Pending — sent to ${r.toCongregationNameSnapshot}"
             ForwardRequestStatus.ACCEPTED -> "Forward to congregation/group: Accepted by ${r.toCongregationNameSnapshot} — assigned to ${r.assignedToPublisherNameSnapshot ?: "—"}"
             ForwardRequestStatus.DECLINED -> "Forward to congregation/group: Declined by ${r.toCongregationNameSnapshot}"
+            ForwardRequestStatus.CANCELLED -> "Forward to congregation/group: Cancelled"
         },
         style = MaterialTheme.typography.bodySmall,
     )
+    // "Add a cancel request to all transfer[s]... applicable if the process
+    // is not yet accepted by the receiving user" — only offered while the
+    // receiving Service Overseer hasn't acted on it yet.
+    if (r.status == ForwardRequestStatus.PENDING) {
+        TextButton(onClick = onCancel, contentPadding = PaddingValues(0.dp)) { Text("Cancel Request") }
+    }
 }
 
 @Composable
-private fun PublisherForwardStatusLine(r: PublisherForwardRequest?) {
+private fun PublisherForwardStatusLine(r: PublisherForwardRequest?, onCancel: () -> Unit) {
     if (r == null) return
     Text(
         when (r.status) {
             ForwardRequestStatus.PENDING -> "Forward to publisher: Pending — sent to ${r.toPublisherNameSnapshot}"
             ForwardRequestStatus.ACCEPTED -> "Forward to publisher: Accepted by ${r.toPublisherNameSnapshot}"
             ForwardRequestStatus.DECLINED -> "Forward to publisher: Declined by ${r.toPublisherNameSnapshot}"
+            ForwardRequestStatus.CANCELLED -> "Forward to publisher: Cancelled"
         },
         style = MaterialTheme.typography.bodySmall,
     )
+    if (r.status == ForwardRequestStatus.PENDING) {
+        TextButton(onClick = onCancel, contentPadding = PaddingValues(0.dp)) { Text("Cancel Request") }
+    }
 }
 
 /** "FORWARD TO OTHER CONGREGATION" spec flow — search field over

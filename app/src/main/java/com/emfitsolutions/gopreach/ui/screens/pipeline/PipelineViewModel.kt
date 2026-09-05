@@ -258,6 +258,31 @@ class PipelineViewModel @Inject constructor(
         }
     }
 
+    /** "Add a cancel request to all transfer[s]... applicable if the process
+     * is not yet accepted by the receiving user" — only the sending
+     * publisher ever calls this, and only while [request] is still
+     * [ForwardRequestStatus.PENDING] (enforced by the UI only ever showing
+     * the Cancel action then; re-checked here too since this is also
+     * reachable while the screen's own snapshot of [request] is stale by a
+     * moment). Doesn't clear [InterestedPerson.pendingForwardRequestId] —
+     * same "the pointer is how the screen keeps showing this request's
+     * final status" precedent [accept]/[decline] already follow. */
+    fun cancelForward(request: ForwardRequest, actorPersonId: String) {
+        if (request.status != ForwardRequestStatus.PENDING) return
+        viewModelScope.launch {
+            forwardRequestRepository.save(
+                request.copy(status = ForwardRequestStatus.CANCELLED, respondedAt = System.currentTimeMillis(), respondedByPersonId = actorPersonId)
+            )
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "CANCEL_FORWARD_REQUEST",
+                targetType = "InterestedPerson",
+                targetId = request.interestedPersonId,
+                details = "${request.personNameSnapshot} -> ${request.toCongregationNameSnapshot}",
+            )
+        }
+    }
+
     /** "FORWARD TO OTHER PUBLISHER" spec flow — every other active,
      * non-removed publisher in [congregationId] (same congregation only —
      * this flow never crosses congregations), excluding the sender
@@ -308,6 +333,24 @@ class PipelineViewModel @Inject constructor(
                 targetType = "InterestedPerson",
                 targetId = person.id,
                 details = "${person.name} -> ${toPublisher.fullName}",
+            )
+        }
+    }
+
+    /** Same "cancel while still Pending" flow as [cancelForward], for the
+     * same-congregation "FORWARD TO OTHER PUBLISHER" request instead. */
+    fun cancelPublisherForward(request: PublisherForwardRequest, actorPersonId: String) {
+        if (request.status != ForwardRequestStatus.PENDING) return
+        viewModelScope.launch {
+            publisherForwardRequestRepository.save(
+                request.copy(status = ForwardRequestStatus.CANCELLED, respondedAt = System.currentTimeMillis())
+            )
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "CANCEL_PUBLISHER_FORWARD_REQUEST",
+                targetType = "InterestedPerson",
+                targetId = request.interestedPersonId,
+                details = "${request.personNameSnapshot} -> ${request.toPublisherNameSnapshot}",
             )
         }
     }

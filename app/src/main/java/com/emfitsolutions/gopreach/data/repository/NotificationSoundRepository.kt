@@ -12,6 +12,10 @@ import javax.inject.Singleton
 private const val PREFS_NAME = "gopreach_notification_settings"
 private const val KEY_SOUND_URI = "notification_sound_uri"
 private const val KEY_ENABLED = "notifications_enabled"
+private const val KEY_SOUND_ENABLED = "notification_sounds_enabled"
+private const val KEY_POPUP_ENABLED = "notification_popups_enabled"
+private const val KEY_TRANSFER_REQUEST_ENABLED = "notification_transfer_requests_enabled"
+private const val KEY_ANNOUNCEMENT_ENABLED = "notification_announcements_enabled"
 
 /**
  * Per-device choice of which system sound plays for every incoming
@@ -45,6 +49,24 @@ class NotificationSoundRepository @Inject constructor(
     private val _enabled = MutableStateFlow(prefs.getBoolean(KEY_ENABLED, true))
     val enabled: StateFlow<Boolean> = _enabled
 
+    // "NOTIFICATION SETTINGS: Enable Notification Sounds / Transfer Request
+    // Notifications / Announcement Notifications / Show Popup Notifications"
+    // — four additional, independent per-device toggles layered on top of
+    // [enabled] (the pre-existing overall on/off switch, unchanged, still
+    // gates every one of these). Each defaults to true so nothing changes
+    // for a user who's never opened this new section of Settings.
+    private val _soundEnabled = MutableStateFlow(prefs.getBoolean(KEY_SOUND_ENABLED, true))
+    val soundEnabled: StateFlow<Boolean> = _soundEnabled
+
+    private val _popupEnabled = MutableStateFlow(prefs.getBoolean(KEY_POPUP_ENABLED, true))
+    val popupEnabled: StateFlow<Boolean> = _popupEnabled
+
+    private val _transferRequestEnabled = MutableStateFlow(prefs.getBoolean(KEY_TRANSFER_REQUEST_ENABLED, true))
+    val transferRequestEnabled: StateFlow<Boolean> = _transferRequestEnabled
+
+    private val _announcementEnabled = MutableStateFlow(prefs.getBoolean(KEY_ANNOUNCEMENT_ENABLED, true))
+    val announcementEnabled: StateFlow<Boolean> = _announcementEnabled
+
     private fun readStoredUri(): Uri? = prefs.getString(KEY_SOUND_URI, null)?.let(Uri::parse)
 
     fun setSoundUri(uri: Uri?) {
@@ -55,6 +77,26 @@ class NotificationSoundRepository @Inject constructor(
     fun setEnabled(value: Boolean) {
         prefs.edit { putBoolean(KEY_ENABLED, value) }
         _enabled.value = value
+    }
+
+    fun setSoundEnabled(value: Boolean) {
+        prefs.edit { putBoolean(KEY_SOUND_ENABLED, value) }
+        _soundEnabled.value = value
+    }
+
+    fun setPopupEnabled(value: Boolean) {
+        prefs.edit { putBoolean(KEY_POPUP_ENABLED, value) }
+        _popupEnabled.value = value
+    }
+
+    fun setTransferRequestEnabled(value: Boolean) {
+        prefs.edit { putBoolean(KEY_TRANSFER_REQUEST_ENABLED, value) }
+        _transferRequestEnabled.value = value
+    }
+
+    fun setAnnouncementEnabled(value: Boolean) {
+        prefs.edit { putBoolean(KEY_ANNOUNCEMENT_ENABLED, value) }
+        _announcementEnabled.value = value
     }
 
     companion object {
@@ -68,6 +110,21 @@ class NotificationSoundRepository @Inject constructor(
          */
         fun isEnabled(context: Context): Boolean =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, true)
+
+        /** Static reads for the four new per-category/behavior toggles —
+         * same rationale as [isEnabled]: [NotificationHelper.notify] is a
+         * plain object, not Hilt-injected. */
+        fun isSoundEnabled(context: Context): Boolean =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_SOUND_ENABLED, true)
+
+        fun isPopupEnabled(context: Context): Boolean =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_POPUP_ENABLED, true)
+
+        fun isTransferRequestEnabled(context: Context): Boolean =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_TRANSFER_REQUEST_ENABLED, true)
+
+        fun isAnnouncementEnabled(context: Context): Boolean =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_ANNOUNCEMENT_ENABLED, true)
 
         /** Same static-read rationale as [isEnabled] — used by
          * [com.emfitsolutions.gopreach.notifications.NotificationHelper

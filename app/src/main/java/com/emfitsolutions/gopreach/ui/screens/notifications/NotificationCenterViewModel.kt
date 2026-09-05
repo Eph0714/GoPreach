@@ -15,6 +15,7 @@ import com.emfitsolutions.gopreach.data.repository.AnnouncementSeenStore
 import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.NotificationCategory
+import com.emfitsolutions.gopreach.data.repository.NotificationDismissedStore
 import com.emfitsolutions.gopreach.data.repository.NotificationSeenStore
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.PublisherForwardRequestRepository
@@ -34,6 +35,13 @@ import javax.inject.Inject
  * Manage Publisher Reports, Manage/Publisher Announcements, Calendar) rather
  * than a new dedicated notification-detail screen. */
 data class NotificationItem(
+    /** The underlying record's own id (ForwardRequest/PublisherForwardRequest/
+     * MonthlyReport/Announcement/Schedule) — stable across recompositions and
+     * app restarts, unlike a derived hash, so [NotificationDismissedStore] can
+     * track "the user dismissed this one specific notification" per item
+     * (spec: "Delete Notification"/"Clear Old Notifications") without ever
+     * touching the underlying record itself. */
+    val id: String,
     val category: NotificationCategory,
     val title: String,
     val subtitle: String,
@@ -87,6 +95,7 @@ class NotificationCenterViewModel @Inject constructor(
     private val personRepository: PersonRepository,
     private val notificationSeenStore: NotificationSeenStore,
     private val announcementSeenStore: AnnouncementSeenStore,
+    private val notificationDismissedStore: NotificationDismissedStore,
 ) : ViewModel() {
 
     private val periodFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
@@ -124,6 +133,7 @@ class NotificationCenterViewModel @Inject constructor(
             .filter { it.status == ForwardRequestStatus.PENDING && (congregationIds == null || it.toCongregationId in congregationIds) }
             .forEach { r ->
                 items += NotificationItem(
+                    id = r.id,
                     category = NotificationCategory.TRANSFER_REQUEST,
                     title = "Transfer Request: ${r.personNameSnapshot}",
                     subtitle = "From ${r.fromPublisherNameSnapshot} · ${r.fromCongregationNameSnapshot}",
@@ -136,6 +146,7 @@ class NotificationCenterViewModel @Inject constructor(
             .filter { it.status == ForwardRequestStatus.PENDING && (congregationIds == null || it.congregationId in congregationIds) }
             .forEach { r ->
                 items += NotificationItem(
+                    id = r.id,
                     category = NotificationCategory.TRANSFER_REQUEST,
                     title = "Transfer Request: ${r.personNameSnapshot}",
                     subtitle = "${r.fromPublisherNameSnapshot} → ${r.toPublisherNameSnapshot}",
@@ -150,6 +161,7 @@ class NotificationCenterViewModel @Inject constructor(
                 .forEach { report ->
                     val publisherName = people.firstOrNull { it.id == report.publisherPersonId }?.fullName ?: "A publisher"
                     items += NotificationItem(
+                        id = report.id,
                         category = NotificationCategory.MONTHLY_REPORT,
                         title = "Monthly Report: $publisherName",
                         subtitle = periodFormat.format(Date(report.periodMonth)),
@@ -168,6 +180,7 @@ class NotificationCenterViewModel @Inject constructor(
             .filter { congregationIds == null || it.congregationId in congregationIds }
             .forEach { a ->
                 items += NotificationItem(
+                    id = a.id,
                     category = NotificationCategory.ANNOUNCEMENT,
                     title = "New Announcement: ${a.title}",
                     subtitle = a.details,
@@ -180,6 +193,7 @@ class NotificationCenterViewModel @Inject constructor(
             .filter { it.kind == ScheduleKind.CALENDAR_EVENT && (congregationIds == null || it.congregationId in congregationIds) }
             .forEach { s ->
                 items += NotificationItem(
+                    id = s.id,
                     category = NotificationCategory.CALENDAR_SCHEDULE,
                     title = "New Calendar Event: ${s.title}",
                     subtitle = formatRecordTimestamp(s.startTime),
@@ -207,6 +221,7 @@ class NotificationCenterViewModel @Inject constructor(
                 .filter { it.toPublisherPersonId == currentPersonId && it.status == ForwardRequestStatus.PENDING }
                 .forEach { r ->
                     items += NotificationItem(
+                        id = r.id,
                         category = NotificationCategory.TRANSFER_REQUEST,
                         title = "Transfer Request: ${r.personNameSnapshot}",
                         subtitle = "From ${r.fromPublisherNameSnapshot}",
@@ -219,6 +234,7 @@ class NotificationCenterViewModel @Inject constructor(
                 .filter { it.congregationId == congregationId }
                 .forEach { a ->
                     items += NotificationItem(
+                        id = a.id,
                         category = NotificationCategory.ANNOUNCEMENT,
                         title = "New Announcement: ${a.title}",
                         subtitle = a.details,
@@ -231,6 +247,7 @@ class NotificationCenterViewModel @Inject constructor(
                 .filter { it.kind == ScheduleKind.CALENDAR_EVENT && it.congregationId == congregationId }
                 .forEach { s ->
                     items += NotificationItem(
+                        id = s.id,
                         category = NotificationCategory.CALENDAR_SCHEDULE,
                         title = "New Calendar Event: ${s.title}",
                         subtitle = formatRecordTimestamp(s.startTime),
@@ -241,6 +258,30 @@ class NotificationCenterViewModel @Inject constructor(
 
             items.sortedByDescending { it.timestamp }.take(50)
         }
+
+    /** [items] with every notification the user already dismissed (spec:
+     * "Delete Notification"/"Clear Old Notifications") filtered out — the
+     * bell's own display list and [unseenCountFor] should both read this,
+     * not the raw builder output, so a dismissed item neither shows nor
+     * keeps counting toward the badge. [com.emfitsolutions.gopreach.ui
+     * .components.NewItemNotifier]'s own "new arrival" detection stays on
+     * the *raw* flow instead (see its call sites) — dismissing a past
+     * notification shouldn't suppress the system popup for a genuinely new
+     * one that happens to share nothing but a category with it. */
+    fun visibleItemsFor(items: Flow<List<NotificationItem>>, currentPersonId: String): Flow<List<NotificationItem>> =
+        combine(items, notificationDismissedStore.dismissedByPerson) { list, _ ->
+            val dismissed = notificationDismissedStore.dismissedFor(currentPersonId)
+            list.filter { it.id !in dismissed }
+        }
+
+    /** Dismisses one notification — disappears from the balloon on this
+     * device only; never touches the underlying record. */
+    fun dismiss(item: NotificationItem, currentPersonId: String) = notificationDismissedStore.dismiss(currentPersonId, item.id)
+
+    /** "Clear Old Notifications" / a "Clear All" action — dismisses every
+     * notification currently shown in one tap. */
+    fun dismissAll(items: List<NotificationItem>, currentPersonId: String) =
+        notificationDismissedStore.dismissAll(currentPersonId, items.map { it.id })
 
     private fun lastSeenAt(category: NotificationCategory, personId: String): Long =
         if (category == NotificationCategory.ANNOUNCEMENT) announcementSeenStore.lastSeenAt(personId)

@@ -12,6 +12,7 @@ import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.emfitsolutions.gopreach.R
+import com.emfitsolutions.gopreach.data.repository.NotificationCategory
 import com.emfitsolutions.gopreach.data.repository.NotificationSoundRepository
 
 // "_v2" — bug fix ("notification sound isn't working"): a NotificationChannel's
@@ -117,29 +118,53 @@ object NotificationHelper {
         }
 
     /** Posts a local notification through [REMINDERS_CHANNEL_ID] — a no-op
-     * if the Publisher has turned notifications off (spec: "allow the
-     * publisher to turn on and turn off notification"), same as it's
-     * already a no-op without POST_NOTIFICATIONS permission. */
-    fun notify(context: Context, id: Int, title: String, text: String) {
+     * if the Publisher has turned notifications off overall (spec: "allow
+     * the publisher to turn on and turn off notification"), if [category]'s
+     * own toggle is off (Settings → Notifications' "Transfer Request
+     * Notifications"/"Announcement Notifications" switches — every other
+     * category has no such toggle and is unaffected), or if "Show Popup
+     * Notifications" is off — same as it's already a no-op without
+     * POST_NOTIFICATIONS permission. [category] defaults to
+     * [NotificationCategory.CALENDAR_SCHEDULE] for call sites (report
+     * reminders) that don't map onto either of the two toggled categories,
+     * so they're only gated by the master switch, same as before this
+     * parameter existed.
+     *
+     * [NotificationCategory.TRANSFER_REQUEST] posts at
+     * [NotificationCompat.PRIORITY_HIGH] — "🔴 High Priority: Incoming
+     * Transfer Request" / "🟡 Normal Priority: New Announcement" — a more
+     * noticeable heads-up than every other category's PRIORITY_DEFAULT. */
+    fun notify(context: Context, id: Int, title: String, text: String, category: NotificationCategory = NotificationCategory.CALENDAR_SCHEDULE) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             return
         }
         if (!NotificationSoundRepository.isEnabled(context)) return
+        if (!NotificationSoundRepository.isPopupEnabled(context)) return
+        when (category) {
+            NotificationCategory.TRANSFER_REQUEST -> if (!NotificationSoundRepository.isTransferRequestEnabled(context)) return
+            NotificationCategory.ANNOUNCEMENT -> if (!NotificationSoundRepository.isAnnouncementEnabled(context)) return
+            NotificationCategory.MONTHLY_REPORT, NotificationCategory.CALENDAR_SCHEDULE -> Unit
+        }
+        val soundOn = NotificationSoundRepository.isSoundEnabled(context)
         val builder = NotificationCompat.Builder(context, REMINDERS_CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(if (category == NotificationCategory.TRANSFER_REQUEST) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+            // "Enable Notification Sounds" off — the popup still shows, just
+            // without sound/vibration; setSilent() overrides the channel's
+            // own sound on O+ (the pre-O fallback below is skipped instead).
+            .setSilent(!soundOn)
         // Below API 26 there is no NotificationChannel at all, so the sound
         // set on [buildRemindersChannel] never applies — bug fix: the sound
         // (and default vibration) has to be set directly on the notification
         // itself for it to play anything on Android 7.0/7.1. Harmless to set
         // on O+ too; the channel's own sound simply takes priority there.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+        if (soundOn && Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             val soundUri = NotificationSoundRepository.readStoredSoundUri(context)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             builder.setSound(soundUri).setDefaults(NotificationCompat.DEFAULT_VIBRATE)

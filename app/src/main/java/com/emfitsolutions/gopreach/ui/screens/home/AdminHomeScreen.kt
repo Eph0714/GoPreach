@@ -301,9 +301,12 @@ fun AdminHomeScreen(
     val notificationItemsFlow = remember(visibleCongregationIds, canManagePublisherReports) {
         notificationCenterViewModel.itemsForAdmin(visibleCongregationIds, canManagePublisherReports)
     }
-    val notificationItems by notificationItemsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val notificationUnseenFlow = remember(notificationItemsFlow, currentPersonId) {
-        notificationCenterViewModel.unseenCountFor(notificationItemsFlow, currentPersonId)
+    val visibleNotificationItemsFlow = remember(notificationItemsFlow, currentPersonId) {
+        notificationCenterViewModel.visibleItemsFor(notificationItemsFlow, currentPersonId)
+    }
+    val notificationItems by visibleNotificationItemsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val notificationUnseenFlow = remember(visibleNotificationItemsFlow, currentPersonId) {
+        notificationCenterViewModel.unseenCountFor(visibleNotificationItemsFlow, currentPersonId)
     }
     val notificationUnseenCount by notificationUnseenFlow.collectAsStateWithLifecycle(initialValue = 0)
     com.emfitsolutions.gopreach.ui.components.NewItemNotifier(
@@ -491,6 +494,8 @@ fun AdminHomeScreen(
                                 unseenCount = notificationUnseenCount,
                                 onOpen = { notificationCenterViewModel.markAllSeen(currentPersonId) },
                                 onItemClick = { onNavigate(it.route) },
+                                onDismiss = { notificationCenterViewModel.dismiss(it, currentPersonId) },
+                                onClearAll = { notificationCenterViewModel.dismissAll(notificationItems, currentPersonId) },
                             )
                         }
                         com.emfitsolutions.gopreach.ui.components.ChatBoxIcon(
@@ -651,6 +656,7 @@ private fun ForwardRequestNotifier(
                 id = 9100,
                 title = "New Forward Request",
                 text = "A publisher has forwarded a record to your congregation for review.",
+                category = com.emfitsolutions.gopreach.data.repository.NotificationCategory.TRANSFER_REQUEST,
             )
         }
         lastSeenCount = current.size

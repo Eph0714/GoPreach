@@ -37,6 +37,10 @@ class SettingsViewModel @Inject constructor(
     val customColor: StateFlow<Color> = themePreferenceRepository.customColor
     val notificationSoundUri: StateFlow<Uri?> = notificationSoundRepository.soundUri
     val notificationsEnabled: StateFlow<Boolean> = notificationSoundRepository.enabled
+    val notificationSoundsEnabled: StateFlow<Boolean> = notificationSoundRepository.soundEnabled
+    val popupNotificationsEnabled: StateFlow<Boolean> = notificationSoundRepository.popupEnabled
+    val transferRequestNotificationsEnabled: StateFlow<Boolean> = notificationSoundRepository.transferRequestEnabled
+    val announcementNotificationsEnabled: StateFlow<Boolean> = notificationSoundRepository.announcementEnabled
     val language: StateFlow<AppLanguage> = appLanguageRepository.current
 
     /** One-shot "Language successfully changed." (in the newly selected
@@ -82,4 +86,17 @@ class SettingsViewModel @Inject constructor(
      * the publisher to turn on and turn off notification." Calendar Alarms
      * are untouched by this; see [NotificationSoundRepository]'s doc comment. */
     fun setNotificationsEnabled(value: Boolean) = notificationSoundRepository.setEnabled(value)
+
+    /** "NOTIFICATION SETTINGS" — four independent per-device toggles layered
+     * on top of [setNotificationsEnabled]'s master switch, checked in
+     * [NotificationHelper.notify]: whether a notification plays a sound at
+     * all (popup still shows), whether a popup shows at all, and separately
+     * gating the two categories the spec names (Transfer Request/
+     * Announcement) — every other category (Monthly Report reminders,
+     * Calendar events) is unaffected by the last two and stays governed by
+     * the master switch alone, same as before these existed. */
+    fun setNotificationSoundsEnabled(value: Boolean) = notificationSoundRepository.setSoundEnabled(value)
+    fun setPopupNotificationsEnabled(value: Boolean) = notificationSoundRepository.setPopupEnabled(value)
+    fun setTransferRequestNotificationsEnabled(value: Boolean) = notificationSoundRepository.setTransferRequestEnabled(value)
+    fun setAnnouncementNotificationsEnabled(value: Boolean) = notificationSoundRepository.setAnnouncementEnabled(value)
 }

@@ -1,5 +1,6 @@
 package com.emfitsolutions.gopreach.ui.components
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,20 +10,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Assignment
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Campaign
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +66,14 @@ fun NotificationBell(
     unseenCount: Int,
     onOpen: () -> Unit,
     onItemClick: (NotificationItem) -> Unit,
+    /** "Delete Notification" — dismisses one item; disappears from this
+     * device's balloon only, never touches the underlying record. Optional
+     * so existing call sites keep compiling unchanged; omit to hide the
+     * per-row dismiss affordance entirely. */
+    onDismiss: ((NotificationItem) -> Unit)? = null,
+    /** "Clear Old Notifications" / a "Clear All" action — dismisses every
+     * currently-listed item at once. */
+    onClearAll: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     iconTint: Color = Color.White,
 ) {
@@ -87,6 +100,15 @@ fun NotificationBell(
                 )
             } else {
                 Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()).imePadding()) {
+                    if (onClearAll != null) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            TextButton(onClick = { onClearAll(); expanded = false }) { Text("Clear All") }
+                        }
+                        HorizontalDivider()
+                    }
                     items.forEach { item ->
                         DropdownMenuItem(
                             text = {
@@ -122,6 +144,19 @@ fun NotificationBell(
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
+                                    }
+                                    // "Delete Notification" — a small dismiss
+                                    // affordance per row, distinct from tapping
+                                    // the row itself (which navigates instead).
+                                    if (onDismiss != null) {
+                                        IconButton(onClick = { onDismiss(item) }, modifier = Modifier.size(24.dp)) {
+                                            Icon(
+                                                Icons.Rounded.Close,
+                                                contentDescription = "Dismiss notification",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                        }
                                     }
                                 }
                             },

@@ -27,11 +27,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -221,6 +223,10 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
     val context = LocalContext.current
     val soundUri by viewModel.notificationSoundUri.collectAsStateWithLifecycle()
     val notificationsEnabled by viewModel.notificationsEnabled.collectAsStateWithLifecycle()
+    val soundsEnabled by viewModel.notificationSoundsEnabled.collectAsStateWithLifecycle()
+    val popupsEnabled by viewModel.popupNotificationsEnabled.collectAsStateWithLifecycle()
+    val transferRequestsEnabled by viewModel.transferRequestNotificationsEnabled.collectAsStateWithLifecycle()
+    val announcementsEnabled by viewModel.announcementNotificationsEnabled.collectAsStateWithLifecycle()
     var exactAlarmsAllowed by remember { mutableStateOf(AlarmScheduler.canScheduleExactAlarms(context)) }
 
     val pickRingtone = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -239,6 +245,53 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
                 leadingContent = { Icon(Icons.Rounded.Notifications, contentDescription = null) },
                 trailingContent = {
                     Switch(checked = notificationsEnabled, onCheckedChange = viewModel::setNotificationsEnabled)
+                },
+            )
+            // "NOTIFICATION SETTINGS: Enable Notification Sounds / Transfer
+            // Request Notifications / Announcement Notifications / Show
+            // Popup Notifications" — four finer-grained toggles layered on
+            // top of the master switch above; each dims and disables while
+            // the master switch is off, same "there's nothing to configure
+            // if it's all off anyway" convention "Notification Sound" below
+            // already used before this section existed.
+            androidx.compose.material3.HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("Enable Notification Sounds") },
+                supportingContent = { Text("Play a sound for incoming notifications. Popups still show either way.") },
+                leadingContent = { Icon(Icons.Rounded.MusicNote, contentDescription = null) },
+                modifier = Modifier.alpha(if (notificationsEnabled) 1f else 0.5f),
+                trailingContent = {
+                    Switch(checked = soundsEnabled, onCheckedChange = viewModel::setNotificationSoundsEnabled, enabled = notificationsEnabled)
+                },
+            )
+            androidx.compose.material3.HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("Show Popup Notifications") },
+                supportingContent = { Text("Show a notification popup for incoming activity. The notification balloon and badge always update either way.") },
+                leadingContent = { Icon(Icons.Rounded.Notifications, contentDescription = null) },
+                modifier = Modifier.alpha(if (notificationsEnabled) 1f else 0.5f),
+                trailingContent = {
+                    Switch(checked = popupsEnabled, onCheckedChange = viewModel::setPopupNotificationsEnabled, enabled = notificationsEnabled)
+                },
+            )
+            androidx.compose.material3.HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("Transfer Request Notifications") },
+                supportingContent = { Text("Incoming and outgoing transfer/forward requests.") },
+                leadingContent = { Icon(Icons.Rounded.SwapHoriz, contentDescription = null) },
+                modifier = Modifier.alpha(if (notificationsEnabled) 1f else 0.5f),
+                trailingContent = {
+                    Switch(checked = transferRequestsEnabled, onCheckedChange = viewModel::setTransferRequestNotificationsEnabled, enabled = notificationsEnabled)
+                },
+            )
+            androidx.compose.material3.HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("Announcement Notifications") },
+                supportingContent = { Text("Newly published announcements.") },
+                leadingContent = { Icon(Icons.Rounded.Campaign, contentDescription = null) },
+                modifier = Modifier.alpha(if (notificationsEnabled) 1f else 0.5f),
+                trailingContent = {
+                    Switch(checked = announcementsEnabled, onCheckedChange = viewModel::setAnnouncementNotificationsEnabled, enabled = notificationsEnabled)
                 },
             )
             androidx.compose.material3.HorizontalDivider()

@@ -184,11 +184,18 @@ enum class VisitOutcome {
 enum class PipelineStage { SEARCHING, RETURN_VISIT, BIBLE_STUDY }
 
 /** Lifecycle of one cross-congregation [ForwardRequest] ("Forward to Other
- * Congregation" spec flow). [InterestedPerson.pendingForwardRequestId] points
- * at the most recent one for that person (if any), regardless of which of
- * these three states it's currently in — that's how the sending publisher's
- * own screen shows a live "Forward status: ..." without a separate lookup. */
-enum class ForwardRequestStatus { PENDING, ACCEPTED, DECLINED }
+ * Congregation" spec flow) — same enum also backs the same-congregation
+ * [PublisherForwardRequest] ("Forward to Other Publisher") flow.
+ * [InterestedPerson.pendingForwardRequestId]/[InterestedPerson
+ * .pendingPublisherForwardRequestId] point at the most recent one for that
+ * person (if any), regardless of which of these states it's currently in —
+ * that's how the sending publisher's own screen shows a live "Forward
+ * status: ..." without a separate lookup. [CANCELLED] — "add a cancel
+ * request... applicable if the process is not yet accepted by the receiving
+ * user" — is only ever set by the *sending* publisher themselves, and only
+ * while still [PENDING]; once a request has moved to [ACCEPTED]/[DECLINED]
+ * the receiving side has already acted and there's nothing left to cancel. */
+enum class ForwardRequestStatus { PENDING, ACCEPTED, DECLINED, CANCELLED }
 
 /** Local-only sync state for offline-first CRUD (spec §6.5), stored alongside cached rows. */
 enum class SyncState { SYNCED, PENDING, FAILED }

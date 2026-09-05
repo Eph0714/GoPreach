@@ -43,7 +43,7 @@ fun NewItemNotifier(items: Flow<List<NotificationItem>>, onlyCategories: Set<Not
         if (previousMax != null) {
             relevant.filter { it.timestamp > previousMax }
                 .forEach { item ->
-                    NotificationHelper.notify(context, id = item.hashCode(), title = item.title, text = item.subtitle)
+                    NotificationHelper.notify(context, id = item.hashCode(), title = item.title, text = item.subtitle, category = item.category)
                 }
         }
         val currentMax = relevant.maxOfOrNull { it.timestamp }
