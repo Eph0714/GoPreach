@@ -7,7 +7,7 @@
          Compose navigation never does) now blends straight into the Login screen instead
          of showing a distinct purple "splash" moment first (explicit request: "remove the
          splash when logging in using all accounts"). -->
-    <style name="Theme.GoPreach" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.GoPreach" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowBackground">@android:color/white</item>
         <item name="android:statusBarColor" tools:targetApi="21">@android:color/white</item>
         <!-- Android 12+ (API 31) shows its own splash screen on every cold
