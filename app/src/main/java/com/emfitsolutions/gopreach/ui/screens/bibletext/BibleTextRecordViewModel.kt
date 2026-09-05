@@ -2,6 +2,7 @@ package com.emfitsolutions.gopreach.ui.screens.bibletext
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.export.BibleTextExportFile
 import com.emfitsolutions.gopreach.data.model.BibleTextCategory
 import com.emfitsolutions.gopreach.data.model.BibleTextRecord
 import com.emfitsolutions.gopreach.data.model.Person
@@ -170,4 +171,57 @@ class BibleTextRecordViewModel @Inject constructor(
     fun updatePreferredLanguage(person: Person, languageId: String) {
         viewModelScope.launch { personRepository.save(person.copy(preferredBibleLanguageId = languageId)) }
     }
+
+    /** "The receiving Publisher can import the data[;] the imported data
+     * must not override the existing data of the receiving Publisher" —
+     * every imported record becomes a brand-new [BibleTextRecord] with a
+     * fresh Firestore-assigned id, owned by [publisherPersonId]; nothing the
+     * receiving Publisher already has is ever matched, overwritten, or
+     * deleted. A category is only created when no existing category of that
+     * exact name (case-insensitive) already exists for this Publisher —
+     * reusing an existing one by name instead of creating a duplicate is the
+     * one bit of "merging" this does, and it never renames/deletes/touches
+     * an existing category to do it. */
+    suspend fun importRecords(
+        publisherPersonId: String,
+        file: BibleTextExportFile,
+        existingCategories: List<BibleTextCategory>,
+    ): ImportResult {
+        val categoryIdByName = existingCategories.associateTo(mutableMapOf()) { it.name.trim().lowercase() to it.id }
+        var newCategoryCount = 0
+        file.records.map { it.categoryName.trim() }.distinct().forEach { name ->
+            val key = name.lowercase()
+            if (!categoryIdByName.containsKey(key)) {
+                val now = System.currentTimeMillis()
+                val saved = categoryRepository.save(BibleTextCategory(publisherPersonId = publisherPersonId, name = name, createdAt = now, updatedAt = now))
+                categoryIdByName[key] = saved.id
+                newCategoryCount++
+            }
+        }
+        var newRecordCount = 0
+        file.records.forEach { exported ->
+            val categoryId = categoryIdByName[exported.categoryName.trim().lowercase()] ?: return@forEach
+            val now = System.currentTimeMillis()
+            recordRepository.save(
+                BibleTextRecord(
+                    publisherPersonId = publisherPersonId,
+                    bibleVersionId = exported.bibleVersionId,
+                    languageId = exported.languageId,
+                    bibleBookId = exported.bibleBookId,
+                    chapter = exported.chapter,
+                    verses = exported.verses,
+                    categoryId = categoryId,
+                    remarks = exported.remarks,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+            newRecordCount++
+        }
+        return ImportResult(newCategoryCount, newRecordCount)
+    }
 }
+
+/** [newCategories]/[newRecords] — how many of each [importRecords] actually
+ * added, for the "Imported X records and Y new categories" confirmation. */
+data class ImportResult(val newCategories: Int, val newRecords: Int)

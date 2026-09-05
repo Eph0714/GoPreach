@@ -1,5 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.bibletext
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -21,9 +25,14 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -46,15 +55,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.export.BibleTextExporter
 import com.emfitsolutions.gopreach.data.model.BibleTextCategory
 import com.emfitsolutions.gopreach.data.model.BibleTextRecord
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.print.ReportPrinter
+import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.domain.NwtBibleReferenceData
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
@@ -115,6 +129,8 @@ fun BibleTextRecordScreen(
     }
     val categoriesById = remember(categories) { categories.associateBy { it.id } }
     val showToast = rememberActionToast()
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     var searchText by remember { mutableStateOf("") }
     var showFilters by remember { mutableStateOf(false) }
@@ -127,8 +143,30 @@ fun BibleTextRecordScreen(
     var pendingEdit by remember { mutableStateOf<ResolvedBibleText?>(null) }
     var viewingRecord by remember { mutableStateOf<ResolvedBibleText?>(null) }
     var pendingDelete by remember { mutableStateOf<ResolvedBibleText?>(null) }
-    var showCategoryManager by remember { mutableStateOf(false) }
     var showPreferredLanguage by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
+
+    // "The receiving Publisher can import the data" — a plain file picker
+    // (Messenger/Gmail/Drive/... all save a received attachment somewhere
+    // ordinary storage can reach) rather than a share-target intent-filter,
+    // so importing works the same regardless of which app the file arrived
+    // through.
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val json = runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        }.getOrNull()
+        val file = json?.let { BibleTextExporter.parseExportJson(it) }
+        if (file == null) {
+            showToast("That file isn't a valid Bible Text Record export.")
+            return@rememberLauncherForActivityResult
+        }
+        coroutineScope.launch {
+            val result = viewModel.importRecords(publisherPersonId, file, categories)
+            val categoryNote = if (result.newCategories > 0) " and ${result.newCategories} new categor${if (result.newCategories == 1) "y" else "ies"}" else ""
+            showToast("Imported ${result.newRecords} record${if (result.newRecords == 1) "" else "s"}$categoryNote.")
+        }
+    }
 
     val resolved = remember(records) {
         records.map { record ->
@@ -189,6 +227,39 @@ fun BibleTextRecordScreen(
                     IconButton(onClick = { showFilters = !showFilters }) {
                         Icon(Icons.Rounded.FilterList, contentDescription = "Filters")
                     }
+                    Box {
+                        IconButton(onClick = { showMoreMenu = true }) {
+                            Icon(Icons.Rounded.MoreVert, contentDescription = "Print, Share, or Import")
+                        }
+                        DropdownMenu(expanded = showMoreMenu, onDismissRequest = { showMoreMenu = false }) {
+                            // "Add a print button in 'My Bible Text Record'"
+                            // — same ReportPrinter/ReportTable every other
+                            // report screen in this app uses, over whatever
+                            // the current search/filter is showing.
+                            DropdownMenuItem(
+                                text = { Text("Print") },
+                                leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) },
+                                onClick = { showMoreMenu = false; ReportPrinter.print(context, bibleTextReportTable(filtered)) },
+                            )
+                            // "Export or share through Messenger and other
+                            // platform[s]" — shares the Publisher's whole
+                            // collection (not just the current filter), since
+                            // the point is handing someone else the full set.
+                            DropdownMenuItem(
+                                text = { Text("Share") },
+                                leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    BibleTextExporter.share(context, BibleTextExporter.buildExportJson(records, categoriesById))
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Import") },
+                                leadingIcon = { Icon(Icons.Rounded.Upload, contentDescription = null) },
+                                onClick = { showMoreMenu = false; importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                            )
+                        }
+                    }
                 },
             )
         },
@@ -217,11 +288,15 @@ fun BibleTextRecordScreen(
                         options = listOf(null as String? to "All") + NwtBibleReferenceData.languages.map { it.id to it.name },
                         onSelected = { languageFilter = it },
                     )
-                    LabeledDropdown(
+                    CategoryDropdownField(
                         label = "Category",
-                        selectedLabel = categoryFilter?.let { id -> categoriesById[id]?.name } ?: "All Categories",
-                        options = listOf(null as String? to "All Categories") + categories.map { it.id to it.name },
+                        publisherPersonId = publisherPersonId,
+                        categories = categories,
+                        selectedCategoryId = categoryFilter,
                         onSelected = { categoryFilter = it },
+                        viewModel = viewModel,
+                        showToast = showToast,
+                        includeAllOption = true,
                     )
                     LabeledDropdown(
                         label = "Bible Book",
@@ -235,7 +310,6 @@ fun BibleTextRecordScreen(
                         options = BibleTextSort.entries.map { it.name to it.label },
                         onSelected = { value -> sort = BibleTextSort.entries.first { it.name == value } },
                     )
-                    TextButton(onClick = { showCategoryManager = true }) { Text("Manage Categories") }
                     HorizontalDivider()
                 }
             }
@@ -275,6 +349,7 @@ fun BibleTextRecordScreen(
             publisherPersonId = publisherPersonId,
             preferredLanguageId = currentPerson?.preferredBibleLanguageId,
             categories = categories,
+            showToast = showToast,
             onSave = { viewModel.saveRecord(it); showToast("Bible text record saved successfully."); showAddDialog = false },
             onDismiss = { showAddDialog = false },
             viewModel = viewModel,
@@ -287,6 +362,7 @@ fun BibleTextRecordScreen(
             publisherPersonId = publisherPersonId,
             preferredLanguageId = currentPerson?.preferredBibleLanguageId,
             categories = categories,
+            showToast = showToast,
             onSave = { viewModel.saveRecord(it); showToast("Bible text record updated successfully."); pendingEdit = null },
             onDismiss = { pendingEdit = null },
             viewModel = viewModel,
@@ -328,15 +404,6 @@ fun BibleTextRecordScreen(
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
         )
     }
-    if (showCategoryManager) {
-        BibleTextCategoryManagerDialog(
-            publisherPersonId = publisherPersonId,
-            categories = categories,
-            viewModel = viewModel,
-            showToast = showToast,
-            onDismiss = { showCategoryManager = false },
-        )
-    }
     if (showPreferredLanguage && currentPerson != null) {
         PreferredLanguageDialog(
             currentLanguageId = currentPerson.preferredBibleLanguageId,
@@ -348,6 +415,26 @@ fun BibleTextRecordScreen(
             onDismiss = { showPreferredLanguage = false },
         )
     }
+}
+
+/** "Add a print button in 'My Bible Text Record'" — same [ReportTable]/
+ * [ReportPrinter] shape every other report screen in this app already uses. */
+private fun bibleTextReportTable(items: List<ResolvedBibleText>): ReportTable {
+    val rows = items.map { item ->
+        listOf(
+            item.referenceLabel,
+            item.category?.name ?: "—",
+            item.language?.name ?: "—",
+            item.version?.abbreviation ?: "NWT",
+            item.record.remarks,
+            formatRecordTimestamp(item.record.createdAt),
+        )
+    }
+    return ReportTable(
+        title = "My Bible Text Record",
+        columns = listOf("Reference", "Category", "Language", "Version", "Remarks", "Date Added"),
+        rows = rows,
+    )
 }
 
 @Composable
@@ -400,12 +487,11 @@ private fun BibleTextRecordDialog(
     publisherPersonId: String,
     preferredLanguageId: String?,
     categories: List<BibleTextCategory>,
+    showToast: (String) -> Unit,
     onSave: (BibleTextRecord) -> Unit,
     onDismiss: () -> Unit,
     viewModel: BibleTextRecordViewModel,
 ) {
-    val coroutineScope = rememberCoroutineScope()
-    var showAddCategory by remember { mutableStateOf(false) }
     val version = NwtBibleReferenceData.defaultVersion
     var languageId by remember {
         mutableStateOf(existing?.languageId ?: preferredLanguageId ?: NwtBibleReferenceData.languages.first().id)
@@ -524,33 +610,20 @@ private fun BibleTextRecordDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                // "Allow the publisher to add a category directly upon
-                // enrolling new Bible Text record" — no more sending them
-                // away to Filters → Manage Categories first; the + button
-                // creates and selects a new category right here.
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (categories.isEmpty()) {
-                        Text(
-                            "No categories yet — tap + to add one.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.weight(1f),
-                        )
-                    } else {
-                        Box(modifier = Modifier.weight(1f)) {
-                            LabeledDropdown(
-                                label = "Category",
-                                selectedLabel = categories.firstOrNull { it.id == categoryId }?.name ?: "Select",
-                                options = categories.map { it.id to it.name },
-                                onSelected = { categoryId = it ?: categoryId },
-                                required = true,
-                            )
-                        }
-                    }
-                    IconButton(onClick = { showAddCategory = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "Add category")
-                    }
-                }
+                // "Move the add, edit[,] delete directly in the dropdown" —
+                // the Category picker itself carries Add/Edit/Delete now
+                // (see CategoryDropdownField's own doc comment); no more
+                // separate "+" button or Manage Categories hop.
+                CategoryDropdownField(
+                    label = "Category",
+                    publisherPersonId = publisherPersonId,
+                    categories = categories,
+                    selectedCategoryId = categoryId.ifBlank { null },
+                    onSelected = { categoryId = it.orEmpty() },
+                    viewModel = viewModel,
+                    showToast = showToast,
+                    required = true,
+                )
                 OutlinedTextField(
                     value = remarks,
                     onValueChange = { remarks = it },
@@ -559,44 +632,150 @@ private fun BibleTextRecordDialog(
                     modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
                 )
     }
+}
 
-    if (showAddCategory) {
-        var newCategoryName by remember { mutableStateOf("") }
-        var addCategoryError by remember { mutableStateOf<String?>(null) }
+/** "Move the add, edit[,] delete directly in the dropdown" — the Category
+ * picker (used both for filtering and for choosing a record's own category)
+ * doubles as the category manager: every real category row carries its own
+ * inline Edit/Delete icons, and an "Add Category" row sits at the bottom —
+ * no separate "Manage Categories" dialog to hop to first. Add/Edit share one
+ * name-entry [FormDialog]; Delete keeps spec §11's protection (a category
+ * still assigned to a record is never silently deleted — it offers
+ * reassignment instead). [includeAllOption] adds the filter panel's own
+ * "All Categories" (null) choice above the real ones; the record dialog's
+ * required picker omits it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CategoryDropdownField(
+    label: String,
+    publisherPersonId: String,
+    categories: List<BibleTextCategory>,
+    selectedCategoryId: String?,
+    onSelected: (String?) -> Unit,
+    viewModel: BibleTextRecordViewModel,
+    showToast: (String) -> Unit,
+    includeAllOption: Boolean = false,
+    required: Boolean = false,
+) {
+    val coroutineScope = rememberCoroutineScope()
+    var expanded by remember { mutableStateOf(false) }
+    var editingCategory by remember { mutableStateOf<BibleTextCategory?>(null) }
+    var showAddCategory by remember { mutableStateOf(false) }
+    var inUseDelete by remember { mutableStateOf<Pair<BibleTextCategory, Int>?>(null) }
+    var reassignToId by remember { mutableStateOf<String?>(null) }
 
-        fun submitNewCategory() {
-            val message = requiredFieldsMessage("Category name" to newCategoryName.isNotBlank())
+    val selectedLabel = if (selectedCategoryId == null) {
+        if (includeAllOption) "All Categories" else "Select"
+    } else {
+        categories.firstOrNull { it.id == selectedCategoryId }?.name ?: "Select"
+    }
+
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selectedLabel,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(if (required) "$label *" else label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (includeAllOption) {
+                DropdownMenuItem(text = { Text("All Categories") }, onClick = { onSelected(null); expanded = false })
+                if (categories.isNotEmpty()) HorizontalDivider()
+            }
+            categories.forEach { category ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        category.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (category.id == selectedCategoryId) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onSelected(category.id); expanded = false }
+                            .padding(vertical = 12.dp),
+                    )
+                    IconButton(onClick = { editingCategory = category }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Rounded.Edit, contentDescription = "Edit ${category.name}", modifier = Modifier.size(16.dp))
+                    }
+                    IconButton(
+                        onClick = {
+                            viewModel.deleteCategory(publisherPersonId, category.id) { result ->
+                                when (result) {
+                                    CategoryDeleteResult.Deleted -> {
+                                        showToast("Category deleted successfully.")
+                                        if (category.id == selectedCategoryId) onSelected(null)
+                                    }
+                                    is CategoryDeleteResult.InUse -> inUseDelete = category to result.recordCount
+                                }
+                            }
+                        },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(Icons.Rounded.Delete, contentDescription = "Delete ${category.name}", modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+            HorizontalDivider()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = false; showAddCategory = true }
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
+                Text("Add Category", color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+
+    if (showAddCategory || editingCategory != null) {
+        val target = editingCategory
+        var name by remember(target) { mutableStateOf(target?.name.orEmpty()) }
+        var errorMessage by remember { mutableStateOf<String?>(null) }
+
+        fun submit() {
+            val message = requiredFieldsMessage("Category name" to name.isNotBlank())
             if (message != null) {
-                addCategoryError = message
+                errorMessage = message
                 return
             }
-            val name = newCategoryName.trim()
+            val trimmed = name.trim()
             showAddCategory = false
-            // Suspend save, then select the newly-created category the
-            // moment its real id comes back — saveCategoryAndReturn (unlike
-            // the fire-and-forget saveCategory the Manage Categories dialog
-            // uses) hands that back directly instead of waiting for
-            // categoriesFor's next emission.
-            coroutineScope.launch {
-                val now = System.currentTimeMillis()
-                val saved = viewModel.saveCategoryAndReturn(
-                    BibleTextCategory(publisherPersonId = publisherPersonId, name = name, createdAt = now, updatedAt = now),
-                )
-                categoryId = saved.id
+            editingCategory = null
+            if (target != null) {
+                viewModel.saveCategory(target.copy(name = trimmed, updatedAt = System.currentTimeMillis()))
+                showToast("Category updated successfully.")
+            } else {
+                // Suspend save, then select the newly-created category the
+                // moment its real id comes back, same as the old inline "+"
+                // Add flow this dropdown replaces.
+                coroutineScope.launch {
+                    val now = System.currentTimeMillis()
+                    val saved = viewModel.saveCategoryAndReturn(
+                        BibleTextCategory(publisherPersonId = publisherPersonId, name = trimmed, createdAt = now, updatedAt = now),
+                    )
+                    onSelected(saved.id)
+                }
+                showToast("Category added successfully.")
             }
         }
 
         FormDialog(
-            onDismissRequest = { showAddCategory = false },
-            title = "Add Category",
-            onConfirm = ::submitNewCategory,
-            confirmLabel = "Add",
-            errorMessage = addCategoryError,
-            maxContentHeight = 200.dp,
+            onDismissRequest = { showAddCategory = false; editingCategory = null },
+            title = if (target == null) "Add Category" else "Edit Category",
+            onConfirm = ::submit,
+            confirmLabel = if (target == null) "Add" else "Save",
+            errorMessage = errorMessage,
         ) {
             OutlinedTextField(
-                value = newCategoryName,
-                onValueChange = { newCategoryName = it; addCategoryError = null },
+                value = name,
+                onValueChange = { name = it; errorMessage = null },
                 label = { Text("Category name") },
                 singleLine = true,
                 visualTransformation = VisualTransformation.None,
@@ -604,108 +783,14 @@ private fun BibleTextRecordDialog(
             )
         }
     }
-}
 
-/** Spec §10-§11 — a Publisher's own personal categories: add/edit/delete,
- * with delete-protection (§11) offering reassignment when a category is
- * still in use rather than deleting it out from under live records. */
-@Composable
-private fun BibleTextCategoryManagerDialog(
-    publisherPersonId: String,
-    categories: List<BibleTextCategory>,
-    viewModel: BibleTextRecordViewModel,
-    showToast: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var newCategoryName by remember { mutableStateOf("") }
-    var editingCategory by remember { mutableStateOf<BibleTextCategory?>(null) }
-    var editingName by remember { mutableStateOf("") }
-    var pendingDelete by remember { mutableStateOf<BibleTextCategory?>(null) }
-    var inUseDelete by remember { mutableStateOf<Pair<BibleTextCategory, Int>?>(null) }
-    var reassignToId by remember { mutableStateOf<String?>(null) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Manage Categories") },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                categories.forEach { category ->
-                    if (editingCategory?.id == category.id) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = editingName,
-                                onValueChange = { editingName = it },
-                                singleLine = true,
-                                visualTransformation = VisualTransformation.None,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = {
-                                if (editingName.isNotBlank()) {
-                                    viewModel.saveCategory(category.copy(name = editingName.trim(), updatedAt = System.currentTimeMillis()))
-                                    showToast("Category updated successfully.")
-                                }
-                                editingCategory = null
-                            }) { Text("Save") }
-                            TextButton(onClick = { editingCategory = null }) { Text("Cancel") }
-                        }
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(category.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                            IconButton(onClick = { editingCategory = category; editingName = category.name }) {
-                                Icon(Icons.Rounded.Edit, contentDescription = "Edit category")
-                            }
-                            IconButton(onClick = {
-                                viewModel.deleteCategory(publisherPersonId, category.id) { result ->
-                                    when (result) {
-                                        CategoryDeleteResult.Deleted -> showToast("Category deleted successfully.")
-                                        is CategoryDeleteResult.InUse -> inUseDelete = category to result.recordCount
-                                    }
-                                }
-                            }) {
-                                Icon(Icons.Rounded.Delete, contentDescription = "Delete category")
-                            }
-                        }
-                    }
-                }
-                HorizontalDivider()
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = newCategoryName,
-                        onValueChange = { newCategoryName = it },
-                        label = { Text("New category") },
-                        singleLine = true,
-                        visualTransformation = VisualTransformation.None,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        enabled = newCategoryName.isNotBlank(),
-                        onClick = {
-                            val now = System.currentTimeMillis()
-                            viewModel.saveCategory(
-                                BibleTextCategory(publisherPersonId = publisherPersonId, name = newCategoryName.trim(), createdAt = now, updatedAt = now),
-                            )
-                            showToast("Category added successfully.")
-                            newCategoryName = ""
-                        },
-                    ) { Text("+ Add") }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
-
+    // Spec §11 "Category Delete Protection" — unchanged from the old Manage
+    // Categories dialog, just reachable from here now.
     val inUse = inUseDelete
     if (inUse != null) {
         val (category, count) = inUse
         AlertDialog(
-            onDismissRequest = { inUseDelete = null },
+            onDismissRequest = { inUseDelete = null; reassignToId = null },
             title = { Text("Category is in use") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -730,6 +815,7 @@ private fun BibleTextCategoryManagerDialog(
                         val target = reassignToId ?: return@TextButton
                         viewModel.reassignRecordsAndDeleteCategory(publisherPersonId, category.id, target)
                         showToast("Category deleted successfully.")
+                        if (category.id == selectedCategoryId) onSelected(target)
                         inUseDelete = null
                         reassignToId = null
                     },

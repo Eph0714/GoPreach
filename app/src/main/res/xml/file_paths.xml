@@ -6,4 +6,7 @@
          downsampled/compressed into a SupportingImage (see
          SupportingImageCapture.kt) — cacheDir/camera/, safe to purge anytime. -->
     <cache-path name="camera" path="camera/" />
+    <!-- "My Bible Text Record" export/share files (see BibleTextExporter.kt) —
+         cacheDir/exports/, safe to purge anytime. -->
+    <cache-path name="exports" path="exports/" />
 </paths>
