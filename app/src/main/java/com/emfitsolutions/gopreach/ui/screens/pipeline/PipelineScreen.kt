@@ -351,7 +351,7 @@ private fun PublisherForwardStatusBadge(person: InterestedPerson, viewModel: Pip
  * is unused in that path — a record's stage still only ever advances via
  * [MOVE TO RETURN VISIT]/[MOVE TO BIBLE STUDY] on [PipelinePersonDetailScreen]. */
 @Composable
-private fun PipelinePersonDialog(
+internal fun PipelinePersonDialog(
     existingPerson: InterestedPerson?,
     publisherPersonId: String,
     congregationId: String,
@@ -547,7 +547,7 @@ private fun CoordinatesEditorField(coordinates: CoordinatesValue?, onChange: (Co
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PipelinePersonDetailScreen(
+internal fun PipelinePersonDetailScreen(
     person: InterestedPerson,
     currentPersonId: String,
     congregationName: String,

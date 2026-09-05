@@ -568,7 +568,7 @@ fun AdminHomeScreen(
                                     DashboardTile("Territory Map", Icons.Rounded.Map, { onNavigate(Destinations.MANAGE_TERRITORIES_BASE) })
                                 }
                                 if (canEditMeetingAssignments) {
-                                    DashboardTile("Meeting Assignments", Icons.Rounded.Event, { onNavigate(Destinations.MEETING_ASSIGNMENTS) })
+                                    DashboardTile("Meeting and Cart Assignment", Icons.Rounded.Event, { onNavigate(Destinations.MEETING_ASSIGNMENTS) })
                                 }
                             }
                         }

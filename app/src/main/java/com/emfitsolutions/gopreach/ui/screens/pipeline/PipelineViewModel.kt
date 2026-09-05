@@ -29,10 +29,13 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -79,6 +82,28 @@ class PipelineViewModel @Inject constructor(
     fun peopleFor(publisherPersonId: String, stage: PipelineStage): Flow<List<InterestedPerson>> =
         interestedPersonRepository.observeAll()
             .map { list -> list.filter { it.publisherPersonId == publisherPersonId && it.pipelineStage == stage } }
+
+    /** "The super admin can see all congregation Search[ing]/Bible Study/
+     * Return Visit record[s]" — every [InterestedPerson] at [stage] regardless
+     * of which congregation or publisher owns it, unlike [peopleFor] which is
+     * always scoped to one publisher. Backs [SuperAdminInterestedRecordsScreen]
+     * only; every other caller of this ViewModel keeps using the scoped
+     * [peopleFor]. */
+    fun allPeopleFor(stage: PipelineStage): Flow<List<InterestedPerson>> =
+        interestedPersonRepository.observeAll().map { list -> list.filter { it.pipelineStage == stage } }
+
+    /** Every congregation, for the Super-Admin "All Congregations" screen's
+     * congregation labels/picker — same convention [ContactRecordViewModel
+     * .congregations] already uses. */
+    val congregations: StateFlow<List<Congregation>> =
+        congregationRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Every active, non-removed Publisher in [congregationId] — the Super-
+     * Admin "Add Record" flow's own publisher picker (who a brand-new record
+     * gets assigned to). Same candidate shape [otherPublishers] already
+     * builds; reused as-is with a blank exclude id since nobody needs
+     * excluding here. */
+    fun publishersFor(congregationId: String): Flow<List<Person>> = otherPublishers(congregationId, excludePersonId = "")
 
     fun save(person: InterestedPerson) {
         viewModelScope.launch {

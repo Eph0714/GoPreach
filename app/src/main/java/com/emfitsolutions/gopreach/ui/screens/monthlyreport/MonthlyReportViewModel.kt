@@ -45,6 +45,8 @@ data class MonthlyReportUiState(
     val bibleStudiesCount: String = "0",
     val hoursRendered: String = "0",
     val participatedInPreaching: Boolean = false,
+    /** Optional free-text note — see [MonthlyReport.remarks]. */
+    val remarks: String = "",
     val isSaving: Boolean = false,
     val errorMessage: String? = null,
     val saved: Boolean = false,
@@ -114,6 +116,7 @@ class MonthlyReportViewModel @Inject constructor(
                     bibleStudiesCount = (existing?.bibleStudiesCount ?: 0).toString(),
                     hoursRendered = (existing?.hoursRendered ?: 0.0).toString(),
                     participatedInPreaching = existing?.participatedInPreaching ?: false,
+                    remarks = existing?.remarks.orEmpty(),
                 )
             }.collect { _uiState.value = it }
         }
@@ -130,6 +133,7 @@ class MonthlyReportViewModel @Inject constructor(
     fun onBibleStudiesChange(value: String) = update { it.copy(bibleStudiesCount = value.filter { c -> c.isDigit() }) }
     fun onHoursChange(value: String) = update { it.copy(hoursRendered = value.filter { c -> c.isDigit() || c == '.' }) }
     fun onParticipatedChange(value: Boolean) = update { it.copy(participatedInPreaching = value) }
+    fun onRemarksChange(value: String) = update { it.copy(remarks = value) }
 
     private fun update(block: (MonthlyReportUiState) -> MonthlyReportUiState) {
         _uiState.value = block(_uiState.value)
@@ -161,6 +165,7 @@ class MonthlyReportViewModel @Inject constructor(
                 participatedInPreaching = if (!isPioneer(state.category)) state.participatedInPreaching else null,
                 status = ReportStatus.SUBMITTED,
                 submittedAt = System.currentTimeMillis(),
+                remarks = state.remarks.trim().ifBlank { null },
             )
             monthlyReportRepository.save(report)
             _uiState.value = _uiState.value.copy(isSaving = false, saved = true, existingReport = report)

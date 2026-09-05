@@ -40,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
-import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,11 +73,11 @@ fun MonthlyReportScreen(
 
     LaunchedEffect(publisherPersonId) { viewModel.load(publisherPersonId) }
 
-    val showToast = rememberActionToast()
-    LaunchedEffect(uiState.saved) {
-        if (uiState.saved) showToast("Monthly report submitted.")
-    }
-
+    // "Do not make a system message while syncing to server, just [a] silent
+    // process" — submit() writes to the local cache and queues the sync (see
+    // OfflineFirestoreRepository) with no toast/dialog of any kind; the form
+    // simply reflects the now-submitted state (Submit button disabling once
+    // locked, etc.) instead of announcing it.
     val isPioneer = uiState.category == PublisherCategory.REGULAR_PIONEER || uiState.category == PublisherCategory.AUXILIARY_PIONEER
     val effectivelyLocked = uiState.isLocked && !allowEditWhenLocked
     // The submission-window gate only applies to a publisher's own normal
@@ -175,6 +174,15 @@ fun MonthlyReportScreen(
                     )
                 }
             }
+
+            OutlinedTextField(
+                value = uiState.remarks,
+                onValueChange = viewModel::onRemarksChange,
+                label = { Text("Remarks (optional)") },
+                enabled = !effectivelyLocked,
+                visualTransformation = VisualTransformation.None,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             if (uiState.errorMessage != null) {
                 Text(text = uiState.errorMessage!!, color = MaterialTheme.colorScheme.error)

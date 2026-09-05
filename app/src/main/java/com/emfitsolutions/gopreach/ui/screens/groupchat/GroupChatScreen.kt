@@ -293,7 +293,13 @@ fun GroupChatScreen(
 
     val currentChat = chat
     if (showSettings && currentChat != null) {
-        ManageParticipantsDialog(chat = currentChat, currentPersonId = currentPersonId, viewModel = viewModel, onDismiss = { showSettings = false })
+        ManageParticipantsDialog(
+            chat = currentChat,
+            currentPersonId = currentPersonId,
+            viewModel = viewModel,
+            onDismiss = { showSettings = false },
+            onDeleted = { showSettings = false; onBack() },
+        )
     }
     if (showDocuments && currentChat != null) {
         SharedDocumentsDialog(groupName = currentChat.groupName, messages = messages, onDismiss = { showDocuments = false })

@@ -46,6 +46,7 @@ import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestsScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsScreen
+import com.emfitsolutions.gopreach.ui.screens.pipeline.SuperAdminInterestedRecordsScreen
 import com.emfitsolutions.gopreach.ui.screens.bibletext.BibleTextRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.preachingtime.PreachingTimeRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MonthlyReportScreen
@@ -55,6 +56,7 @@ import com.emfitsolutions.gopreach.ui.screens.login.SelectRoleScreen
 import com.emfitsolutions.gopreach.ui.screens.publishers.ManagePublishersScreen
 import com.emfitsolutions.gopreach.ui.screens.announcements.AnnouncementsScreen
 import com.emfitsolutions.gopreach.ui.screens.meetingassignments.MeetingAssignmentsScreen
+import com.emfitsolutions.gopreach.ui.screens.meetingassignments.MyAssignmentsScreen
 import com.emfitsolutions.gopreach.ui.screens.publisherreports.ManagePublisherReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.reports.ConsolidatedReportScreen
 import com.emfitsolutions.gopreach.ui.screens.reports.ReportsScreen
@@ -368,6 +370,18 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
+        // "The super admin can see all congregation Search[ing]/Bible Study/
+        // Return Visit record[s]... Add, Edit, [and permanently] Delete the
+        // record" — Super-Admin only; route isn't reachable at all for any
+        // other role (see SidePanel, which only ever shows this item to
+        // isSuperAdmin), same "hidden AND unreachable" guarantee every other
+        // permanent-delete-capable screen in this app follows.
+        composable(Destinations.ALL_INTERESTED_RECORDS) {
+            SuperAdminInterestedRecordsScreen(
+                currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable(Destinations.MANAGE_PUBLISHERS) {
             ManagePublishersScreen(
                 currentPersonId = currentPersonId,
@@ -515,7 +529,18 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(Destinations.MANAGE_PUBLISHER_REPORTS) {
+        composable(
+            route = Destinations.MANAGE_PUBLISHER_REPORTS_ROUTE,
+            arguments = listOf(navArgument("periodMonth") { type = NavType.StringType; nullable = true; defaultValue = null }),
+        ) { backStackEntry ->
+            // "If [a] report from [a] Publisher will be open[ed], open the
+            // exact month, not the default month of the module" — non-null
+            // only when arriving from the notification balloon's Monthly
+            // Report item (see Destinations.manageReportsForMonth); every
+            // other caller still navigates to the plain MANAGE_PUBLISHER_REPORTS
+            // route with no query arg and keeps the module's own default
+            // "This Month" filter, untouched.
+            val periodMonth = backStackEntry.arguments?.getString("periodMonth")?.toLongOrNull()
             // Same access set/scoping as the Consolidated Report above —
             // Super-Admin/Admin/Coordinator Elder/Regular Elder/Service
             // Overseer, own congregation only for anyone but Super-Admin
@@ -549,6 +574,7 @@ fun GoPreachNavGraph(
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 canMarkPosted = canMarkPosted,
                 readOnly = !canEditPublisherReports,
+                initialPeriodMonth = periodMonth,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -602,6 +628,17 @@ fun GoPreachNavGraph(
                 // fix/reasoning).
                 fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
                 readOnly = !canEditMeetingAssignments,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.MY_ASSIGNMENTS) {
+            // "The publisher can see all the assignments under his name" —
+            // own congregation only, matched by name across every Midweek/
+            // Public Talk/Cart Assignment record on file (see
+            // MeetingAssignmentsViewModel.myAssignmentsFor's doc comment).
+            MyAssignmentsScreen(
+                currentPersonName = session.person?.fullName ?: "—",
+                congregationId = ownPublisherAssignment?.congregationId,
                 onBack = { navController.popBackStack() },
             )
         }

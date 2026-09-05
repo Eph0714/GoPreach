@@ -59,6 +59,11 @@ data class MonthlyReport(
     val status: ReportStatus = ReportStatus.DRAFT,
     val submittedAt: Long? = null,
 
+    /** Optional free-text note the publisher can attach to their own
+     * submission — unlike every other field above, never required for any
+     * [PublisherCategory]. */
+    val remarks: String? = null,
+
     val lastEditedByPersonId: String? = null,
     val lastEditedAt: Long? = null,
 ) {

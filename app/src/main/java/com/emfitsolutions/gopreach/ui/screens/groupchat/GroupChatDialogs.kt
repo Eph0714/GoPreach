@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -17,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -213,18 +216,29 @@ fun CreateGroupChatDialog(
 /** Group Chat's own "Settings" — rename/describe + add/remove participants,
  * still congregation-locked to the chat's own [GroupChat.congregationId]
  * (spec §3: a Coordinator Elder/Admin may never move a chat to, or add
- * participants from, another congregation). */
+ * participants from, another congregation).
+ *
+ * Also carries the "Delete Group Chat" danger action. This dialog is only
+ * ever shown to someone [canManageGroupChats] already gated (Coordinator
+ * Elder/Admin/Super-Admin — see [com.emfitsolutions.gopreach.ui.screens
+ * .groupchat.GroupChatScreen]'s `canManageSettings`), so no extra role check
+ * is needed here in the UI; the real, congregation-scoped authority check
+ * still happens server-side in firestore.rules' `canManageGroupChatsFor` (a
+ * Coordinator Elder/Admin may only delete a chat in their *own* active
+ * congregation; only the Super-Admin may delete across all of them). */
 @Composable
 fun ManageParticipantsDialog(
     chat: GroupChat,
     currentPersonId: String,
     viewModel: GroupChatViewModel,
     onDismiss: () -> Unit,
+    onDeleted: () -> Unit = {},
 ) {
     var groupName by remember(chat.id) { mutableStateOf(chat.groupName) }
     var description by remember(chat.id) { mutableStateOf(chat.description) }
     var selectedIds by remember(chat.id) { mutableStateOf(chat.participantIds.toSet()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     val candidatesFlow = remember(chat.congregationId) { viewModel.candidatesFor(chat.congregationId) }
     val candidates by candidatesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -268,6 +282,30 @@ fun ManageParticipantsDialog(
             candidates = candidates,
             selectedIds = selectedIds,
             onToggle = { id -> selectedIds = if (id in selectedIds) selectedIds - id else selectedIds + id },
+        )
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            TextButton(
+                onClick = { showDeleteConfirm = true },
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("Delete Group Chat") }
+        }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete this Group Chat?") },
+            text = { Text("\"${chat.groupName}\" and its entire message history will be permanently removed for every participant. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    viewModel.deleteGroupChat(chat, currentPersonId) {
+                        onDismiss()
+                        onDeleted()
+                    }
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } },
         )
     }
 }

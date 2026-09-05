@@ -494,7 +494,15 @@ private fun FeatureTileGrid(
         // 'Meeting Assignments.' The publisher will see only meeting
         // assignments under their congregation" — read-only, see
         // GoPreachNavGraph's PUBLISHER_MEETING_ASSIGNMENTS composable.
-        add(Tile("Meeting Assignments", "Midweek & Weekend Schedule", Icons.Rounded.Event, Destinations.PUBLISHER_MEETING_ASSIGNMENTS))
+        add(Tile("Meeting and Cart Assignment", "Midweek, Weekend & Cart Schedule", Icons.Rounded.Event, Destinations.PUBLISHER_MEETING_ASSIGNMENTS))
+        // "Add a Button under Meeting [and Cart] Assignment[:] 'My
+        // Assignments'... the publisher can see all the assignments under
+        // his name" — a cross-cut of every Midweek/Public Talk/Cart
+        // Assignment record naming this publisher, not just the module's
+        // own currently-selected week/date (see GoPreachNavGraph's
+        // MY_ASSIGNMENTS composable / MeetingAssignmentsViewModel
+        // .myAssignmentsFor).
+        add(Tile("My Assignments", "Assignments Under My Name", Icons.Rounded.Assignment, Destinations.MY_ASSIGNMENTS))
         add(Tile("Announcement", "Latest Updates", Icons.Rounded.Campaign, Destinations.PUBLISHER_ANNOUNCEMENTS, unseenAnnouncements))
         // "Group Chat Setting" module — also reachable from the persistent
         // Chat Box icon in the header (see PublisherWelcomeHeader), this

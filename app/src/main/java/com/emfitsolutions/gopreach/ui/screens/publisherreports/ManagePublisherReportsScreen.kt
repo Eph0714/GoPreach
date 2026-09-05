@@ -62,6 +62,7 @@ import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.ReportStatus
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
+import com.emfitsolutions.gopreach.ui.components.DateRange
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.QuickDateRange
@@ -101,10 +102,20 @@ fun ManagePublisherReportsScreen(
     canPermanentlyDelete: Boolean,
     canMarkPosted: Boolean,
     readOnly: Boolean = false,
+    /** "If [a] report from [a] Publisher will be open[ed] [from the
+     * notification balloon], open the exact month, not the default month of
+     * the module" — non-null only when arriving from the notification
+     * balloon's Monthly Report item (see Destinations.manageReportsForMonth);
+     * every other entry point (side panel, dashboard tile) passes null and
+     * keeps the screen's own default "This Month" filter. */
+    initialPeriodMonth: Long? = null,
     onBack: () -> Unit,
     viewModel: ManagePublisherReportsViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(fixedCongregationId) { viewModel.restrictTo(fixedCongregationId) }
+    LaunchedEffect(initialPeriodMonth) {
+        if (initialPeriodMonth != null) viewModel.setDateRange(DateRange.forMonth(initialPeriodMonth))
+    }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var pendingEdit by remember { mutableStateOf<PublisherReportRow?>(null) }

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -52,11 +53,14 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.model.CartAssignmentRow
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.MidweekAssignmentItem
 import com.emfitsolutions.gopreach.data.model.MidweekMeetingSchedule
 import com.emfitsolutions.gopreach.data.model.MidweekSection
 import com.emfitsolutions.gopreach.data.model.PublicTalkScheduleRow
+import com.emfitsolutions.gopreach.data.print.ReportPrinter
+import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
@@ -69,14 +73,17 @@ import java.util.Locale
 private enum class MeetingAssignmentCategory(val label: String) {
     MIDWEEK("Midweek Meeting Schedule"),
     PUBLIC_TALK("Public Talk and Watchtower Study Schedule"),
+    CART_ASSIGNMENT("Cart Assignment"),
 }
 
 /**
- * "Meeting Assignments" module — Coordinator Elder/Regular Elder/Service
+ * "Meeting and Cart Assignment" module (renamed from "Meeting Assignments"
+ * when Cart Assignment was added) — Coordinator Elder/Regular Elder/Service
  * Overseer/Admin (own congregation, via [fixedCongregationId])/Super-Admin
- * (every congregation, picks one) enroll both the Midweek Meeting Schedule
- * and the Public Talk and Watchtower Study Schedule; every Publisher sees
- * their own congregation's copy, [readOnly] — no Add/Edit/Delete for them.
+ * (every congregation, picks one) enroll the Midweek Meeting Schedule, the
+ * Public Talk and Watchtower Study Schedule, and Cart Assignment, all under
+ * the same role/congregation restriction; every Publisher sees their own
+ * congregation's copy, [readOnly] — no Add/Edit/Delete for them.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,7 +102,7 @@ fun MeetingAssignmentsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Meeting Assignments") },
+                title = { Text("Meeting and Cart Assignment") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -133,12 +140,21 @@ fun MeetingAssignmentsScreen(
             } else when (category) {
                 MeetingAssignmentCategory.MIDWEEK -> MidweekMeetingScheduleTab(
                     congregationId = congregationId,
+                    congregationName = congregations.firstOrNull { it.id == congregationId }?.name ?: "—",
                     readOnly = readOnly,
                     currentPersonId = currentPersonId,
                     viewModel = viewModel,
                 )
                 MeetingAssignmentCategory.PUBLIC_TALK -> PublicTalkScheduleTab(
                     congregationId = congregationId,
+                    congregationName = congregations.firstOrNull { it.id == congregationId }?.name ?: "—",
+                    readOnly = readOnly,
+                    currentPersonId = currentPersonId,
+                    viewModel = viewModel,
+                )
+                MeetingAssignmentCategory.CART_ASSIGNMENT -> CartAssignmentTab(
+                    congregationId = congregationId,
+                    congregationName = congregations.firstOrNull { it.id == congregationId }?.name ?: "—",
                     readOnly = readOnly,
                     currentPersonId = currentPersonId,
                     viewModel = viewModel,
@@ -178,10 +194,12 @@ private fun CongregationDropdown(congregations: List<Congregation>, selectedId: 
 @Composable
 private fun MidweekMeetingScheduleTab(
     congregationId: String,
+    congregationName: String,
     readOnly: Boolean,
     currentPersonId: String,
     viewModel: MeetingAssignmentsViewModel,
 ) {
+    val context = LocalContext.current
     var weekStart by remember { mutableStateOf(mondayOfWeek(System.currentTimeMillis())) }
     val scheduleFlow = remember(congregationId, weekStart) { viewModel.scheduleFor(congregationId, weekStart) }
     val schedule by scheduleFlow.collectAsStateWithLifecycle(initialValue = null)
@@ -192,7 +210,14 @@ private fun MidweekMeetingScheduleTab(
     // <September 7 2026-September 14 2026>" — a dropdown of actual
     // Monday-Sunday weeks (spanning well before/after today), rather than a
     // raw date picker that just happened to snap to a Monday.
-    WeekPickerDropdown(weekStart = weekStart, onSelected = { weekStart = it })
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(modifier = Modifier.weight(1f)) {
+            WeekPickerDropdown(weekStart = weekStart, onSelected = { weekStart = it })
+        }
+        IconButton(onClick = { ReportPrinter.print(context, midweekReportTable(congregationName, weekStart, schedule)) }) {
+            Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Print Midweek Meeting Schedule")
+        }
+    }
 
     Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         MidweekSection.entries.forEach { section ->
@@ -224,7 +249,7 @@ private fun MidweekMeetingScheduleTab(
                             Text("${index + 1}.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 2.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    item.particular + (if (item.durationMinutes.isNotBlank()) " (${item.durationMinutes})" else ""),
+                                    item.particular + formatDurationSuffix(item.durationMinutes),
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
                                 Text(
@@ -259,6 +284,8 @@ private fun MidweekMeetingScheduleTab(
         val (section, index, item) = toEdit
         MidweekItemDialog(
             existing = item,
+            congregationId = congregationId,
+            viewModel = viewModel,
             onSave = { newItem ->
                 val current = (schedule?.itemsFor(section) ?: emptyList()).toMutableList()
                 if (index != null) current[index] = newItem else current.add(newItem)
@@ -292,9 +319,13 @@ private fun MidweekMeetingScheduleTab(
 @Composable
 private fun MidweekItemDialog(
     existing: MidweekAssignmentItem?,
+    congregationId: String,
+    viewModel: MeetingAssignmentsViewModel,
     onSave: (MidweekAssignmentItem) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val namesFlow = remember(congregationId) { viewModel.rosterNamesFor(congregationId) }
+    val names by namesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var particular by remember { mutableStateOf(existing?.particular ?: "") }
     var duration by remember { mutableStateOf(existing?.durationMinutes ?: "") }
     var assignedTo by remember { mutableStateOf(existing?.assignedTo ?: "") }
@@ -318,7 +349,7 @@ private fun MidweekItemDialog(
         onConfirm = ::submit,
         confirmLabel = if (existing == null) "Add" else "Save",
         errorMessage = errorMessage,
-        maxContentHeight = 360.dp,
+        maxContentHeight = 400.dp,
     ) {
         OutlinedTextField(
             value = particular,
@@ -330,20 +361,24 @@ private fun MidweekItemDialog(
         )
         OutlinedTextField(
             value = duration,
-            onValueChange = { duration = it },
-            label = { Text("Duration (optional)") },
-            placeholder = { Text("e.g. 4 min") },
+            onValueChange = { duration = it.filter { c -> c.isDigit() } },
+            label = { Text("Duration (minutes, optional)") },
+            placeholder = { Text("e.g. 5") },
             singleLine = true,
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth(),
         )
-        OutlinedTextField(
+        // "In assigning publishers, browse it from the publishers record...
+        // however can be entered manually if not available" — suggestions
+        // from this congregation's own roster, but never blocked to just
+        // that list (a visiting speaker, or "Evarose and Jovy" naming two
+        // people at once, still just types normally).
+        PublisherAutocompleteField(
+            label = "Assigned To",
             value = assignedTo,
             onValueChange = { assignedTo = it },
-            label = { Text("Assigned To") },
-            placeholder = { Text("e.g. John Funtallera") },
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth(),
+            suggestions = names,
+            placeholderText = "e.g. John Funtallera",
         )
     }
 }
@@ -360,7 +395,7 @@ private fun MidweekSection.textColor(): Color = when (this) {
     MidweekSection.LIVING_AS_CHRISTIANS -> Color.White
 }
 
-private fun formatWeekRange(weekStart: Long): String {
+internal fun formatWeekRange(weekStart: Long): String {
     val startCal = Calendar.getInstance().apply { timeInMillis = weekStart }
     val endCal = Calendar.getInstance().apply { timeInMillis = weekStart; add(Calendar.DAY_OF_MONTH, 6) }
     val sameMonth = startCal.get(Calendar.MONTH) == endCal.get(Calendar.MONTH) && startCal.get(Calendar.YEAR) == endCal.get(Calendar.YEAR)
@@ -412,10 +447,12 @@ private fun WeekPickerDropdown(weekStart: Long, onSelected: (Long) -> Unit) {
 @Composable
 private fun PublicTalkScheduleTab(
     congregationId: String,
+    congregationName: String,
     readOnly: Boolean,
     currentPersonId: String,
     viewModel: MeetingAssignmentsViewModel,
 ) {
+    val context = LocalContext.current
     val rowsFlow = remember(congregationId) { viewModel.rowsFor(congregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showAdd by remember { mutableStateOf(false) }
@@ -425,10 +462,15 @@ private fun PublicTalkScheduleTab(
     val dateFormat = remember { SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()) }
 
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (!readOnly) {
-            OutlinedButton(onClick = { showAdd = true }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                Text("Add Schedule")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (!readOnly) {
+                OutlinedButton(onClick = { showAdd = true }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                    Text("Add Schedule")
+                }
+            }
+            IconButton(onClick = { ReportPrinter.print(context, publicTalkReportTable(congregationName, rows, dateFormat)) }) {
+                Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Print Public Talk and Watchtower Study Schedule")
             }
         }
         if (rows.isEmpty()) {
@@ -525,6 +567,8 @@ private fun PublicTalkScheduleDialog(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val namesFlow = remember(congregationId) { viewModel.rosterNamesFor(congregationId) }
+    val names by namesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var date by remember { mutableStateOf(existing?.date) }
     var theme by remember { mutableStateOf(existing?.theme ?: "") }
     var speaker by remember { mutableStateOf(existing?.speaker ?: "") }
@@ -615,45 +659,328 @@ private fun PublicTalkScheduleDialog(
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth(),
         )
+        // "In assigning publishers, browse it from the publishers record...
+        // however can be entered manually if not available" — every field
+        // below suggests from this congregation's own roster but never
+        // blocks free text (a visiting speaker, or "Ephraim / Josue" naming
+        // two Mic Servers at once, still just types normally).
+        PublisherAutocompleteField(label = "Speaker", value = speaker, onValueChange = { speaker = it }, suggestions = names)
+        PublisherAutocompleteField(label = "Chairman", value = chairman, onValueChange = { chairman = it }, suggestions = names)
+        PublisherAutocompleteField(label = "Watchtower Conductor", value = watchtowerConductor, onValueChange = { watchtowerConductor = it }, suggestions = names)
+        PublisherAutocompleteField(label = "Watchtower Reader", value = watchtowerReader, onValueChange = { watchtowerReader = it }, suggestions = names)
+        PublisherAutocompleteField(label = "Mic Servers", value = micServers, onValueChange = { micServers = it }, suggestions = names, placeholderText = "e.g. Ephraim / Josue")
+    }
+}
+
+// ---------------------------------------------------------------------
+// Cart Assignment
+// ---------------------------------------------------------------------
+
+/** "Add a 'Cart Assignment' next to [the] 'Public Talk and Watchtower
+ * Study' button... Entities (Date, Location, Publishers)... can also be
+ * add, edit and delete permanently, use the same restriction for users in
+ * Midweek and Public [T]alk" — same shape/role gating as [PublicTalkScheduleTab]
+ * ([readOnly] passed down from the exact same caller), except multiple rows
+ * may share one date (spec's own two-location example), so there is no
+ * duplicate-date guard here. */
+@Composable
+private fun CartAssignmentTab(
+    congregationId: String,
+    congregationName: String,
+    readOnly: Boolean,
+    currentPersonId: String,
+    viewModel: MeetingAssignmentsViewModel,
+) {
+    val context = LocalContext.current
+    val rowsFlow = remember(congregationId) { viewModel.cartAssignmentsFor(congregationId) }
+    val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var showAdd by remember { mutableStateOf(false) }
+    var pendingEdit by remember { mutableStateOf<CartAssignmentRow?>(null) }
+    var pendingDelete by remember { mutableStateOf<CartAssignmentRow?>(null) }
+    val showToast = rememberActionToast()
+    val dateFormat = remember { SimpleDateFormat("MM-dd-yyyy", Locale.getDefault()) }
+
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (!readOnly) {
+                OutlinedButton(onClick = { showAdd = true }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                    Text("Add Cart Assignment")
+                }
+            }
+            IconButton(onClick = { ReportPrinter.print(context, cartAssignmentReportTable(congregationName, rows, dateFormat)) }) {
+                Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Print Cart Assignment")
+            }
+        }
+        if (rows.isEmpty()) {
+            Text(
+                "No Cart Assignments yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                rows.forEach { row ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(dateFormat.format(Date(row.date)), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                if (!readOnly) {
+                                    Row {
+                                        IconButton(onClick = { pendingEdit = row }) {
+                                            Icon(Icons.Rounded.Edit, contentDescription = "Edit cart assignment")
+                                        }
+                                        IconButton(onClick = { pendingDelete = row }) {
+                                            Icon(Icons.Rounded.Delete, contentDescription = "Delete cart assignment")
+                                        }
+                                    }
+                                }
+                            }
+                            Text("Location: ${row.location}", style = MaterialTheme.typography.bodyMedium)
+                            Text("Publishers: ${row.publishers}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAdd) {
+        CartAssignmentDialog(
+            existing = null,
+            congregationId = congregationId,
+            currentPersonId = currentPersonId,
+            viewModel = viewModel,
+            onSaved = { showToast("Cart assignment added.") },
+            onDismiss = { showAdd = false },
+        )
+    }
+    val toEdit = pendingEdit
+    if (toEdit != null) {
+        CartAssignmentDialog(
+            existing = toEdit,
+            congregationId = congregationId,
+            currentPersonId = currentPersonId,
+            viewModel = viewModel,
+            onSaved = { showToast("Cart assignment saved.") },
+            onDismiss = { pendingEdit = null },
+        )
+    }
+    val toDelete = pendingDelete
+    if (toDelete != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Permanently Delete Cart Assignment?") },
+            text = { Text("This permanently removes the ${dateFormat.format(Date(toDelete.date))} — ${toDelete.location} row. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteCartAssignment(toDelete, currentPersonId)
+                    showToast("Cart assignment deleted.")
+                    pendingDelete = null
+                }) { Text("Delete Permanently") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun CartAssignmentDialog(
+    existing: CartAssignmentRow?,
+    congregationId: String,
+    currentPersonId: String,
+    viewModel: MeetingAssignmentsViewModel,
+    onSaved: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val namesFlow = remember(congregationId) { viewModel.rosterNamesFor(congregationId) }
+    val names by namesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var date by remember { mutableStateOf(existing?.date) }
+    var location by remember { mutableStateOf(existing?.location ?: "") }
+    var publishers by remember { mutableStateOf(existing?.publishers ?: "") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val dateFormat = remember { SimpleDateFormat("MM-dd-yyyy", Locale.getDefault()) }
+
+    fun submit() {
+        val message = requiredFieldsMessage(
+            "Date" to (date != null),
+            "Location" to location.isNotBlank(),
+            "Publishers" to publishers.isNotBlank(),
+        )
+        if (message != null) {
+            errorMessage = message
+            return
+        }
+        val row = CartAssignmentRow(
+            id = existing?.id ?: "",
+            congregationId = congregationId,
+            date = date!!,
+            location = location.trim(),
+            publishers = publishers.trim(),
+            createdByPersonId = existing?.createdByPersonId ?: "",
+            createdAt = existing?.createdAt ?: 0L,
+        )
+        viewModel.saveCartAssignment(row, currentPersonId)
+        onSaved()
+        onDismiss()
+    }
+
+    FormDialog(
+        onDismissRequest = onDismiss,
+        title = if (existing == null) "Add Cart Assignment" else "Edit Cart Assignment",
+        onConfirm = ::submit,
+        confirmLabel = if (existing == null) "Add" else "Save",
+        errorMessage = errorMessage,
+        maxContentHeight = 360.dp,
+    ) {
+        OutlinedButton(
+            onClick = {
+                val calendar = Calendar.getInstance().apply { date?.let { timeInMillis = it } }
+                DatePickerDialog(
+                    context,
+                    { _, year, month, day ->
+                        date = Calendar.getInstance().apply {
+                            set(Calendar.YEAR, year); set(Calendar.MONTH, month); set(Calendar.DAY_OF_MONTH, day)
+                            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                        }.timeInMillis
+                        errorMessage = null
+                    },
+                    calendar.get(Calendar.YEAR),
+                    calendar.get(Calendar.MONTH),
+                    calendar.get(Calendar.DAY_OF_MONTH),
+                ).show()
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Rounded.CalendarMonth, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+            Text(date?.let { dateFormat.format(Date(it)) } ?: "Set Date")
+        }
         OutlinedTextField(
-            value = speaker,
-            onValueChange = { speaker = it },
-            label = { Text("Speaker") },
+            value = location,
+            onValueChange = { location = it },
+            label = { Text("Location") },
+            placeholder = { Text("e.g. Market Place Solano") },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        // "In assigning publishers, browse it from the publishers record...
+        // however can be entered manually if not available."
+        PublisherAutocompleteField(
+            label = "Publishers",
+            value = publishers,
+            onValueChange = { publishers = it },
+            suggestions = names,
+            placeholderText = "e.g. Eva and Lita",
+        )
+    }
+}
+
+/** "Make a print in Meeting [and Cart] Assignment[:] 'Midweek Meeting
+ * Schedule'..." — one row per [MidweekAssignmentItem], across all three
+ * sections, each prefixed with its own section label so the printed table
+ * still reads as three grouped lists rather than one flat, ambiguous one. */
+private fun midweekReportTable(congregationName: String, weekStart: Long, schedule: MidweekMeetingSchedule?): ReportTable {
+    val rows = MidweekSection.entries.flatMap { section ->
+        (schedule?.itemsFor(section).orEmpty()).mapIndexed { index, item ->
+            listOf(section.displayLabel, (index + 1).toString(), item.particular, item.durationMinutes, item.assignedTo)
+        }
+    }
+    return ReportTable(
+        title = "Midweek Meeting Schedule — $congregationName — ${formatWeekRange(weekStart)}",
+        columns = listOf("Section", "#", "Particular", "Duration (min)", "Assigned To"),
+        rows = rows,
+    )
+}
+
+/** "...'Public Talk and Watchtower Study'" — one row per [PublicTalkScheduleRow]. */
+private fun publicTalkReportTable(congregationName: String, rows: List<PublicTalkScheduleRow>, dateFormat: SimpleDateFormat): ReportTable {
+    val tableRows = rows.map { row ->
+        listOf(
+            dateFormat.format(Date(row.date)),
+            row.theme,
+            row.speaker,
+            row.chairman,
+            row.watchtowerConductor,
+            row.watchtowerReader,
+            row.micServers,
+        )
+    }
+    return ReportTable(
+        title = "Public Talk and Watchtower Study Schedule — $congregationName",
+        columns = listOf("Date", "Theme", "Speaker", "Chairman", "Watchtower Conductor", "Watchtower Reader", "Mic Servers"),
+        rows = tableRows,
+    )
+}
+
+/** "...'Cart Assignment'" — one row per [CartAssignmentRow]; unlike Public
+ * Talk, more than one row can share the same date (see [CartAssignmentRow]'s
+ * own doc comment), which is exactly why this prints as a plain table
+ * (spec's own layout example — repeated Date/Location/Publishers blocks)
+ * rather than one row per date. */
+private fun cartAssignmentReportTable(congregationName: String, rows: List<CartAssignmentRow>, dateFormat: SimpleDateFormat): ReportTable {
+    val tableRows = rows.map { row -> listOf(dateFormat.format(Date(row.date)), row.location, row.publishers) }
+    return ReportTable(
+        title = "Cart Assignment — $congregationName",
+        columns = listOf("Date", "Location", "Publishers"),
+        rows = tableRows,
+    )
+}
+
+/** "Show the word 'minutes' in view form" — [raw] is stored as a plain
+ * digits-only number (see [MidweekItemDialog]'s Duration field); the view
+ * row is the only place the unit is spelled out, so a value of "5" always
+ * reads as "(5 minutes)" instead of a bare, ambiguous number. Blank stays
+ * blank — a particular with no duration set shows no parenthetical at all. */
+internal fun formatDurationSuffix(raw: String): String = if (raw.isBlank()) "" else " ($raw minutes)"
+
+/**
+ * "In assigning publishers, browse it from the publishers record... however
+ * can be entered manually if not available" — the one autocomplete field
+ * every assignee field in this module (Midweek's Assigned To, Public Talk's
+ * Speaker/Chairman/Watchtower Conductor/Watchtower Reader/Mic Servers, Cart
+ * Assignment's Publishers) is built on: a normal editable text field, so
+ * typing anything at all — including a name that isn't in [suggestions] yet,
+ * or two names at once ("Eva and Lita") — always just works, plus a
+ * dropdown of this congregation's own roster (from [MeetingAssignmentsViewModel
+ * .rosterNamesFor]) to pick from instead of typing a whole name out. Never a
+ * hard-restricted enum picker — that's the whole point of "entered manually
+ * if not available."
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PublisherAutocompleteField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    suggestions: List<String>,
+    placeholderText: String? = null,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val filtered = remember(suggestions, value) {
+        if (value.isBlank()) suggestions else suggestions.filter { it.contains(value, ignoreCase = true) }
+    }
+    ExposedDropdownMenuBox(expanded = expanded && filtered.isNotEmpty(), onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { onValueChange(it); expanded = true },
+            label = { Text(label) },
+            placeholder = if (placeholderText != null) {
+                { Text(placeholderText) }
+            } else null,
             singleLine = true,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
-        OutlinedTextField(
-            value = chairman,
-            onValueChange = { chairman = it },
-            label = { Text("Chairman") },
-            singleLine = true,
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = watchtowerConductor,
-            onValueChange = { watchtowerConductor = it },
-            label = { Text("Watchtower Conductor") },
-            singleLine = true,
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = watchtowerReader,
-            onValueChange = { watchtowerReader = it },
-            label = { Text("Watchtower Reader") },
-            singleLine = true,
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = micServers,
-            onValueChange = { micServers = it },
-            label = { Text("Mic Servers") },
-            placeholder = { Text("e.g. Ephraim / Josue") },
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        ExposedDropdownMenu(expanded = expanded && filtered.isNotEmpty(), onDismissRequest = { expanded = false }) {
+            filtered.forEach { name ->
+                DropdownMenuItem(text = { Text(name) }, onClick = { onValueChange(name); expanded = false })
+            }
+        }
     }
 }

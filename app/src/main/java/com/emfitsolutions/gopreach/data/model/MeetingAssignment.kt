@@ -87,3 +87,25 @@ data class PublicTalkScheduleRow(
     val lastEditedByPersonId: String? = null,
     val lastEditedAt: Long? = null,
 )
+
+/**
+ * One row of the "Cart Assignment" schedule (module renamed "Meeting and
+ * Cart Assignment" to cover this) — Date/Location/Publishers, entered
+ * manually like every other field in this module. Unlike [PublicTalkScheduleRow],
+ * more than one row may share the same [date]: "there can be multiple cart
+ * assignment[s]" for one day (spec's own example — two different locations,
+ * same date), so there is no "do not duplicate date" rule here.
+ *
+ * Firestore collection: `cartAssignments/{rowId}`
+ */
+data class CartAssignmentRow(
+    @DocumentId val id: String = "",
+    val congregationId: String = "",
+    val date: Long = 0L,
+    val location: String = "",
+    val publishers: String = "",
+    val createdByPersonId: String = "",
+    val createdAt: Long = 0L,
+    val lastEditedByPersonId: String? = null,
+    val lastEditedAt: Long? = null,
+)

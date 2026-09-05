@@ -105,6 +105,28 @@ data class DateRange(
             return DateRange(start.timeInMillis, end.timeInMillis, QuickDateRange.THIS_YEAR)
         }
 
+        /** The single whole month containing [periodMonthMillis] — used to
+         * jump a report-list screen straight to one specific month (e.g. the
+         * notification balloon's "Monthly Report" item opening the exact
+         * month that report belongs to, rather than the screen's own
+         * default "This Month" range, which would show nothing if that
+         * report is from a different month). Reported as [QuickDateRange
+         * .CUSTOM] since it's neither "This Month" (the current calendar
+         * month) nor any other fixed preset. */
+        fun forMonth(periodMonthMillis: Long): DateRange {
+            val start = Calendar.getInstance().apply {
+                timeInMillis = periodMonthMillis
+                startOfDay()
+                set(Calendar.DAY_OF_MONTH, 1)
+            }
+            val end = Calendar.getInstance().apply {
+                timeInMillis = start.timeInMillis
+                add(Calendar.MONTH, 1)
+                add(Calendar.MILLISECOND, -1)
+            }
+            return DateRange(start.timeInMillis, end.timeInMillis, QuickDateRange.CUSTOM)
+        }
+
         /** A user-picked Start/End (spec §6) — swaps them if entered backwards
          * rather than rejecting outright, since spec §6 only requires Start ≤
          * End be *true* in the end, not that the app scold the user for which

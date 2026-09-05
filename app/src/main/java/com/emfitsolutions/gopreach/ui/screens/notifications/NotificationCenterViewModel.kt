@@ -154,7 +154,12 @@ class NotificationCenterViewModel @Inject constructor(
                         title = "Monthly Report: $publisherName",
                         subtitle = periodFormat.format(Date(report.periodMonth)),
                         timestamp = report.submittedAt ?: report.periodMonth,
-                        route = Destinations.MANAGE_PUBLISHER_REPORTS,
+                        // "If [a] report from [a] Publisher will be open[ed],
+                        // open the exact month, not the default month of the
+                        // module" — the plain MANAGE_PUBLISHER_REPORTS route
+                        // always defaults to "This Month," which would show
+                        // nothing for a report from any other period.
+                        route = Destinations.manageReportsForMonth(report.periodMonth),
                     )
                 }
         }

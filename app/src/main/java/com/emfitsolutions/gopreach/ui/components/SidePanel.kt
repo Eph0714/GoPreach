@@ -130,7 +130,7 @@ fun GoPreachSidePanelContent(
             // hidden for them.
             if (canEnrollPublisher) add(SideItem("Publisher", Icons.Rounded.People, Destinations.MANAGE_PUBLISHERS))
             if (canManageTerritories) add(SideItem("Territory Map", Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES_BASE))
-            if (canEditMeetingAssignments) add(SideItem("Meeting Assignments", Icons.Rounded.Event, Destinations.MEETING_ASSIGNMENTS))
+            if (canEditMeetingAssignments) add(SideItem("Meeting and Cart Assignment", Icons.Rounded.Event, Destinations.MEETING_ASSIGNMENTS))
         }
         if (enrollmentItems.isNotEmpty()) add(SideSection("Enrollment", enrollmentItems))
 
@@ -169,6 +169,12 @@ fun GoPreachSidePanelContent(
             add(SideItem("Share Location Settings", Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
             if (canViewUserLogs) add(SideItem("User Logs", Icons.Rounded.History, Destinations.USER_LOGS))
             if (canViewContactRecord) add(SideItem("Contact Record", Icons.Rounded.Contacts, Destinations.CONTACT_RECORD))
+            // "The super admin can see all congregation Search[ing]/Bible
+            // Study/Return Visit record[s]... Add, Edit, [and permanently]
+            // Delete the record" — Super-Admin only, unlike every other
+            // Searching/Return Visit/Bible Study entry point in this app
+            // (Publisher context, own records only).
+            if (isSuperAdmin) add(SideItem("Interested Records (All Congregations)", Icons.Rounded.Groups, Destinations.ALL_INTERESTED_RECORDS))
             if (canManageUsers) add(SideItem("User Management", Icons.Rounded.ManageAccounts, Destinations.MANAGE_USERS))
         }
         add(SideSection("Other", otherItems))

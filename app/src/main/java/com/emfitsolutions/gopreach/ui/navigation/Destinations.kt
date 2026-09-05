@@ -38,8 +38,19 @@ object Destinations {
     // "MINISTERIAL ACCOUNT" — multiple per congregation allowed.
     const val ENROLL_MINISTERIAL_SERVANT = "enroll_ministerial_servant"
     const val MANAGE_MINISTERIAL_SERVANTS = "manage_ministerial_servants"
-    // "Manage Publisher Report" module.
+    // "Manage Publisher Report" module. [periodMonth] is an optional query
+    // arg (epoch millis, first-of-month) — plain navigation (side panel,
+    // dashboard tile) omits it and gets the module's own default "This
+    // Month" filter; the notification balloon's own Monthly Report item
+    // (see NotificationCenterViewModel) uses [manageReportsForMonth] so
+    // tapping it opens the exact month that report belongs to, not whatever
+    // month happens to be the module's default. `MANAGE_PUBLISHER_REPORTS`
+    // itself stays a valid, argument-less route (Navigation Compose treats
+    // a query parameter as optional), so every existing plain-navigate call
+    // site is unaffected.
+    const val MANAGE_PUBLISHER_REPORTS_ROUTE = "manage_publisher_reports?periodMonth={periodMonth}"
     const val MANAGE_PUBLISHER_REPORTS = "manage_publisher_reports"
+    fun manageReportsForMonth(periodMonth: Long) = "manage_publisher_reports?periodMonth=$periodMonth"
     // "Announcement Module".
     const val MANAGE_ANNOUNCEMENTS = "manage_announcements"
     const val PUBLISHER_ANNOUNCEMENTS = "publisher_announcements"
@@ -49,6 +60,11 @@ object Destinations {
     // `readOnly` at the call site), same convention as Announcements above.
     const val MEETING_ASSIGNMENTS = "meeting_assignments"
     const val PUBLISHER_MEETING_ASSIGNMENTS = "publisher_meeting_assignments"
+    // "Add a Button under Meeting [and Cart] Assignment[:] 'My
+    // Assignments'... the publisher can see all the assignments under his
+    // name" — a Publisher-only, own-congregation-only cross-cut of every
+    // Midweek/Public Talk/Cart Assignment record that names them.
+    const val MY_ASSIGNMENTS = "my_assignments"
 
     // Phase 3
     const val CONTROL_PANEL = "control_panel"
@@ -136,4 +152,10 @@ object Destinations {
     // Overseer/Ministerial Servant directory. Super-Admin/Coordinator
     // Elder/Regular Elder only.
     const val CONTACT_RECORD = "contact_record"
+
+    // Super-Admin's own "All Congregations" Interested People view — every
+    // Searching/Return Visit/Bible Study record in every congregation, with
+    // full Add/Edit/permanent-Delete access (unlike SEARCHING/RETURN_VISIT/
+    // BIBLE_STUDY above, which are Publisher-only, own-records routes).
+    const val ALL_INTERESTED_RECORDS = "all_interested_records"
 }

@@ -2,19 +2,27 @@ package com.emfitsolutions.gopreach.ui.screens.meetingassignments
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.model.CartAssignmentRow
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.MidweekAssignmentItem
 import com.emfitsolutions.gopreach.data.model.MidweekMeetingSchedule
 import com.emfitsolutions.gopreach.data.model.MidweekSection
 import com.emfitsolutions.gopreach.data.model.PublicTalkScheduleRow
+import com.emfitsolutions.gopreach.data.model.PublisherCategory
+import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
+import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
+import com.emfitsolutions.gopreach.data.repository.CartAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.MidweekMeetingScheduleRepository
+import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.PublicTalkScheduleRepository
+import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -33,6 +41,50 @@ fun mondayOfWeek(millis: Long): Long = Calendar.getInstance().apply {
     add(Calendar.DAY_OF_MONTH, -daysSinceMonday)
 }.timeInMillis
 
+/** "My Assignments" — one entry across any of this module's three record
+ * types, all normalized to a single [sortKey] so they can share one
+ * chronological list ([MyAssignmentsScreen]). */
+sealed interface MyAssignmentRow {
+    val sortKey: Long
+
+    data class Midweek(
+        val weekStart: Long,
+        val sectionLabel: String,
+        val particular: String,
+        val durationMinutes: String,
+        val assignedTo: String,
+    ) : MyAssignmentRow {
+        override val sortKey: Long get() = weekStart
+    }
+
+    /** [matchedRoles] is which of [row]'s own role fields actually named this
+     * publisher — usually one ("Speaker"), occasionally more than one if the
+     * same person is filling two roles on the same date. */
+    data class PublicTalk(val row: PublicTalkScheduleRow, val matchedRoles: List<String>) : MyAssignmentRow {
+        override val sortKey: Long get() = row.date
+    }
+
+    data class Cart(val row: CartAssignmentRow) : MyAssignmentRow {
+        override val sortKey: Long get() = row.date
+    }
+}
+
+/** Whole-word, case-insensitive search for any word of [personName] inside
+ * [text] — the closest a *free-text* assignee field (see this module's own
+ * doc comments: "Assigned To"/"Speaker"/"Publishers" etc. are never a
+ * personId reference) can get to "does this record name this publisher."
+ * Word-bounded so "Eva" matches "Eva and Lita" but not "Evangeline"; matches
+ * on any single word of the full name (not the whole name at once) so
+ * "Eva Reyes" still matches a field that only wrote "Eva". This is
+ * inherently best-effort, not a guaranteed exact match — a full name shared
+ * by two publishers, or a field spelled differently than the roster, won't
+ * resolve perfectly, same limitation the free-text field itself already has. */
+private fun mentionsPerson(text: String, personName: String): Boolean {
+    if (text.isBlank() || personName.isBlank()) return false
+    val words = personName.trim().split(Regex("\\s+")).filter { it.length > 1 }
+    return words.any { word -> Regex("\\b${Regex.escape(word)}\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) }
+}
+
 /**
  * "Meeting Assignments" module — Coordinator Elder/Regular Elder/Service
  * Overseer/Admin (own congregation)/Super-Admin (every congregation) enroll
@@ -44,12 +96,45 @@ fun mondayOfWeek(millis: Long): Long = Calendar.getInstance().apply {
 class MeetingAssignmentsViewModel @Inject constructor(
     private val midweekRepository: MidweekMeetingScheduleRepository,
     private val publicTalkRepository: PublicTalkScheduleRepository,
+    private val cartAssignmentRepository: CartAssignmentRepository,
     private val congregationRepository: CongregationRepository,
+    private val personRepository: PersonRepository,
+    private val roleAssignmentRepository: RoleAssignmentRepository,
     private val auditLogRepository: AuditLogRepository,
 ) : ViewModel() {
 
     val congregations: StateFlow<List<Congregation>> =
         congregationRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** "In assigning publishers, browse it from the publishers record" —
+     * every active person's full name in [congregationId] (Publisher *and*
+     * Admin-track roles alike, e.g. a Chairman/Watchtower Conductor
+     * assignment is usually a Regular/Coordinator Elder, not a Publisher-
+     * category role) — feeds the Assigned To/Speaker/Chairman/Publishers
+     * autocomplete field in every one of this module's three dialogs
+     * (Midweek, Public Talk, Cart Assignment). A Removed Publisher is
+     * excluded (they can no longer sign in and shouldn't be assignable to
+     * new work), same convention [com.emfitsolutions.gopreach.ui.screens
+     * .pipeline.PipelineViewModel.otherPublishers] already uses; every
+     * Admin-track role is unaffected by that check (only [RoleType.Publisher]
+     * carries a [PublisherCategory] to filter on). The field stays free-text
+     * regardless — this is suggestions only, never an enum — so an assignee
+     * who isn't in the roster yet (a visiting speaker) can still be typed in
+     * manually. */
+    fun rosterNamesFor(congregationId: String?): Flow<List<String>> = combine(
+        personRepository.observeAll(),
+        roleAssignmentRepository.observeAll(),
+    ) { people, assignments ->
+        if (congregationId == null) return@combine emptyList()
+        val peopleById = people.associateBy { it.id }
+        assignments
+            .filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId == congregationId }
+            .filter { (it.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category != PublisherCategory.REMOVED_PUBLISHER }
+            .mapNotNull { peopleById[it.personId] }
+            .map { it.fullName }
+            .distinct()
+            .sorted()
+    }
 
     /** The one schedule doc (if any) for [congregationId]/[weekStartDate] —
      * null means nothing has been enrolled for that week yet, not an error. */
@@ -143,5 +228,108 @@ class MeetingAssignmentsViewModel @Inject constructor(
                 details = row.theme,
             )
         }
+    }
+
+    /** "Cart Assignment" half of the module. Unlike [rowsFor]'s Public Talk
+     * rows, sorted by date only — multiple rows may legitimately share the
+     * same date (different locations), so a stable secondary sort by
+     * [CartAssignmentRow.location] keeps same-day rows from reordering
+     * against each other on every unrelated recomposition. */
+    fun cartAssignmentsFor(congregationId: String?): Flow<List<CartAssignmentRow>> =
+        cartAssignmentRepository.observeAll().map { list ->
+            list.filter { congregationId == null || it.congregationId == congregationId }
+                .sortedWith(compareBy({ it.date }, { it.location }))
+        }
+
+    /** "Add, edit and delete permanently the record" — no duplicate-date
+     * check here (unlike [savePublicTalkRow]): "there can be multiple cart
+     * assignment[s]" for the same date, by design. */
+    fun saveCartAssignment(row: CartAssignmentRow, actorPersonId: String) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val isNew = row.id.isBlank()
+            val saved = cartAssignmentRepository.save(
+                row.copy(
+                    createdByPersonId = row.createdByPersonId.ifBlank { actorPersonId },
+                    createdAt = row.createdAt.takeIf { it > 0L } ?: now,
+                    lastEditedByPersonId = actorPersonId,
+                    lastEditedAt = now,
+                ),
+            )
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = if (isNew) "CREATE_CART_ASSIGNMENT" else "EDIT_CART_ASSIGNMENT",
+                targetType = "CartAssignmentRow",
+                targetId = saved.id,
+                congregationId = saved.congregationId,
+                details = saved.location,
+            )
+        }
+    }
+
+    fun deleteCartAssignment(row: CartAssignmentRow, actorPersonId: String) {
+        viewModelScope.launch {
+            cartAssignmentRepository.delete(row.id)
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "PERMANENT_DELETE_CART_ASSIGNMENT",
+                targetType = "CartAssignmentRow",
+                targetId = row.id,
+                congregationId = row.congregationId,
+                details = row.location,
+            )
+        }
+    }
+
+    /** "Add a Button under Meeting [and Cart] Assignment[:] 'My
+     * Assignments'... the publisher can see all the assignments under his
+     * name" — every Midweek/Public Talk/Cart Assignment record in
+     * [congregationId] whose own assignee field(s) name [personName] (see
+     * [mentionsPerson]), across every week/date on file, not just whichever
+     * one the enrollment screen currently happens to have selected. Newest
+     * first, same convention every other activity list in this app uses. */
+    fun myAssignmentsFor(congregationId: String?, personName: String): Flow<List<MyAssignmentRow>> = combine(
+        midweekRepository.observeAll(),
+        publicTalkRepository.observeAll(),
+        cartAssignmentRepository.observeAll(),
+    ) { midweekSchedules, publicTalkRows, cartRows ->
+        if (congregationId == null || personName.isBlank()) return@combine emptyList()
+
+        val midweekMatches = midweekSchedules
+            .filter { it.congregationId == congregationId }
+            .flatMap { schedule ->
+                MidweekSection.entries.flatMap { section ->
+                    schedule.itemsFor(section)
+                        .filter { mentionsPerson(it.assignedTo, personName) }
+                        .map { item ->
+                            MyAssignmentRow.Midweek(
+                                weekStart = schedule.weekStartDate,
+                                sectionLabel = section.displayLabel,
+                                particular = item.particular,
+                                durationMinutes = item.durationMinutes,
+                                assignedTo = item.assignedTo,
+                            )
+                        }
+                }
+            }
+
+        val publicTalkMatches = publicTalkRows
+            .filter { it.congregationId == congregationId }
+            .mapNotNull { row ->
+                val roles = buildList {
+                    if (mentionsPerson(row.speaker, personName)) add("Speaker")
+                    if (mentionsPerson(row.chairman, personName)) add("Chairman")
+                    if (mentionsPerson(row.watchtowerConductor, personName)) add("Watchtower Conductor")
+                    if (mentionsPerson(row.watchtowerReader, personName)) add("Watchtower Reader")
+                    if (mentionsPerson(row.micServers, personName)) add("Mic Servers")
+                }
+                if (roles.isEmpty()) null else MyAssignmentRow.PublicTalk(row, roles)
+            }
+
+        val cartMatches = cartRows
+            .filter { it.congregationId == congregationId && mentionsPerson(it.publishers, personName) }
+            .map { MyAssignmentRow.Cart(it) }
+
+        (midweekMatches + publicTalkMatches + cartMatches).sortedByDescending { it.sortKey }
     }
 }
