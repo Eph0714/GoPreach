@@ -50,7 +50,16 @@ object ReportPrinter {
      * that race entirely. */
     private val inFlightWebViews = mutableSetOf<WebView>()
 
-    fun print(context: Context, table: ReportTable) {
+    fun print(context: Context, table: ReportTable) = printHtml(context, table.title, buildHtml(table))
+
+    /** The actual WebView-to-PrintManager hand-off, generalized to any raw
+     * HTML string — [print] is just [buildHtml] plus this. Pulled out so a
+     * screen with its own bespoke, non-tabular layout (e.g. the Midweek
+     * Meeting Schedule's own print redesign — see MeetingAssignmentsScreen's
+     * `buildMidweekPrintHtml`) can still reuse this same print-preview/
+     * save-as-PDF plumbing instead of being forced into [ReportTable]'s
+     * plain title+columns+rows shape. */
+    fun printHtml(context: Context, title: String, html: String) {
         val webView = WebView(context)
         inFlightWebViews += webView
         webView.webViewClient = object : WebViewClient() {
@@ -62,8 +71,8 @@ object ReportPrinter {
                         Toast.makeText(context, "Printing isn't available on this device.", Toast.LENGTH_LONG).show()
                         return
                     }
-                    val adapter = view.createPrintDocumentAdapter(table.title)
-                    printManager.print(table.title, adapter, PrintAttributes.Builder().build())
+                    val adapter = view.createPrintDocumentAdapter(title)
+                    printManager.print(title, adapter, PrintAttributes.Builder().build())
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to open print dialog", e)
                     Toast.makeText(context, "Couldn't open the print dialog: ${e.localizedMessage ?: "unknown error"}", Toast.LENGTH_LONG).show()
@@ -78,7 +87,7 @@ object ReportPrinter {
                 inFlightWebViews -= webView
             }
         }
-        webView.loadDataWithBaseURL(null, buildHtml(table), "text/html", "UTF-8", null)
+        webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
     }
 
     private fun buildHtml(table: ReportTable): String = buildString {
@@ -104,7 +113,10 @@ object ReportPrinter {
         append("</body></html>")
     }
 
-    private fun escapeHtml(text: String): String = text
+    /** Not private — reused by any caller of [printHtml] building its own
+     * bespoke HTML (see [printHtml]'s own doc comment) so every print path
+     * escapes user-entered text the same way. */
+    fun escapeHtml(text: String): String = text
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")

@@ -4,21 +4,27 @@ import android.app.DatePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
@@ -49,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -214,7 +221,7 @@ private fun MidweekMeetingScheduleTab(
         Row(modifier = Modifier.weight(1f)) {
             WeekPickerDropdown(weekStart = weekStart, onSelected = { weekStart = it })
         }
-        IconButton(onClick = { ReportPrinter.print(context, midweekReportTable(congregationName, weekStart, schedule)) }) {
+        IconButton(onClick = { ReportPrinter.printHtml(context, "Midweek Meeting Schedule — $congregationName", buildMidweekPrintHtml(congregationName, weekStart, schedule)) }) {
             Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Print Midweek Meeting Schedule")
         }
     }
@@ -880,21 +887,82 @@ private fun CartAssignmentDialog(
     }
 }
 
-/** "Make a print in Meeting [and Cart] Assignment[:] 'Midweek Meeting
- * Schedule'..." — one row per [MidweekAssignmentItem], across all three
- * sections, each prefixed with its own section label so the printed table
- * still reads as three grouped lists rather than one flat, ambiguous one. */
-private fun midweekReportTable(congregationName: String, weekStart: Long, schedule: MidweekMeetingSchedule?): ReportTable {
-    val rows = MidweekSection.entries.flatMap { section ->
-        (schedule?.itemsFor(section).orEmpty()).mapIndexed { index, item ->
-            listOf(section.displayLabel, (index + 1).toString(), item.particular, item.durationMinutes, item.assignedTo)
+/** The same section colors [MidweekMeetingScheduleTab]'s own on-screen UI
+ * uses ([MidweekSection.backgroundColor]/[textColor]), duplicated here as
+ * plain hex — the print HTML has no Compose [androidx.compose.ui.graphics
+ * .Color] to reuse directly, and this keeps the printed sheet visually
+ * consistent with what's on screen. */
+private fun MidweekSection.printBarColor(): String = when (this) {
+    MidweekSection.TREASURES -> "#616161"
+    MidweekSection.FIELD_MINISTRY -> "#FFD54F"
+    MidweekSection.LIVING_AS_CHRISTIANS -> "#8B0000"
+}
+
+private fun MidweekSection.printTextColor(): String = when (this) {
+    MidweekSection.TREASURES, MidweekSection.LIVING_AS_CHRISTIANS -> "#FFFFFF"
+    MidweekSection.FIELD_MINISTRY -> "#3E2E00"
+}
+
+/** "Redesign the midweek meeting print report" (reference: a real
+ * congregation's own printed Midweek Meeting Schedule sheet — congregation
+ * name + big title up top, week range in italic caps, each of the three
+ * program sections as its own colored bar, particulars numbered
+ * continuously straight through all three sections rather than restarting
+ * per section, duration inline with the particular, assignee on the same
+ * line). Built and printed as bespoke HTML via [ReportPrinter.printHtml]
+ * directly — this layout has nothing in common with [ReportTable]'s plain
+ * columns-and-rows shape, so it bypasses that generic path entirely instead
+ * of contorting it to fit. */
+private fun buildMidweekPrintHtml(congregationName: String, weekStart: Long, schedule: MidweekMeetingSchedule?): String {
+    fun esc(s: String) = ReportPrinter.escapeHtml(s)
+    var number = 0
+    val sectionsHtml = buildString {
+        MidweekSection.entries.forEach { section ->
+            append("<div class=\"section-bar\" style=\"background:${section.printBarColor()};color:${section.printTextColor()};\">")
+            append(esc(section.displayLabel))
+            append("</div>")
+            val items = schedule?.itemsFor(section).orEmpty()
+            if (items.isEmpty()) {
+                append("<p class=\"empty\">No assignments yet for this section.</p>")
+            } else {
+                append("<table class=\"items\">")
+                items.forEach { item ->
+                    number++
+                    append("<tr>")
+                    append("<td class=\"num\">").append(number).append(".</td>")
+                    append("<td class=\"particular\">").append(esc(item.particular)).append(esc(formatDurationSuffix(item.durationMinutes))).append("</td>")
+                    append("<td class=\"assigned\">")
+                    if (item.assignedTo.isNotBlank()) append("Assigned to: ").append(esc(item.assignedTo))
+                    append("</td>")
+                    append("</tr>")
+                }
+                append("</table>")
+            }
         }
     }
-    return ReportTable(
-        title = "Midweek Meeting Schedule — $congregationName — ${formatWeekRange(weekStart)}",
-        columns = listOf("Section", "#", "Particular", "Duration (min)", "Assigned To"),
-        rows = rows,
-    )
+    return """
+        <html><head><meta charset="utf-8"><style>
+        body{font-family:sans-serif;font-size:13px;color:#222;margin:24px;}
+        .header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #444;padding-bottom:8px;}
+        .congregation{font-style:italic;font-weight:bold;font-size:20px;color:#2b4a6f;}
+        .title{font-size:26px;font-weight:bold;text-align:right;white-space:nowrap;}
+        .week{font-style:italic;font-weight:bold;font-size:13px;letter-spacing:0.5px;margin:8px 0 16px;}
+        .section-bar{font-weight:bold;text-transform:uppercase;padding:6px 10px;margin-top:14px;margin-bottom:4px;font-size:13px;}
+        table.items{width:100%;border-collapse:collapse;margin-bottom:4px;}
+        table.items td{padding:4px 6px;vertical-align:top;font-size:13px;}
+        td.num{width:26px;font-weight:bold;}
+        td.particular{width:65%;}
+        td.assigned{text-align:right;color:#333;white-space:nowrap;}
+        p.empty{font-style:italic;color:#777;margin:4px 0 12px 6px;}
+        </style></head><body>
+        <div class="header">
+        <div class="congregation">${esc(congregationName)}</div>
+        <div class="title">Midweek Meeting Schedule</div>
+        </div>
+        <div class="week">${esc(formatWeekRange(weekStart).uppercase())}</div>
+        $sectionsHtml
+        </body></html>
+    """.trimIndent()
 }
 
 /** "...'Public Talk and Watchtower Study'" — one row per [PublicTalkScheduleRow]. */
@@ -939,19 +1007,20 @@ private fun cartAssignmentReportTable(congregationName: String, rows: List<CartA
 internal fun formatDurationSuffix(raw: String): String = if (raw.isBlank()) "" else " ($raw minutes)"
 
 /**
- * "In assigning publishers, browse it from the publishers record... however
- * can be entered manually if not available" — the one autocomplete field
- * every assignee field in this module (Midweek's Assigned To, Public Talk's
- * Speaker/Chairman/Watchtower Conductor/Watchtower Reader/Mic Servers, Cart
- * Assignment's Publishers) is built on: a normal editable text field, so
- * typing anything at all — including a name that isn't in [suggestions] yet,
- * or two names at once ("Eva and Lita") — always just works, plus a
- * dropdown of this congregation's own roster (from [MeetingAssignmentsViewModel
- * .rosterNamesFor]) to pick from instead of typing a whole name out. Never a
- * hard-restricted enum picker — that's the whole point of "entered manually
- * if not available."
- */
-@OptIn(ExperimentalMaterial3Api::class)
+ * "In assigning publishers... allow multiple publisher[s] in every
+ * assignment" — every assignee field in this module (Midweek's Assigned To,
+ * Public Talk's Speaker/Chairman/Watchtower Conductor/Watchtower Reader/Mic
+ * Servers, Cart Assignment's Publishers) is built on this one multi-select
+ * picker: a dropdown of this congregation's own roster (from
+ * [MeetingAssignmentsViewModel.rosterNamesFor]) that ADDS a removable chip
+ * per tap instead of replacing the whole field, plus a manual-entry row for
+ * anyone not in the roster yet — "however can be entered manually if not
+ * available" still holds, just per-name now instead of as one free-typed
+ * string. [value] is stored exactly like before (a single comma-separated
+ * string — no model/Firestore-schema change needed), so a pre-existing
+ * "Eva and Lita"-style value with no comma just shows up as one chip,
+ * removable or left alone, same as any other name here. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun PublisherAutocompleteField(
     label: String,
@@ -960,26 +1029,68 @@ private fun PublisherAutocompleteField(
     suggestions: List<String>,
     placeholderText: String? = null,
 ) {
+    val selectedNames = remember(value) { value.split(",").map { it.trim() }.filter { it.isNotBlank() } }
     var expanded by remember { mutableStateOf(false) }
-    val filtered = remember(suggestions, value) {
-        if (value.isBlank()) suggestions else suggestions.filter { it.contains(value, ignoreCase = true) }
+    var manualText by remember { mutableStateOf("") }
+
+    fun addName(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank() || selectedNames.any { it.equals(trimmed, ignoreCase = true) }) return
+        onValueChange((selectedNames + trimmed).joinToString(", "))
     }
-    ExposedDropdownMenuBox(expanded = expanded && filtered.isNotEmpty(), onExpandedChange = { expanded = it }) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = { onValueChange(it); expanded = true },
-            label = { Text(label) },
-            placeholder = if (placeholderText != null) {
-                { Text(placeholderText) }
-            } else null,
-            singleLine = true,
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth().menuAnchor(),
-        )
-        ExposedDropdownMenu(expanded = expanded && filtered.isNotEmpty(), onDismissRequest = { expanded = false }) {
-            filtered.forEach { name ->
-                DropdownMenuItem(text = { Text(name) }, onClick = { onValueChange(name); expanded = false })
+    fun removeName(name: String) {
+        onValueChange(selectedNames.filterNot { it == name }.joinToString(", "))
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val available = remember(suggestions, selectedNames) {
+            suggestions.filter { s -> selectedNames.none { it.equals(s, ignoreCase = true) } }
+        }
+        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+            OutlinedTextField(
+                value = "",
+                onValueChange = {},
+                readOnly = true,
+                label = { Text(label) },
+                placeholder = { Text(placeholderText ?: if (selectedNames.isEmpty()) "Select from roster" else "Add another") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                visualTransformation = VisualTransformation.None,
+                modifier = Modifier.fillMaxWidth().menuAnchor(),
+            )
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                if (available.isEmpty()) {
+                    DropdownMenuItem(text = { Text("No more publishers in this congregation.") }, onClick = {}, enabled = false)
+                } else {
+                    available.forEach { name ->
+                        DropdownMenuItem(text = { Text(name) }, onClick = { addName(name); expanded = false })
+                    }
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = manualText,
+                onValueChange = { manualText = it },
+                label = { Text("Add manually (not in roster)") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { addName(manualText); manualText = "" }),
+                visualTransformation = VisualTransformation.None,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { addName(manualText); manualText = "" }, enabled = manualText.isNotBlank()) {
+                Icon(Icons.Rounded.Add, contentDescription = "Add $label")
+            }
+        }
+        if (selectedNames.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                selectedNames.forEach { name ->
+                    AssistChip(
+                        onClick = { removeName(name) },
+                        label = { Text(name) },
+                        trailingIcon = { Icon(Icons.Rounded.Close, contentDescription = "Remove $name") },
+                    )
+                }
             }
         }
     }
