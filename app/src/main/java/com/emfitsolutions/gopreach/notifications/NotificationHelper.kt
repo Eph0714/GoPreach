@@ -14,7 +14,14 @@ import androidx.core.app.NotificationCompat
 import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.repository.NotificationSoundRepository
 
-const val REMINDERS_CHANNEL_ID = "gopreach_reminders"
+// "_v2" — bug fix ("notification sound isn't working"): a NotificationChannel's
+// sound/importance is immutable once created (Android ignores every later
+// createNotificationChannel call for the same id), so any device whose
+// channel got created before this file's sound-handling existed (or with a
+// different sound) was permanently stuck, regardless of what the code below
+// says or what the user picks in Settings. Renaming forces a fresh channel —
+// with today's correct settings — on every device, old installs included.
+const val REMINDERS_CHANNEL_ID = "gopreach_reminders_v2"
 const val CALENDAR_ALARM_CHANNEL_ID = "gopreach_calendar_alarms"
 const val LOCATION_SHARING_CHANNEL_ID = "gopreach_location_sharing"
 
@@ -120,13 +127,24 @@ object NotificationHelper {
             return
         }
         if (!NotificationSoundRepository.isEnabled(context)) return
-        val notification = NotificationCompat.Builder(context, REMINDERS_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, REMINDERS_CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
-            .build()
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        // Below API 26 there is no NotificationChannel at all, so the sound
+        // set on [buildRemindersChannel] never applies — bug fix: the sound
+        // (and default vibration) has to be set directly on the notification
+        // itself for it to play anything on Android 7.0/7.1. Harmless to set
+        // on O+ too; the channel's own sound simply takes priority there.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            val soundUri = NotificationSoundRepository.readStoredSoundUri(context)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            builder.setSound(soundUri).setDefaults(NotificationCompat.DEFAULT_VIBRATE)
+        }
+        val notification = builder.build()
         runCatching {
             androidx.core.app.NotificationManagerCompat.from(context).notify(id, notification)
         }
