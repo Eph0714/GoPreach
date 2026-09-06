@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.data.local.psgc
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -26,7 +27,23 @@ data class ProvinceEntity(
     val nameNormalized: String,
 )
 
-@Entity(tableName = "muncity")
+// Bug fix ("Province/Municipality/Barangay dropdowns are empty" — the ACTUAL
+// cause, confirmed on a real device/emulator via PsgcRealDeviceTest, not just
+// static file inspection): Room validates the bundled psgc.db's real table
+// structure against these @Entity classes on first open, and it's strict
+// about indices. The prebuilt asset's `muncity`/`barangay` tables really do
+// have `idx_muncity_province`/`idx_muncity_name`/`idx_barangay_muncity`/
+// `idx_barangay_name` indices (added by the build script for query
+// performance), but nothing here ever declared them — so Room's expected
+// schema (no indices) never matched the asset's real schema (has indices),
+// and every single query threw `IllegalStateException: Pre-packaged database
+// has an invalid schema` the instant it tried to open the database. That
+// exception was being silently swallowed by PhilippineAddressPickerViewModel's
+// defensive runCatching (added for an earlier, unrelated crash fix), which is
+// exactly why this surfaced as merely "empty dropdowns" instead of a visible
+// crash. The @Index names below must match the asset's real index names
+// exactly — Room compares them as part of its schema-identity check.
+@Entity(tableName = "muncity", indices = [Index(value = ["provinceId"], name = "idx_muncity_province"), Index(value = ["nameNormalized"], name = "idx_muncity_name")])
 data class MuncityEntity(
     @PrimaryKey val id: Int,
     val provinceId: Int,
@@ -34,7 +51,7 @@ data class MuncityEntity(
     val nameNormalized: String,
 )
 
-@Entity(tableName = "barangay")
+@Entity(tableName = "barangay", indices = [Index(value = ["muncityId"], name = "idx_barangay_muncity"), Index(value = ["nameNormalized"], name = "idx_barangay_name")])
 data class BarangayEntity(
     @PrimaryKey val id: Int,
     val muncityId: Int,
