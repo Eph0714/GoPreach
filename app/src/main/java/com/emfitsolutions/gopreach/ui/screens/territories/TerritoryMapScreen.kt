@@ -1638,20 +1638,20 @@ private fun TerritoryFilterSheet(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (isSuperAdmin) {
                         FilterDropdownField(
-                            label = "Province/City",
+                            label = "Province",
                             options = provinceOptions.map { it to it },
                             selectedId = filter.province,
                             onSelected = { onFilterChange(filter.copy(province = it, cityMunicipality = null, barangay = null)) },
                         )
                     } else {
-                        // "Province/City automatic base on their congregation
+                        // "Province automatic base on their congregation
                         // enrollment" — shown, not editable; every record a
                         // scoped role sees already shares this same
                         // province/city anyway.
-                        ReadOnlyField("Province/City", filter.province ?: "—")
+                        ReadOnlyField("Province", filter.province ?: "—")
                     }
                     FilterDropdownField(
-                        label = "Municipality",
+                        label = "Municipality / City",
                         options = municipalityOptions.map { it to it },
                         selectedId = filter.cityMunicipality,
                         onSelected = { onFilterChange(filter.copy(cityMunicipality = it, barangay = null)) },

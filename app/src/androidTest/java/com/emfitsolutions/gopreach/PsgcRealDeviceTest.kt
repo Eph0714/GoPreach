@@ -59,6 +59,24 @@ class PsgcRealDeviceTest {
         Log.d("PSGC_DEBUG", "Barangays in Solano: ${barangays.size} -> ${barangays.map { it.name }}")
         assertTrue("Expected barangays under Solano", barangays.isNotEmpty())
 
+        // New Province/Municipality-City/Barangay format: no top-level
+        // "province" row should ever be a city in disguise anymore -- every
+        // Highly Urbanized/Independent City must appear one level down, as a
+        // Municipality/City under its real geographic province, and NCR's
+        // cities must all be reachable under a single "Metro Manila" entry.
+        val cebuProvince = dao.searchProvinces("CEBU").firstOrNull { it.nameNormalized == "CEBU" }
+        assertTrue("Cebu (the province) must exist", cebuProvince != null)
+        val cebuCities = dao.searchMuncitiesInProvince(cebuProvince!!.id, "")
+        Log.d("PSGC_DEBUG", "Cities under Cebu province: ${cebuCities.map { it.name }}")
+        assertTrue("Cebu City must be a Municipality/City under Cebu province", cebuCities.any { it.nameNormalized == "CEBU CITY" })
+
+        val metroManila = dao.searchProvinces("METRO MANILA").firstOrNull()
+        assertTrue("Metro Manila province bucket must exist for NCR", metroManila != null)
+        val ncrCities = dao.searchMuncitiesInProvince(metroManila!!.id, "")
+        Log.d("PSGC_DEBUG", "Metro Manila cities/municipalities: ${ncrCities.size} -> ${ncrCities.map { it.name }}")
+        assertTrue("Metro Manila must contain Quezon City", ncrCities.any { it.nameNormalized == "QUEZON CITY" })
+        assertTrue("Metro Manila must contain Manila", ncrCities.any { it.nameNormalized == "MANILA" })
+
         Log.d("PSGC_DEBUG", "ALL CHECKS PASSED")
         db.close()
     }

@@ -407,8 +407,8 @@ internal fun PipelinePersonDialog(
             "Name" to name.isNotBlank(),
             "Address" to address.isNotBlank(),
             "Gender" to (gender != null),
-            "Province/City" to !province.isNullOrBlank(),
-            "Municipality" to !cityMunicipality.isNullOrBlank(),
+            "Province" to !province.isNullOrBlank(),
+            "Municipality / City" to !cityMunicipality.isNullOrBlank(),
             "Barangay" to !barangay.isNullOrBlank(),
         )
         if (message != null) {

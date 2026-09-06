@@ -223,8 +223,8 @@ private fun EditCongregationDialog(
     fun submit() {
         val message = requiredFieldsMessage(
             "Congregation/Group Name" to name.isNotBlank(),
-            "Province/City" to !province.isNullOrBlank(),
-            "Municipality" to !cityMunicipality.isNullOrBlank(),
+            "Province" to !province.isNullOrBlank(),
+            "Municipality / City" to !cityMunicipality.isNullOrBlank(),
             "Barangay" to !barangay.isNullOrBlank(),
             "Congregation/Group Code" to code.isNotBlank(),
         )

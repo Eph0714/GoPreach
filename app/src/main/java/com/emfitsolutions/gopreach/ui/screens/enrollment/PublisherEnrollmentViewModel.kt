@@ -183,7 +183,7 @@ class PublisherEnrollmentViewModel @Inject constructor(
             state.selectedGroupId == null || state.category == null ||
             state.province.isNullOrBlank() || state.cityMunicipality.isNullOrBlank() || state.barangay.isNullOrBlank()
         ) {
-            _uiState.update { it.copy(errorMessage = "Last name, first name, address, Province/City, Municipality, Barangay, contact, group, and status are all required.") }
+            _uiState.update { it.copy(errorMessage = "Last name, first name, address, Province, Municipality/City, Barangay, contact, group, and status are all required.") }
             return
         }
         val group = groups.value.firstOrNull { it.id == state.selectedGroupId }

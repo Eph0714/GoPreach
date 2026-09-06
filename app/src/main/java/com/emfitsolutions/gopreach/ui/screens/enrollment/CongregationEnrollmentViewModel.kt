@@ -94,7 +94,7 @@ class CongregationEnrollmentViewModel @Inject constructor(
         if (state.name.isBlank() || state.province.isNullOrBlank() || state.cityMunicipality.isNullOrBlank() ||
             state.barangay.isNullOrBlank() || state.code.isBlank()
         ) {
-            _uiState.update { it.copy(errorMessage = "Name, Province/City, Municipality, Barangay, and code are required.") }
+            _uiState.update { it.copy(errorMessage = "Name, Province, Municipality/City, Barangay, and code are required.") }
             return
         }
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }

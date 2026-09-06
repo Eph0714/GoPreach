@@ -97,37 +97,40 @@ class PhilippineAddressPickerViewModel @Inject constructor(
 }
 
 /**
- * "Province/City (Dropdown/required), Municipality (Dropdown/required),
- * Barangay (Dropdown/required)... The publisher will browse manually" —
- * three cascading, searchable, all-required dropdowns over the bundled PSGC
- * data (see [PhilippineLocationRepository]). "Province/City" — not just
- * "Province" — because a Highly Urbanized/Independent City (Davao City,
- * Quezon City, every city in Metro Manila, ...) sits at this same top level
- * in the PSGC, standing on its own rather than belonging to any province;
- * for one of those, "Municipality" then has exactly one selectable option
- * (the city itself, matching the PSGC's own one-city-is-both-levels
- * structure) — still a required, explicit tap, never auto-selected, so the
- * three-required-dropdowns rule holds with no silent exception. Selecting
- * Province/City narrows the Municipality search to it (leaving it blank
- * searches nationwide, for a publisher who only knows the city); selecting
- * a Municipality is required before Barangay can be searched at all —
- * there's no such thing as a barangay without a parent municipality/city.
+ * Three cascading, searchable, all-required dropdowns — Province,
+ * Municipality/City, Barangay — over the bundled PSGC data (see
+ * [PhilippineLocationRepository]). The Province level shows only real
+ * Philippine provinces (plus one pragmatic "Metro Manila" entry standing in
+ * for NCR, which has no province of its own in the PSGC — see
+ * `rebuild_psgc.js`'s doc comment history / [PhilippineLocationRepository]);
+ * every Highly Urbanized/Independent City (Davao City, Cebu City, every
+ * city in Metro Manila, ...) is reclassified under its real geographic
+ * province (or under Metro Manila for NCR) as a normal Municipality/City
+ * option, never shown as its own top-level entry. No PSGC code, region
+ * name, or other geographic-code detail is ever shown to the user — only
+ * plain names; codes are only ever used internally to scope the next
+ * dropdown's query.
+ *
+ * Selecting a Province narrows the Municipality search to it (leaving it
+ * blank searches nationwide, for a publisher who only knows the city);
+ * selecting a Municipality is required before Barangay can be searched at
+ * all — there's no such thing as a barangay without a parent
+ * municipality/city.
  *
  * Callers enforce "required" themselves at submit time (this composable
  * only renders and reports changes, same division of responsibility as
  * every plain [androidx.compose.material3.OutlinedTextField] elsewhere in
  * these forms) — see each screen's own `requiredFieldsMessage` call.
  *
- * Picking a *different* Province/City clears Municipality and Barangay
- * (they'd no longer be valid children); picking a different Municipality
- * clears Barangay the same way. [province]/[cityMunicipality]/[barangay]
- * are plain names (this composable re-resolves their ids itself on first
- * composition, via [PhilippineAddressPickerViewModel.resolveProvinceId]/
- * `resolveCityId`, so a value that arrived as a name only — a loaded
- * record, or the automatic GPS fill-up — still cascades correctly);
- * [onChanged] is called with the full three-field selection on every
- * change, never just the one field that moved, so a caller can save it in
- * one shot.
+ * Picking a *different* Province clears Municipality and Barangay (they'd
+ * no longer be valid children); picking a different Municipality clears
+ * Barangay the same way. [province]/[cityMunicipality]/[barangay] are plain
+ * names (this composable re-resolves their ids itself on first composition,
+ * via [PhilippineAddressPickerViewModel.resolveProvinceId]/`resolveCityId`,
+ * so a value that arrived as a name only — a loaded record, or the
+ * automatic GPS fill-up — still cascades correctly); [onChanged] is called
+ * with the full three-field selection on every change, never just the one
+ * field that moved, so a caller can save it in one shot.
  */
 @Composable
 fun PhilippineAddressPicker(
@@ -158,12 +161,13 @@ fun PhilippineAddressPicker(
     // typed at least one character into it — nothing ever populated it just
     // from opening the screen or tapping the field, which reads as "there's
     // nothing here at all." Pre-loads every level's options the moment it
-    // becomes relevant: Province/City on first composition, Municipality
-    // whenever the resolved Province/City id changes (including to "every
-    // province" when cleared), Barangay whenever the resolved Municipality
-    // id becomes available.
+    // becomes relevant: Province on first composition, Municipality/City
+    // whenever the resolved Province id becomes available (it stays
+    // disabled — see [SearchableDropdown]'s `enabled` — until then, so
+    // there's nothing to load before that), Barangay whenever the resolved
+    // Municipality id becomes available.
     LaunchedEffect(Unit) { viewModel.searchProvinces(provinceText) }
-    LaunchedEffect(provinceId) { viewModel.searchCities(provinceId, cityText) }
+    LaunchedEffect(provinceId) { provinceId?.let { viewModel.searchCities(it, cityText) } }
     LaunchedEffect(cityId) { cityId?.let { viewModel.searchBarangays(it, barangayText) } }
 
     val provinceOptions by viewModel.provinceOptions.collectAsStateWithLifecycle()
@@ -172,7 +176,7 @@ fun PhilippineAddressPicker(
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SearchableDropdown(
-            label = "Province/City",
+            label = "Province",
             text = provinceText,
             options = provinceOptions,
             onTextChange = {
@@ -189,9 +193,11 @@ fun PhilippineAddressPicker(
             },
         )
         SearchableDropdown(
-            label = "Municipality",
+            label = "Municipality / City",
             text = cityText,
             options = cityOptions,
+            enabled = provinceId != null,
+            supportingText = if (provinceId == null) "Select Province first" else null,
             onTextChange = {
                 cityText = it
                 viewModel.searchCities(provinceId, it)
@@ -208,7 +214,7 @@ fun PhilippineAddressPicker(
             text = barangayText,
             options = barangayOptions,
             enabled = cityId != null,
-            supportingText = if (cityId == null) "Select a Municipality first" else null,
+            supportingText = if (cityId == null) "Select Municipality / City first" else null,
             onTextChange = {
                 barangayText = it
                 cityId?.let { id -> viewModel.searchBarangays(id, it) }
