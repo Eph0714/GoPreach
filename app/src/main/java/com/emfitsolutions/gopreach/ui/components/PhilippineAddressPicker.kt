@@ -10,6 +10,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -123,6 +125,19 @@ fun PhilippineAddressPicker(
         cityId = cityMunicipality?.let { viewModel.resolveCityId(it, provinceId) }
     }
 
+    // Bug fix ("I cannot see Province/City and other address related..."):
+    // each dropdown's option list used to stay empty until the publisher
+    // typed at least one character into it — nothing ever populated it just
+    // from opening the screen or tapping the field, which reads as "there's
+    // nothing here at all." Pre-loads every level's options the moment it
+    // becomes relevant: Province/City on first composition, Municipality
+    // whenever the resolved Province/City id changes (including to "every
+    // province" when cleared), Barangay whenever the resolved Municipality
+    // id becomes available.
+    LaunchedEffect(Unit) { viewModel.searchProvinces(provinceText) }
+    LaunchedEffect(provinceId) { viewModel.searchCities(provinceId, cityText) }
+    LaunchedEffect(cityId) { cityId?.let { viewModel.searchBarangays(it, barangayText) } }
+
     val provinceOptions by viewModel.provinceOptions.collectAsStateWithLifecycle()
     val cityOptions by viewModel.cityOptions.collectAsStateWithLifecycle()
     val barangayOptions by viewModel.barangayOptions.collectAsStateWithLifecycle()
@@ -190,7 +205,12 @@ private fun SearchableDropdown(
     supportingText: String? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val showMenu = expanded && enabled && options.isNotEmpty()
+    // Bug fix — see PhilippineAddressPicker's own doc comment: [options]
+    // being empty no longer hides the menu outright, only shows nothing
+    // filtered under it; the menu opening at all is what makes it obvious
+    // there's a real dropdown here, "still loading"/"nothing matches" and
+    // all, rather than tapping the field silently doing nothing.
+    val showMenu = expanded && enabled
     ExposedDropdownMenuBox(expanded = showMenu, onExpandedChange = { if (enabled) expanded = it }) {
         OutlinedTextField(
             value = text,
@@ -203,11 +223,26 @@ private fun SearchableDropdown(
             enabled = enabled,
             singleLine = true,
             visualTransformation = VisualTransformation.None,
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showMenu) },
-            modifier = Modifier.fillMaxWidth().menuAnchor(),
+            trailingIcon = {
+                IconButton(onClick = { if (enabled) expanded = !expanded }) {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = showMenu)
+                }
+            },
+            // Bug fix: tapping into this field used to just place a cursor
+            // — nothing ever set [expanded] to true until the first
+            // keystroke, so a publisher who tapped it to browse (rather
+            // than type) saw no dropdown appear at all. Opening on focus
+            // means the pre-loaded options (see the LaunchedEffects above)
+            // are visible immediately.
+            modifier = Modifier.fillMaxWidth().menuAnchor().onFocusChanged { focusState ->
+                if (enabled && focusState.isFocused) expanded = true
+            },
         )
         ExposedDropdownMenu(expanded = showMenu, onDismissRequest = { expanded = false }) {
             Column(modifier = Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
+                if (options.isEmpty()) {
+                    DropdownMenuItem(text = { Text(if (text.isBlank()) "Loading…" else "No matches") }, onClick = {}, enabled = false)
+                }
                 options.forEach { option ->
                     DropdownMenuItem(
                         text = { Text(option.name) },
