@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Assignment
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Campaign
+import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -48,6 +49,10 @@ private fun NotificationCategory.icon(): ImageVector = when (this) {
     NotificationCategory.MONTHLY_REPORT -> Icons.AutoMirrored.Rounded.Assignment
     NotificationCategory.ANNOUNCEMENT -> Icons.Rounded.Campaign
     NotificationCategory.CALENDAR_SCHEDULE -> Icons.Rounded.CalendarMonth
+    // Never actually reaches this balloon (see NotificationCategory.MESSAGE's
+    // own doc comment) — exhaustive branch only, for when the shared enum
+    // changes.
+    NotificationCategory.MESSAGE -> Icons.Rounded.ChatBubble
 }
 
 /**

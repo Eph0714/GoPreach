@@ -61,22 +61,35 @@ class PhilippineAddressPickerViewModel @Inject constructor(
     fun searchProvinces(query: String) {
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
-            _provinceOptions.value = runCatching { repository.searchProvinces(query) }.getOrDefault(emptyList())
+            _provinceOptions.value = runCatching { repository.searchProvinces(query) }
+                .onFailure { android.util.Log.e(TAG, "searchProvinces('$query') failed", it) }
+                .getOrDefault(emptyList())
+                .also { android.util.Log.d(TAG, "searchProvinces('$query') -> ${it.size} rows") }
         }
     }
 
     fun searchCities(provinceId: Int?, query: String) {
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
-            _cityOptions.value = runCatching { repository.searchCitiesMunicipalities(provinceId, query) }.getOrDefault(emptyList())
+            _cityOptions.value = runCatching { repository.searchCitiesMunicipalities(provinceId, query) }
+                .onFailure { android.util.Log.e(TAG, "searchCities(province=$provinceId, '$query') failed", it) }
+                .getOrDefault(emptyList())
+                .also { android.util.Log.d(TAG, "searchCities(province=$provinceId, '$query') -> ${it.size} rows") }
         }
     }
 
     fun searchBarangays(muncityId: Int, query: String) {
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
-            _barangayOptions.value = runCatching { repository.searchBarangays(muncityId, query) }.getOrDefault(emptyList())
+            _barangayOptions.value = runCatching { repository.searchBarangays(muncityId, query) }
+                .onFailure { android.util.Log.e(TAG, "searchBarangays(muncity=$muncityId, '$query') failed", it) }
+                .getOrDefault(emptyList())
+                .also { android.util.Log.d(TAG, "searchBarangays(muncity=$muncityId, '$query') -> ${it.size} rows") }
         }
+    }
+
+    private companion object {
+        const val TAG = "PhilippineAddressPicker"
     }
 
     suspend fun resolveProvinceId(name: String): Int? = runCatching { repository.findProvinceByName(name)?.id }.getOrNull()

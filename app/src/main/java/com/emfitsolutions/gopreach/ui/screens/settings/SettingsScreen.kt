@@ -29,9 +29,12 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PriorityHigh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.AlertDialog
@@ -227,7 +230,10 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
     val popupsEnabled by viewModel.popupNotificationsEnabled.collectAsStateWithLifecycle()
     val transferRequestsEnabled by viewModel.transferRequestNotificationsEnabled.collectAsStateWithLifecycle()
     val announcementsEnabled by viewModel.announcementNotificationsEnabled.collectAsStateWithLifecycle()
+    val messagesEnabled by viewModel.messageNotificationsEnabled.collectAsStateWithLifecycle()
+    val importantEnabled by viewModel.importantNotificationsEnabled.collectAsStateWithLifecycle()
     var exactAlarmsAllowed by remember { mutableStateOf(AlarmScheduler.canScheduleExactAlarms(context)) }
+    var diagnosticsResult by remember { mutableStateOf<List<com.emfitsolutions.gopreach.notifications.NotificationDiagnostic>?>(null) }
 
     val pickRingtone = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -296,6 +302,26 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
             )
             androidx.compose.material3.HorizontalDivider()
             ListItem(
+                headlineContent = { Text("Group Chat Message Notifications") },
+                supportingContent = { Text("New messages in your Group Chats.") },
+                leadingContent = { Icon(Icons.Rounded.ChatBubble, contentDescription = null) },
+                modifier = Modifier.alpha(if (notificationsEnabled) 1f else 0.5f),
+                trailingContent = {
+                    Switch(checked = messagesEnabled, onCheckedChange = viewModel::setMessageNotificationsEnabled, enabled = notificationsEnabled)
+                },
+            )
+            androidx.compose.material3.HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("System Notifications") },
+                supportingContent = { Text("Monthly report reminders and other important system notices.") },
+                leadingContent = { Icon(Icons.Rounded.PriorityHigh, contentDescription = null) },
+                modifier = Modifier.alpha(if (notificationsEnabled) 1f else 0.5f),
+                trailingContent = {
+                    Switch(checked = importantEnabled, onCheckedChange = viewModel::setImportantNotificationsEnabled, enabled = notificationsEnabled)
+                },
+            )
+            androidx.compose.material3.HorizontalDivider()
+            ListItem(
                 headlineContent = { Text("Notification Sound") },
                 supportingContent = { Text(ringtoneTitle(context, soundUri)) },
                 leadingContent = { Icon(Icons.Rounded.MusicNote, contentDescription = null) },
@@ -338,7 +364,57 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
                     },
                 )
             }
+            androidx.compose.material3.HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("Test Notification") },
+                supportingContent = { Text("Run a quick check and send a real test notification to this device.") },
+                leadingContent = { Icon(Icons.Rounded.NotificationsActive, contentDescription = null) },
+                modifier = Modifier.clickable {
+                    diagnosticsResult = viewModel.runNotificationDiagnostics()
+                    if (diagnosticsResult?.all { it.passed } == true) {
+                        viewModel.sendTestNotification()
+                    }
+                },
+            )
         }
+    }
+
+    diagnosticsResult?.let { results ->
+        val allPassed = results.all { it.passed }
+        AlertDialog(
+            onDismissRequest = { diagnosticsResult = null },
+            title = { Text(if (allPassed) "Test Notification Sent" else "Notification Check Failed") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    results.forEach { diagnostic ->
+                        Text(
+                            if (diagnostic.passed) "✓ ${diagnostic.label}" else "✗ ${diagnostic.label}",
+                            color = if (diagnostic.passed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        if (!diagnostic.passed) {
+                            Text(
+                                diagnostic.reason,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 20.dp, bottom = 8.dp, top = 2.dp),
+                            )
+                        }
+                    }
+                    if (allPassed) {
+                        Text(
+                            "If you didn't hear a sound, check that your device isn't in silent/Do Not Disturb mode.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { diagnosticsResult = null }) { Text("OK") }
+            },
+        )
     }
 }
 

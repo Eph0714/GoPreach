@@ -329,6 +329,7 @@ fun AdminHomeScreen(
     // wiring beyond currentPersonId, already resolved above.
     val chatBoxEntriesFlow = remember(currentPersonId) { groupChatViewModel.chatBoxEntriesFor(currentPersonId) }
     val chatBoxEntries by chatBoxEntriesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    com.emfitsolutions.gopreach.ui.components.GroupChatMessageNotifier(chatBoxEntries)
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {

@@ -16,6 +16,8 @@ private const val KEY_SOUND_ENABLED = "notification_sounds_enabled"
 private const val KEY_POPUP_ENABLED = "notification_popups_enabled"
 private const val KEY_TRANSFER_REQUEST_ENABLED = "notification_transfer_requests_enabled"
 private const val KEY_ANNOUNCEMENT_ENABLED = "notification_announcements_enabled"
+private const val KEY_MESSAGES_ENABLED = "notification_messages_enabled"
+private const val KEY_IMPORTANT_ENABLED = "notification_important_enabled"
 
 /**
  * Per-device choice of which system sound plays for every incoming
@@ -67,6 +69,12 @@ class NotificationSoundRepository @Inject constructor(
     private val _announcementEnabled = MutableStateFlow(prefs.getBoolean(KEY_ANNOUNCEMENT_ENABLED, true))
     val announcementEnabled: StateFlow<Boolean> = _announcementEnabled
 
+    private val _messagesEnabled = MutableStateFlow(prefs.getBoolean(KEY_MESSAGES_ENABLED, true))
+    val messagesEnabled: StateFlow<Boolean> = _messagesEnabled
+
+    private val _importantEnabled = MutableStateFlow(prefs.getBoolean(KEY_IMPORTANT_ENABLED, true))
+    val importantEnabled: StateFlow<Boolean> = _importantEnabled
+
     private fun readStoredUri(): Uri? = prefs.getString(KEY_SOUND_URI, null)?.let(Uri::parse)
 
     fun setSoundUri(uri: Uri?) {
@@ -99,6 +107,16 @@ class NotificationSoundRepository @Inject constructor(
         _announcementEnabled.value = value
     }
 
+    fun setMessagesEnabled(value: Boolean) {
+        prefs.edit { putBoolean(KEY_MESSAGES_ENABLED, value) }
+        _messagesEnabled.value = value
+    }
+
+    fun setImportantEnabled(value: Boolean) {
+        prefs.edit { putBoolean(KEY_IMPORTANT_ENABLED, value) }
+        _importantEnabled.value = value
+    }
+
     companion object {
         /**
          * Static read used by [com.emfitsolutions.gopreach.notifications
@@ -126,10 +144,28 @@ class NotificationSoundRepository @Inject constructor(
         fun isAnnouncementEnabled(context: Context): Boolean =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_ANNOUNCEMENT_ENABLED, true)
 
+        fun isMessagesEnabled(context: Context): Boolean =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_MESSAGES_ENABLED, true)
+
+        fun isImportantEnabled(context: Context): Boolean =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_IMPORTANT_ENABLED, true)
+
+        /** One place [NotificationHelper.notify] checks a category's own
+         * toggle, instead of a `when` scattered at every call site — Monthly
+         * Report reminders have no toggle of their own (they've never had
+         * one) and fall under the "Important" switch alongside Calendar
+         * events, matching [com.emfitsolutions.gopreach.notifications
+         * .NotificationHelper]'s own channel grouping for the two. */
+        fun isCategoryEnabled(context: Context, category: NotificationCategory): Boolean = when (category) {
+            NotificationCategory.TRANSFER_REQUEST -> isTransferRequestEnabled(context)
+            NotificationCategory.ANNOUNCEMENT -> isAnnouncementEnabled(context)
+            NotificationCategory.MESSAGE -> isMessagesEnabled(context)
+            NotificationCategory.MONTHLY_REPORT, NotificationCategory.CALENDAR_SCHEDULE -> isImportantEnabled(context)
+        }
+
         /** Same static-read rationale as [isEnabled] — used by
          * [com.emfitsolutions.gopreach.notifications.NotificationHelper
-         * .ensureChannel] so a brand-new [REMINDERS_CHANNEL_ID][com.emfitsolutions
-         * .gopreach.notifications.REMINDERS_CHANNEL_ID] is created with
+         * .ensureChannel] so a brand-new category channel is created with
          * whichever sound the user already picked, not the system default,
          * if this is a reinstall or the channel was otherwise cleared. */
         fun readStoredSoundUri(context: Context): Uri? =

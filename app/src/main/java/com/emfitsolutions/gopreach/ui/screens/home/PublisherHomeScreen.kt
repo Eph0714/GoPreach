@@ -170,6 +170,7 @@ fun PublisherHomeScreen(
     // higher-rank context.
     val chatBoxEntriesFlow = remember(currentPersonId) { groupChatViewModel.chatBoxEntriesFor(currentPersonId) }
     val chatBoxEntries by chatBoxEntriesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    com.emfitsolutions.gopreach.ui.components.GroupChatMessageNotifier(chatBoxEntries)
 
     // "FORWARD TO OTHER PUBLISHER" — this Publisher's own incoming queue
     // count, for the "Forwarded to Me" tile's badge (same pattern as the

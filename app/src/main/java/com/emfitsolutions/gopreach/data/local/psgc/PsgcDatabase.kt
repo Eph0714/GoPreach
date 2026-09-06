@@ -26,7 +26,20 @@ abstract class PsgcDatabase : RoomDatabase() {
     abstract fun psgcDao(): PsgcDao
 
     companion object {
-        const val DATABASE_NAME = "psgc.db"
+        // Bug fix ("Province/Municipality/Barangay dropdowns are empty"):
+        // Room's createFromAsset only ever copies the bundled asset into
+        // this on-device file the *first* time it's opened — if that file
+        // already exists (e.g. a device that installed an earlier build
+        // from before this asset was finished/corrected, or a copy that was
+        // ever interrupted partway), Room just opens whatever is already
+        // there and silently never re-copies, no matter how many later
+        // updates ship a corrected `psgc.db` asset. Renaming the on-device
+        // file (same pattern already used for `gopreach_reminders_v2`'s
+        // notification channel) forces every device to get a genuine fresh
+        // copy of the current asset once, regardless of what was there
+        // before. Bump this again (`psgc_v3.db`, ...) if the bundled asset
+        // is ever replaced in the future.
+        const val DATABASE_NAME = "psgc_v2.db"
         const val ASSET_PATH = "databases/psgc.db"
     }
 }

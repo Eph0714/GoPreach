@@ -21,9 +21,9 @@ import kotlinx.coroutines.flow.Flow
  * arrival, not on initial load" pattern as [com.emfitsolutions.gopreach.ui
  * .screens.home.ForwardRequestNotifier] — Transfer Request notifications stay
  * on that separate, more targeted notifier so the two don't double-fire for
- * the same event). Both share [com.emfitsolutions.gopreach.notifications
- * .REMINDERS_CHANNEL_ID], so both play whichever sound the user picked in
- * Settings.
+ * the same event). Both route through the same [com.emfitsolutions.gopreach
+ * .notifications.NotificationHelper.notify], so both play whichever sound
+ * the user picked in Settings, each through its own category's channel.
  *
  * [onlyCategories] restricts which [NotificationItem.category] values ring a
  * system notification — the unified balloon [items] already comes from also

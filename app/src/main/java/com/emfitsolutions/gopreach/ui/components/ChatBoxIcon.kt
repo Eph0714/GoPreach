@@ -23,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,12 +31,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.model.GroupChat
+import com.emfitsolutions.gopreach.data.repository.NotificationCategory
+import com.emfitsolutions.gopreach.notifications.NotificationHelper
 
 /** One row of the Chat Box dropdown — a [GroupChat] plus whatever's already
  * been resolved about it (congregation name, this viewer's own unread
@@ -129,5 +133,45 @@ fun ChatBoxIcon(
                 }
             }
         }
+    }
+}
+
+/** "Group Chat Message" notification — the one category this app's local
+ * notification system never actually fired for at all (unlike Transfer
+ * Request/Announcement, which already routed through [NotificationHelper]).
+ * Same "fire once per session per new arrival, not on initial load" pattern
+ * every other notifier in this app follows (see [NewItemNotifier]/
+ * `ForwardRequestNotifier`'s own doc comments) — keyed on
+ * [ChatBoxEntry.unreadCount] rising for a given chat rather than
+ * [GroupChat.lastMessageAt] changing, since a message this viewer sent
+ * themselves never increases their own unread count (the same signal
+ * [ChatBoxIcon]'s own badge already trusts), which is what keeps this from
+ * ever notifying someone about their own message. */
+@Composable
+fun GroupChatMessageNotifier(entries: List<ChatBoxEntry>) {
+    val context = LocalContext.current
+    var lastUnreadCounts by remember { mutableStateOf<Map<String, Long>?>(null) }
+    LaunchedEffect(entries) {
+        val previous = lastUnreadCounts
+        if (previous != null) {
+            entries.forEach { entry ->
+                val before = previous[entry.chat.id] ?: 0L
+                if (entry.unreadCount > before) {
+                    val preview = when {
+                        entry.chat.lastMessageIsAttachment -> "${entry.chat.lastMessageSenderName ?: "Someone"} sent an attachment."
+                        entry.chat.lastMessageText != null -> "${entry.chat.lastMessageSenderName ?: "Someone"}: ${entry.chat.lastMessageText}"
+                        else -> "New message"
+                    }
+                    NotificationHelper.notify(
+                        context,
+                        id = 9400 + entry.chat.id.hashCode(),
+                        title = entry.chat.groupName,
+                        text = preview,
+                        category = NotificationCategory.MESSAGE,
+                    )
+                }
+            }
+        }
+        lastUnreadCounts = entries.associate { it.chat.id to it.unreadCount }
     }
 }

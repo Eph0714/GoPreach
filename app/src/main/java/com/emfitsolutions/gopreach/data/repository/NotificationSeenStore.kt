@@ -10,13 +10,18 @@ import javax.inject.Singleton
 
 private const val PREFS_NAME = "gopreach_notification_seen"
 
-/** The four kinds of event the unified notification balloon (see
+/** The kinds of event the unified notification balloon (see
  * [com.emfitsolutions.gopreach.ui.screens.notifications.NotificationCenterViewModel])
- * surfaces. [ANNOUNCEMENT] deliberately isn't tracked by [NotificationSeenStore]
+ * surfaces, plus [MESSAGE] (Group Chat) — which the balloon itself doesn't
+ * carry (a chat's own unread badge already tracks that separately, see
+ * [com.emfitsolutions.gopreach.ui.components.ChatBoxIcon]) but which still
+ * needs its own [com.emfitsolutions.gopreach.notifications.NotificationHelper]
+ * sound/channel/settings identity, same as every other category here.
+ * [ANNOUNCEMENT] deliberately isn't tracked by [NotificationSeenStore]
  * itself — it reuses the pre-existing [AnnouncementSeenStore] so the
  * standalone Announcement bell (see PublisherWelcomeHeader) and this unified
  * balloon never disagree about what's already been seen. */
-enum class NotificationCategory { TRANSFER_REQUEST, MONTHLY_REPORT, ANNOUNCEMENT, CALENDAR_SCHEDULE }
+enum class NotificationCategory { TRANSFER_REQUEST, MONTHLY_REPORT, ANNOUNCEMENT, CALENDAR_SCHEDULE, MESSAGE }
 
 /**
  * Unified notification balloon — per-device, per-signed-in-Person "last seen"

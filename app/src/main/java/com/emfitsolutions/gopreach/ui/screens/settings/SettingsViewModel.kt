@@ -41,6 +41,8 @@ class SettingsViewModel @Inject constructor(
     val popupNotificationsEnabled: StateFlow<Boolean> = notificationSoundRepository.popupEnabled
     val transferRequestNotificationsEnabled: StateFlow<Boolean> = notificationSoundRepository.transferRequestEnabled
     val announcementNotificationsEnabled: StateFlow<Boolean> = notificationSoundRepository.announcementEnabled
+    val messageNotificationsEnabled: StateFlow<Boolean> = notificationSoundRepository.messagesEnabled
+    val importantNotificationsEnabled: StateFlow<Boolean> = notificationSoundRepository.importantEnabled
     val language: StateFlow<AppLanguage> = appLanguageRepository.current
 
     /** One-shot "Language successfully changed." (in the newly selected
@@ -99,4 +101,25 @@ class SettingsViewModel @Inject constructor(
     fun setPopupNotificationsEnabled(value: Boolean) = notificationSoundRepository.setPopupEnabled(value)
     fun setTransferRequestNotificationsEnabled(value: Boolean) = notificationSoundRepository.setTransferRequestEnabled(value)
     fun setAnnouncementNotificationsEnabled(value: Boolean) = notificationSoundRepository.setAnnouncementEnabled(value)
+    fun setMessageNotificationsEnabled(value: Boolean) = notificationSoundRepository.setMessagesEnabled(value)
+    fun setImportantNotificationsEnabled(value: Boolean) = notificationSoundRepository.setImportantEnabled(value)
+
+    /** "ADD NOTIFICATION DEBUGGING... Test Notification button" — runs every
+     * check [com.emfitsolutions.gopreach.notifications.NotificationHelper
+     * .notify] itself would silently act on, then (only if every check
+     * passed) actually posts a real notification through the exact same
+     * path a genuine Announcement/Transfer Request/Message would use, so
+     * "the test succeeds" really does mean a real notification would too. */
+    fun runNotificationDiagnostics(): List<com.emfitsolutions.gopreach.notifications.NotificationDiagnostic> =
+        NotificationHelper.diagnostics(context)
+
+    fun sendTestNotification() {
+        NotificationHelper.notify(
+            context,
+            id = 9999,
+            title = "Test Notification",
+            text = "If you can see and hear this, GoPreach notifications are working correctly.",
+            category = com.emfitsolutions.gopreach.data.repository.NotificationCategory.MONTHLY_REPORT,
+        )
+    }
 }
