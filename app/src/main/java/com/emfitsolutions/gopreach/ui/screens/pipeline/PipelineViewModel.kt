@@ -21,6 +21,8 @@ import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
+import com.emfitsolutions.gopreach.data.repository.PhilippineAddressSelection
+import com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository
 import com.emfitsolutions.gopreach.data.repository.PublisherForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.VisitRepository
@@ -56,6 +58,7 @@ class PipelineViewModel @Inject constructor(
     private val publisherForwardRequestRepository: PublisherForwardRequestRepository,
     private val congregationRepository: CongregationRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
+    private val philippineLocationRepository: PhilippineLocationRepository,
 ) : ViewModel() {
 
     /** Bug fix: [save] used to let any exception from the repository/Room/
@@ -75,6 +78,20 @@ class PipelineViewModel @Inject constructor(
 
     fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
     suspend fun captureCurrentLocation(): LatLng? = locationTracker.getCurrentLocation()
+
+    /** "Move the capture coordinates in the upper part of the enrollment...
+     * it can be automatic if the publisher will capture the coordinates" —
+     * called from the create/edit form itself the moment coordinates are
+     * captured/entered there, so the City/Municipality/Barangay dropdowns
+     * further down the same form are already filled in by the time the
+     * publisher reaches them. Same best-effort reverse-geocode-then-match
+     * approach as [saveGpsLocation]; returns null (not an all-null
+     * selection) if the geocoder had nothing at all, so the caller can
+     * leave whatever the publisher already picked untouched. */
+    suspend fun resolveAddressLevels(lat: Double, lng: Double): PhilippineAddressSelection? {
+        val geocoded = runCatching { locationTracker.reverseGeocodeAddress(lat, lng) }.getOrNull() ?: return null
+        return philippineLocationRepository.resolveFromGeocode(geocoded).toSelection()
+    }
 
     /** Every record this publisher owns at [stage], active-only unless
      * [includeInactive] (same "Show Inactive" convention as every other list
@@ -175,11 +192,30 @@ class PipelineViewModel @Inject constructor(
         }
     }
 
+    /** "It can be automatic if the publisher will capture the coordinates,
+     * the system will automatically fill-up the City, Municipalities, Town
+     * and barangay" — reverse-geocodes the just-captured fix (best-effort;
+     * see [com.emfitsolutions.gopreach.data.location.GeocodedAddress]'s own
+     * doc comment on why barangay in particular isn't always resolved) and
+     * matches it against the bundled PSGC data (see
+     * [PhilippineLocationRepository.resolveFromGeocode]) before saving.
+     * Only overwrites a level the geocoder+match actually resolved —
+     * [existingPerson]'s own manually-picked province/city/barangay is left
+     * untouched for any level that came back empty, rather than being
+     * cleared out by a failed lookup. */
     fun saveGpsLocation(person: InterestedPerson, lat: Double, lng: Double, accuracyMeters: Float?, capturedByPersonId: String) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
+            val geocoded = runCatching { locationTracker.reverseGeocodeAddress(lat, lng) }.getOrNull()
+            val resolved = geocoded?.let { philippineLocationRepository.resolveFromGeocode(it) }
             interestedPersonRepository.save(
-                person.copy(gpsLat = lat, gpsLng = lng, gpsAccuracy = accuracyMeters, gpsCapturedAt = now, gpsCapturedBy = capturedByPersonId, gpsUpdatedAt = now)
+                person.copy(
+                    gpsLat = lat, gpsLng = lng, gpsAccuracy = accuracyMeters,
+                    gpsCapturedAt = now, gpsCapturedBy = capturedByPersonId, gpsUpdatedAt = now,
+                    province = resolved?.provinceName ?: person.province,
+                    cityMunicipality = resolved?.muncityName ?: person.cityMunicipality,
+                    barangay = resolved?.barangayName ?: person.barangay,
+                )
             )
             auditLogRepository.log(actorPersonId = capturedByPersonId, action = "CAPTURE_INTERESTED_PERSON_GPS", targetType = "InterestedPerson", targetId = person.id, details = person.name)
         }

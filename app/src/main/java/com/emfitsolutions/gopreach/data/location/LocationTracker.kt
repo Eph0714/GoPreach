@@ -31,6 +31,20 @@ import kotlin.coroutines.resume
 
 data class LatLng(val lat: Double, val lng: Double, val accuracyMeters: Float?)
 
+/** The structured pieces of an on-device [Geocoder] result that matter for
+ * "Add a dropdown for City, Municipalities, Town Barangay... automatic if
+ * the publisher captures the coordinates" — [barangay] ([android.location
+ * .Address.getSubLocality]) is the least reliable of the three (varies by
+ * device/geocoder backend, and is frequently null even when the other two
+ * resolve fine); callers treat every field as a best-effort suggestion the
+ * publisher can still override via [com.emfitsolutions.gopreach.ui.components
+ * .PhilippineAddressPicker], never an authoritative fill. */
+data class GeocodedAddress(
+    val barangay: String?,
+    val cityMunicipality: String?,
+    val province: String?,
+)
+
 /**
  * Thin wrapper over Play Services' fused location provider — used by Share
  * Location (spec §6.1) and available for GPS-coordinate capture on Publisher/
@@ -161,6 +175,32 @@ class LocationTracker @Inject constructor(
             } else {
                 @Suppress("DEPRECATION")
                 geocoder.getFromLocation(lat, lng, 1)?.firstOrNull()?.getAddressLine(0)
+            }
+        }.getOrNull()
+    }
+
+    /** Structured counterpart to [reverseGeocode] — "automatic if the
+     * publisher will capture the coordinates, the system will automatically
+     * fill-up the City, Municipalities, Town and barangay." Same on-device
+     * [Geocoder], just reading [android.location.Address.getSubLocality]/
+     * `getLocality`/`getAdminArea` instead of the one formatted address
+     * line. Returns null (not a [GeocodedAddress] with all-null fields) if
+     * the geocoder has nothing at all, so callers can tell "no match" apart
+     * from "matched, but couldn't identify any of the three levels." */
+    suspend fun reverseGeocodeAddress(lat: Double, lng: Double): GeocodedAddress? = withContext(Dispatchers.IO) {
+        if (!Geocoder.isPresent()) return@withContext null
+        runCatching {
+            val geocoder = Geocoder(context, Locale.getDefault())
+            val address = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                suspendCancellableCoroutine { cont ->
+                    geocoder.getFromLocation(lat, lng, 1) { addresses -> cont.resume(addresses.firstOrNull()) }
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                geocoder.getFromLocation(lat, lng, 1)?.firstOrNull()
+            }
+            address?.let {
+                GeocodedAddress(barangay = it.subLocality, cityMunicipality = it.locality, province = it.adminArea)
             }
         }.getOrNull()
     }

@@ -48,6 +48,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.RecordStatus
+import com.emfitsolutions.gopreach.ui.components.PhilippineAddressPicker
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
@@ -212,7 +213,9 @@ private fun EditCongregationDialog(
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf(congregation.name) }
-    var address by remember { mutableStateOf(congregation.address) }
+    var province by remember { mutableStateOf(congregation.province) }
+    var cityMunicipality by remember { mutableStateOf(congregation.cityMunicipality) }
+    var barangay by remember { mutableStateOf(congregation.barangay) }
     var code by remember { mutableStateOf(congregation.code) }
     var languages by remember { mutableStateOf(congregation.languages) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -220,14 +223,28 @@ private fun EditCongregationDialog(
     fun submit() {
         val message = requiredFieldsMessage(
             "Congregation/Group Name" to name.isNotBlank(),
-            "Address" to address.isNotBlank(),
+            "Province/City" to !province.isNullOrBlank(),
+            "Municipality" to !cityMunicipality.isNullOrBlank(),
+            "Barangay" to !barangay.isNullOrBlank(),
             "Congregation/Group Code" to code.isNotBlank(),
         )
         if (message != null) {
             errorMessage = message
             return
         }
-        onSave(congregation.copy(name = name.trim(), address = address.trim(), code = code.trim(), languages = languages))
+        onSave(
+            congregation.copy(
+                name = name.trim(),
+                // Derived, human-readable fallback — see Congregation
+                // .address's own doc comment.
+                address = listOfNotNull(barangay, cityMunicipality, province).joinToString(", "),
+                province = province,
+                cityMunicipality = cityMunicipality,
+                barangay = barangay,
+                code = code.trim(),
+                languages = languages,
+            )
+        )
     }
 
     FormDialog(
@@ -247,11 +264,14 @@ private fun EditCongregationDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
-                    value = address,
-                    onValueChange = { address = it.uppercase() },
-                    label = { Text("Address") },
-                    visualTransformation = VisualTransformation.None,
+                // "The Address must be replaced with (Province/City,
+                // Municipality, Barangay)" — no free-text address field
+                // here anymore.
+                PhilippineAddressPicker(
+                    province = province,
+                    cityMunicipality = cityMunicipality,
+                    barangay = barangay,
+                    onChanged = { p, c, b -> province = p; cityMunicipality = c; barangay = b },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(

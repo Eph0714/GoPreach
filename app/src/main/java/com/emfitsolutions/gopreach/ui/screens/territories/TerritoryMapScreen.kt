@@ -130,10 +130,36 @@ fun TerritoryMapScreen(
     focusLat: Double? = null,
     focusLng: Double? = null,
     focusName: String? = null,
+    // "Add a filter in Territory Map" — Super-Admin and the four named
+    // admin-track roles only (see GoPreachNavGraph's own gating); a
+    // Publisher/Ministerial Servant viewing their own map keeps the exact
+    // pre-filter experience, no Filters action shown at all.
+    showAdvancedFilter: Boolean = false,
     onBack: () -> Unit,
     viewModel: TerritoryMapViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val isSuperAdmin = fixedCongregationId == null
+    var advancedFilter by remember { mutableStateOf(TerritoryFilterState()) }
+    var showFilterSheet by remember { mutableStateOf(false) }
+    val groupMemberIdsFlow = remember(advancedFilter.groupId) {
+        advancedFilter.groupId?.let { viewModel.groupMemberPublisherIds(it) } ?: flowOf(emptySet())
+    }
+    val groupMemberIds by groupMemberIdsFlow.collectAsStateWithLifecycle(initialValue = emptySet())
+    // "Province/City automatic base on their congregation enrollment" — set
+    // once, the first time this screen's own fixed congregation resolves;
+    // shown read-only in the filter sheet rather than editable, and applied
+    // as a no-op alongside [fixedCongregationId]'s own scoping (every row a
+    // scoped role ever sees already shares this same province/city).
+    if (!isSuperAdmin) {
+        LaunchedEffect(fixedCongregationId) {
+            viewModel.congregationById(fixedCongregationId!!).collect { congregation ->
+                if (congregation?.province != null && advancedFilter.province == null) {
+                    advancedFilter = advancedFilter.copy(province = congregation.province)
+                }
+            }
+        }
+    }
     val rowsFlow = remember(fixedCongregationId) { viewModel.rowsFor(fixedCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     // "For publisher account they can see other publishers that share their
@@ -145,6 +171,17 @@ fun TerritoryMapScreen(
         if (canSeePublisherLocations) viewModel.publisherRowsFor(fixedCongregationId, currentPersonId) else flowOf(emptyList())
     }
     val publisherRows by publisherRowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    // "Add a filter in Territory Map" — Search By narrows first (its own
+    // dropdown selection, if any), which is also what the Sub Filter's
+    // Municipality/Barangay option lists are derived from (see
+    // TerritoryFilterSheet), then the full filter (Search By + Sub Filter +
+    // Inner Sub Filter) is what actually reaches List View/Map View below.
+    val searchByRows = remember(rows, advancedFilter.searchBy, advancedFilter.congregationId, advancedFilter.groupId, advancedFilter.publisherPersonId, groupMemberIds) {
+        applyTerritoryFilter(rows, advancedFilter.copy(province = null, cityMunicipality = null, barangay = null, innerFilter = TerritoryInnerFilter.ALL), groupMemberIds)
+    }
+    val advancedFilteredRows = remember(rows, advancedFilter, groupMemberIds) {
+        applyTerritoryFilter(rows, advancedFilter, groupMemberIds)
+    }
     var searchQuery by remember { mutableStateOf("") }
     // "Full-Screen Map View... the map occupies the entire available
     // screen" — Map View is now the default landing mode; List View is
@@ -156,12 +193,12 @@ fun TerritoryMapScreen(
     // Matches the resolved (reverse-geocoded) address once it's in, but also
     // the person's own typed address and raw coordinates, so a search never
     // has to wait on that network lookup landing for every row first.
-    val filtered = remember(rows, searchQuery) {
+    val filtered = remember(advancedFilteredRows, searchQuery) {
         val query = searchQuery.trim()
         if (query.isBlank()) {
-            rows
+            advancedFilteredRows
         } else {
-            rows.filter { row ->
+            advancedFilteredRows.filter { row ->
                 row.person.name.contains(query, ignoreCase = true) ||
                     row.person.address.contains(query, ignoreCase = true) ||
                     row.congregationName.contains(query, ignoreCase = true) ||
@@ -182,6 +219,18 @@ fun TerritoryMapScreen(
                     }
                 },
                 actions = {
+                    // "Add a filter in Territory Map" — a badge dot marks
+                    // whenever any filter beyond the default "All" is active,
+                    // so it's obvious the map isn't showing everything.
+                    if (showAdvancedFilter) {
+                        androidx.compose.material3.BadgedBox(badge = {
+                            if (advancedFilter.isActive) androidx.compose.material3.Badge()
+                        }) {
+                            IconButton(onClick = { showFilterSheet = true }) {
+                                Icon(Icons.Rounded.Tune, contentDescription = "Filters")
+                            }
+                        }
+                    }
                     IconButton(onClick = { viewMode = if (viewMode == TerritoryViewMode.MAP) TerritoryViewMode.LIST else TerritoryViewMode.MAP }) {
                         Icon(
                             if (viewMode == TerritoryViewMode.MAP) Icons.Rounded.ViewList else Icons.Rounded.Map,
@@ -198,7 +247,7 @@ fun TerritoryMapScreen(
             // over the map (see TerritoryLiveMap).
             Box(modifier = Modifier.fillMaxSize().padding(padding)) {
                 TerritoryLiveMap(
-                    rows = rows,
+                    rows = advancedFilteredRows,
                     publisherRows = publisherRows,
                     canSeePublisherLocations = canSeePublisherLocations,
                     getCurrentLocation = viewModel::currentLocation,
@@ -270,6 +319,18 @@ fun TerritoryMapScreen(
                 }
             }
         }
+    }
+
+    if (showFilterSheet) {
+        TerritoryFilterSheet(
+            isSuperAdmin = isSuperAdmin,
+            congregationIds = if (isSuperAdmin) null else setOfNotNull(fixedCongregationId),
+            filter = advancedFilter,
+            searchByRows = searchByRows,
+            onFilterChange = { advancedFilter = it },
+            onDismiss = { showFilterSheet = false },
+            viewModel = viewModel,
+        )
     }
 }
 
@@ -1443,3 +1504,213 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
 
 private fun jsEscape(text: String): String =
     text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ")
+
+/**
+ * "Add a filter in Territory Map" — Search By, then Sub Filter (location),
+ * then Inner Sub Filter (pipeline stage). [searchByRows] is the map's own
+ * rows already narrowed by whatever Search By currently holds (see
+ * [TerritoryMapScreen]'s own `searchByRows`) — the Sub Filter's Municipality/
+ * Barangay option lists are derived from it, so a choice here can never
+ * describe a combination with zero matching records.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TerritoryFilterSheet(
+    isSuperAdmin: Boolean,
+    congregationIds: Set<String>?,
+    filter: TerritoryFilterState,
+    searchByRows: List<TerritoryMapRow>,
+    onFilterChange: (TerritoryFilterState) -> Unit,
+    onDismiss: () -> Unit,
+    viewModel: TerritoryMapViewModel,
+) {
+    val sheetState = rememberModalBottomSheetState()
+    val congregations by remember(isSuperAdmin) { if (isSuperAdmin) viewModel.congregationsFor(null) else flowOf(emptyList()) }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val groups by remember(congregationIds) { viewModel.groupsFor(congregationIds) }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val publishers by remember(congregationIds) { viewModel.publishersFor(congregationIds) }.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    // Sub Filter's own option lists — real, present choices only (see this
+    // function's own doc comment), narrowed level by level exactly like
+    // com.emfitsolutions.gopreach.ui.components.PhilippineAddressPicker's
+    // cascade, just sourced from already-tagged records instead of the
+    // nationwide PSGC table.
+    val provinceOptions = remember(searchByRows) { searchByRows.mapNotNull { it.person.province }.distinct().sorted() }
+    val municipalityOptions = remember(searchByRows, filter.province) {
+        searchByRows.filter { filter.province == null || it.person.province == filter.province }
+            .mapNotNull { it.person.cityMunicipality }.distinct().sorted()
+    }
+    val barangayOptions = remember(searchByRows, filter.province, filter.cityMunicipality) {
+        searchByRows
+            .filter { (filter.province == null || it.person.province == filter.province) && (filter.cityMunicipality == null || it.person.cityMunicipality == filter.cityMunicipality) }
+            .mapNotNull { it.person.barangay }.distinct().sorted()
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 640.dp).verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("Filters", style = MaterialTheme.typography.titleLarge)
+
+            Text("Search By", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // "FOR SUPER ADMIN: ... All, Congregation... / OR OTHER
+                // USERS: ... Field Service Group, Publisher" — a scoped
+                // role's own single congregation is already implicit
+                // everywhere else, so the Congregation option is Super-Admin
+                // only; "All" is offered to everyone as the neutral default.
+                val options = buildList {
+                    add(TerritorySearchBy.ALL)
+                    if (isSuperAdmin) add(TerritorySearchBy.CONGREGATION)
+                    add(TerritorySearchBy.FIELD_SERVICE_GROUP)
+                    add(TerritorySearchBy.PUBLISHER)
+                }
+                options.forEach { option ->
+                    androidx.compose.material3.FilterChip(
+                        selected = filter.searchBy == option,
+                        onClick = {
+                            onFilterChange(filter.copy(searchBy = option, congregationId = null, groupId = null, publisherPersonId = null))
+                        },
+                        label = { Text(option.label()) },
+                    )
+                }
+            }
+
+            when (filter.searchBy) {
+                TerritorySearchBy.ALL -> Unit
+                TerritorySearchBy.CONGREGATION -> FilterDropdownField(
+                    label = "Congregation/Group",
+                    options = congregations.map { it.id to it.name },
+                    selectedId = filter.congregationId,
+                    onSelected = { onFilterChange(filter.copy(congregationId = it)) },
+                )
+                TerritorySearchBy.FIELD_SERVICE_GROUP -> FilterDropdownField(
+                    label = "Field Service Group",
+                    options = groups.map { group ->
+                        val congregationName = congregations.firstOrNull { it.id == group.congregationId }?.name
+                        group.id to (if (isSuperAdmin && congregationName != null) "${group.name} — $congregationName" else group.name)
+                    },
+                    selectedId = filter.groupId,
+                    onSelected = { onFilterChange(filter.copy(groupId = it)) },
+                )
+                TerritorySearchBy.PUBLISHER -> FilterDropdownField(
+                    label = "Publisher",
+                    options = publishers.map { it.id to it.fullName },
+                    selectedId = filter.publisherPersonId,
+                    onSelected = { onFilterChange(filter.copy(publisherPersonId = it)) },
+                )
+            }
+
+            androidx.compose.material3.HorizontalDivider()
+            Text("Sub Filter — Location", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (isSuperAdmin) {
+                FilterDropdownField(
+                    label = "Province/City",
+                    options = provinceOptions.map { it to it },
+                    selectedId = filter.province,
+                    onSelected = { onFilterChange(filter.copy(province = it, cityMunicipality = null, barangay = null)) },
+                )
+            } else {
+                // "Province/City automatic base on their congregation
+                // enrollment" — shown, not editable; every record a scoped
+                // role sees already shares this same province/city anyway.
+                ReadOnlyField("Province/City", filter.province ?: "—")
+            }
+            FilterDropdownField(
+                label = "Municipality",
+                options = municipalityOptions.map { it to it },
+                selectedId = filter.cityMunicipality,
+                onSelected = { onFilterChange(filter.copy(cityMunicipality = it, barangay = null)) },
+            )
+            FilterDropdownField(
+                label = "Barangay",
+                options = barangayOptions.map { it to it },
+                selectedId = filter.barangay,
+                onSelected = { onFilterChange(filter.copy(barangay = it)) },
+            )
+
+            androidx.compose.material3.HorizontalDivider()
+            Text("Inner Sub Filter", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TerritoryInnerFilter.entries.forEach { option ->
+                    androidx.compose.material3.FilterChip(
+                        selected = filter.innerFilter == option,
+                        onClick = { onFilterChange(filter.copy(innerFilter = option)) },
+                        label = { Text(option.label()) },
+                    )
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                OutlinedButton(
+                    onClick = { onFilterChange(TerritoryFilterState(province = if (!isSuperAdmin) filter.province else null)) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Reset") }
+                Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Apply") }
+            }
+        }
+    }
+}
+
+private fun TerritorySearchBy.label(): String = when (this) {
+    TerritorySearchBy.ALL -> "All"
+    TerritorySearchBy.CONGREGATION -> "Congregation/Group"
+    TerritorySearchBy.FIELD_SERVICE_GROUP -> "Field Service Group"
+    TerritorySearchBy.PUBLISHER -> "Publisher"
+}
+
+private fun TerritoryInnerFilter.label(): String = when (this) {
+    TerritoryInnerFilter.ALL -> "All"
+    TerritoryInnerFilter.BIBLE_STUDY -> "Bible Study"
+    TerritoryInnerFilter.RETURN_VISIT -> "Return Visit"
+    TerritoryInnerFilter.SEARCHED_INTERESTED -> "Searched Interested"
+}
+
+/** One Search By/Sub Filter dropdown — [options] is (id, displayName) pairs;
+ * a leading "All" entry clears the selection back to null. Every one of
+ * these dropdowns is optional, so "nothing picked" is always a real,
+ * reachable state, not just its initial one. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FilterDropdownField(
+    label: String,
+    options: List<Pair<String, String>>,
+    selectedId: String?,
+    onSelected: (String?) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = options.firstOrNull { it.first == selectedId }?.second ?: ""
+    androidx.compose.material3.ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selectedName,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            placeholder = { Text("All") },
+            trailingIcon = { androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("All") }, onClick = { onSelected(null); expanded = false })
+            options.forEach { (id, name) ->
+                DropdownMenuItem(text = { Text(name) }, onClick = { onSelected(id); expanded = false })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadOnlyField(label: String, value: String) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = {},
+        readOnly = true,
+        enabled = false,
+        label = { Text(label) },
+        visualTransformation = VisualTransformation.None,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}

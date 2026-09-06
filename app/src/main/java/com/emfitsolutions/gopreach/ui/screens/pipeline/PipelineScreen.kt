@@ -366,6 +366,9 @@ internal fun PipelinePersonDialog(
     var name by remember { mutableStateOf(existingPerson?.name.orEmpty()) }
     var spouse by remember { mutableStateOf(existingPerson?.spouse.orEmpty()) }
     var address by remember { mutableStateOf(existingPerson?.address.orEmpty()) }
+    var province by remember { mutableStateOf(existingPerson?.province) }
+    var cityMunicipality by remember { mutableStateOf(existingPerson?.cityMunicipality) }
+    var barangay by remember { mutableStateOf(existingPerson?.barangay) }
     var children by remember { mutableStateOf(existingPerson?.children.orEmpty()) }
     var religion by remember { mutableStateOf(existingPerson?.religion.orEmpty()) }
     var ageText by remember { mutableStateOf(existingPerson?.ageYears?.toString().orEmpty()) }
@@ -382,11 +385,31 @@ internal fun PipelinePersonDialog(
     var coordinates by remember { mutableStateOf(originalCoordinates) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
+    // "It can be automatic if the publisher will capture the coordinates,
+    // the system will automatically fill-up the City, Municipalities, Town
+    // and barangay" — fires every time [coordinates] changes (a fresh
+    // capture, a manual lat/lng entry, or an edit of either), skipping the
+    // very first composition when it's just re-loading an existing record's
+    // already-saved coordinates unchanged. Only overwrites a level the
+    // reverse-geocode actually resolved, per resolveAddressLevels' own doc
+    // comment — never clears a level the publisher already picked by hand.
+    LaunchedEffect(coordinates) {
+        val c = coordinates
+        if (c == null || c == originalCoordinates) return@LaunchedEffect
+        val resolved = viewModel.resolveAddressLevels(c.lat, c.lng) ?: return@LaunchedEffect
+        resolved.province?.let { province = it }
+        resolved.cityMunicipality?.let { cityMunicipality = it }
+        resolved.barangay?.let { barangay = it }
+    }
+
     fun submit() {
         val message = requiredFieldsMessage(
             "Name" to name.isNotBlank(),
             "Address" to address.isNotBlank(),
             "Gender" to (gender != null),
+            "Province/City" to !province.isNullOrBlank(),
+            "Municipality" to !cityMunicipality.isNullOrBlank(),
+            "Barangay" to !barangay.isNullOrBlank(),
         )
         if (message != null) {
             errorMessage = message
@@ -412,6 +435,9 @@ internal fun PipelinePersonDialog(
                 gender = gender,
                 spouse = spouse.trim().ifBlank { null },
                 address = address.trim(),
+                province = province,
+                cityMunicipality = cityMunicipality,
+                barangay = barangay,
                 children = children.trim().ifBlank { null },
                 religion = religion.trim().ifBlank { null },
                 ageYears = ageText.toIntOrNull(),
@@ -440,6 +466,15 @@ internal fun PipelinePersonDialog(
         errorMessage = errorMessage,
         maxContentHeight = 620.dp,
     ) {
+                // "Move the capture coordinates in the upper part of the
+                // enrollment" — captured (or manually entered) first, so the
+                // City/Municipality/Barangay dropdowns just below already
+                // have a best-effort fill-up by the time the publisher
+                // reaches them (see the LaunchedEffect above this dialog's
+                // submit() for the reverse-geocode-and-fill logic).
+                EditSectionHeader("Location")
+                CoordinatesEditorField(coordinates = coordinates, onChange = { coordinates = it }, viewModel = viewModel)
+
                 EditSectionHeader("Personal Information")
                 OutlinedTextField(value = name, onValueChange = { name = it.uppercase() }, label = { Text("Name") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 Row {
@@ -452,6 +487,23 @@ internal fun PipelinePersonDialog(
                 }
                 OutlinedTextField(value = spouse, onValueChange = { spouse = it.uppercase() }, label = { Text("Spouse (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = address, onValueChange = { address = it.uppercase() }, label = { Text("Address") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                // "Add a dropdown for City, Municipalities, Town Barangay...
+                // The publisher will browse manually, however it can be
+                // automatic if the publisher will capture the coordinates" —
+                // manual browsing lives here; the automatic half is the
+                // LaunchedEffect(coordinates) above, which reverse-geocodes
+                // whatever was captured/entered in the Location section
+                // above and fills these three in, still fully editable
+                // afterward. GpsLocationSection on the record's own detail
+                // screen (used to *update* an already-saved record's
+                // location later) does the same auto-fill independently.
+                com.emfitsolutions.gopreach.ui.components.PhilippineAddressPicker(
+                    province = province,
+                    cityMunicipality = cityMunicipality,
+                    barangay = barangay,
+                    onChanged = { p, c, b -> province = p; cityMunicipality = c; barangay = b },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 OutlinedTextField(value = children, onValueChange = { children = it.uppercase() }, label = { Text("Children (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = religion, onValueChange = { religion = it.uppercase() }, label = { Text("Religion (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = ageText, onValueChange = { ageText = it.filter { c -> c.isDigit() } }, label = { Text("Age (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
@@ -460,9 +512,6 @@ internal fun PipelinePersonDialog(
                 OutlinedTextField(value = literaturePlace, onValueChange = { literaturePlace = it.uppercase() }, label = { Text("Literature Place (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = remarks, onValueChange = { remarks = it }, label = { Text("Remarks (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("Notes (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
-
-                EditSectionHeader("Coordinates (optional)")
-                CoordinatesEditorField(coordinates = coordinates, onChange = { coordinates = it }, viewModel = viewModel)
 
                 EditSectionHeader("Supporting Information")
                 SupportingImageSection(currentImage = image, onImageConfirmed = { image = it }, onClear = { image = null })

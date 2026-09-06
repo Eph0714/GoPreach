@@ -93,7 +93,7 @@ fun ManageGroupsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Groups") },
+                title = { Text("Field Service Groups") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -104,7 +104,7 @@ fun ManageGroupsScreen(
         floatingActionButton = {
             if (!readOnly) {
                 FloatingActionButton(onClick = { showCreateDialog = true }) {
-                    Icon(Icons.Rounded.Add, contentDescription = "New Group")
+                    Icon(Icons.Rounded.Add, contentDescription = "New Field Service Group")
                 }
             }
         },
@@ -122,7 +122,7 @@ fun ManageGroupsScreen(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("No groups yet. Tap + to add one.", style = MaterialTheme.typography.bodyMedium)
+                Text("No field service groups yet. Tap + to add one.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyColumn(
@@ -142,11 +142,11 @@ fun ManageGroupsScreen(
                                 if (!readOnly) {
                                     Row {
                                         IconButton(onClick = { pendingEdit = row.group }) {
-                                            Icon(Icons.Rounded.Edit, contentDescription = "Edit group")
+                                            Icon(Icons.Rounded.Edit, contentDescription = "Edit field service group")
                                         }
                                         if (row.group.status == RecordStatus.ACTIVE) {
                                             IconButton(onClick = { pendingDelete = row.group }) {
-                                                Icon(Icons.Rounded.Delete, contentDescription = "Delete group")
+                                                Icon(Icons.Rounded.Delete, contentDescription = "Delete field service group")
                                             }
                                         } else {
                                             IconButton(onClick = { viewModel.setStatus(row.group, RecordStatus.ACTIVE, currentPersonId) }) {
@@ -186,7 +186,7 @@ fun ManageGroupsScreen(
                                 ) {
                                     Column(modifier = Modifier.padding(8.dp)) {
                                         Text(
-                                            "Group Assignment Incomplete",
+                                            "Field Service Group Assignment Incomplete",
                                             style = MaterialTheme.typography.labelMedium,
                                             color = MaterialTheme.colorScheme.onErrorContainer,
                                         )
@@ -323,13 +323,26 @@ private fun GroupDialog(
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
+    // "Field Service Group Name (Required, avoid duplicate name in a
+    // congregation)" — collected fresh whenever the congregation (or which
+    // group is being edited) changes; checked locally on submit, same
+    // "cheap client-side recheck" pattern the Congregation code-uniqueness
+    // check already uses.
+    val namesInUse by remember(congregationId, existingGroup?.id) {
+        if (congregationId != null) viewModel.namesInUse(congregationId, existingGroup?.id) else kotlinx.coroutines.flow.flowOf(emptySet())
+    }.collectAsStateWithLifecycle(initialValue = emptySet())
+
     fun submit() {
         val message = requiredFieldsMessage(
-            "Group Name" to name.isNotBlank(),
+            "Field Service Group Name" to name.isNotBlank(),
             "Congregation/Group" to (congregationId != null),
         )
         if (message != null) {
             errorMessage = message
+            return
+        }
+        if (name.trim().uppercase() in namesInUse) {
+            errorMessage = "A field service group named \"${name.trim()}\" already exists in this congregation."
             return
         }
         viewModel.saveWithMembers(
@@ -347,13 +360,13 @@ private fun GroupDialog(
             selectedMemberPersonIds = checkedMemberIds,
             actorPersonId = currentPersonId,
         )
-        showToast(if (existingGroup == null) "Group added." else "Group saved.")
+        showToast(if (existingGroup == null) "Field service group added." else "Field service group saved.")
         onDismiss()
     }
 
     FormDialog(
         onDismissRequest = onDismiss,
-        title = if (existingGroup == null) "New Group" else "Edit Group",
+        title = if (existingGroup == null) "New Field Service Group" else "Edit Field Service Group",
         onConfirm = ::submit,
         confirmLabel = if (existingGroup == null) "Create" else "Save",
         errorMessage = errorMessage,
@@ -368,8 +381,8 @@ private fun GroupDialog(
                 }
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it.uppercase() },
-                    label = { Text("Group Name") },
+                    onValueChange = { name = it.uppercase(); errorMessage = null },
+                    label = { Text("Field Service Group Name") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),

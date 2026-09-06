@@ -58,6 +58,20 @@ data class InterestedPerson(
     val name: String = "",
     val gender: Gender? = null,
     val address: String = "",
+    /** "Add a dropdown for City, Municipalities, Town Barangay" — the
+     * Philippine Standard Geographic Code's three levels (see
+     * [com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository]),
+     * stored as plain names (never a PSGC id) so they read the same way
+     * [address] itself already does; `null` means never set — this is
+     * additive on top of the free-text [address], not a replacement for it.
+     * Filled either by browsing [com.emfitsolutions.gopreach.ui.components
+     * .PhilippineAddressPicker]'s dropdowns, or automatically from
+     * [gpsLat]/[gpsLng] once captured (best-effort — see [com
+     * .emfitsolutions.gopreach.data.location.GeocodedAddress]'s own doc
+     * comment on why barangay in particular isn't always resolved). */
+    val province: String? = null,
+    val cityMunicipality: String? = null,
+    val barangay: String? = null,
     /** "Searching Module" spec — optional; free text since a household's
      * make-up isn't a fixed shape (multiple spouses/none/n-a are all valid
      * free-text answers in the source spec's own example). */

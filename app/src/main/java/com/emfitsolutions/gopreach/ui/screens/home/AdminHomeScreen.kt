@@ -146,6 +146,12 @@ fun AdminHomeScreen(
     // "Consolidated Monthly Report" spec — Service Overseer, Coordinator
     // Elder, Admin (own congregation), and Super-Admin (all congregations).
     val canViewConsolidatedReport = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER
+    // "Field Service Group Report" — same viewer set as the Consolidated
+    // Report, widened to also include Regular Elder ("Use the entities for
+    // Admin, Coordinator/Elder, Regular Elder, Service Overseer"): Super-
+    // Admin (every congregation), Admin/Coordinator Elder/Service Overseer/
+    // Regular Elder (own congregation only).
+    val canViewFieldServiceGroupReport = canViewConsolidatedReport || role == AdminRole.REGULAR_ELDER
     // "Forward to Other Congregation" incoming review queue — Super-Admin/
     // Admin/Coordinator Elder/Service Overseer keep full Accept/Decline/
     // Assign access (same viewer set as the Consolidated Report); Regular
@@ -424,6 +430,7 @@ fun AdminHomeScreen(
                 canEnrollMinisterialServant = canEnrollMinisterialServant,
                 canManageAnnouncements = canManageAnnouncements,
                 canViewConsolidatedReport = canViewConsolidatedReport,
+                canViewFieldServiceGroupReport = canViewFieldServiceGroupReport,
                 canManagePublisherReports = canManagePublisherReports,
                 canViewForwardRequests = canViewForwardRequests,
                 canEnrollRegularElderOrPublisher = canManageRegularEldersForDrawer,

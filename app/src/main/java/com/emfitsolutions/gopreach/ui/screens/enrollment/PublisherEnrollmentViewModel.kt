@@ -2,6 +2,7 @@ package com.emfitsolutions.gopreach.ui.screens.enrollment
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.location.LocationTracker
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
@@ -12,6 +13,7 @@ import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.repository.AuthRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
+import com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository
 import com.emfitsolutions.gopreach.data.repository.TempCredentials
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +30,17 @@ data class PublisherEnrollmentUiState(
     val lastName: String = "",
     val firstName: String = "",
     val address: String = "",
+    /** "Add a dropdown for City, Municipalities, Town Barangay" — see
+     * [Person.province]'s own doc comment; [isCapturingLocation]/
+     * [locationError] back the optional "Use Current Location" button that
+     * fills these three automatically (best-effort, still editable). */
+    val province: String? = null,
+    val cityMunicipality: String? = null,
+    val barangay: String? = null,
+    val gpsLat: Double? = null,
+    val gpsLng: Double? = null,
+    val isCapturingLocation: Boolean = false,
+    val locationError: String? = null,
     val contact: String = "",
     val email: String = "",
     val category: PublisherCategory? = null,
@@ -59,6 +72,8 @@ data class PublisherEnrollmentUiState(
 class PublisherEnrollmentViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val groupRepository: GroupRepository,
+    private val locationTracker: LocationTracker,
+    private val philippineLocationRepository: PhilippineLocationRepository,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -100,6 +115,43 @@ class PublisherEnrollmentViewModel @Inject constructor(
     fun onContactChange(v: String) = _uiState.update { it.copy(contact = v.uppercase(), errorMessage = null) }
     fun onEmailChange(v: String) = _uiState.update { it.copy(email = v, errorMessage = null) }
 
+    /** "Add a dropdown for City, Municipalities, Town Barangay. The
+     * publisher will browse manually" — the manual half, wired to
+     * [com.emfitsolutions.gopreach.ui.components.PhilippineAddressPicker]. */
+    fun onAddressLevelsChanged(province: String?, cityMunicipality: String?, barangay: String?) = _uiState.update {
+        it.copy(province = province, cityMunicipality = cityMunicipality, barangay = barangay, errorMessage = null)
+    }
+
+    fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
+
+    /** "It can be automatic if the publisher will capture the coordinates,
+     * the system will automatically fill-up the City, Municipalities, Town
+     * and barangay" — same reverse-geocode-then-match-against-PSGC approach
+     * as [com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineViewModel
+     * .saveGpsLocation]; only overwrites a level that actually resolved. */
+    fun captureLocation() {
+        _uiState.update { it.copy(isCapturingLocation = true, locationError = null) }
+        viewModelScope.launch {
+            val location = locationTracker.getCurrentLocation()
+            if (location == null) {
+                _uiState.update { it.copy(isCapturingLocation = false, locationError = "Could not get a GPS fix. Make sure location is turned on and try again.") }
+                return@launch
+            }
+            val geocoded = runCatching { locationTracker.reverseGeocodeAddress(location.lat, location.lng) }.getOrNull()
+            val resolved = geocoded?.let { philippineLocationRepository.resolveFromGeocode(it) }
+            _uiState.update {
+                it.copy(
+                    isCapturingLocation = false,
+                    gpsLat = location.lat,
+                    gpsLng = location.lng,
+                    province = resolved?.provinceName ?: it.province,
+                    cityMunicipality = resolved?.muncityName ?: it.cityMunicipality,
+                    barangay = resolved?.barangayName ?: it.barangay,
+                )
+            }
+        }
+    }
+
     /** STATUS is a single choice among all eight categories (spec: checking
      * one disables and unchecks every other one) — a single nullable field
      * naturally gives that behavior, same pattern used by every other
@@ -128,9 +180,10 @@ class PublisherEnrollmentViewModel @Inject constructor(
             return
         }
         if (state.lastName.isBlank() || state.firstName.isBlank() || state.address.isBlank() || state.contact.isBlank() ||
-            state.selectedGroupId == null || state.category == null
+            state.selectedGroupId == null || state.category == null ||
+            state.province.isNullOrBlank() || state.cityMunicipality.isNullOrBlank() || state.barangay.isNullOrBlank()
         ) {
-            _uiState.update { it.copy(errorMessage = "Last name, first name, address, contact, group, and status are all required.") }
+            _uiState.update { it.copy(errorMessage = "Last name, first name, address, Province/City, Municipality, Barangay, contact, group, and status are all required.") }
             return
         }
         val group = groups.value.firstOrNull { it.id == state.selectedGroupId }
@@ -151,6 +204,11 @@ class PublisherEnrollmentViewModel @Inject constructor(
                     lastName = state.lastName.trim(),
                     firstName = state.firstName.trim(),
                     address = state.address.trim(),
+                    province = state.province,
+                    cityMunicipality = state.cityMunicipality,
+                    barangay = state.barangay,
+                    gpsLat = state.gpsLat,
+                    gpsLng = state.gpsLng,
                     contact = state.contact.trim(),
                     email = state.email.trim().ifBlank { null },
                 ),

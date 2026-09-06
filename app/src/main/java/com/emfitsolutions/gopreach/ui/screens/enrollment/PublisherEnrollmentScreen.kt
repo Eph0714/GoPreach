@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -114,6 +115,40 @@ fun PublisherEnrollmentScreen(
                         visualTransformation = VisualTransformation.None,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    // "Add a dropdown for City, Municipalities, Town
+                    // Barangay... it can be automatic if the publisher will
+                    // capture the coordinates" — manual browsing via the
+                    // dropdowns, or tap "Use Current Location" to fill them
+                    // automatically (best-effort; still editable after).
+                    com.emfitsolutions.gopreach.ui.components.PhilippineAddressPicker(
+                        province = uiState.province,
+                        cityMunicipality = uiState.cityMunicipality,
+                        barangay = uiState.barangay,
+                        onChanged = viewModel::onAddressLevelsChanged,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    val locationPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+                    ) { granted -> if (granted) viewModel.captureLocation() }
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = {
+                            if (viewModel.hasLocationPermission()) viewModel.captureLocation()
+                            else locationPermissionLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                        },
+                        enabled = !uiState.isCapturingLocation,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (uiState.isCapturingLocation) {
+                            CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
+                            Text("Getting current location…")
+                        } else {
+                            Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                            Text("Use Current Location")
+                        }
+                    }
+                    if (uiState.locationError != null) {
+                        Text(uiState.locationError!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
                     OutlinedTextField(
                         value = uiState.contact,
                         onValueChange = viewModel::onContactChange,
@@ -203,7 +238,7 @@ private fun GroupDropdown(groups: List<Group>, selectedId: String?, onSelected: 
             onValueChange = {},
             readOnly = true,
             enabled = enabled,
-            label = { Text("Group") },
+            label = { Text("Field Service Group") },
             placeholder = { if (!enabled) Text("Select a congregation first") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded && enabled) },
             visualTransformation = VisualTransformation.None,

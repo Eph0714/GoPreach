@@ -17,6 +17,13 @@ data class Person(
     val middleInitial: String? = null,
     val extensionName: String? = null,
     val address: String = "",
+    /** "Add a dropdown for City, Municipalities, Town Barangay" (Enrolling)
+     * — same PSGC fields, same "additive on top of [address], name-only,
+     * possibly auto-filled from [gpsLat]/[gpsLng]" reasoning as
+     * [InterestedPerson.province]'s own doc comment. */
+    val province: String? = null,
+    val cityMunicipality: String? = null,
+    val barangay: String? = null,
     val gender: Gender? = null,
     val contact: String = "",
     val contactPerson: String? = null,

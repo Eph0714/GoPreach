@@ -448,6 +448,12 @@ fun GoPreachNavGraph(
                 canSeePublisherLocations = currentRole == AdminRole.SUPER_ADMIN ||
                     currentRole in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER) ||
                     ownPublisherAssignment != null,
+                // "Add a filter in Territory Map" — Super-Admin plus the
+                // four named admin-track roles; a Publisher/Ministerial
+                // Servant viewing their own map keeps the pre-filter
+                // experience unchanged.
+                showAdvancedFilter = currentRole == AdminRole.SUPER_ADMIN ||
+                    currentRole in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER),
                 focusLat = focusLat,
                 focusLng = focusLng,
                 focusName = focusName,
@@ -526,6 +532,15 @@ fun GoPreachNavGraph(
             // does, since neither of those roles should see this report.
             ConsolidatedReportScreen(
                 visibleCongregationIds = if (currentRole == AdminRole.SUPER_ADMIN) null else setOfNotNull(ownCongregationId),
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.FIELD_SERVICE_GROUP_REPORT) {
+            // "For Super admin, he can see all congregation, other user can
+            // see only the record of their congregation" — same scoping
+            // convention as Consolidated Report above.
+            com.emfitsolutions.gopreach.ui.screens.reports.FieldServiceGroupReportScreen(
+                congregationIds = if (currentRole == AdminRole.SUPER_ADMIN) null else setOfNotNull(ownCongregationId),
                 onBack = { navController.popBackStack() },
             )
         }

@@ -79,6 +79,7 @@ fun GoPreachSidePanelContent(
     canEnrollMinisterialServant: Boolean,
     canManageAnnouncements: Boolean,
     canViewConsolidatedReport: Boolean,
+    canViewFieldServiceGroupReport: Boolean,
     canManagePublisherReports: Boolean,
     canViewForwardRequests: Boolean,
     canEnrollRegularElderOrPublisher: Boolean,
@@ -157,6 +158,9 @@ fun GoPreachSidePanelContent(
             add(SideItem(stringResource(R.string.side_reports_summary), Icons.Rounded.Assessment, Destinations.REPORTS))
             if (canViewConsolidatedReport) {
                 add(SideItem(stringResource(R.string.side_consolidated_report), Icons.Rounded.Assessment, Destinations.CONSOLIDATED_REPORT))
+            }
+            if (canViewFieldServiceGroupReport) {
+                add(SideItem(stringResource(R.string.side_field_service_group_report), Icons.Rounded.Groups, Destinations.FIELD_SERVICE_GROUP_REPORT))
             }
             // "Manage Publisher Report" module — same access set as the
             // Consolidated Report (Super-Admin/Admin/Coordinator Elder/

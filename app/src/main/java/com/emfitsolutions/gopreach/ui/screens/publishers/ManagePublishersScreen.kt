@@ -487,7 +487,7 @@ private fun GroupDropdown(
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Group") },
+            label = { Text("Field Service Group") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

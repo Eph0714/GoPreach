@@ -101,7 +101,7 @@
     <string name="side_service_overseer">Service Overseer</string>
     <string name="side_ministerial_servant">Ministerial Servant</string>
     <string name="side_announcements">Dagiti Pakaammo</string>
-    <string name="side_groups">Dagiti Grupo</string>
+    <string name="side_groups">Dagiti Grupo ti Panagserbi iti Away</string>
     <string name="side_regular_elder">Regular Elder</string>
     <string name="side_publisher">Publisher</string>
     <string name="side_territory_map">Mapa ti Teritorio</string>
@@ -110,6 +110,7 @@
     <string name="side_group_chat_setting">Setting ti Grupo a Chat</string>
     <string name="side_reports_summary">Buod dagiti Ulat</string>
     <string name="side_consolidated_report">Naurnong nga Ulat</string>
+    <string name="side_field_service_group_report">Ulat ti Grupo ti Panagserbi iti Away</string>
     <string name="side_publisher_reports">Dagiti Ulat ti Publisher</string>
     <string name="side_forward_requests">Dagiti Kiddaw a Panangipasa</string>
     <string name="side_share_location_settings">Setting ti Panangibingay ti Lokasyon</string>
@@ -220,8 +221,8 @@
     <string name="reports_export_failed_write">Napaay ti panag-export: saan a maisurat ti file.</string>
     <string name="reports_export_failed_generic">Napaay ti panag-export: %1$s</string>
     <string name="reports_export_failed_unknown">di ammo nga error</string>
-    <string name="reports_all_groups">Amin a Grupo</string>
-    <string name="reports_per_group">Tunggal Grupo</string>
+    <string name="reports_all_groups">Amin a Grupo ti Panagserbi iti Away</string>
+    <string name="reports_per_group">Tunggal Grupo ti Panagserbi iti Away</string>
     <string name="reports_no_submitted_yet">Awan pay ti naisumiter nga ulat. Agparang dagitoy a kabuuan inton mangrugin nga agisumiter dagiti publisher iti bulan a ulatda.</string>
     <string name="reports_all_publishers">Amin a Publisher</string>
     <string name="reports_bible_studies_count">Panagadal iti Biblia: %1$d</string>
@@ -235,10 +236,10 @@
     <string name="reports_total_hours_for">Sibubukel nga Oras para iti %1$s: %2$s</string>
     <string name="reports_all_congregations_groups">Amin a Kongregasion/Grupo</string>
     <string name="reports_congregation_group_label">Kongregasion/Grupo</string>
-    <string name="reports_group_label">Grupo</string>
-    <string name="reports_select_a_group">Pilien ti Grupo</string>
-    <string name="reports_no_groups_yet">Awan pay grupo</string>
-    <string name="reports_group_name">Grupo: %1$s</string>
+    <string name="reports_group_label">Grupo ti Panagserbi iti Away</string>
+    <string name="reports_select_a_group">Pilien ti Grupo ti Panagserbi iti Away</string>
+    <string name="reports_no_groups_yet">Awan pay grupo ti panagserbi iti away</string>
+    <string name="reports_group_name">Grupo ti Panagserbi iti Away: %1$s</string>
     <string name="reports_group_overseer">Group Overseer: %1$s</string>
     <string name="reports_group_servant">Group Servant: %1$s</string>
     <string name="reports_group_assistant">Group Assistant: %1$s</string>

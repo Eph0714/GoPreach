@@ -6,7 +6,26 @@ import com.google.firebase.firestore.DocumentId
 data class Congregation(
     @DocumentId val id: String = "",
     val name: String = "",
+    /** "The Address must be replaced with (Province/City, Municipality,
+     * Barangay)" — kept only as a derived, human-readable "Barangay,
+     * Municipality, Province/City" string (composed by [com.emfitsolutions
+     * .gopreach.ui.screens.enrollment.CongregationEnrollmentViewModel]/
+     * [com.emfitsolutions.gopreach.ui.screens.congregations
+     * .ManageCongregationsScreen]'s edit dialog whenever [province]/
+     * [cityMunicipality]/[barangay] are saved) so every existing display
+     * that reads this one field — the congregation list row, in particular —
+     * keeps working unchanged; no screen lets anyone type it directly
+     * anymore, and it is never the source of truth for location filtering.
+     */
     val address: String = "",
+    /** The three PSGC dropdowns that actually replaced free-text address
+     * entry — see [com.emfitsolutions.gopreach.ui.components
+     * .PhilippineAddressPicker]. All three are required going forward (every
+     * enrollment/edit path validates this), but stay nullable here since a
+     * congregation created before this field existed has none recorded. */
+    val province: String? = null,
+    val cityMunicipality: String? = null,
+    val barangay: String? = null,
     /** Unique per spec §4.1. Uniqueness enforced app-side before write (Firestore has
      * no native unique-field constraint) — see CongregationRepository. */
     val code: String = "",

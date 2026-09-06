@@ -20,6 +20,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -63,6 +64,24 @@ class ManageGroupsViewModel @Inject constructor(
     /** Only needed by a Super-Admin, who isn't scoped to one congregation
      * already — lets them pick which congregation a new group belongs to. */
     val congregations: Flow<List<Congregation>> = congregationRepository.observeAll()
+
+    /** "Field Service Group Name (Required, avoid duplicate name in a
+     * congregation)" — every other active Field Service Group's name within
+     * [congregationId], uppercased for a case-insensitive comparison,
+     * excluding [excludeGroupId] itself (so re-saving an existing group
+     * under its own unchanged name never trips this). The dialog collects
+     * this once per congregation/exclude-id combination and checks
+     * membership locally on submit, the same "cheap client-side recheck"
+     * pattern [com.emfitsolutions.gopreach.data.repository
+     * .CongregationRepository.isCodeAvailable] uses for a Congregation's
+     * own unique code. */
+    fun namesInUse(congregationId: String, excludeGroupId: String?): Flow<Set<String>> =
+        groupRepository.observeAll().map { groups ->
+            groups
+                .filter { it.congregationId == congregationId && it.status == RecordStatus.ACTIVE && it.id != excludeGroupId }
+                .map { it.name.trim().uppercase() }
+                .toSet()
+        }
 
     /** Regular Elders available for [role], scoped to one congregation and — when
      * editing an existing group — excluding whoever already fills a *different*

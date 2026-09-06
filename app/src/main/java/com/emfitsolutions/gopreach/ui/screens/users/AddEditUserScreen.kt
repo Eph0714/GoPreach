@@ -195,7 +195,7 @@ fun AddEditUserScreen(
                 }
             }
             ScopeRadioRow(
-                label = "Selected Groups",
+                label = "Selected Field Service Groups",
                 selected = uiState.scopeType == ScopeType.SELECTED_GROUPS,
                 onClick = { viewModel.onScopeTypeChange(ScopeType.SELECTED_GROUPS) },
             )
@@ -203,7 +203,7 @@ fun AddEditUserScreen(
                 Column(modifier = Modifier.padding(start = 24.dp)) {
                     if (groups.isEmpty()) {
                         Text(
-                            "No groups exist yet — create one under Enrollment > Groups first.",
+                            "No field service groups exist yet — create one under Enrollment > Field Service Groups first.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -304,8 +304,8 @@ private fun Permission.displayLabel(): String = when (this) {
     Permission.DELETE_CONGREGATIONS -> "Delete Congregations/Groups"
     Permission.VIEW_ELDERS -> "View Elders"
     Permission.MANAGE_ELDERS -> "Manage Elders"
-    Permission.VIEW_GROUPS -> "View Groups"
-    Permission.MANAGE_GROUPS -> "Manage Groups"
+    Permission.VIEW_GROUPS -> "View Field Service Groups"
+    Permission.MANAGE_GROUPS -> "Manage Field Service Groups"
     Permission.VIEW_PUBLISHERS -> "View Publishers"
     Permission.MANAGE_PUBLISHERS -> "Manage Publishers"
     Permission.VIEW_PUBLISHER_REPORTS -> "View Publisher Reports"

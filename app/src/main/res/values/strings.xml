@@ -107,7 +107,7 @@
     <string name="side_service_overseer">Service Overseer</string>
     <string name="side_ministerial_servant">Ministerial Servant</string>
     <string name="side_announcements">Announcements</string>
-    <string name="side_groups">Groups</string>
+    <string name="side_groups">Field Service Groups</string>
     <string name="side_regular_elder">Regular Elder</string>
     <string name="side_publisher">Publisher</string>
     <string name="side_territory_map">Territory Map</string>
@@ -116,6 +116,7 @@
     <string name="side_group_chat_setting">Group Chat Setting</string>
     <string name="side_reports_summary">Reports Summary</string>
     <string name="side_consolidated_report">Consolidated Report</string>
+    <string name="side_field_service_group_report">Field Service Group Report</string>
     <string name="side_publisher_reports">Publisher Reports</string>
     <string name="side_forward_requests">Forward Requests</string>
     <string name="side_share_location_settings">Share Location Settings</string>
@@ -235,8 +236,8 @@
     <string name="reports_export_failed_write">Export failed: couldn\'t write the file.</string>
     <string name="reports_export_failed_generic">Export failed: %1$s</string>
     <string name="reports_export_failed_unknown">unknown error</string>
-    <string name="reports_all_groups">All Groups</string>
-    <string name="reports_per_group">Per Group</string>
+    <string name="reports_all_groups">All Field Service Groups</string>
+    <string name="reports_per_group">Per Field Service Group</string>
     <string name="reports_no_submitted_yet">No submitted reports yet. Totals appear here once publishers start submitting monthly reports.</string>
     <string name="reports_all_publishers">All Publishers</string>
     <string name="reports_bible_studies_count">Bible Studies: %1$d</string>
@@ -250,10 +251,10 @@
     <string name="reports_total_hours_for">Total Hours for %1$s: %2$s</string>
     <string name="reports_all_congregations_groups">All Congregations/Groups</string>
     <string name="reports_congregation_group_label">Congregation/Group</string>
-    <string name="reports_group_label">Group</string>
-    <string name="reports_select_a_group">Select a Group</string>
-    <string name="reports_no_groups_yet">No groups yet</string>
-    <string name="reports_group_name">Group: %1$s</string>
+    <string name="reports_group_label">Field Service Group</string>
+    <string name="reports_select_a_group">Select a Field Service Group</string>
+    <string name="reports_no_groups_yet">No field service groups yet</string>
+    <string name="reports_group_name">Field Service Group: %1$s</string>
     <string name="reports_group_overseer">Group Overseer: %1$s</string>
     <string name="reports_group_servant">Group Servant: %1$s</string>
     <string name="reports_group_assistant">Group Assistant: %1$s</string>

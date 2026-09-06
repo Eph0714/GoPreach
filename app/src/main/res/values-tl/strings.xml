@@ -99,7 +99,7 @@
     <string name="side_service_overseer">Service Overseer</string>
     <string name="side_ministerial_servant">Ministerial Servant</string>
     <string name="side_announcements">Mga Anunsyo</string>
-    <string name="side_groups">Mga Grupo</string>
+    <string name="side_groups">Mga Grupo ng Paglilingkod sa Larangan</string>
     <string name="side_regular_elder">Regular Elder</string>
     <string name="side_publisher">Publisher</string>
     <string name="side_territory_map">Mapa ng Teritoryo</string>
@@ -108,6 +108,7 @@
     <string name="side_group_chat_setting">Setting ng Pangkatang Chat</string>
     <string name="side_reports_summary">Buod ng mga Ulat</string>
     <string name="side_consolidated_report">Pinagsamang Ulat</string>
+    <string name="side_field_service_group_report">Ulat ng Grupo ng Paglilingkod sa Larangan</string>
     <string name="side_publisher_reports">Mga Ulat ng Publisher</string>
     <string name="side_forward_requests">Mga Kahilingan sa Pagpapasa</string>
     <string name="side_share_location_settings">Setting ng Pagbabahagi ng Lokasyon</string>
@@ -218,8 +219,8 @@
     <string name="reports_export_failed_write">Nabigo ang pag-export: hindi maisulat ang file.</string>
     <string name="reports_export_failed_generic">Nabigo ang pag-export: %1$s</string>
     <string name="reports_export_failed_unknown">hindi kilalang error</string>
-    <string name="reports_all_groups">Lahat ng Grupo</string>
-    <string name="reports_per_group">Bawat Grupo</string>
+    <string name="reports_all_groups">Lahat ng Grupo ng Paglilingkod sa Larangan</string>
+    <string name="reports_per_group">Bawat Grupo ng Paglilingkod sa Larangan</string>
     <string name="reports_no_submitted_yet">Wala pang naisumiteng ulat. Lalabas dito ang mga kabuuan kapag nagsimula nang magsumite ang mga publisher ng buwanang ulat.</string>
     <string name="reports_all_publishers">Lahat ng Publisher</string>
     <string name="reports_bible_studies_count">Pag-aaral sa Bibliya: %1$d</string>
@@ -233,10 +234,10 @@
     <string name="reports_total_hours_for">Kabuuang Oras para sa %1$s: %2$s</string>
     <string name="reports_all_congregations_groups">Lahat ng Kongregasyon/Grupo</string>
     <string name="reports_congregation_group_label">Kongregasyon/Grupo</string>
-    <string name="reports_group_label">Grupo</string>
-    <string name="reports_select_a_group">Pumili ng Grupo</string>
-    <string name="reports_no_groups_yet">Wala pang grupo</string>
-    <string name="reports_group_name">Grupo: %1$s</string>
+    <string name="reports_group_label">Grupo ng Paglilingkod sa Larangan</string>
+    <string name="reports_select_a_group">Pumili ng Grupo ng Paglilingkod sa Larangan</string>
+    <string name="reports_no_groups_yet">Wala pang grupo ng paglilingkod sa larangan</string>
+    <string name="reports_group_name">Grupo ng Paglilingkod sa Larangan: %1$s</string>
     <string name="reports_group_overseer">Group Overseer: %1$s</string>
     <string name="reports_group_servant">Group Servant: %1$s</string>
     <string name="reports_group_assistant">Group Assistant: %1$s</string>
