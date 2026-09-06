@@ -69,6 +69,13 @@ class OfflineAuthStore @Inject constructor(@ApplicationContext context: Context)
         }
     }
 
+    /** True when this device has *any* saved verifier for [username] at all —
+     * lets [AuthRepository.offlineSignIn] tell "you've never successfully
+     * signed in on this exact device before" (nothing to check the password
+     * against) apart from "wrong password for a device that does have one." */
+    fun hasSavedVerifierFor(username: String): Boolean =
+        prefs.getString(KEY_USERNAME, null)?.equals(username, ignoreCase = false) == true
+
     /** Returns the matching [personId] if [username]/[password] match the saved
      * verifier, or null if there's no saved verifier for this username, or the
      * password doesn't match it. Never touches the network. */
@@ -84,9 +91,11 @@ class OfflineAuthStore @Inject constructor(@ApplicationContext context: Context)
         return if (actualHash.contentEquals(expectedHash)) personId else null
     }
 
-    /** Cleared on explicit sign-out — see [AuthRepository.signOut]'s doc comment
-     * for why offline sign-*in* (a fresh attempt from the Login screen) still
-     * works afterward regardless. */
+    /** Deliberately *not* called by [AuthRepository.signOut] — a normal logout
+     * must not disable this device's ability to sign back in offline later.
+     * Only ever cleared implicitly by [saveVerifier] overwriting it with a
+     * different account's verifier (see this class's own doc comment on why
+     * that single-slot replacement is an accepted limit, not a bug). */
     fun clear() {
         prefs.edit { clear() }
     }

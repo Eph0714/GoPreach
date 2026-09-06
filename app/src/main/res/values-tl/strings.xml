@@ -14,6 +14,8 @@
     <string name="login_log_in">Mag-log In</string>
     <string name="login_biometric_button">Mag-sign in gamit ang biometrics</string>
     <string name="login_error_missing_fields">Ilagay ang username at password.</string>
+    <string name="login_error_missing_username">Pakilagay ang iyong username.</string>
+    <string name="login_error_missing_password">Pakilagay ang iyong password.</string>
     <string name="login_error_no_saved_credential">Walang naka-save na sign-in para sa biometric unlock.</string>
     <string name="login_biometric_prompt_title">Mag-sign in sa GoPreach</string>
     <string name="login_biometric_prompt_subtitle">Gamitin ang iyong fingerprint o mukha para magpatuloy</string>

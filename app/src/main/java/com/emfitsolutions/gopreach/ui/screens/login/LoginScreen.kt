@@ -173,6 +173,12 @@ fun LoginScreen(
                     label = { Text(stringResource(R.string.login_username)) },
                     singleLine = true,
                     shape = FieldShape,
+                    // "Disable: Login Button, Username Field, Password Field"
+                    // while authentication is running — this used to only
+                    // disable the button below, leaving both fields editable
+                    // (and, worse, submittable via the keyboard's own Done/
+                    // Enter action) for the whole duration of a request.
+                    enabled = !uiState.isLoading,
                     leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null) },
                     // Plain text, never masked — per spec, only password fields mask input.
                     visualTransformation = VisualTransformation.None,
@@ -193,11 +199,12 @@ fun LoginScreen(
                     label = { Text(stringResource(R.string.login_password)) },
                     singleLine = true,
                     shape = FieldShape,
+                    enabled = !uiState.isLoading,
                     leadingIcon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
                     visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     trailingIcon = {
-                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }, enabled = !uiState.isLoading) {
                             Icon(
                                 imageVector = if (passwordVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
                                 contentDescription = if (passwordVisible) stringResource(R.string.login_hide_password) else stringResource(R.string.login_show_password),

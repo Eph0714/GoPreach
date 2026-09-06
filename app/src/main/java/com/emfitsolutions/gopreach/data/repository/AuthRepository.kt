@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PasswordResetRequest
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
@@ -13,12 +14,32 @@ import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import com.google.firebase.firestore.FirebaseFirestore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/** "Fix the Login API and Database Errors... Display user-friendly messages...
+ * Do not expose database errors directly to users" — every real failure mode
+ * [AuthRepository.signIn] can hit, mapped to the exact wording the audit
+ * spec's own examples use, instead of surfacing a raw Firebase exception
+ * message (which can be a technical string, or occasionally null) straight to
+ * the Login screen. Centralized here so both [AuthRepository.signIn] and
+ * [AuthRepository.createSecondaryAuthAccount]'s callers could reuse the same
+ * mapping if a future auth entry point needs it. */
+private const val SIGN_IN_TIMEOUT_MS = 15_000L
+private fun friendlyAuthErrorMessage(e: Throwable): String = when (e) {
+    is TimeoutCancellationException -> "Connection timeout. Please check your internet connection and try again."
+    is FirebaseNetworkException -> "No internet connection. Please check your connection and try again."
+    is FirebaseTooManyRequestsException -> "Too many attempts. Please wait a moment and try again."
+    is FirebaseAuthInvalidCredentialsException, is FirebaseAuthInvalidUserException -> "Invalid username or password."
+    else -> "Server temporarily unavailable. Please try again later."
+}
 
 sealed class AuthResult {
     data class Success(val person: Person, val requiresPasswordChange: Boolean) : AuthResult()
@@ -48,6 +69,14 @@ class AuthRepository @Inject constructor(
     private val offlineAuthStore: OfflineAuthStore,
     private val offlineSessionMarker: OfflineSessionMarker,
 ) {
+    private companion object {
+        /** "ADD LOGIN DEBUGGING... DO NOT LOG: Passwords, Tokens, Password
+         * Hashes, Secrets" — every log line below reports only
+         * booleans/counts, never a username, password, Firebase ID token,
+         * or [Person.username]. */
+        const val TAG = "AuthDebug"
+    }
+
     val currentPersonId: String?
         get() = personIdFromAuthEmail(firebaseAuth.currentUser?.email) ?: offlineSessionMarker.personId.value
 
@@ -62,8 +91,31 @@ class AuthRepository @Inject constructor(
             ?.toObject(Person::class.java)
 
     suspend fun signIn(username: String, password: String): AuthResult {
-        val person = runCatching { findPersonByUsername(username) }.getOrNull()
-            ?: return AuthResult.Error("Invalid username or password.")
+        Log.d(TAG, "Login request started")
+        return try {
+            withTimeout(SIGN_IN_TIMEOUT_MS) { signInInternal(username, password) }
+        } catch (e: Exception) {
+            // Bug fix — "the application must never remain stuck": this used to
+            // only wrap the Firebase Auth call itself in try/catch. A timeout,
+            // or any exception from findPersonByUsername/roleAssignmentRepository
+            // (both plain Firestore/Room reads with their own failure modes —
+            // a dropped connection mid-query, a security-rules rejection, ...)
+            // used to propagate straight out of this function uncaught, which
+            // left [com.emfitsolutions.gopreach.ui.screens.login.LoginViewModel]
+            // with an exception thrown out of its own coroutine — the "infinite
+            // loading" bug the login audit spec calls out by name, since nothing
+            // downstream of a truly *uncaught* exception ever gets to flip
+            // isLoading back to false. Every path through this function now
+            // always returns a normal [AuthResult] instead.
+            Log.e(TAG, "Login request failed: ${e::class.simpleName}")
+            AuthResult.Error(friendlyAuthErrorMessage(e))
+        }
+    }
+
+    private suspend fun signInInternal(username: String, password: String): AuthResult {
+        val person = findPersonByUsername(username)
+        Log.d(TAG, "User found: ${person != null}")
+        if (person == null) return AuthResult.Error("Invalid username or password.")
         // Spec §9: a deactivated/suspended account must never sign in again,
         // regardless of what its RoleAssignments say — checked *before* touching
         // Firebase Auth so a disabled account doesn't even get to try.
@@ -71,24 +123,32 @@ class AuthRepository @Inject constructor(
         // role) is blocked the same way — see PermissionChecker's two-arg
         // isAccountUsable overload.
         val roleAssignments = roleAssignmentRepository.observeForPerson(person.id).first()
+        Log.d(TAG, "Roles found: ${roleAssignments.size}")
         if (!PermissionChecker.isAccountUsable(person, roleAssignments)) {
+            Log.d(TAG, "Account usable: FALSE")
             return AuthResult.Error("This account has been deactivated. Contact your administrator.")
         }
-        return try {
-            firebaseAuth.signInWithEmailAndPassword(authEmailFor(person.id), password).await()
-            personRepository.save(person) // seed local cache for offline use this session
-            // "Offline Login" spec §1-§2: securely cache a hashed verifier for this
-            // exact username/password (never the password itself) so a later
-            // sign-in attempt with no network can still be verified — see
-            // [offlineSignIn]. Independent of the "Remember me" checkbox, which is
-            // a separate, opt-in biometric-unlock convenience.
-            offlineAuthStore.saveVerifier(username, password, person.id)
-            offlineSessionMarker.save(person.id)
-            auditLogRepository.log(actorPersonId = person.id, action = "SIGN_IN")
-            AuthResult.Success(person, requiresPasswordChange = person.isTemporaryCredential)
-        } catch (e: Exception) {
-            AuthResult.Error(e.localizedMessage ?: "Invalid username or password.")
-        }
+        firebaseAuth.signInWithEmailAndPassword(authEmailFor(person.id), password).await()
+        Log.d(TAG, "Password verified: TRUE")
+        personRepository.save(person) // seed local cache for offline use this session
+        // "Offline Login" spec §1-§2: securely cache a hashed verifier for this
+        // exact username/password (never the password itself) so a later
+        // sign-in attempt with no network can still be verified — see
+        // [offlineSignIn]. Independent of the "Remember me" checkbox, which is
+        // a separate, opt-in biometric-unlock convenience.
+        //
+        // Deliberately non-fatal: this is a side effect of an already-
+        // successful Firebase sign-in, backed by the same
+        // EncryptedSharedPreferences mechanism that can throw on a Keystore
+        // failure (see LoginViewModel's own doc comment on this) — a glitch
+        // here must never turn a real, successful login into a reported
+        // failure, it just means offline sign-in won't be available later.
+        runCatching { offlineAuthStore.saveVerifier(username, password, person.id) }
+            .onFailure { Log.e(TAG, "Failed to save offline verifier: ${it::class.simpleName}") }
+        offlineSessionMarker.save(person.id)
+        auditLogRepository.log(actorPersonId = person.id, action = "SIGN_IN")
+        Log.d(TAG, "Navigation result: SUCCESS")
+        return AuthResult.Success(person, requiresPasswordChange = person.isTemporaryCredential)
     }
 
     /** "Offline Login" spec §1 — used instead of [signIn] whenever the device has
@@ -102,16 +162,42 @@ class AuthRepository @Inject constructor(
      * `FirebaseAuth.currentUser`, which Firebase's SDK has no offline path to
      * populate. */
     suspend fun offlineSignIn(username: String, password: String): AuthResult {
-        val personId = offlineAuthStore.verify(username, password)
-            ?: return AuthResult.Error("Invalid username or password.")
-        val person = personRepository.get(personId)
-            ?: return AuthResult.Error("No local data available for this account yet. Connect to the internet at least once, then try again.")
-        val roleAssignments = roleAssignmentRepository.observeForPerson(personId).first()
-        if (!PermissionChecker.isAccountUsable(person, roleAssignments)) {
-            return AuthResult.Error("This account has been deactivated. Contact your administrator.")
+        return try {
+            Log.d(TAG, "Login request started (offline)")
+            val personId = offlineAuthStore.verify(username, password)
+            Log.d(TAG, "Password verified: ${personId != null}")
+            if (personId == null) {
+                // Bug fix — distinguish "you've never signed in successfully
+                // on this exact device before" (there's nothing to verify
+                // against at all) from "wrong password for a device that
+                // does have a cached sign-in" — these used to both show the
+                // same "Invalid username or password.", which reads as a
+                // typo when the real problem is "you need one online
+                // sign-in first."
+                return if (offlineAuthStore.hasSavedVerifierFor(username)) {
+                    AuthResult.Error("Invalid username or password.")
+                } else {
+                    AuthResult.Error("No internet connection, and no offline sign-in is available yet for this account on this device. Connect to the internet at least once, then try again.")
+                }
+            }
+            val person = personRepository.get(personId)
+                ?: return AuthResult.Error("No local data available for this account yet. Connect to the internet at least once, then try again.")
+            val roleAssignments = roleAssignmentRepository.observeForPerson(personId).first()
+            Log.d(TAG, "Roles found: ${roleAssignments.size}")
+            if (!PermissionChecker.isAccountUsable(person, roleAssignments)) {
+                return AuthResult.Error("This account has been deactivated. Contact your administrator.")
+            }
+            offlineSessionMarker.save(personId)
+            Log.d(TAG, "Navigation result: SUCCESS (offline)")
+            AuthResult.Success(person, requiresPasswordChange = person.isTemporaryCredential)
+        } catch (e: Exception) {
+            // Same "must never remain stuck" guarantee as signIn() —
+            // offlineSignIn touches no network, but Room/
+            // EncryptedSharedPreferences reads can still fail (e.g. a
+            // Keystore error on a very old/misbehaving device).
+            Log.e(TAG, "Offline login request failed: ${e::class.simpleName}")
+            AuthResult.Error("Couldn't sign in. Please try again.")
         }
-        offlineSessionMarker.save(personId)
-        return AuthResult.Success(person, requiresPasswordChange = person.isTemporaryCredential)
     }
 
     fun signOut() {

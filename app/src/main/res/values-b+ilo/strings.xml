@@ -16,6 +16,8 @@
     <string name="login_log_in">Agserrek</string>
     <string name="login_biometric_button">Agserrek babaen iti biometrics</string>
     <string name="login_error_missing_fields">Ikkan ti username ken password.</string>
+    <string name="login_error_missing_username">Pangngaasi nga ikkan ti username mo.</string>
+    <string name="login_error_missing_password">Pangngaasi nga ikkan ti password mo.</string>
     <string name="login_error_no_saved_credential">Awan ti naisave a sign-in para iti biometric unlock.</string>
     <string name="login_biometric_prompt_title">Agserrek iti GoPreach</string>
     <string name="login_biometric_prompt_subtitle">Usaren ti fingerprint wenno rupam tapno agtuloy</string>

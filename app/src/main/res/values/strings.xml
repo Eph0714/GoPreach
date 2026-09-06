@@ -18,6 +18,8 @@
     <string name="login_log_in">Log In</string>
     <string name="login_biometric_button">Sign in with biometrics</string>
     <string name="login_error_missing_fields">Enter both username and password.</string>
+    <string name="login_error_missing_username">Please enter your username.</string>
+    <string name="login_error_missing_password">Please enter your password.</string>
     <string name="login_error_no_saved_credential">No saved sign-in found for biometric unlock.</string>
     <string name="login_biometric_prompt_title">Sign in to GoPreach</string>
     <string name="login_biometric_prompt_subtitle">Use your fingerprint or face to continue</string>
