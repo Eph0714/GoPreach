@@ -10,7 +10,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,23 +48,39 @@ class PhilippineAddressPickerViewModel @Inject constructor(
 
     private var searchJob: Job? = null
 
+    // Bug fix ("selecting a province... the system is closing" — in every
+    // module that uses this picker): none of these five queries had
+    // anywhere to catch a failure — a plain Room/SQLite exception from any
+    // one of them, left to propagate out of a bare viewModelScope.launch (or
+    // out of the composable's own LaunchedEffect for the two suspend
+    // functions below), had nothing downstream to stop it and took down the
+    // whole app process, exactly the crash pattern already fixed elsewhere
+    // in this app (see PipelineViewModel.save's own doc comment). Every path
+    // here is now defensive: a failed query just leaves that dropdown
+    // showing no matches instead of crashing.
     fun searchProvinces(query: String) {
         searchJob?.cancel()
-        searchJob = viewModelScope.launch { _provinceOptions.value = repository.searchProvinces(query) }
+        searchJob = viewModelScope.launch {
+            _provinceOptions.value = runCatching { repository.searchProvinces(query) }.getOrDefault(emptyList())
+        }
     }
 
     fun searchCities(provinceId: Int?, query: String) {
         searchJob?.cancel()
-        searchJob = viewModelScope.launch { _cityOptions.value = repository.searchCitiesMunicipalities(provinceId, query) }
+        searchJob = viewModelScope.launch {
+            _cityOptions.value = runCatching { repository.searchCitiesMunicipalities(provinceId, query) }.getOrDefault(emptyList())
+        }
     }
 
     fun searchBarangays(muncityId: Int, query: String) {
         searchJob?.cancel()
-        searchJob = viewModelScope.launch { _barangayOptions.value = repository.searchBarangays(muncityId, query) }
+        searchJob = viewModelScope.launch {
+            _barangayOptions.value = runCatching { repository.searchBarangays(muncityId, query) }.getOrDefault(emptyList())
+        }
     }
 
-    suspend fun resolveProvinceId(name: String): Int? = repository.findProvinceByName(name)?.id
-    suspend fun resolveCityId(name: String, provinceId: Int?): Int? = repository.findMuncityByName(name, provinceId)?.id
+    suspend fun resolveProvinceId(name: String): Int? = runCatching { repository.findProvinceByName(name)?.id }.getOrNull()
+    suspend fun resolveCityId(name: String, provinceId: Int?): Int? = runCatching { repository.findMuncityByName(name, provinceId)?.id }.getOrNull()
 }
 
 /**
@@ -223,11 +238,17 @@ private fun SearchableDropdown(
             enabled = enabled,
             singleLine = true,
             visualTransformation = VisualTransformation.None,
-            trailingIcon = {
-                IconButton(onClick = { if (enabled) expanded = !expanded }) {
-                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = showMenu)
-                }
-            },
+            // Bug fix ("selecting a province... the system is closing"):
+            // wrapping ExposedDropdownMenuDefaults.TrailingIcon in a nested
+            // IconButton — belt-and-suspenders for "tap to open" — doubled
+            // up the click/pointer-input handling this icon already owns as
+            // a direct child of an ExposedDropdownMenuBox, which crashed on
+            // exactly the interaction that both closes the popup (selecting
+            // an item) and settles focus back on the field at once. The
+            // focus listener below already opens the menu on a plain tap
+            // into the field itself, so this icon only ever needs to be the
+            // plain, unwrapped indicator Material3 expects here.
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = showMenu) },
             // Bug fix: tapping into this field used to just place a cursor
             // — nothing ever set [expanded] to true until the first
             // keystroke, so a publisher who tapped it to browse (rather

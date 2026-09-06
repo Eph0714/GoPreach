@@ -14,11 +14,14 @@ import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.emfitsolutions.gopreach.BuildConfig
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +39,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Info
@@ -327,6 +331,7 @@ fun TerritoryMapScreen(
             congregationIds = if (isSuperAdmin) null else setOfNotNull(fixedCongregationId),
             filter = advancedFilter,
             searchByRows = searchByRows,
+            resultCount = advancedFilteredRows.size,
             onFilterChange = { advancedFilter = it },
             onDismiss = { showFilterSheet = false },
             viewModel = viewModel,
@@ -1506,20 +1511,26 @@ private fun jsEscape(text: String): String =
     text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ")
 
 /**
- * "Add a filter in Territory Map" — Search By, then Sub Filter (location),
- * then Inner Sub Filter (pipeline stage). [searchByRows] is the map's own
- * rows already narrowed by whatever Search By currently holds (see
- * [TerritoryMapScreen]'s own `searchByRows`) — the Sub Filter's Municipality/
- * Barangay option lists are derived from it, so a choice here can never
- * describe a combination with zero matching records.
+ * "Add a filter in Territory Map... make it simple, professional and
+ * modern. check the spacing and design" — Search By, then Location, then
+ * Record Type, each a plainly-labeled section with generous, consistent
+ * spacing rather than dividers doing the separating. Every choice here
+ * applies immediately (there's nothing to "submit"); "Done" just closes the
+ * sheet, and the header's own live count is the confirmation that a change
+ * actually did something. [searchByRows] is the map's own rows already
+ * narrowed by whatever Search By currently holds (see [TerritoryMapScreen]'s
+ * own `searchByRows`) — the Location section's Municipality/Barangay option
+ * lists are derived from it, so a choice here can never describe a
+ * combination with zero matching records.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun TerritoryFilterSheet(
     isSuperAdmin: Boolean,
     congregationIds: Set<String>?,
     filter: TerritoryFilterState,
     searchByRows: List<TerritoryMapRow>,
+    resultCount: Int,
     onFilterChange: (TerritoryFilterState) -> Unit,
     onDismiss: () -> Unit,
     viewModel: TerritoryMapViewModel,
@@ -1530,8 +1541,8 @@ private fun TerritoryFilterSheet(
     val groups by remember(congregationIds) { viewModel.groupsFor(congregationIds) }.collectAsStateWithLifecycle(initialValue = emptyList())
     val publishers by remember(congregationIds) { viewModel.publishersFor(congregationIds) }.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    // Sub Filter's own option lists — real, present choices only (see this
-    // function's own doc comment), narrowed level by level exactly like
+    // Location section's own option lists — real, present choices only (see
+    // this function's own doc comment), narrowed level by level exactly like
     // com.emfitsolutions.gopreach.ui.components.PhilippineAddressPicker's
     // cascade, just sourced from already-tagged records instead of the
     // nationwide PSGC table.
@@ -1548,14 +1559,29 @@ private fun TerritoryFilterSheet(
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
-            modifier = Modifier.fillMaxWidth().heightIn(max = 640.dp).verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(max = 680.dp).verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp).padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(28.dp),
         ) {
-            Text("Filters", style = MaterialTheme.typography.titleLarge)
+            // Header — title plus a live result count so every tap below has
+            // an immediate, legible confirmation it did something, and a
+            // Close action that needs no explanation (nothing here is
+            // deferred, so there's no separate "Cancel").
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Filters", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (resultCount == 1) "1 location matches" else "$resultCount locations match",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Close")
+                }
+            }
 
-            Text("Search By", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterSection(title = "Search By") {
                 // "FOR SUPER ADMIN: ... All, Congregation... / OR OTHER
                 // USERS: ... Field Service Group, Publisher" — a scoped
                 // role's own single congregation is already implicit
@@ -1567,90 +1593,110 @@ private fun TerritoryFilterSheet(
                     add(TerritorySearchBy.FIELD_SERVICE_GROUP)
                     add(TerritorySearchBy.PUBLISHER)
                 }
-                options.forEach { option ->
-                    androidx.compose.material3.FilterChip(
-                        selected = filter.searchBy == option,
-                        onClick = {
-                            onFilterChange(filter.copy(searchBy = option, congregationId = null, groupId = null, publisherPersonId = null))
-                        },
-                        label = { Text(option.label()) },
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    options.forEach { option ->
+                        androidx.compose.material3.FilterChip(
+                            selected = filter.searchBy == option,
+                            onClick = {
+                                onFilterChange(filter.copy(searchBy = option, congregationId = null, groupId = null, publisherPersonId = null))
+                            },
+                            label = { Text(option.label()) },
+                        )
+                    }
+                }
+                AnimatedVisibility(visible = filter.searchBy != TerritorySearchBy.ALL) {
+                    Box(modifier = Modifier.padding(top = 12.dp)) {
+                        when (filter.searchBy) {
+                            TerritorySearchBy.CONGREGATION -> FilterDropdownField(
+                                label = "Congregation/Group",
+                                options = congregations.map { it.id to it.name },
+                                selectedId = filter.congregationId,
+                                onSelected = { onFilterChange(filter.copy(congregationId = it)) },
+                            )
+                            TerritorySearchBy.FIELD_SERVICE_GROUP -> FilterDropdownField(
+                                label = "Field Service Group",
+                                options = groups.map { group ->
+                                    val congregationName = congregations.firstOrNull { it.id == group.congregationId }?.name
+                                    group.id to (if (isSuperAdmin && congregationName != null) "${group.name} — $congregationName" else group.name)
+                                },
+                                selectedId = filter.groupId,
+                                onSelected = { onFilterChange(filter.copy(groupId = it)) },
+                            )
+                            TerritorySearchBy.PUBLISHER -> FilterDropdownField(
+                                label = "Publisher",
+                                options = publishers.map { it.id to it.fullName },
+                                selectedId = filter.publisherPersonId,
+                                onSelected = { onFilterChange(filter.copy(publisherPersonId = it)) },
+                            )
+                            TerritorySearchBy.ALL -> Unit
+                        }
+                    }
+                }
+            }
+
+            FilterSection(title = "Location") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (isSuperAdmin) {
+                        FilterDropdownField(
+                            label = "Province/City",
+                            options = provinceOptions.map { it to it },
+                            selectedId = filter.province,
+                            onSelected = { onFilterChange(filter.copy(province = it, cityMunicipality = null, barangay = null)) },
+                        )
+                    } else {
+                        // "Province/City automatic base on their congregation
+                        // enrollment" — shown, not editable; every record a
+                        // scoped role sees already shares this same
+                        // province/city anyway.
+                        ReadOnlyField("Province/City", filter.province ?: "—")
+                    }
+                    FilterDropdownField(
+                        label = "Municipality",
+                        options = municipalityOptions.map { it to it },
+                        selectedId = filter.cityMunicipality,
+                        onSelected = { onFilterChange(filter.copy(cityMunicipality = it, barangay = null)) },
+                    )
+                    FilterDropdownField(
+                        label = "Barangay",
+                        options = barangayOptions.map { it to it },
+                        selectedId = filter.barangay,
+                        onSelected = { onFilterChange(filter.copy(barangay = it)) },
                     )
                 }
             }
 
-            when (filter.searchBy) {
-                TerritorySearchBy.ALL -> Unit
-                TerritorySearchBy.CONGREGATION -> FilterDropdownField(
-                    label = "Congregation/Group",
-                    options = congregations.map { it.id to it.name },
-                    selectedId = filter.congregationId,
-                    onSelected = { onFilterChange(filter.copy(congregationId = it)) },
-                )
-                TerritorySearchBy.FIELD_SERVICE_GROUP -> FilterDropdownField(
-                    label = "Field Service Group",
-                    options = groups.map { group ->
-                        val congregationName = congregations.firstOrNull { it.id == group.congregationId }?.name
-                        group.id to (if (isSuperAdmin && congregationName != null) "${group.name} — $congregationName" else group.name)
-                    },
-                    selectedId = filter.groupId,
-                    onSelected = { onFilterChange(filter.copy(groupId = it)) },
-                )
-                TerritorySearchBy.PUBLISHER -> FilterDropdownField(
-                    label = "Publisher",
-                    options = publishers.map { it.id to it.fullName },
-                    selectedId = filter.publisherPersonId,
-                    onSelected = { onFilterChange(filter.copy(publisherPersonId = it)) },
-                )
-            }
-
-            androidx.compose.material3.HorizontalDivider()
-            Text("Sub Filter — Location", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (isSuperAdmin) {
-                FilterDropdownField(
-                    label = "Province/City",
-                    options = provinceOptions.map { it to it },
-                    selectedId = filter.province,
-                    onSelected = { onFilterChange(filter.copy(province = it, cityMunicipality = null, barangay = null)) },
-                )
-            } else {
-                // "Province/City automatic base on their congregation
-                // enrollment" — shown, not editable; every record a scoped
-                // role sees already shares this same province/city anyway.
-                ReadOnlyField("Province/City", filter.province ?: "—")
-            }
-            FilterDropdownField(
-                label = "Municipality",
-                options = municipalityOptions.map { it to it },
-                selectedId = filter.cityMunicipality,
-                onSelected = { onFilterChange(filter.copy(cityMunicipality = it, barangay = null)) },
-            )
-            FilterDropdownField(
-                label = "Barangay",
-                options = barangayOptions.map { it to it },
-                selectedId = filter.barangay,
-                onSelected = { onFilterChange(filter.copy(barangay = it)) },
-            )
-
-            androidx.compose.material3.HorizontalDivider()
-            Text("Inner Sub Filter", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TerritoryInnerFilter.entries.forEach { option ->
-                    androidx.compose.material3.FilterChip(
-                        selected = filter.innerFilter == option,
-                        onClick = { onFilterChange(filter.copy(innerFilter = option)) },
-                        label = { Text(option.label()) },
-                    )
+            FilterSection(title = "Record Type") {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TerritoryInnerFilter.entries.forEach { option ->
+                        androidx.compose.material3.FilterChip(
+                            selected = filter.innerFilter == option,
+                            onClick = { onFilterChange(filter.copy(innerFilter = option)) },
+                            label = { Text(option.label()) },
+                        )
+                    }
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(
                     onClick = { onFilterChange(TerritoryFilterState(province = if (!isSuperAdmin) filter.province else null)) },
                     modifier = Modifier.weight(1f),
                 ) { Text("Reset") }
-                Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Apply") }
+                Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Done") }
             }
         }
+    }
+}
+
+/** One filter group — a plain, bold section label above its content, spaced
+ * generously from its siblings ([TerritoryFilterSheet]'s own 28.dp rhythm)
+ * rather than ruled off with dividers; a flat, uncluttered look reads more
+ * modern than a sheet full of hairlines. */
+@Composable
+private fun FilterSection(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        content()
     }
 }
 

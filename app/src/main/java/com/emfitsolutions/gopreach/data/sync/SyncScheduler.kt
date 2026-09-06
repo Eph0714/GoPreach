@@ -135,6 +135,11 @@ class SyncScheduler @Inject constructor(
     fun requestSyncNow(): UUID {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            // "Do not show the system message if there are record[s]
+            // automatically syncing" — this flag is what lets SyncWorker/
+            // SyncStatusCenter tell this, the one explicit "Sync to Server"
+            // path, apart from every automatic trigger below.
+            .setInputData(androidx.work.workDataOf(SyncWorker.KEY_MANUAL to true))
             .build()
         WorkManager.getInstance(context)
             .enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.REPLACE, request)

@@ -21,11 +21,25 @@ import javax.inject.Singleton
 class ConnectivityObserver @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
+    // Bug fix ("it says offline even if there is an internet"): this used to
+    // also require NET_CAPABILITY_VALIDATED — Android's own "actually
+    // reached the internet, not just claims to have a route to it" check,
+    // done by probing a Google connectivity-check URL in the background.
+    // That probe can lag several seconds behind a network actually coming
+    // up, and on some networks (certain corporate/school Wi-Fi, some VPNs,
+    // DNS-filtering setups) it never succeeds at all even though this app's
+    // own traffic (Firebase) gets through completely fine — either way,
+    // this device would report itself offline despite having working
+    // internet for everything that actually matters here. NET_CAPABILITY_INTERNET
+    // alone (the network's own claim that it provides internet access) is
+    // what most apps key off for exactly this reason; an actually-dead
+    // network still fails at the Firestore/HTTP layer itself, which this
+    // app already retries through (see SyncWorker), so nothing about
+    // "eventually consistent" is lost by trusting it here.
     fun isOnline(): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     fun observe(): Flow<Boolean> = callbackFlow {

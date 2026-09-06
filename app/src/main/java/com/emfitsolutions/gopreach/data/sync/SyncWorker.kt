@@ -45,9 +45,17 @@ class SyncWorker @AssistedInject constructor(
         const val KEY_FAILED = "failed"
         const val KEY_TOTAL = "total"
         const val KEY_FINISHED = "finished"
+        /** "Do not show the system message if there are record[s]
+         * automatically syncing" — set only by [SyncScheduler.requestSyncNow]
+         * (the explicit "Sync to Server" button); every automatic trigger
+         * (periodic floor, reconnect, [SyncScheduler.triggerSyncIfOnline])
+         * leaves this false, which is what [SyncStatusCenter.onSyncFinished]
+         * reads to decide whether this run is worth a toast at all. */
+        const val KEY_MANUAL = "manual"
     }
 
     override suspend fun doWork(): Result {
+        val isManual = inputData.getBoolean(KEY_MANUAL, false)
         val pending = syncQueueDao.getAllPending()
         if (pending.isEmpty()) {
             setProgress(workDataOf(KEY_UPLOADED to 0, KEY_FAILED to 0, KEY_TOTAL to 0, KEY_FINISHED to true))
@@ -76,7 +84,7 @@ class SyncWorker @AssistedInject constructor(
         // populated for a truly terminal SUCCEEDED/FAILED state, which a retrying
         // worker on a partial failure never reaches for this attempt.
         setProgress(workDataOf(KEY_UPLOADED to uploaded, KEY_FAILED to failed, KEY_TOTAL to pending.size, KEY_FINISHED to true))
-        syncStatusCenter.onSyncFinished(uploaded, failed)
+        syncStatusCenter.onSyncFinished(uploaded, failed, isManual)
         // Partial failure still asks WorkManager to retry later (unchanged background
         // reliability behavior) — the manual UI already has its summary from the
         // progress update above and doesn't need to wait for that retry to resolve.
