@@ -52,12 +52,15 @@ android {
         }
     }
 
-    // Output "GoPreach.apk" / "GoPreach-debug.apk" instead of the Gradle default
-    // "app-release.apk" / "app-debug.apk" naming.
+    // Output "GoPreach.apk" instead of Gradle's default "app-release.apk" /
+    // "app-debug.apk" naming -- both variants share the name (they land in
+    // separate outputs/apk/<debug|release>/ folders so there's no clash) so
+    // every GitHub release always ships an asset literally named
+    // "GoPreach.apk", regardless of which build type actually produced it.
     applicationVariants.all {
         outputs.all {
             val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            output.outputFileName = if (buildType.name == "debug") "GoPreach-debug.apk" else "GoPreach.apk"
+            output.outputFileName = "GoPreach.apk"
         }
     }
 }
