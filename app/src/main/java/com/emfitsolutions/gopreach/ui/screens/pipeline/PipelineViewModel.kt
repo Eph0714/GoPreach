@@ -230,11 +230,30 @@ class PipelineViewModel @Inject constructor(
 
     fun visitsFor(interestedPersonId: String): Flow<List<Visit>> = visitRepository.observeForInterestedPerson(interestedPersonId)
     fun startVisitSync(interestedPersonId: String): Flow<Unit> = visitRepository.startRemoteSync(interestedPersonId)
-    fun saveVisit(visit: Visit) {
+
+    /** "Each Publisher may edit or delete only the Visit History entries that
+     * they personally created" — [existingVisit] is the entry being replaced
+     * (null for a brand-new "Add Visit"), checked against its own
+     * [Visit.createdByPersonId], never against [visit] (the caller-supplied
+     * replacement) since that field is deliberately preserved unchanged by
+     * [AddVisitDialog] and shouldn't be trusted as the authorization input
+     * either way. [canManageAllVisitHistory] is the Super-Admin/explicitly-
+     * authorized-role override (spec §8); the calling screen already hides
+     * the Edit affordance for anyone this returns false for, but the check is
+     * repeated here too — a hidden button is never the real enforcement (the
+     * real enforcement is firestore.rules; this is just the same rule applied
+     * once more before firing the write, not a replacement for it). Silently
+     * no-ops on failure, matching every other call site (none of them surface
+     * a return value today).
+     */
+    fun saveVisit(visit: Visit, currentPersonId: String, canManageAllVisitHistory: Boolean, existingVisit: Visit? = null) {
+        if (existingVisit != null && existingVisit.createdByPersonId != currentPersonId && !canManageAllVisitHistory) return
         viewModelScope.launch { visitRepository.save(visit) }
     }
-    fun deleteVisit(interestedPersonId: String, visitId: String) {
-        viewModelScope.launch { visitRepository.delete(interestedPersonId, visitId) }
+
+    fun deleteVisit(interestedPersonId: String, visit: Visit, currentPersonId: String, canManageAllVisitHistory: Boolean) {
+        if (visit.createdByPersonId != currentPersonId && !canManageAllVisitHistory) return
+        viewModelScope.launch { visitRepository.delete(interestedPersonId, visit.id) }
     }
 
     /** "FORWARD TO OTHER CONGREGATION" spec flow — every other active

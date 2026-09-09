@@ -159,6 +159,15 @@ fun PipelineScreen(
     congregationId: String,
     stage: PipelineStage,
     canPermanentlyDelete: Boolean,
+    // "Only an administrator or explicitly authorized role may manage
+    // another Publisher's Visit History" (spec §8) — every route reaching
+    // this screen already scopes [publisherPersonId] to the signed-in
+    // session's own records (see GoPreachNavGraph), so this is false at every
+    // one of those call sites and only true for [SuperAdminInterestedRecordsScreen]'s
+    // cross-congregation, cross-publisher view; kept as its own parameter
+    // (default false) rather than re-deriving a role here, same pattern as
+    // [canPermanentlyDelete].
+    canManageAllVisitHistory: Boolean = false,
     onBack: () -> Unit,
     viewModel: PipelineViewModel = hiltViewModel(),
 ) {
@@ -182,6 +191,7 @@ fun PipelineScreen(
             currentPersonId = currentPersonId,
             congregationName = congregationName ?: "—",
             stage = stage,
+            canManageAllVisitHistory = canManageAllVisitHistory,
             onBack = { selectedPerson = null },
             viewModel = viewModel,
         )
@@ -603,6 +613,7 @@ internal fun PipelinePersonDetailScreen(
     currentPersonId: String,
     congregationName: String,
     stage: PipelineStage,
+    canManageAllVisitHistory: Boolean = false,
     onBack: () -> Unit,
     viewModel: PipelineViewModel,
 ) {
@@ -727,10 +738,22 @@ internal fun PipelinePersonDetailScreen(
                                 if (visit.topicDiscussed != null) Text("Remarks/Topic: ${visit.topicDiscussed}", style = MaterialTheme.typography.bodySmall)
                                 val visitorName by remember(visit.publisherPersonId) { viewModel.personName(visit.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
                                 Text("${stage.visitorLabel()}: ${visitorName ?: "—"}", style = MaterialTheme.typography.bodySmall)
+                                val recordedByName by remember(visit.createdByPersonId) { viewModel.personName(visit.createdByPersonId) }.collectAsStateWithLifecycle(initialValue = null)
+                                Text("Recorded by: ${recordedByName ?: "—"}", style = MaterialTheme.typography.bodySmall)
                             }
-                            Row {
-                                IconButton(onClick = { pendingEditVisit = visit }) { Icon(Icons.Rounded.Edit, contentDescription = "Edit visit") }
-                                IconButton(onClick = { pendingDeleteVisit = visit }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete visit") }
+                            // "Each Publisher may edit or delete only the Visit
+                            // History entries that they personally created"
+                            // (spec §8) — a hidden button isn't the real
+                            // enforcement (see saveVisit/deleteVisit's own doc
+                            // comments for the backstop check, and
+                            // firestore.rules for the actual one), but another
+                            // Publisher's entry shows no action controls at all
+                            // rather than a disabled one, per spec §17.
+                            if (visit.createdByPersonId == currentPersonId || canManageAllVisitHistory) {
+                                Row {
+                                    IconButton(onClick = { pendingEditVisit = visit }) { Icon(Icons.Rounded.Edit, contentDescription = "Edit visit") }
+                                    IconButton(onClick = { pendingDeleteVisit = visit }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete visit") }
+                                }
                             }
                         }
                     }
@@ -753,7 +776,7 @@ internal fun PipelinePersonDetailScreen(
             publisherPersonId = person.publisherPersonId,
             currentPersonId = currentPersonId,
             stage = stage,
-            onSave = { viewModel.saveVisit(it); showToast("Visit logged.") },
+            onSave = { viewModel.saveVisit(it, currentPersonId, canManageAllVisitHistory); showToast("Visit logged.") },
             onDismiss = { showAddVisit = false },
         )
     }
@@ -766,7 +789,7 @@ internal fun PipelinePersonDetailScreen(
             publisherPersonId = person.publisherPersonId,
             currentPersonId = currentPersonId,
             stage = stage,
-            onSave = { viewModel.saveVisit(it); showToast("Visit updated.") },
+            onSave = { viewModel.saveVisit(it, currentPersonId, canManageAllVisitHistory, existingVisit = toEditVisit); showToast("Visit updated.") },
             onDismiss = { pendingEditVisit = null },
         )
     }
@@ -785,7 +808,7 @@ internal fun PipelinePersonDetailScreen(
             text = { Text("This will permanently delete the visit logged on ${dateFormat.format(Date(toDeleteVisit.visitDate))}. This cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.deleteVisit(person.id, toDeleteVisit.id)
+                    viewModel.deleteVisit(person.id, toDeleteVisit, currentPersonId, canManageAllVisitHistory)
                     showToast("Visit deleted.")
                     pendingDeleteVisit = null
                 }) { Text("Delete") }

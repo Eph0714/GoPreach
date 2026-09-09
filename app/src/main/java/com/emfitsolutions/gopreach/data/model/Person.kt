@@ -117,9 +117,14 @@ data class Person(
      * caller currently acting as" with a single `get()` on this known-path
      * document — [com.emfitsolutions.gopreach.domain.PermissionChecker]
      * never reads these, [com.emfitsolutions.gopreach.domain.SessionState
-     * .activeRoleAssignment] is still the real in-app source of truth. Null
-     * for a Publisher-only active role (Publisher access is participant-list
-     * based, not congregation-role based — see firestore.rules).
+     * .activeRoleAssignment] is still the real in-app source of truth.
+     * [activeAdminRole] is null for a Publisher-only active role (Publisher
+     * access to Group Chats is participant-list based, not congregation-role
+     * based — see firestore.rules), but [activeCongregationId] IS still set
+     * for one — the Territory Congregation restriction on Return Visits/
+     * Bible Studies/Visit History (spec "Territory Map: Congregation-
+     * Restricted Return Visit Access") needs exactly this, a Publisher's own
+     * enrolled congregation, to enforce server-side.
      */
     val activeCongregationId: String? = null,
     val activeAdminRole: String? = null,

@@ -49,6 +49,7 @@ import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.RecordStatus
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -92,6 +93,11 @@ fun SuperAdminInterestedRecordsScreen(
             currentPersonId = currentPersonId,
             congregationName = congregationName ?: "—",
             stage = stage,
+            // Super-Admin, spec §8's "explicitly authorized role" — may manage
+            // every Visit History entry here, not only their own, same as
+            // [canPermanentlyDelete] below being unconditionally true on this
+            // cross-congregation, cross-publisher screen.
+            canManageAllVisitHistory = true,
             onBack = { selectedPerson = null },
             viewModel = viewModel,
         )
@@ -103,19 +109,23 @@ fun SuperAdminInterestedRecordsScreen(
     val allPeople by peopleFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showInactive by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
+    // "Move the By Congregation from textbox to Dropdown same as the other
+    // module filter" — a real Congregation dropdown now, replacing the old
+    // "type the congregation name into Search" behavior.
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<InterestedPerson?>(null) }
     val showToast = rememberActionToast()
 
     val congregationNameById = remember(congregations) { congregations.associateBy({ it.id }, { it.name }) }
-    val people = remember(allPeople, showInactive, query, congregationNameById) {
+    val people = remember(allPeople, showInactive, congregationFilter, query, congregationNameById) {
         allPeople
             .filter { showInactive || it.status == RecordStatus.ACTIVE }
+            .filter { congregationFilter == null || it.congregationId == congregationFilter }
             .filter { p ->
                 query.isBlank() ||
                     p.name.contains(query, ignoreCase = true) ||
-                    p.address.contains(query, ignoreCase = true) ||
-                    (congregationNameById[p.congregationId]?.contains(query, ignoreCase = true) == true)
+                    p.address.contains(query, ignoreCase = true)
             }
             .sortedBy { it.name }
     }
@@ -141,10 +151,16 @@ fun SuperAdminInterestedRecordsScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            CongregationFilterDropdown(
+                congregations = congregations,
+                selectedCongregationId = congregationFilter,
+                onSelected = { congregationFilter = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("Search by name, address, or congregation") },
+                label = { Text("Search by name or address") },
                 leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                 singleLine = true,
                 visualTransformation = VisualTransformation.None,

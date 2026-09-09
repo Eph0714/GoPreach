@@ -179,13 +179,25 @@ class UserSession @Inject constructor(
      * .activeCongregationId]'s doc comment) — keeps that denormalized copy
      * current every time this session's own active role changes. Admin/
      * Coordinator Elder/Service Overseer/Ministerial Servant get their
-     * congregation; a Regular Elder or Publisher's own group/congregation
+     * congregation for [activeAdminRole]'s sake (that pair is what Group
+     * Chat's own rules key off); a Regular Elder's own group/congregation
      * isn't a "manage every group chat in this congregation" scope the same
-     * way, so those resolve to null here (unaffected: they can still be
+     * way, so that one resolves to null here (unaffected: they can still be
      * added as a participant and reach a chat through [GroupChat
-     * .participantIds] alone, which needs no congregation match). Fires
-     * once per actual change, not on every recomposition-driven re-read of
-     * [state] — [distinctUntilChanged] on the resolved pair below, not on
+     * .participantIds] alone, which needs no congregation match).
+     *
+     * A Publisher active role also resolves [congregationId] now — the
+     * Territory Congregation restriction on Return Visits/Bible Studies/
+     * Visit History needs a Publisher's own enrolled congregation available
+     * to firestore.rules the same way Group Chat's admin-track congregation
+     * already is; [role]/[activeAdminRole] deliberately stays null for a
+     * Publisher (it never holds an [AdminRole]), so this is additive and
+     * doesn't change anything [canManageGroupChatsFor] already checks (that
+     * function still requires [activeAdminRole] to be one of the four admin
+     * roles above, which a Publisher-only session never satisfies).
+     *
+     * Fires once per actual change, not on every recomposition-driven re-read
+     * of [state] — [distinctUntilChanged] on the resolved pair below, not on
      * [SessionState] itself (which differs on every roleAssignments/grant
      * emission even when the *active* role hasn't moved).
      */
@@ -194,9 +206,13 @@ class UserSession @Inject constructor(
             state
                 .map { s ->
                     val person = s.person ?: return@map null
-                    val role = (s.activeRoleAssignment?.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role
-                    val congregationId = s.activeRoleAssignment?.congregationId.takeIf {
-                        role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT)
+                    val resolvedRole = s.activeRoleAssignment?.resolvedRoleTypeOrNull()
+                    val role = (resolvedRole as? RoleType.Admin)?.role
+                    val congregationId = when {
+                        role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT) ->
+                            s.activeRoleAssignment?.congregationId
+                        resolvedRole is RoleType.Publisher -> s.activeRoleAssignment?.congregationId
+                        else -> null
                     }
                     Triple(person, congregationId, role?.name)
                 }
