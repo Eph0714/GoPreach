@@ -97,10 +97,14 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import com.emfitsolutions.gopreach.data.location.LatLng
 import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
+import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.ui.components.isValidLatitude
 import com.emfitsolutions.gopreach.ui.components.isValidLongitude
 import com.emfitsolutions.gopreach.ui.components.openCoordinatesInMaps
+import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelinePersonDetailScreen
+import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineViewModel
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -141,9 +145,55 @@ fun TerritoryMapScreen(
     showAdvancedFilter: Boolean = false,
     onBack: () -> Unit,
     viewModel: TerritoryMapViewModel = hiltViewModel(),
+    pipelineViewModel: PipelineViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val isSuperAdmin = fixedCongregationId == null
+    val showToast = rememberActionToast()
+
+    // "Territory Maps — Direct Return Visit Recording" — selecting a
+    // Return Visit (or Bible Study/Searching) marker/row opens the same
+    // full detail + Visit History screen the Pipeline module already uses
+    // (Add/Edit/Delete Visit History, ownership rules, congregation display
+    // — all unchanged), rather than a second, parallel implementation.
+    // `null` means the map/list itself is showing.
+    var selectedPersonForDetails by remember { mutableStateOf<InterestedPerson?>(null) }
+
+    val current = selectedPersonForDetails
+    if (current != null) {
+        val congregationName by remember(current.congregationId) { pipelineViewModel.congregationName(current.congregationId) }.collectAsStateWithLifecycle(initialValue = null)
+        PipelinePersonDetailScreen(
+            person = current,
+            currentPersonId = currentPersonId,
+            congregationName = congregationName ?: "—",
+            stage = current.pipelineStage,
+            // A Publisher opening someone else's Return Visit from the map
+            // never gets cross-Publisher Visit History management rights —
+            // same standard ownership rules PipelineScreen's own routes
+            // already enforce (see PipelineViewModel.saveVisit/deleteVisit).
+            canManageAllVisitHistory = false,
+            onBack = { selectedPersonForDetails = null },
+            viewModel = pipelineViewModel,
+        )
+        return
+    }
+
+    // "Determine congregation membership from the authenticated user's
+    // database record... do not rely solely on the congregation name sent
+    // by the mobile client" — [fixedCongregationId] IS that server-resolved
+    // value already (see GoPreachNavGraph: derived from the signed-in
+    // session's own RoleAssignment, never client-editable); re-checked here,
+    // defensively, against the specific record being opened, even though
+    // every row already reaching this screen came from a congregation-
+    // scoped query in the first place (see [rowsFor]) and should never fail
+    // this. `null` (Super-Admin) always passes.
+    fun tryOpenDetails(person: InterestedPerson) {
+        if (fixedCongregationId != null && person.congregationId != fixedCongregationId) {
+            showToast("You do not have access to this Return Visit.")
+            return
+        }
+        selectedPersonForDetails = person
+    }
     var advancedFilter by remember { mutableStateOf(TerritoryFilterState()) }
     var showFilterSheet by remember { mutableStateOf(false) }
     val groupMemberIdsFlow = remember(advancedFilter.groupId) {
@@ -259,6 +309,9 @@ fun TerritoryMapScreen(
                     focusLat = focusLat,
                     focusLng = focusLng,
                     focusName = focusName,
+                    onRecordVisit = { personId ->
+                        advancedFilteredRows.firstOrNull { it.person.id == personId }?.let { tryOpenDetails(it.person) }
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -293,9 +346,7 @@ fun TerritoryMapScreen(
                             val lat = row.person.gpsLat
                             val lng = row.person.gpsLng
                             Card(
-                                modifier = Modifier.fillMaxWidth().let {
-                                    if (lat != null && lng != null) it.clickable { openCoordinatesInMaps(context, lat, lng, row.person.name) } else it
-                                },
+                                modifier = Modifier.fillMaxWidth().clickable { tryOpenDetails(row.person) },
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -315,6 +366,17 @@ fun TerritoryMapScreen(
                                             style = MaterialTheme.typography.bodySmall,
                                         )
                                         Text("Congregation/Group: ${row.congregationName}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    // "Open in Maps" moves to a small trailing
+                                    // action — tapping the row itself now opens
+                                    // the full Return Visit details (spec:
+                                    // "Territory Map → Tap ... Marker → ...
+                                    // Details → Record Visit"), same primary
+                                    // action Map View's own marker tap uses.
+                                    if (lat != null && lng != null) {
+                                        IconButton(onClick = { openCoordinatesInMaps(context, lat, lng, row.person.name) }) {
+                                            Icon(Icons.Rounded.Map, contentDescription = "Open in Maps")
+                                        }
                                     }
                                 }
                             }
@@ -400,6 +462,13 @@ private fun TerritoryLiveMap(
     focusLat: Double? = null,
     focusLng: Double? = null,
     focusName: String? = null,
+    // "Territory Maps — Direct Return Visit Recording" — invoked with the
+    // tapped pipeline point's own personId (Searching/Return Visit/Bible
+    // Study only, never a Publisher/Me marker — see MapPointDetailsSheet's
+    // own gating) when the sheet's Record Visit/View Details button is
+    // tapped; the caller re-validates congregation access and owns the
+    // actual detail screen (this composable knows nothing about Pipeline).
+    onRecordVisit: (personId: String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -1058,6 +1127,10 @@ private fun TerritoryLiveMap(
             myLocation = myLocation,
             onDismiss = { selectedPointId = null },
             onOpenInMaps = { openCoordinatesInMaps(context, selectedPoint.lat, selectedPoint.lng, selectedPoint.name) },
+            onRecordVisit = {
+                selectedPointId = null
+                onRecordVisit(selectedPoint.id.removePrefix("pipeline_"))
+            },
         )
     }
 
@@ -1102,7 +1175,14 @@ private fun MapPointDetailsSheet(
     myLocation: LatLng?,
     onDismiss: () -> Unit,
     onOpenInMaps: () -> Unit,
+    onRecordVisit: () -> Unit,
 ) {
+    // "Clearly distinguish Return Visit locations from other territory
+    // locations" — already true structurally (see [MapPoint.kind]'s own doc
+    // comment); this just decides which kinds get a Record Visit button at
+    // all — a Publisher marker/your own location was never a pipeline
+    // record to record a visit against.
+    val isPipelinePoint = point.kind == MapPointKind.SEARCHING || point.kind == MapPointKind.RETURN_VISIT || point.kind == MapPointKind.BIBLE_STUDY
     val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).padding(bottom = 24.dp)) {
@@ -1143,9 +1223,23 @@ private fun MapPointDetailsSheet(
                 if (point.kind == MapPointKind.PUBLISHER && point.updatedAt != null) {
                     DetailRow(label = "Last Updated", value = formatRelativeTime(point.updatedAt))
                 }
+                if (isPipelinePoint) {
+                    DetailRow(label = "Congregation", value = point.congregation)
+                }
             }
 
-            Button(onClick = onOpenInMaps, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+            // "Territory Map → Tap Return Visit Marker → Return Visit
+            // Details → Record Visit" — the primary action for a pipeline
+            // point; opens the full details + Visit History screen (see
+            // TerritoryMapScreen's own onRecordVisit wiring), which is also
+            // where the complete Visit History and "Log Visit" FAB already
+            // live (same screen the Pipeline module itself uses).
+            if (isPipelinePoint) {
+                Button(onClick = onRecordVisit, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    Text("View Details / Record Visit")
+                }
+            }
+            OutlinedButton(onClick = onOpenInMaps, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Text("Open in Maps")
             }
         }
