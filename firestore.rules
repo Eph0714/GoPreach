@@ -305,13 +305,157 @@ service cloud.firestore {
       }
     }
 
-    // Everything else (schedules, territories, Bible studies, interested
-    // persons, shared locations, app settings, backups, audit log, ...):
-    // authenticated read/write, unchanged from before — none of these are
-    // named in the spec's permission list, and today's UI never routes a
-    // restricted user to them anyway.
+    // "Territory Map: Congregation-Restricted Return Visit Access" — Return
+    // Visit/Bible Study/Searching records ([InterestedPerson]) and their
+    // Visit History ([Visit], the `visits` subcollection) get real,
+    // server-side congregation enforcement on every WRITE here, on top of
+    // the existing PipelineViewModel/PipelineScreen UI checks (see those
+    // files' own doc comments) — spec: "Congregation access must be enforced
+    // at both the frontend and backend... Do not rely only on hiding map
+    // markers or UI buttons."
+    //
+    // Deliberately write-side only (create/update/delete) for now, not
+    // read/list: a read restriction here would also have to reject
+    // [com.emfitsolutions.gopreach.data.sync.mirrorFirestoreCollection]'s
+    // single unfiltered app-wide listener on `interestedPeople` (started
+    // once per sign-in — see RemoteSyncCoordinator.kt) and the unfiltered
+    // `visits` collection-group listener the Consolidated Monthly Report
+    // uses (see VisitRepository.startRemoteSyncAllForCongregationView) —
+    // Firestore denies an ENTIRE unfiltered query the instant any document
+    // it could return would fail a per-document read rule, for every caller,
+    // not just narrow the results. Neither listener is congregation-scoped
+    // today, so a read rule here would break Return Visit/Bible Study/
+    // Searching sync and the Consolidated Report outright rather than just
+    // closing the "open by direct ID" gap. That's a separate, larger
+    // follow-up (query-scoping the mirror + a `congregationId` field on
+    // `Visit` for the collection-group case), not done here.
+    //
+    // ROLLOUT NOTE: this relies on `people/{personId}.activeCongregationId`
+    // now also being kept current for a Publisher active role, not just the
+    // four admin-track roles it covered before (see UserSession
+    // .syncActiveRoleContext's own doc comment). Deploy that app update
+    // before/no later than this rules change — a Publisher signed into an
+    // app build that predates it has a stale/null activeCongregationId and
+    // would otherwise have every Return Visit/Visit History write rejected
+    // here until they update.
+    function interestedPersonCongregationId(db, personId) {
+      return get(/databases/$(db)/documents/interestedPeople/$(personId)).data.get('congregationId', null);
+    }
+
+    function interestedPersonOwnerId(db, personId) {
+      return get(/databases/$(db)/documents/interestedPeople/$(personId)).data.get('publisherPersonId', null);
+    }
+
+    // True for the Super-Admin (every congregation), or a signed-in caller
+    // whose own denormalized `activeCongregationId` (Publisher or the four
+    // admin-track roles alike) matches [congregationId].
+    function inMyActiveCongregation(db, congregationId) {
+      return isSuperAdmin(db) || (
+        isSignedIn() &&
+        exists(/databases/$(db)/documents/people/$(personIdFromToken())) &&
+        myPerson(db).get('activeCongregationId', null) == congregationId
+      );
+    }
+
+    match /interestedPeople/{personId} {
+      allow read: if isSignedIn();
+      // A brand-new record must be stamped with the creator's own active
+      // congregation — never a client-chosen one (spec §20: "Do not trust...
+      // TerritoryCongregationID [when] supplied by the frontend").
+      allow create: if inMyActiveCongregation(database, request.resource.data.get('congregationId', null));
+      // Allowed if the caller can access EITHER the record's existing
+      // congregation (an ordinary same-congregation edit/GPS-capture/stage
+      // advance) OR the congregation it's being moved TO (the "Forward to
+      // Other Congregation" accept flow, performed by someone active in the
+      // *receiving* congregation, not the sending one — see
+      // ForwardRequestsViewModel.accept). Either way, a congregation with no
+      // relationship to the record at all — neither its current nor its
+      // requested owner — can never touch it.
+      allow update: if inMyActiveCongregation(database, resource.data.get('congregationId', null)) ||
+        inMyActiveCongregation(database, request.resource.data.get('congregationId', null));
+      allow delete: if inMyActiveCongregation(database, resource.data.get('congregationId', null));
+
+      match /visits/{visitId} {
+        allow read: if isSignedIn();
+        // The creator field must be the caller's own real identity — never
+        // trust a client-supplied Publisher id (spec §20) — and only within
+        // the parent Return Visit's own Territory Congregation.
+        allow create: if inMyActiveCongregation(database, interestedPersonCongregationId(database, personId)) &&
+          request.resource.data.get('createdByPersonId', null) == personIdFromToken();
+        // "Each Publisher may edit... only the Visit History entries that
+        // they personally created" (spec §8) — congregation access AND
+        // per-entry ownership both required; the creator field itself may
+        // never change on an edit. Super-Admin is the one explicitly
+        // authorized override this app's role system actually has today
+        // (mirrors [canManageAllVisitHistory] in PipelineScreen/
+        // PipelineViewModel).
+        allow update: if inMyActiveCongregation(database, interestedPersonCongregationId(database, personId)) &&
+          (isSuperAdmin(database) || resource.data.get('createdByPersonId', null) == personIdFromToken()) &&
+          request.resource.data.get('createdByPersonId', null) == resource.data.get('createdByPersonId', null) &&
+          request.resource.data.get('interestedPersonId', null) == resource.data.get('interestedPersonId', null);
+        // Same ownership rule as update, PLUS a narrow cascade exception:
+        // the Return Visit's own original/enrolled Publisher (its
+        // `publisherPersonId`) may delete any of its Visit History entries,
+        // not just their own — needed for PipelineViewModel.permanentlyDelete,
+        // which deletes every visit under a record when that record's owner
+        // permanently deletes the whole thing (spec's "Admin Record
+        // Deletion"). This is scoped to deleting the entry alongside its own
+        // parent, never a standing grant to edit/reassign another
+        // Publisher's history — update above still has no such exception.
+        allow delete: if inMyActiveCongregation(database, interestedPersonCongregationId(database, personId)) &&
+          (isSuperAdmin(database) ||
+            resource.data.get('createdByPersonId', null) == personIdFromToken() ||
+            interestedPersonOwnerId(database, personId) == personIdFromToken());
+      }
+    }
+
+    // Everything else (schedules, territories, shared locations, app
+    // settings, backups, audit log, ...): authenticated read/write,
+    // unchanged from before — none of these are named in the spec's
+    // permission list, and today's UI never routes a restricted user to them
+    // anyway.
+    //
+    // CRITICAL: `{document=**}` is a *recursive* wildcard — it matches every
+    // path in the database, including every one already handled by a
+    // specific `match` block above. Firestore combines every `match` block
+    // whose pattern fits a given path with a logical OR, so left unqualified
+    // this single `isSignedIn()` clause silently re-grants blanket access to
+    // ALL of them, no matter how restrictive their own rule is (a plain
+    // `isSignedIn()` is strictly weaker than every check above, so it always
+    // wins the OR whenever it's satisfied). Concretely, before this guard was
+    // widened to cover them too, this catch-all was quietly overriding:
+    //  - `userAccessGrants` — any signed-in account, not just Super-Admin/
+    //    MANAGE_USERS, could write ANY `userAccessGrants/{personId}` document,
+    //    including their own — a full self-service privilege-escalation path
+    //    (grant yourself ALL_CONGREGATIONS + every Permission).
+    //  - `congregations`/`groups`/`roleAssignments`/`monthlyReports` — every
+    //    `restrictedAllows()` permission+scope check for a grant-based
+    //    restricted user (spec §6-§8/§13) was a dead check; such an account
+    //    actually had full, unrestricted read/write everywhere via this
+    //    catch-all instead.
+    //  - `bibleTextCategories`/`bibleTextRecords` — the "must equal the
+    //    caller's own personId" ownership check never applied; any signed-in
+    //    user could read/edit/delete anyone's Bible Text records.
+    //  - `groupChats` (and its `messages`) — the congregation isolation
+    //    ("an Admin must never reach another congregation's chats... even
+    //    through direct URLs") never applied; any signed-in user could read
+    //    or write any chat/message in any congregation.
+    // The `!document.matches(...)` guard below excludes every one of those
+    // subtrees (plus `interestedPeople`, added by the Territory Map pass)
+    // from this clause, so each keeps only its own, real rule; everything NOT
+    // listed here (schedules, territories, shared locations, app settings,
+    // backups, audit log, ...) is unaffected.
+    //
+    // Heads-up: this is a genuine tightening, not just a doc fix — any
+    // restricted (Circuit Overseer/grant-based) account already provisioned
+    // in production was silently operating with full access until now; after
+    // this change they're actually held to their configured grant for the
+    // first time. Expect that to be a visible, correct narrowing for any such
+    // live account, not a regression.
     match /{document=**} {
-      allow read, write: if isSignedIn();
+      allow read, write: if isSignedIn() && !document.matches(
+        '^(interestedPeople|passwordResetRequests|people|userAccessGrants|congregations|groups|roleAssignments|monthlyReports|bibleTextCategories|bibleTextRecords|groupChats)(/.*)?$'
+      );
     }
   }
 }
