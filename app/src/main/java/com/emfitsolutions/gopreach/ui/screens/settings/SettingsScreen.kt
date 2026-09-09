@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -47,14 +46,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.activity.ComponentActivity
-import androidx.compose.material.icons.rounded.Language
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,12 +70,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.BuildConfig
+import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.repository.ThemePreference
 import com.emfitsolutions.gopreach.notifications.AlarmScheduler
-import com.emfitsolutions.gopreach.domain.AppLanguage
 import com.emfitsolutions.gopreach.ui.components.ColorWheelPicker
 import com.emfitsolutions.gopreach.ui.components.EyedropperImagePicker
-import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import kotlinx.coroutines.launch
 import com.emfitsolutions.gopreach.ui.components.ThemeOptionRow
 import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
@@ -95,10 +91,7 @@ fun SettingsScreen(
     val theme by viewModel.theme.collectAsStateWithLifecycle()
     val colorOption by viewModel.colorOption.collectAsStateWithLifecycle()
     val customColor by viewModel.customColor.collectAsStateWithLifecycle()
-    val language by viewModel.language.collectAsStateWithLifecycle()
     var showCustomColorDialog by remember { mutableStateOf(false) }
-    val showToast = rememberActionToast()
-    LaunchedEffect(Unit) { viewModel.languageChanged.collect { showToast(it) } }
     // Explicitly Activity-scoped (not the default nav-entry scope) so this is
     // the *same* instance MainActivity's UpdateHost renders the result of —
     // otherwise tapping "Check for Updates" here would update a ViewModel
@@ -108,10 +101,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.dashboard_back_cd))
                     }
                 },
             )
@@ -125,27 +118,18 @@ fun SettingsScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(stringResource(com.emfitsolutions.gopreach.R.string.settings_language_title), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.settings_appearance_title), style = MaterialTheme.typography.titleMedium)
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                    AppLanguage.entries.forEach { option ->
-                        LanguageOptionRow(option = option, selected = language, onSelected = viewModel::setLanguage)
-                    }
+                    ThemeOptionRow(stringResource(R.string.settings_theme_system), ThemePreference.SYSTEM, theme, viewModel::setTheme)
+                    ThemeOptionRow(stringResource(R.string.settings_theme_light), ThemePreference.LIGHT, theme, viewModel::setTheme)
+                    ThemeOptionRow(stringResource(R.string.settings_theme_dark), ThemePreference.DARK, theme, viewModel::setTheme)
                 }
             }
 
-            Text("Appearance", style = MaterialTheme.typography.titleMedium)
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                    ThemeOptionRow("System default", ThemePreference.SYSTEM, theme, viewModel::setTheme)
-                    ThemeOptionRow("Light", ThemePreference.LIGHT, theme, viewModel::setTheme)
-                    ThemeOptionRow("Dark", ThemePreference.DARK, theme, viewModel::setTheme)
-                }
-            }
-
-            Text("Theme Color", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.settings_theme_color_title), style = MaterialTheme.typography.titleMedium)
             Text(
-                "Your own choice on this device only — not shared with anyone else.",
+                stringResource(R.string.settings_theme_color_subtitle),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -242,12 +226,12 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
         }
     }
 
-    Text("Notifications", style = MaterialTheme.typography.titleMedium)
+    Text(stringResource(R.string.settings_notifications_title), style = MaterialTheme.typography.titleMedium)
     Card(modifier = Modifier.fillMaxWidth()) {
         Column {
             ListItem(
-                headlineContent = { Text("Notifications") },
-                supportingContent = { Text("Transfer requests, announcements, and monthly report reminders. Calendar Alarms you've scheduled still ring either way.") },
+                headlineContent = { Text(stringResource(R.string.settings_notifications_title)) },
+                supportingContent = { Text(stringResource(R.string.settings_notifications_subtitle)) },
                 leadingContent = { Icon(Icons.Rounded.Notifications, contentDescription = null) },
                 trailingContent = {
                     Switch(checked = notificationsEnabled, onCheckedChange = viewModel::setNotificationsEnabled)
@@ -262,8 +246,8 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
             // already used before this section existed.
             androidx.compose.material3.HorizontalDivider()
             ListItem(
-                headlineContent = { Text("Enable Notification Sounds") },
-                supportingContent = { Text("Play a sound for incoming notifications. Popups still show either way.") },
+                headlineContent = { Text(stringResource(R.string.settings_sounds_title)) },
+                supportingContent = { Text(stringResource(R.string.settings_sounds_subtitle)) },
                 leadingContent = { Icon(Icons.Rounded.MusicNote, contentDescription = null) },
                 modifier = Modifier.alpha(if (notificationsEnabled) 1f else 0.5f),
                 trailingContent = {
@@ -272,8 +256,8 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
             )
             androidx.compose.material3.HorizontalDivider()
             ListItem(
-                headlineContent = { Text("Show Popup Notifications") },
-                supportingContent = { Text("Show a notification popup for incoming activity. The notification balloon and badge always update either way.") },
+                headlineContent = { Text(stringResource(R.string.settings_popups_title)) },
+                supportingContent = { Text(stringResource(R.string.settings_popups_subtitle)) },
                 leadingContent = { Icon(Icons.Rounded.Notifications, contentDescription = null) },
                 modifier = Modifier.alpha(if (notificationsEnabled) 1f else 0.5f),
                 trailingContent = {
@@ -282,8 +266,8 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
             )
             androidx.compose.material3.HorizontalDivider()
             ListItem(
-                headlineContent = { Text("Transfer Request Notifications") },
-                supportingContent = { Text("Incoming and outgoing transfer/forward requests.") },
+                headlineContent = { Text(stringResource(R.string.settings_transfer_requests_title)) },
+                supportingContent = { Text(stringResource(R.string.settings_transfer_requests_subtitle)) },
                 leadingContent = { Icon(Icons.Rounded.SwapHoriz, contentDescription = null) },
                 modifier = Modifier.alpha(if (notificationsEnabled) 1f else 0.5f),
                 trailingContent = {
@@ -292,8 +276,8 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
             )
             androidx.compose.material3.HorizontalDivider()
             ListItem(
-                headlineContent = { Text("Announcement Notifications") },
-                supportingContent = { Text("Newly published announcements.") },
+                headlineContent = { Text(stringResource(R.string.settings_announcements_title)) },
+                supportingContent = { Text(stringResource(R.string.settings_announcements_subtitle)) },
                 leadingContent = { Icon(Icons.Rounded.Campaign, contentDescription = null) },
                 modifier = Modifier.alpha(if (notificationsEnabled) 1f else 0.5f),
                 trailingContent = {
@@ -302,8 +286,8 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
             )
             androidx.compose.material3.HorizontalDivider()
             ListItem(
-                headlineContent = { Text("Group Chat Message Notifications") },
-                supportingContent = { Text("New messages in your Group Chats.") },
+                headlineContent = { Text(stringResource(R.string.settings_group_chat_messages_title)) },
+                supportingContent = { Text(stringResource(R.string.settings_group_chat_messages_subtitle)) },
                 leadingContent = { Icon(Icons.Rounded.ChatBubble, contentDescription = null) },
                 modifier = Modifier.alpha(if (notificationsEnabled) 1f else 0.5f),
                 trailingContent = {
@@ -312,8 +296,8 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
             )
             androidx.compose.material3.HorizontalDivider()
             ListItem(
-                headlineContent = { Text("System Notifications") },
-                supportingContent = { Text("Monthly report reminders and other important system notices.") },
+                headlineContent = { Text(stringResource(R.string.settings_system_notifications_title)) },
+                supportingContent = { Text(stringResource(R.string.settings_system_notifications_subtitle)) },
                 leadingContent = { Icon(Icons.Rounded.PriorityHigh, contentDescription = null) },
                 modifier = Modifier.alpha(if (notificationsEnabled) 1f else 0.5f),
                 trailingContent = {
@@ -321,9 +305,10 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
                 },
             )
             androidx.compose.material3.HorizontalDivider()
+            val notificationSoundTitle = stringResource(R.string.settings_notification_sound_title)
             ListItem(
-                headlineContent = { Text("Notification Sound") },
-                supportingContent = { Text(ringtoneTitle(context, soundUri)) },
+                headlineContent = { Text(notificationSoundTitle) },
+                supportingContent = { Text(ringtoneTitle(context, soundUri, stringResource(R.string.settings_notification_sound_default), stringResource(R.string.settings_notification_sound_custom))) },
                 leadingContent = { Icon(Icons.Rounded.MusicNote, contentDescription = null) },
                 modifier = Modifier
                     .alpha(if (notificationsEnabled) 1f else 0.5f)
@@ -337,13 +322,13 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
                                 RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
                             )
                             putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, soundUri)
-                            putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Notification Sound")
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, notificationSoundTitle)
                         }
                         pickRingtone.launch(intent)
                     },
             )
             Text(
-                "Plays for every incoming notification — transfer requests, announcements, and calendar alarms.",
+                stringResource(R.string.settings_notification_sound_footnote),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
@@ -351,8 +336,8 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !exactAlarmsAllowed) {
                 androidx.compose.material3.HorizontalDivider()
                 ListItem(
-                    headlineContent = { Text("Allow Exact Alarms") },
-                    supportingContent = { Text("Needed so Calendar Alarms ring at the exact scheduled time.") },
+                    headlineContent = { Text(stringResource(R.string.settings_exact_alarms_title)) },
+                    supportingContent = { Text(stringResource(R.string.settings_exact_alarms_subtitle)) },
                     leadingContent = { Icon(Icons.Rounded.Alarm, contentDescription = null) },
                     modifier = Modifier.clickable {
                         context.startActivity(
@@ -366,8 +351,8 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
             }
             androidx.compose.material3.HorizontalDivider()
             ListItem(
-                headlineContent = { Text("Test Notification") },
-                supportingContent = { Text("Run a quick check and send a real test notification to this device.") },
+                headlineContent = { Text(stringResource(R.string.settings_test_notification_title)) },
+                supportingContent = { Text(stringResource(R.string.settings_test_notification_subtitle)) },
                 leadingContent = { Icon(Icons.Rounded.NotificationsActive, contentDescription = null) },
                 modifier = Modifier.clickable {
                     diagnosticsResult = viewModel.runNotificationDiagnostics()
@@ -383,7 +368,7 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
         val allPassed = results.all { it.passed }
         AlertDialog(
             onDismissRequest = { diagnosticsResult = null },
-            title = { Text(if (allPassed) "Test Notification Sent" else "Notification Check Failed") },
+            title = { Text(stringResource(if (allPassed) R.string.settings_test_notification_sent_title else R.string.settings_test_notification_failed_title)) },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     results.forEach { diagnostic ->
@@ -403,7 +388,7 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
                     }
                     if (allPassed) {
                         Text(
-                            "If you didn't hear a sound, check that your device isn't in silent/Do Not Disturb mode.",
+                            stringResource(R.string.settings_silent_mode_hint),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 8.dp),
@@ -412,7 +397,7 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { diagnosticsResult = null }) { Text("OK") }
+                TextButton(onClick = { diagnosticsResult = null }) { Text(stringResource(R.string.action_ok)) }
             },
         )
     }
@@ -420,11 +405,13 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
 
 /** Best-effort human-readable name for [uri] via [RingtoneManager] — falls
  * back to a generic label rather than crashing if the picked sound was later
- * uninstalled/removed (e.g. a ringtone from an app the user removed). */
-private fun ringtoneTitle(context: android.content.Context, uri: Uri?): String {
-    if (uri == null) return "Default"
+ * uninstalled/removed (e.g. a ringtone from an app the user removed).
+ * [defaultLabel]/[customLabel] are resolved by the caller ([stringResource]
+ * only works inside a @Composable, and this plain function isn't one). */
+private fun ringtoneTitle(context: android.content.Context, uri: Uri?, defaultLabel: String, customLabel: String): String {
+    if (uri == null) return defaultLabel
     return runCatching { RingtoneManager.getRingtone(context, uri)?.getTitle(context) }
-        .getOrNull() ?: "Custom sound"
+        .getOrNull() ?: customLabel
 }
 
 /**
@@ -445,14 +432,14 @@ private fun AppVersionSection(updateViewModel: UpdateViewModel) {
     var shareError by remember { mutableStateOf<String?>(null) }
     val installedUpdateInfo = remember { updateViewModel.installedUpdateInfo }
 
-    Text("App Version", style = MaterialTheme.typography.titleMedium)
+    Text(stringResource(R.string.settings_app_version_title), style = MaterialTheme.typography.titleMedium)
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.settings_version_label, BuildConfig.VERSION_NAME), style = MaterialTheme.typography.bodyMedium)
 
             if (installedUpdateInfo != null && installedUpdateInfo.releaseNotes.isNotBlank()) {
                 Text(
-                    "What's New",
+                    stringResource(R.string.settings_whats_new_title),
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.padding(top = 4.dp),
                 )
@@ -466,16 +453,18 @@ private fun AppVersionSection(updateViewModel: UpdateViewModel) {
             Button(
                 onClick = updateViewModel::checkManually,
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            ) { Text("Check for Updates") }
+            ) { Text(stringResource(R.string.settings_check_updates)) }
 
+            val shareFetchError = stringResource(R.string.settings_share_fetch_error)
+            val shareChooserTitle = stringResource(R.string.settings_share_chooser_title)
             OutlinedButton(
                 onClick = {
                     isSharing = true
                     shareError = null
                     coroutineScope.launch {
                         updateViewModel.fetchLatestForShare()
-                            .onSuccess { info -> launchAppShare(context, updateViewModel.shareText(info)) }
-                            .onFailure { shareError = "Couldn't fetch the latest download link. Check your connection and try again." }
+                            .onSuccess { info -> launchAppShare(context, updateViewModel.shareText(info), shareChooserTitle) }
+                            .onFailure { shareError = shareFetchError }
                         isSharing = false
                     }
                 },
@@ -487,39 +476,23 @@ private fun AppVersionSection(updateViewModel: UpdateViewModel) {
                 } else {
                     Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
                 }
-                Text("Share App")
+                Text(stringResource(R.string.settings_share_app))
             }
         }
     }
 }
 
-private fun launchAppShare(context: android.content.Context, text: String) {
+/** [chooserTitle] is resolved by the caller ([stringResource] only works
+ * inside a @Composable). "GoPreach" itself (the share subject) is the app's
+ * own name, not translated anywhere else in this app either — see
+ * strings.xml's app_name entry. */
+private fun launchAppShare(context: android.content.Context, text: String, chooserTitle: String) {
     val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
         type = "text/plain"
         putExtra(android.content.Intent.EXTRA_SUBJECT, "GoPreach")
         putExtra(android.content.Intent.EXTRA_TEXT, text)
     }
-    context.startActivity(android.content.Intent.createChooser(intent, "Share GoPreach"))
-}
-
-/** "Settings -> Language" — English/Filipino/Iloko, same radio-row shape
- * [ThemeOptionRow] already uses for the Appearance section right below this
- * one. Picking a row applies immediately (see [SettingsViewModel.setLanguage]'s
- * own doc comment for why — on-device first, then synced to the signed-in
- * Person's profile). */
-@Composable
-private fun LanguageOptionRow(option: AppLanguage, selected: AppLanguage, onSelected: (AppLanguage) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .selectable(selected = selected == option, onClick = { onSelected(option) })
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected == option, onClick = { onSelected(option) })
-        Icon(Icons.Rounded.Language, contentDescription = null, modifier = Modifier.padding(start = 8.dp, end = 8.dp))
-        Text(option.displayLabel, style = MaterialTheme.typography.bodyLarge)
-    }
+    context.startActivity(android.content.Intent.createChooser(intent, chooserTitle))
 }
 
 /** One tappable swatch + label in the Theme Color picker — the swatch itself is
@@ -588,7 +561,7 @@ private fun CustomColorSwatchOption(
             val iconTint = if (selected && customColor.luminance() < 0.5f) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
             Icon(Icons.Rounded.Palette, contentDescription = "Custom color", tint = iconTint)
         }
-        Text("Custom", style = MaterialTheme.typography.labelSmall)
+        Text(stringResource(R.string.settings_custom_swatch_label), style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -608,7 +581,7 @@ private fun CustomColorPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Choose a Custom Color") },
+        title = { Text(stringResource(R.string.settings_custom_color_title)) },
         text = {
             Column(
                 modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()).imePadding(),
@@ -624,13 +597,13 @@ private fun CustomColorPickerDialog(
                 ColorWheelPicker(color = pickedColor, onColorChanged = { pickedColor = it })
                 EyedropperImagePicker(onColorPicked = { pickedColor = it }, modifier = Modifier.fillMaxWidth())
                 Text(
-                    "The color applied may be adjusted slightly to stay readable against white text.",
+                    stringResource(R.string.settings_custom_color_footnote),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onApply(pickedColor) }) { Text("Apply") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onApply(pickedColor) }) { Text(stringResource(R.string.action_apply)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }

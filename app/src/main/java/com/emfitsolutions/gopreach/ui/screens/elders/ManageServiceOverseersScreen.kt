@@ -128,10 +128,14 @@ private fun ServiceOverseerEditDialog(
     val additionalRolesFlow = remember(row.person.id) { viewModel.additionalRolesFor(row.person.id) }
     var isGroupOverseer by remember { mutableStateOf(false) }
     var publisherCategory by remember { mutableStateOf<PublisherCategory?>(null) }
+    var initialIsGroupOverseer by remember { mutableStateOf(false) }
+    var initialPublisherCategory by remember { mutableStateOf<PublisherCategory?>(null) }
     LaunchedEffect(additionalRolesFlow) {
         val (loadedIsGroupOverseer, loadedPublisherCategory) = additionalRolesFlow.first()
         isGroupOverseer = loadedIsGroupOverseer
         publisherCategory = loadedPublisherCategory
+        initialIsGroupOverseer = loadedIsGroupOverseer
+        initialPublisherCategory = loadedPublisherCategory
     }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -171,6 +175,10 @@ private fun ServiceOverseerEditDialog(
         onConfirm = ::submit,
         confirmLabel = "Save Changes",
         errorMessage = errorMessage,
+        hasUnsavedChanges = firstName != row.person.firstName || lastName != row.person.lastName ||
+            address != row.person.address || contact != row.person.contact || email != (row.person.email ?: "") ||
+            pickedCongregationId != row.assignment.congregationId ||
+            isGroupOverseer != initialIsGroupOverseer || publisherCategory != initialPublisherCategory,
         maxContentHeight = 560.dp,
     ) {
                 EditSectionHeader("Personal Information")

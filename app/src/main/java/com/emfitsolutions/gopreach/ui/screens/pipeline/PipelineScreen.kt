@@ -475,6 +475,15 @@ internal fun PipelinePersonDialog(
         confirmLabel = if (existingPerson == null) "Add" else "Save",
         errorMessage = errorMessage,
         maxContentHeight = 620.dp,
+        hasUnsavedChanges = name != existingPerson?.name.orEmpty() || spouse != existingPerson?.spouse.orEmpty() ||
+            address != existingPerson?.address.orEmpty() || province != existingPerson?.province ||
+            cityMunicipality != existingPerson?.cityMunicipality || barangay != existingPerson?.barangay ||
+            children != existingPerson?.children.orEmpty() || religion != existingPerson?.religion.orEmpty() ||
+            ageText != existingPerson?.ageYears?.toString().orEmpty() || placeOrigin != existingPerson?.placeOrigin.orEmpty() ||
+            language != existingPerson?.language.orEmpty() || literaturePlace != existingPerson?.literaturePlace.orEmpty() ||
+            remarks != existingPerson?.remarks.orEmpty() || notes != existingPerson?.notes.orEmpty() ||
+            gender != existingPerson?.gender || image != existingPerson?.primarySupportingImage ||
+            coordinates != originalCoordinates,
     ) {
                 // "Move the capture coordinates in the upper part of the
                 // enrollment" — captured (or manually entered) first, so the
@@ -1037,6 +1046,7 @@ private fun ForwardToCongregationDialog(
         confirmLabel = "Send Request",
         errorMessage = errorMessage,
         maxContentHeight = 420.dp,
+        hasUnsavedChanges = selected != null,
     ) {
         OutlinedTextField(
             value = query,
@@ -1107,6 +1117,7 @@ private fun ForwardToPublisherDialog(
         confirmLabel = "Send Request",
         errorMessage = errorMessage,
         maxContentHeight = 420.dp,
+        hasUnsavedChanges = selected != null,
     ) {
         OutlinedTextField(
             value = query,
@@ -1321,6 +1332,9 @@ private fun AddVisitDialog(
         confirmLabel = if (existingVisit == null) "Save" else "Save Changes",
         errorMessage = errorMessage,
         maxContentHeight = 480.dp,
+        hasUnsavedChanges = visitDate != existingVisit?.visitDate || topic != existingVisit?.topicDiscussed.orEmpty() ||
+            outcome != (existingVisit?.outcome ?: VisitOutcome.NOT_AT_HOME) ||
+            minutesText != existingVisit?.timeConsumedMinutes?.toString().orEmpty() || followUpDate != existingVisit?.followUpDate,
     ) {
                 DateTimeField(label = "Visit Date/Time", valueMillis = visitDate, onValueChange = { visitDate = it })
                 OutlinedTextField(value = topic, onValueChange = { topic = it.uppercase() }, label = { Text("Remarks / Topic Discussed (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())

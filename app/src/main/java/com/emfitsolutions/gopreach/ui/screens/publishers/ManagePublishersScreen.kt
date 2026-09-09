@@ -221,7 +221,10 @@ fun ManagePublishersScreen(
                             } else {
                                 CategoryDropdown(
                                     selected = row.category,
-                                    onSelected = { newCategory -> viewModel.changeCategory(row, newCategory, currentPersonId) },
+                                    onSelected = { newCategory ->
+                                        viewModel.changeCategory(row, newCategory, currentPersonId)
+                                        showToast("Publisher Status Category updated successfully.")
+                                    },
                                 )
                             }
                         }
@@ -344,6 +347,12 @@ private fun EditPublisherDialog(
         confirmLabel = "Save Changes",
         errorMessage = errorMessage,
         maxContentHeight = 560.dp,
+        hasUnsavedChanges = firstName != row.person.firstName || lastName != row.person.lastName ||
+            middleInitial != row.person.middleInitial.orEmpty() || extensionName != row.person.extensionName.orEmpty() ||
+            gender != row.person.gender || email != row.person.email.orEmpty() ||
+            address != row.person.address || contact != row.person.contact ||
+            contactPerson != row.person.contactPerson.orEmpty() || contactPersonNumber != row.person.contactPersonNumber.orEmpty() ||
+            category != row.category || groupId != row.assignment.groupId || accountStatus != row.person.accountStatus,
     ) {
                 EditSectionHeader("Personal Information")
                 OutlinedTextField(

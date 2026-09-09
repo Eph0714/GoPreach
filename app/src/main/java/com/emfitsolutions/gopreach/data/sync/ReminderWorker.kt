@@ -4,19 +4,12 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RecordStatus
-import com.emfitsolutions.gopreach.data.model.RoleAssignment
-import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
-import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
-import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.VisitRepository
-import com.emfitsolutions.gopreach.domain.PermissionChecker
-import com.emfitsolutions.gopreach.domain.PublisherAutoStatus
 import com.emfitsolutions.gopreach.domain.UserSession
 import com.emfitsolutions.gopreach.notifications.NotificationHelper
 import dagger.assisted.Assisted
@@ -51,8 +44,6 @@ class ReminderWorker @AssistedInject constructor(
     private val monthlyReportRepository: MonthlyReportRepository,
     private val preachingTimeRecordRepository: PreachingTimeRecordRepository,
     private val visitRepository: VisitRepository,
-    private val roleAssignmentRepository: RoleAssignmentRepository,
-    private val auditLogRepository: AuditLogRepository,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -60,15 +51,13 @@ class ReminderWorker @AssistedInject constructor(
         val session = userSession.state.value
         val person = session.person ?: return Result.success()
 
-        // "CREATING PUBLISHER" spec's auto-status rules — runs once a day
-        // alongside the reminder checks below, off whichever session happens
-        // to be signed in on this device (see ReminderScheduler's doc
-        // comment on why this app's checks are all client-side, no push/
-        // Cloud Functions backend). An Admin-track session sweeps every
-        // Publisher in their own visible scope, not just themselves, since
-        // an admin's device is the one most likely to be opened regularly
-        // enough to keep every publisher's status current.
-        runAutoStatusSweep(session.roleAssignments, person.id)
+        // "Publishers — Manual Status Category Management" — Status Category
+        // is a manually maintained field (see [RoleType.Publisher.category]);
+        // there used to be an automatic inactive/irregular-status sweep here
+        // (PublisherAutoStatus, since removed) that re-evaluated it off
+        // report history. This worker must never write a Publisher's
+        // category on its own — only an authorized user changing it through
+        // the Publisher record's own Status Category control may.
 
         val publisherCategory = session.roleAssignments
             .firstNotNullOfOrNull { (it.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category }
@@ -118,53 +107,5 @@ class ReminderWorker @AssistedInject constructor(
         }
 
         return Result.success()
-    }
-
-    /** See [PublisherAutoStatus] for the actual rule. [scopeAssignments] is
-     * the signed-in session's *own* RoleAssignments, used only to decide the
-     * sweep's scope (an Admin-track role broadens it to their whole
-     * congregation/all congregations; a plain Publisher narrows it to just
-     * themselves) — never mutated directly, unlike the assignments fetched
-     * from [roleAssignmentRepository] below, which are. */
-    private suspend fun runAutoStatusSweep(scopeAssignments: List<RoleAssignment>, signedInPersonId: String) {
-        val adminRole = PermissionChecker.highestAdminRole(scopeAssignments)
-        val scopeCongregationId = scopeAssignments.firstOrNull { assignment ->
-            val role = (assignment.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role
-            role == AdminRole.ADMIN_PER_CONGREGATION || role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER
-        }?.congregationId
-
-        val allAssignments = roleAssignmentRepository.observeAll().first()
-        val targets = when {
-            adminRole == AdminRole.SUPER_ADMIN -> allAssignments.filter { it.resolvedRoleTypeOrNull() is RoleType.Publisher }
-            scopeCongregationId != null -> allAssignments.filter {
-                it.resolvedRoleTypeOrNull() is RoleType.Publisher && it.congregationId == scopeCongregationId
-            }
-            // Not an Admin-track session at all — only re-evaluate the
-            // signed-in Publisher's own assignment(s), same as the reminder
-            // checks below already scope themselves to `person`.
-            else -> allAssignments.filter { it.personId == signedInPersonId && it.resolvedRoleTypeOrNull() is RoleType.Publisher }
-        }.filter { it.status == RoleAssignmentStatus.ACTIVE }
-
-        if (targets.isEmpty()) return
-        val allReports = monthlyReportRepository.observeAll().first()
-        val periodMonthStart = (Calendar.getInstance().clone() as Calendar).apply {
-            set(Calendar.DAY_OF_MONTH, 1)
-            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
-
-        targets.forEach { assignment ->
-            val category = (assignment.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category ?: return@forEach
-            val reports = allReports.filter { it.publisherPersonId == assignment.personId }
-            val newCategory = PublisherAutoStatus.evaluate(category, reports, periodMonthStart) ?: return@forEach
-            roleAssignmentRepository.save(assignment.copy(roleType = RoleType.serialize(RoleType.Publisher(newCategory))))
-            auditLogRepository.log(
-                actorPersonId = signedInPersonId,
-                action = "AUTO_CHANGE_PUBLISHER_STATUS",
-                targetType = "Person",
-                targetId = assignment.personId,
-                congregationId = assignment.congregationId,
-                details = "status: $category -> $newCategory (no consistent report in the last 6 months)",
-            )
-        }
     }
 }

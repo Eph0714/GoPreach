@@ -1,33 +1,13 @@
 package com.emfitsolutions.gopreach.ui.screens.notifications
 
 import androidx.lifecycle.ViewModel
-import com.emfitsolutions.gopreach.data.model.Announcement
-import com.emfitsolutions.gopreach.data.model.ForwardRequest
-import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
-import com.emfitsolutions.gopreach.data.model.MonthlyReport
-import com.emfitsolutions.gopreach.data.model.Person
-import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
-import com.emfitsolutions.gopreach.data.model.ReportStatus
-import com.emfitsolutions.gopreach.data.model.Schedule
-import com.emfitsolutions.gopreach.data.model.ScheduleKind
-import com.emfitsolutions.gopreach.data.repository.AnnouncementRepository
-import com.emfitsolutions.gopreach.data.repository.AnnouncementSeenStore
-import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
-import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.NotificationCategory
+import com.emfitsolutions.gopreach.data.repository.AnnouncementSeenStore
 import com.emfitsolutions.gopreach.data.repository.NotificationDismissedStore
 import com.emfitsolutions.gopreach.data.repository.NotificationSeenStore
-import com.emfitsolutions.gopreach.data.repository.PersonRepository
-import com.emfitsolutions.gopreach.data.repository.PublisherForwardRequestRepository
-import com.emfitsolutions.gopreach.data.repository.ScheduleRepository
-import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
-import com.emfitsolutions.gopreach.ui.navigation.Destinations
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import javax.inject.Inject
 
 /** One row in the unified notification balloon. [route] is where tapping it
@@ -47,14 +27,6 @@ data class NotificationItem(
     val subtitle: String,
     val timestamp: Long,
     val route: String,
-)
-
-private data class AdminBundle(
-    val forwards: List<ForwardRequest>,
-    val publisherForwards: List<PublisherForwardRequest>,
-    val reports: List<MonthlyReport>,
-    val announcements: List<Announcement>,
-    val schedules: List<Schedule>,
 )
 
 /**
@@ -84,21 +56,21 @@ private data class AdminBundle(
  * an unseen *count*, not a persisted read/unread flag per item, so opening
  * the balloon (see [markAllSeen]) is what resets it, the same way opening the
  * Announcements screen already does for that one category alone.
+ *
+ * The actual item-building logic lives in [NotificationItemsProvider] now
+ * (see its own doc comment) — this class just delegates to it, so
+ * [com.emfitsolutions.gopreach.notifications.NotificationSoundCoordinator]
+ * (Application-scoped, not tied to any screen) can build the exact same list
+ * to decide what's newly arrived and worth a sound, without a second,
+ * possibly-drifting copy of "what counts as a pending Transfer Request."
  */
 @HiltViewModel
 class NotificationCenterViewModel @Inject constructor(
-    private val forwardRequestRepository: ForwardRequestRepository,
-    private val publisherForwardRequestRepository: PublisherForwardRequestRepository,
-    private val monthlyReportRepository: MonthlyReportRepository,
-    private val announcementRepository: AnnouncementRepository,
-    private val scheduleRepository: ScheduleRepository,
-    private val personRepository: PersonRepository,
+    private val itemsProvider: NotificationItemsProvider,
     private val notificationSeenStore: NotificationSeenStore,
     private val announcementSeenStore: AnnouncementSeenStore,
     private val notificationDismissedStore: NotificationDismissedStore,
 ) : ViewModel() {
-
-    private val periodFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
 
     /** Admin-track roles (Super-Admin/Admin/Coordinator Elder/Regular
      * Elder/Service Overseer/Ministerial Servant). [congregationIds] is
@@ -106,168 +78,25 @@ class NotificationCenterViewModel @Inject constructor(
      * when the caller has no Monthly Report visibility of its own (this
      * balloon never grants access beyond what the role already has). */
     fun itemsForAdmin(congregationIds: Set<String>?, includeMonthlyReports: Boolean): Flow<List<NotificationItem>> =
-        combine(
-            combine(
-                forwardRequestRepository.observeAll(),
-                publisherForwardRequestRepository.observeAll(),
-                monthlyReportRepository.observeAll(),
-                announcementRepository.observeAll(),
-                scheduleRepository.observeAll(),
-            ) { forwards, publisherForwards, reports, announcements, schedules ->
-                AdminBundle(forwards, publisherForwards, reports, announcements, schedules)
-            },
-            personRepository.observeAll(),
-        ) { bundle, people ->
-            buildAdminItems(bundle, people, congregationIds, includeMonthlyReports)
-        }
-
-    private fun buildAdminItems(
-        bundle: AdminBundle,
-        people: List<Person>,
-        congregationIds: Set<String>?,
-        includeMonthlyReports: Boolean,
-    ): List<NotificationItem> {
-        val items = mutableListOf<NotificationItem>()
-
-        bundle.forwards
-            .filter { it.status == ForwardRequestStatus.PENDING && (congregationIds == null || it.toCongregationId in congregationIds) }
-            .forEach { r ->
-                items += NotificationItem(
-                    id = r.id,
-                    category = NotificationCategory.TRANSFER_REQUEST,
-                    title = "Transfer Request: ${r.personNameSnapshot}",
-                    subtitle = "From ${r.fromPublisherNameSnapshot} · ${r.fromCongregationNameSnapshot}",
-                    timestamp = r.requestedAt,
-                    route = Destinations.FORWARD_REQUESTS,
-                )
-            }
-
-        bundle.publisherForwards
-            .filter { it.status == ForwardRequestStatus.PENDING && (congregationIds == null || it.congregationId in congregationIds) }
-            .forEach { r ->
-                items += NotificationItem(
-                    id = r.id,
-                    category = NotificationCategory.TRANSFER_REQUEST,
-                    title = "Transfer Request: ${r.personNameSnapshot}",
-                    subtitle = "${r.fromPublisherNameSnapshot} → ${r.toPublisherNameSnapshot}",
-                    timestamp = r.requestedAt,
-                    route = Destinations.FORWARD_REQUESTS,
-                )
-            }
-
-        if (includeMonthlyReports) {
-            bundle.reports
-                .filter { it.status == ReportStatus.SUBMITTED && (congregationIds == null || it.congregationId in congregationIds) }
-                .forEach { report ->
-                    val publisherName = people.firstOrNull { it.id == report.publisherPersonId }?.fullName ?: "A publisher"
-                    items += NotificationItem(
-                        id = report.id,
-                        category = NotificationCategory.MONTHLY_REPORT,
-                        title = "Monthly Report: $publisherName",
-                        subtitle = periodFormat.format(Date(report.periodMonth)),
-                        timestamp = report.submittedAt ?: report.periodMonth,
-                        // "If [a] report from [a] Publisher will be open[ed],
-                        // open the exact month, not the default month of the
-                        // module" — the plain MANAGE_PUBLISHER_REPORTS route
-                        // always defaults to "This Month," which would show
-                        // nothing for a report from any other period.
-                        route = Destinations.manageReportsForMonth(report.periodMonth),
-                    )
-                }
-        }
-
-        bundle.announcements
-            .filter { congregationIds == null || it.congregationId in congregationIds }
-            .forEach { a ->
-                items += NotificationItem(
-                    id = a.id,
-                    category = NotificationCategory.ANNOUNCEMENT,
-                    title = "New Announcement: ${a.title}",
-                    subtitle = a.details,
-                    timestamp = a.createdAt,
-                    route = Destinations.MANAGE_ANNOUNCEMENTS,
-                )
-            }
-
-        bundle.schedules
-            .filter { it.kind == ScheduleKind.CALENDAR_EVENT && (congregationIds == null || it.congregationId in congregationIds) }
-            .forEach { s ->
-                items += NotificationItem(
-                    id = s.id,
-                    category = NotificationCategory.CALENDAR_SCHEDULE,
-                    title = "New Calendar Event: ${s.title}",
-                    subtitle = formatRecordTimestamp(s.startTime),
-                    timestamp = s.createdAt,
-                    route = Destinations.CALENDAR,
-                )
-            }
-
-        return items.sortedByDescending { it.timestamp }.take(50)
-    }
+        itemsProvider.itemsForAdmin(congregationIds, includeMonthlyReports)
 
     /** A Publisher's own balloon — no Monthly Report category (spec: "Not
      * for Publisher"), and "transfer" here means only the same-congregation
-     * hand-offs targeted *at them* ([PublisherForwardRequest]) — a Publisher
-     * never sees the cross-congregation Service Overseer queue. */
+     * hand-offs targeted *at them* ([com.emfitsolutions.gopreach.data.model
+     * .PublisherForwardRequest]) — a Publisher never sees the cross-
+     * congregation Service Overseer queue. */
     fun itemsForPublisher(currentPersonId: String, congregationId: String?): Flow<List<NotificationItem>> =
-        combine(
-            publisherForwardRequestRepository.observeAll(),
-            announcementRepository.observeAll(),
-            scheduleRepository.observeAll(),
-        ) { publisherForwards, announcements, schedules ->
-            val items = mutableListOf<NotificationItem>()
-
-            publisherForwards
-                .filter { it.toPublisherPersonId == currentPersonId && it.status == ForwardRequestStatus.PENDING }
-                .forEach { r ->
-                    items += NotificationItem(
-                        id = r.id,
-                        category = NotificationCategory.TRANSFER_REQUEST,
-                        title = "Transfer Request: ${r.personNameSnapshot}",
-                        subtitle = "From ${r.fromPublisherNameSnapshot}",
-                        timestamp = r.requestedAt,
-                        route = Destinations.PUBLISHER_FORWARD_REQUESTS,
-                    )
-                }
-
-            announcements
-                .filter { it.congregationId == congregationId }
-                .forEach { a ->
-                    items += NotificationItem(
-                        id = a.id,
-                        category = NotificationCategory.ANNOUNCEMENT,
-                        title = "New Announcement: ${a.title}",
-                        subtitle = a.details,
-                        timestamp = a.createdAt,
-                        route = Destinations.PUBLISHER_ANNOUNCEMENTS,
-                    )
-                }
-
-            schedules
-                .filter { it.kind == ScheduleKind.CALENDAR_EVENT && it.congregationId == congregationId }
-                .forEach { s ->
-                    items += NotificationItem(
-                        id = s.id,
-                        category = NotificationCategory.CALENDAR_SCHEDULE,
-                        title = "New Calendar Event: ${s.title}",
-                        subtitle = formatRecordTimestamp(s.startTime),
-                        timestamp = s.createdAt,
-                        route = Destinations.CALENDAR,
-                    )
-                }
-
-            items.sortedByDescending { it.timestamp }.take(50)
-        }
+        itemsProvider.itemsForPublisher(currentPersonId, congregationId)
 
     /** [items] with every notification the user already dismissed (spec:
      * "Delete Notification"/"Clear Old Notifications") filtered out — the
      * bell's own display list and [unseenCountFor] should both read this,
      * not the raw builder output, so a dismissed item neither shows nor
-     * keeps counting toward the badge. [com.emfitsolutions.gopreach.ui
-     * .components.NewItemNotifier]'s own "new arrival" detection stays on
-     * the *raw* flow instead (see its call sites) — dismissing a past
-     * notification shouldn't suppress the system popup for a genuinely new
-     * one that happens to share nothing but a category with it. */
+     * keeps counting toward the badge. [com.emfitsolutions.gopreach
+     * .notifications.NotificationSoundCoordinator]'s own "new arrival"
+     * detection stays on the *raw* [NotificationItemsProvider] flow instead —
+     * dismissing a past notification shouldn't suppress the sound for a
+     * genuinely new one that happens to share nothing but a category with it. */
     fun visibleItemsFor(items: Flow<List<NotificationItem>>, currentPersonId: String): Flow<List<NotificationItem>> =
         combine(items, notificationDismissedStore.dismissedByPerson) { list, _ ->
             val dismissed = notificationDismissedStore.dismissedFor(currentPersonId)

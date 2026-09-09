@@ -3,10 +3,7 @@
     <string name="app_name">GoPreach</string>
     <string name="powered_by">Powered by EMF IT Solutions, Est. 2026</string>
 
-    <!-- Login screen (Phase 1 of "Settings -> Language" — see
-         com.emfitsolutions.gopreach.domain.AppLanguage). English is the
-         default/fallback resource set: Android automatically falls back to
-         this file for any key missing from values-tl/ or values-b+ilo/. -->
+    <!-- Login screen. English is this app's only supported language. -->
     <string name="login_tagline">Ministry Activity Tracking</string>
     <string name="login_welcome_back">Welcome back!</string>
     <string name="login_username">Username</string>
@@ -35,10 +32,7 @@
     <string name="select_role_continue">CONTINUE</string>
     <string name="select_role_sign_out">Not you? Sign out</string>
 
-    <!-- "Settings -> Language" section header/labels. -->
-    <string name="settings_language_title">Language</string>
-
-    <!-- Publisher Home (Main Form) — Phase 2 of "Settings -> Language". -->
+    <!-- Publisher Home (Main Form) exit confirmation. -->
     <string name="home_exit_title">Exit GoPreach?</string>
     <string name="home_exit_message">Are you sure you want to close the application?</string>
     <string name="home_exit_confirm">EXIT</string>
@@ -125,6 +119,7 @@
     <string name="side_user_logs">User Logs</string>
     <string name="side_contact_record">Contact Record</string>
     <string name="side_interested_records_all_congregations">Interested Records (All Congregations)</string>
+    <string name="side_preaching_time_records_all_congregations">Preaching Time Records (All Congregations)</string>
     <string name="side_user_management">User Management</string>
     <string name="side_account_settings">Account Settings</string>
     <string name="side_ministry_report_app">Ministry Report App</string>
@@ -151,8 +146,16 @@
     <string name="monthly_report_select_month">Select Month to Report</string>
     <string name="monthly_report_posted_locked">This report has been posted and can now only be changed by your Service Overseer, Admin, or Super-Admin.</string>
     <string name="monthly_report_bible_studies_label">Number of Bible Studies Conducted</string>
+    <string name="monthly_report_bible_studies_auto_note">Automatically calculated from Bible Study records</string>
+    <string name="monthly_report_calculation_failed">Unable to calculate your report data for %1$s. Please try again.</string>
+    <string name="monthly_report_calculation_retry">Retry</string>
     <string name="monthly_report_hours_rendered">Hours Rendered</string>
-    <string name="monthly_report_participated_question">Participated in preaching this month?</string>
+    <string name="monthly_report_system_hours_label">System-calculated hours</string>
+    <string name="monthly_report_reported_hours_label">Reported hours</string>
+    <string name="monthly_report_hours_confirm_checkbox">I confirm that the reported preaching hours are accurate.</string>
+    <string name="monthly_report_hours_adjustment_remarks">Remarks (required when hours are changed)</string>
+    <string name="monthly_report_hours_differ_notice">Your reported preaching hours differ from the system-calculated total for %1$s. Please confirm the value and provide remarks before submitting.</string>
+    <string name="monthly_report_participated_question">Did you participate in preaching during %1$s?</string>
     <string name="monthly_report_remarks">Remarks (optional)</string>
     <string name="monthly_report_submission_window_message">Submission for the current month opens 2 days before it ends. To report now, select the previous month instead.</string>
     <string name="monthly_report_submit_button">Submit Report</string>
@@ -343,4 +346,56 @@
     <string name="manage_reports_bible_studies_field">Number of Bible Studies Conducted</string>
     <string name="manage_reports_hours_field">Hours Rendered</string>
     <string name="manage_reports_participated_question">Participated in preaching this month?</string>
+
+    <!-- Settings screen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_appearance_title">Appearance</string>
+    <string name="settings_theme_system">System default</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_color_title">Theme Color</string>
+    <string name="settings_theme_color_subtitle">Your own choice on this device only — not shared with anyone else.</string>
+    <string name="settings_notifications_title">Notifications</string>
+    <string name="settings_notifications_subtitle">Transfer requests, announcements, and monthly report reminders. Calendar Alarms you\'ve scheduled still ring either way.</string>
+    <string name="settings_sounds_title">Enable Notification Sounds</string>
+    <string name="settings_sounds_subtitle">Play a sound for incoming notifications. Popups still show either way.</string>
+    <string name="settings_popups_title">Show Popup Notifications</string>
+    <string name="settings_popups_subtitle">Show a notification popup for incoming activity. The notification balloon and badge always update either way.</string>
+    <string name="settings_transfer_requests_title">Transfer Request Notifications</string>
+    <string name="settings_transfer_requests_subtitle">Incoming and outgoing transfer/forward requests.</string>
+    <string name="settings_announcements_title">Announcement Notifications</string>
+    <string name="settings_announcements_subtitle">Newly published announcements.</string>
+    <string name="settings_group_chat_messages_title">Group Chat Message Notifications</string>
+    <string name="settings_group_chat_messages_subtitle">New messages in your Group Chats.</string>
+    <string name="settings_system_notifications_title">System Notifications</string>
+    <string name="settings_system_notifications_subtitle">Monthly report reminders and other important system notices.</string>
+    <string name="settings_notification_sound_title">Notification Sound</string>
+    <string name="settings_notification_sound_default">Default</string>
+    <string name="settings_notification_sound_custom">Custom sound</string>
+    <string name="settings_notification_sound_footnote">Plays for every incoming notification — transfer requests, announcements, and calendar alarms.</string>
+    <string name="settings_exact_alarms_title">Allow Exact Alarms</string>
+    <string name="settings_exact_alarms_subtitle">Needed so Calendar Alarms ring at the exact scheduled time.</string>
+    <string name="settings_test_notification_title">Test Notification</string>
+    <string name="settings_test_notification_subtitle">Run a quick check and send a real test notification to this device.</string>
+    <string name="settings_test_notification_sent_title">Test Notification Sent</string>
+    <string name="settings_test_notification_failed_title">Notification Check Failed</string>
+    <string name="settings_silent_mode_hint">If you didn\'t hear a sound, check that your device isn\'t in silent/Do Not Disturb mode.</string>
+    <string name="settings_app_version_title">App Version</string>
+    <string name="settings_version_label">Version %1$s</string>
+    <string name="settings_whats_new_title">What\'s New</string>
+    <string name="settings_check_updates">Check for Updates</string>
+    <string name="settings_share_app">Share App</string>
+    <string name="settings_share_fetch_error">Couldn\'t fetch the latest download link. Check your connection and try again.</string>
+    <string name="settings_share_chooser_title">Share GoPreach</string>
+    <string name="settings_custom_color_title">Choose a Custom Color</string>
+    <string name="settings_custom_color_footnote">The color applied may be adjusted slightly to stay readable against white text.</string>
+    <string name="settings_custom_swatch_label">Custom</string>
+    <string name="action_ok">OK</string>
+    <string name="action_apply">Apply</string>
+
+    <!-- "Discard changes?" (FormDialog's own Cancel-with-unsaved-changes guard). -->
+    <string name="discard_changes_title">Discard changes?</string>
+    <string name="discard_changes_message">You have unsaved changes. Are you sure you want to discard them?</string>
+    <string name="action_keep_editing">Keep Editing</string>
+    <string name="action_discard">Discard</string>
 </resources>

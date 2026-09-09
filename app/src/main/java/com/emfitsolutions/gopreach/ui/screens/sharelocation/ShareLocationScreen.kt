@@ -476,6 +476,8 @@ private fun LocationSharingSettingsDialog(
         confirmLabel = "Save",
         errorMessage = errorMessage,
         maxContentHeight = 420.dp,
+        hasUnsavedChanges = durationText != settings.sharingDurationMinutes.toString() ||
+            accuracyText != settings.accuracyRadiusMeters.toString(),
     ) {
                 if (fixedCongregationId == null) {
                     CongregationSettingsDropdown(

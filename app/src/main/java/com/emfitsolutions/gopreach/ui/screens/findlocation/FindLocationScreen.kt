@@ -377,6 +377,7 @@ private fun SaveLocationDialog(
         confirmLabel = "Save",
         errorMessage = errorMessage,
         maxContentHeight = 320.dp,
+        hasUnsavedChanges = remarks.isNotBlank(),
     ) {
         Text("Coordinate: ${formatCoordinatesDms(lat, lng)}", style = MaterialTheme.typography.bodyMedium)
         OutlinedTextField(

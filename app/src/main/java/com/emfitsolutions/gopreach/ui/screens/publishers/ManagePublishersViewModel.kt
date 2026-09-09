@@ -113,7 +113,15 @@ class ManagePublishersViewModel @Inject constructor(
                 .sortedBy { it.person.fullName }
         }
 
+    /** "Publishers — Manual Status Category Management" — the ONLY place a
+     * Publisher's Status Category is ever written. Always a direct result of
+     * an authorized user's own dropdown selection (never derived from
+     * reports/attendance/inactivity/etc. — see the removed PublisherAutoStatus
+     * for what used to run automatically here and why it was deleted).
+     * [previousCategory] is recorded purely for the audit trail (spec §7) —
+     * it never affects what gets saved. */
     fun changeCategory(row: PublisherRow, newCategory: PublisherCategory, changedByPersonId: String) {
+        val previousCategory = row.category
         viewModelScope.launch {
             val updated = row.assignment.copy(
                 roleType = RoleType.serialize(RoleType.Publisher(newCategory)),
@@ -127,6 +135,7 @@ class ManagePublishersViewModel @Inject constructor(
                 targetType = "Person",
                 targetId = row.person.id,
                 congregationId = row.assignment.congregationId,
+                details = "Previous: $previousCategory, New: $newCategory",
             )
         }
     }

@@ -382,6 +382,19 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
+        // "Preaching Time Records — Super Admin Management Module" — same
+        // "Super-Admin only, hidden AND unreachable for anyone else"
+        // guarantee as [ALL_INTERESTED_RECORDS] above (see SidePanel's
+        // `isSuperAdmin` gate); the real, unbypassable enforcement is
+        // firestore.rules' `preachingTimeRecords` `delete` rule, not this
+        // route's reachability alone.
+        composable(Destinations.ALL_PREACHING_TIME_RECORDS) {
+            com.emfitsolutions.gopreach.ui.screens.preachingtime.SuperAdminPreachingTimeRecordsScreen(
+                currentPersonId = currentPersonId,
+                currentPersonRoleLabel = currentRole?.name ?: "SUPER_ADMIN",
+                onBack = { navController.popBackStack() },
+            )
+        }
         composable(Destinations.MANAGE_PUBLISHERS) {
             ManagePublishersScreen(
                 currentPersonId = currentPersonId,

@@ -118,10 +118,14 @@ private fun MinisterialServantEditDialog(
     val additionalRolesFlow = remember(row.person.id) { viewModel.additionalRolesFor(row.person.id) }
     var groupRole by remember { mutableStateOf<RegularElderRole?>(null) }
     var publisherCategory by remember { mutableStateOf<PublisherCategory?>(null) }
+    var initialGroupRole by remember { mutableStateOf<RegularElderRole?>(null) }
+    var initialPublisherCategory by remember { mutableStateOf<PublisherCategory?>(null) }
     LaunchedEffect(additionalRolesFlow) {
         val (loadedGroupRole, loadedPublisherCategory) = additionalRolesFlow.first()
         groupRole = loadedGroupRole
         publisherCategory = loadedPublisherCategory
+        initialGroupRole = loadedGroupRole
+        initialPublisherCategory = loadedPublisherCategory
     }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -162,6 +166,10 @@ private fun MinisterialServantEditDialog(
         confirmLabel = "Save Changes",
         errorMessage = errorMessage,
         maxContentHeight = 560.dp,
+        hasUnsavedChanges = firstName != row.person.firstName || lastName != row.person.lastName ||
+            address != row.person.address || contact != row.person.contact || email != (row.person.email ?: "") ||
+            pickedCongregationId != row.assignment.congregationId ||
+            groupRole != initialGroupRole || publisherCategory != initialPublisherCategory,
     ) {
                 EditSectionHeader("Personal Information")
                 OutlinedTextField(

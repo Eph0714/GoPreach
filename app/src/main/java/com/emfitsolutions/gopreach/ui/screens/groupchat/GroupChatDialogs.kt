@@ -185,6 +185,8 @@ fun CreateGroupChatDialog(
         confirmLabel = stringResource(R.string.chat_create),
         errorMessage = errorMessage,
         maxContentHeight = 560.dp,
+        hasUnsavedChanges = groupName.isNotBlank() || description.isNotBlank() ||
+            pickedCongregationId != fixedCongregationId || selectedIds.isNotEmpty(),
     ) {
         if (fixedCongregationId == null) {
             GroupChatCongregationPicker(congregations = congregations, selectedId = pickedCongregationId, onSelected = { pickedCongregationId = it; selectedIds = emptySet() })
@@ -262,6 +264,8 @@ fun ManageParticipantsDialog(
         onConfirm = ::submit,
         confirmLabel = stringResource(R.string.action_save),
         errorMessage = errorMessage,
+        hasUnsavedChanges = groupName != chat.groupName || description != chat.description ||
+            selectedIds != chat.participantIds.toSet(),
         maxContentHeight = 560.dp,
     ) {
         OutlinedTextField(

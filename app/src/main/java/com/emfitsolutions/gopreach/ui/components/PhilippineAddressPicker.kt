@@ -4,8 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -35,18 +35,44 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** One dropdown level's load state (spec §7 — "Loading provinces... /
+ * Complete Province List", and a distinguishable failure state instead of a
+ * silent empty list): [isLoading] only while a query is actually in flight,
+ * [isError] when the last one threw, [options] holds the last successful
+ * result (kept on a failed retry, rather than wiped, so a transient failure
+ * doesn't throw away an already-loaded list). */
+data class PsgcDropdownState(
+    val options: List<PsgcOption> = emptyList(),
+    val isLoading: Boolean = false,
+    val isError: Boolean = false,
+)
+
 @HiltViewModel
 class PhilippineAddressPickerViewModel @Inject constructor(
     private val repository: PhilippineLocationRepository,
 ) : ViewModel() {
-    private val _provinceOptions = MutableStateFlow<List<PsgcOption>>(emptyList())
-    val provinceOptions: StateFlow<List<PsgcOption>> = _provinceOptions
-    private val _cityOptions = MutableStateFlow<List<PsgcOption>>(emptyList())
-    val cityOptions: StateFlow<List<PsgcOption>> = _cityOptions
-    private val _barangayOptions = MutableStateFlow<List<PsgcOption>>(emptyList())
-    val barangayOptions: StateFlow<List<PsgcOption>> = _barangayOptions
+    private val _provinceState = MutableStateFlow(PsgcDropdownState())
+    val provinceState: StateFlow<PsgcDropdownState> = _provinceState
+    private val _cityState = MutableStateFlow(PsgcDropdownState())
+    val cityState: StateFlow<PsgcDropdownState> = _cityState
+    private val _barangayState = MutableStateFlow(PsgcDropdownState())
+    val barangayState: StateFlow<PsgcDropdownState> = _barangayState
 
-    private var searchJob: Job? = null
+    // Bug fix ("I cannot see Province/City..." recurring intermittently,
+    // specifically when editing an existing record): all three levels used
+    // to share ONE `searchJob` field. Editing a Publisher resolves and sets
+    // Province, then (near-simultaneously, once its id resolves) triggers
+    // the City search — which canceled the still-in-flight Province search
+    // sharing that same field, leaving Province's dropdown permanently empty
+    // for that composition. Each level now cancels only its own prior
+    // in-flight query, never another level's.
+    private var provinceJob: Job? = null
+    private var cityJob: Job? = null
+    private var barangayJob: Job? = null
+
+    private var lastProvinceQuery = ""
+    private var lastCityQuery: Pair<Int?, String>? = null
+    private var lastBarangayQuery: Pair<Int, String>? = null
 
     // Bug fix ("selecting a province... the system is closing" — in every
     // module that uses this picker): none of these five queries had
@@ -56,37 +82,65 @@ class PhilippineAddressPickerViewModel @Inject constructor(
     // functions below), had nothing downstream to stop it and took down the
     // whole app process, exactly the crash pattern already fixed elsewhere
     // in this app (see PipelineViewModel.save's own doc comment). Every path
-    // here is now defensive: a failed query just leaves that dropdown
-    // showing no matches instead of crashing.
+    // here is now defensive: a failed query surfaces as [PsgcDropdownState
+    // .isError] (spec §7 — a retry, not a crash or a silently-empty list)
+    // instead of crashing.
     fun searchProvinces(query: String) {
-        searchJob?.cancel()
-        searchJob = viewModelScope.launch {
-            _provinceOptions.value = runCatching { repository.searchProvinces(query) }
-                .onFailure { android.util.Log.e(TAG, "searchProvinces('$query') failed", it) }
-                .getOrDefault(emptyList())
-                .also { android.util.Log.d(TAG, "searchProvinces('$query') -> ${it.size} rows") }
+        lastProvinceQuery = query
+        provinceJob?.cancel()
+        provinceJob = viewModelScope.launch {
+            _provinceState.value = _provinceState.value.copy(isLoading = true, isError = false)
+            runCatching { repository.searchProvinces(query) }
+                .onSuccess { rows ->
+                    android.util.Log.d(TAG, "searchProvinces('$query') -> ${rows.size} rows")
+                    _provinceState.value = PsgcDropdownState(options = rows, isLoading = false, isError = false)
+                }
+                .onFailure {
+                    android.util.Log.e(TAG, "searchProvinces('$query') failed", it)
+                    _provinceState.value = _provinceState.value.copy(isLoading = false, isError = true)
+                }
         }
     }
+
+    fun retryProvinces() = searchProvinces(lastProvinceQuery)
 
     fun searchCities(provinceId: Int?, query: String) {
-        searchJob?.cancel()
-        searchJob = viewModelScope.launch {
-            _cityOptions.value = runCatching { repository.searchCitiesMunicipalities(provinceId, query) }
-                .onFailure { android.util.Log.e(TAG, "searchCities(province=$provinceId, '$query') failed", it) }
-                .getOrDefault(emptyList())
-                .also { android.util.Log.d(TAG, "searchCities(province=$provinceId, '$query') -> ${it.size} rows") }
+        lastCityQuery = provinceId to query
+        cityJob?.cancel()
+        cityJob = viewModelScope.launch {
+            _cityState.value = _cityState.value.copy(isLoading = true, isError = false)
+            runCatching { repository.searchCitiesMunicipalities(provinceId, query) }
+                .onSuccess { rows ->
+                    android.util.Log.d(TAG, "searchCities(province=$provinceId, '$query') -> ${rows.size} rows")
+                    _cityState.value = PsgcDropdownState(options = rows, isLoading = false, isError = false)
+                }
+                .onFailure {
+                    android.util.Log.e(TAG, "searchCities(province=$provinceId, '$query') failed", it)
+                    _cityState.value = _cityState.value.copy(isLoading = false, isError = true)
+                }
         }
     }
 
+    fun retryCities() = lastCityQuery?.let { (provinceId, query) -> searchCities(provinceId, query) }
+
     fun searchBarangays(muncityId: Int, query: String) {
-        searchJob?.cancel()
-        searchJob = viewModelScope.launch {
-            _barangayOptions.value = runCatching { repository.searchBarangays(muncityId, query) }
-                .onFailure { android.util.Log.e(TAG, "searchBarangays(muncity=$muncityId, '$query') failed", it) }
-                .getOrDefault(emptyList())
-                .also { android.util.Log.d(TAG, "searchBarangays(muncity=$muncityId, '$query') -> ${it.size} rows") }
+        lastBarangayQuery = muncityId to query
+        barangayJob?.cancel()
+        barangayJob = viewModelScope.launch {
+            _barangayState.value = _barangayState.value.copy(isLoading = true, isError = false)
+            runCatching { repository.searchBarangays(muncityId, query) }
+                .onSuccess { rows ->
+                    android.util.Log.d(TAG, "searchBarangays(muncity=$muncityId, '$query') -> ${rows.size} rows")
+                    _barangayState.value = PsgcDropdownState(options = rows, isLoading = false, isError = false)
+                }
+                .onFailure {
+                    android.util.Log.e(TAG, "searchBarangays(muncity=$muncityId, '$query') failed", it)
+                    _barangayState.value = _barangayState.value.copy(isLoading = false, isError = true)
+                }
         }
     }
+
+    fun retryBarangays() = lastBarangayQuery?.let { (muncityId, query) -> searchBarangays(muncityId, query) }
 
     private companion object {
         const val TAG = "PhilippineAddressPicker"
@@ -170,15 +224,16 @@ fun PhilippineAddressPicker(
     LaunchedEffect(provinceId) { provinceId?.let { viewModel.searchCities(it, cityText) } }
     LaunchedEffect(cityId) { cityId?.let { viewModel.searchBarangays(it, barangayText) } }
 
-    val provinceOptions by viewModel.provinceOptions.collectAsStateWithLifecycle()
-    val cityOptions by viewModel.cityOptions.collectAsStateWithLifecycle()
-    val barangayOptions by viewModel.barangayOptions.collectAsStateWithLifecycle()
+    val provinceState by viewModel.provinceState.collectAsStateWithLifecycle()
+    val cityState by viewModel.cityState.collectAsStateWithLifecycle()
+    val barangayState by viewModel.barangayState.collectAsStateWithLifecycle()
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SearchableDropdown(
             label = "Province",
             text = provinceText,
-            options = provinceOptions,
+            state = provinceState,
+            onRetry = viewModel::retryProvinces,
             onTextChange = {
                 provinceText = it
                 viewModel.searchProvinces(it)
@@ -195,7 +250,8 @@ fun PhilippineAddressPicker(
         SearchableDropdown(
             label = "Municipality / City",
             text = cityText,
-            options = cityOptions,
+            state = cityState,
+            onRetry = viewModel::retryCities,
             enabled = provinceId != null,
             supportingText = if (provinceId == null) "Select Province first" else null,
             onTextChange = {
@@ -212,7 +268,8 @@ fun PhilippineAddressPicker(
         SearchableDropdown(
             label = "Barangay",
             text = barangayText,
-            options = barangayOptions,
+            state = barangayState,
+            onRetry = viewModel::retryBarangays,
             enabled = cityId != null,
             supportingText = if (cityId == null) "Select Municipality / City first" else null,
             onTextChange = {
@@ -232,12 +289,14 @@ fun PhilippineAddressPicker(
 private fun SearchableDropdown(
     label: String,
     text: String,
-    options: List<PsgcOption>,
+    state: PsgcDropdownState,
+    onRetry: () -> Unit,
     onTextChange: (String) -> Unit,
     onOptionSelected: (PsgcOption) -> Unit,
     enabled: Boolean = true,
     supportingText: String? = null,
 ) {
+    val options = state.options
     var expanded by remember { mutableStateOf(false) }
     // Bug fix — see PhilippineAddressPicker's own doc comment: [options]
     // being empty no longer hides the menu outright, only shows nothing
@@ -279,11 +338,31 @@ private fun SearchableDropdown(
             },
         )
         ExposedDropdownMenu(expanded = showMenu, onDismissRequest = { expanded = false }) {
-            Column(modifier = Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
-                if (options.isEmpty()) {
-                    DropdownMenuItem(text = { Text(if (text.isBlank()) "Loading…" else "No matches") }, onClick = {}, enabled = false)
+            // "Fix Incomplete Province Dropdown" §7 — a failed query now
+            // shows a clear error with a Retry action instead of leaving the
+            // dropdown looking like an empty "no matches" list forever (the
+            // two used to be indistinguishable). [options] is also no longer
+            // artificially capped at 50 (see [PsgcDao]'s own doc comment),
+            // so a fully-loaded list can now run to hundreds of rows (e.g.
+            // Manila's 897 barangays); LazyColumn only composes what's
+            // actually visible, keeping that just as cheap to open as a
+            // short list instead of building every row up front.
+            LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
+                when {
+                    state.isError -> item {
+                        DropdownMenuItem(
+                            text = { Text("Couldn't load the list. Tap to retry.") },
+                            onClick = onRetry,
+                        )
+                    }
+                    state.isLoading && options.isEmpty() -> item {
+                        DropdownMenuItem(text = { Text("Loading…") }, onClick = {}, enabled = false)
+                    }
+                    options.isEmpty() -> item {
+                        DropdownMenuItem(text = { Text(if (text.isBlank()) "Loading…" else "No matches") }, onClick = {}, enabled = false)
+                    }
                 }
-                options.forEach { option ->
+                items(options, key = { it.id }) { option ->
                     DropdownMenuItem(
                         text = { Text(option.name) },
                         onClick = {

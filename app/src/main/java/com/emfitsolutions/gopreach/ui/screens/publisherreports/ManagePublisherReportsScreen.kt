@@ -494,6 +494,9 @@ private fun EditReportDialog(
         onConfirm = ::submit,
         confirmLabel = stringResource(R.string.manage_reports_save_changes),
         maxContentHeight = 400.dp,
+        hasUnsavedChanges = bibleStudies != row.report.bibleStudiesCount.toString() ||
+            hours != (row.report.hoursRendered ?: 0.0).toString() ||
+            participated != (row.report.participatedInPreaching ?: false),
     ) {
                 OutlinedTextField(
                     value = bibleStudies,

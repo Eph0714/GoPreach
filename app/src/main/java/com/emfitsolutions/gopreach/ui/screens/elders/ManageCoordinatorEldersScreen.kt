@@ -132,10 +132,19 @@ private fun CoordinatorElderEditDialog(
     val additionalRolesFlow = remember(row.person.id) { viewModel.additionalRolesFor(row.person.id) }
     var isGroupOverseer by remember { mutableStateOf(false) }
     var publisherCategory by remember { mutableStateOf<PublisherCategory?>(null) }
+    // "Discard changes?" needs to compare against what actually loaded, not
+    // the placeholder `false`/`null` this starts at before that async load
+    // lands — comparing against the placeholder would flag "unsaved
+    // changes" the instant the real values arrive, even with zero real
+    // edits from the Publisher.
+    var initialIsGroupOverseer by remember { mutableStateOf(false) }
+    var initialPublisherCategory by remember { mutableStateOf<PublisherCategory?>(null) }
     LaunchedEffect(additionalRolesFlow) {
         val (loadedIsGroupOverseer, loadedPublisherCategory) = additionalRolesFlow.first()
         isGroupOverseer = loadedIsGroupOverseer
         publisherCategory = loadedPublisherCategory
+        initialIsGroupOverseer = loadedIsGroupOverseer
+        initialPublisherCategory = loadedPublisherCategory
     }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -174,6 +183,10 @@ private fun CoordinatorElderEditDialog(
         title = "Edit ${row.person.fullName}",
         onConfirm = ::submit,
         confirmLabel = "Save Changes",
+        hasUnsavedChanges = firstName != row.person.firstName || lastName != row.person.lastName ||
+            address != row.person.address || contact != row.person.contact || email != (row.person.email ?: "") ||
+            pickedCongregationId != row.assignment.congregationId ||
+            isGroupOverseer != initialIsGroupOverseer || publisherCategory != initialPublisherCategory,
         errorMessage = errorMessage,
         maxContentHeight = 560.dp,
     ) {

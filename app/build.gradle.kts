@@ -77,9 +77,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
     implementation("androidx.activity:activity-compose:1.9.2")
-    // Per-app language (Settings -> Language) — AppCompatDelegate.setApplicationLocales()
-    // backport, works down to minSdk regardless of whether the Activity itself extends
-    // AppCompatActivity (see MainActivity.kt's own comment on why it now does).
+    // AppCompatActivity — MainActivity extends it for androidx.biometric.BiometricPrompt's
+    // FragmentManager requirement (see MainActivity.kt's own comment).
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")

@@ -110,8 +110,11 @@ private fun RegularElderEditDialog(
     val publisherCategoryFlow = remember(row.person.id) { viewModel.publisherCategoryFor(row.person.id) }
     var isGroupOverseer by remember { mutableStateOf(row.regularElderRole == RegularElderRole.GROUP_OVERSEER) }
     var publisherCategory by remember { mutableStateOf<PublisherCategory?>(null) }
+    var initialPublisherCategory by remember { mutableStateOf<PublisherCategory?>(null) }
     LaunchedEffect(publisherCategoryFlow) {
-        publisherCategory = publisherCategoryFlow.first()
+        val loaded = publisherCategoryFlow.first()
+        publisherCategory = loaded
+        initialPublisherCategory = loaded
     }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -150,6 +153,10 @@ private fun RegularElderEditDialog(
         confirmLabel = "Save Changes",
         errorMessage = errorMessage,
         maxContentHeight = 560.dp,
+        hasUnsavedChanges = firstName != row.person.firstName || lastName != row.person.lastName ||
+            address != row.person.address || contact != row.person.contact || email != (row.person.email ?: "") ||
+            isGroupOverseer != (row.regularElderRole == RegularElderRole.GROUP_OVERSEER) ||
+            publisherCategory != initialPublisherCategory,
     ) {
                 EditSectionHeader("Personal Information")
                 OutlinedTextField(

@@ -78,6 +78,38 @@ function canManageGroupChatsFor(db, congregationId) {
   );
 }
 
+// "Update Monthly Report Submission" — the admin-track roles allowed to
+// create/edit ANY publisher's Monthly Report within their own congregation
+// (Super-Admin: every congregation), matching the exact same role set the
+// Android app's own GoPreachNavGraph.canEditPublisherReports already grants
+// this screen to. Used below to scope [monthlyReports] writes precisely
+// instead of the old "any signed-in, non-restricted account" baseline, which
+// let ANY signed-in Publisher write/forge ANY OTHER publisher's report.
+function canManagePublisherReportsFor(db, congregationId) {
+  return isSignedIn() && exists(/databases/$(db)/documents/people/$(personIdFromToken())) && (
+    isSuperAdmin(db) || (
+      myPerson(db).get('activeCongregationId', null) == congregationId &&
+      myPerson(db).get('activeAdminRole', null) in
+        ['ADMIN_PER_CONGREGATION', 'COORDINATOR_ELDER', 'REGULAR_ELDER', 'SERVICE_OVERSEER']
+    )
+  );
+}
+
+// Spec §10/§19/§26 — a Pioneer's manually-adjusted preaching hours must carry
+// confirmation + non-blank remarks before Firestore will accept them; a
+// same-document field check, which is the one part of "server recalculates
+// and validates the authoritative values" this rules-only backend can
+// actually enforce (see the `monthlyReports` match block's own doc comment
+// for what it can't). Trivially true whenever either value is absent (a
+// Non-Pioneer report) or they already match (accepted as-is, no confirmation
+// needed).
+function hoursAdjustmentValid(data) {
+  let reported = data.get('hoursRendered', null);
+  let system = data.get('systemCalculatedHours', null);
+  return reported == null || system == null || reported == system ||
+    (data.get('hoursConfirmed', false) == true && data.get('hoursAdjustmentRemarks', '') != '');
+}
+
 // True if the caller is a participant of the group chat [chatData] belongs
 // to — works for both a Publisher and an Admin-track participant alike,
 // since participantIds is just a flat list of personIds either way.
@@ -210,15 +242,70 @@ service cloud.firestore {
       // to it again — update or delete — no matter what the client sends.
       // `resource` is null on create (a brand-new report), so this never
       // blocks a publisher creating/saving their own not-yet-posted report.
-      // Every other authenticated, non-restricted actor (Service Overseer/
-      // Admin/Coordinator Elder/Regular Elder/Super-Admin) is unaffected —
-      // this file has no rules-level way to tell those roles apart from
-      // each other (see the file-level note), so the finer own-congregation
-      // scoping for them stays UI-enforced like everywhere else here; this
-      // clause only ever narrows the *Publisher's own* access, never
-      // anyone else's.
+      //
+      // Bug fix ("Update Monthly Report Submission" spec §5/§6/§26 — "a
+      // Publisher must never be able to... submit another Publisher's
+      // participation answer"): this used to have NO ownership check at
+      // all — any signed-in, non-restricted account could write a
+      // `monthlyReports` document under ANY OTHER publisherPersonId/
+      // congregationId with arbitrary values, not just their own. Now
+      // requires EITHER `request.resource.data.publisherPersonId ==
+      // personIdFromToken()` (a Publisher may only ever write their own
+      // report — and, only on that path, must satisfy
+      // [hoursAdjustmentValid]: spec §10/§19's "confirmation + remarks
+      // required when manually-reported Pioneer hours differ from the
+      // system-calculated total," the one aggregate-adjacent rule this
+      // rules-only backend (no Cloud Functions — see this file's own
+      // doc comment) can actually enforce as a same-document check) OR
+      // [canManagePublisherReportsFor] (an admin-track role/Super-Admin
+      // correcting a report on a Publisher's behalf — deliberately NOT
+      // subject to [hoursAdjustmentValid], since that confirmation
+      // mechanic is about a Publisher's own self-service submission, not
+      // an already-trusted administrative correction).
+      //
+      // What this rules-only backend genuinely CANNOT do (documented here
+      // rather than silently attempted): independently recompute the
+      // Bible Study unique-person count or the Pioneer hours SUM from the
+      // `interestedPeople`/`preachingTimeRecords` collections and reject a
+      // client submission that disagrees — Firestore rules have no
+      // cross-collection aggregation, only per-document field checks. That
+      // would need Cloud Functions, which this app has deliberately never
+      // introduced (see ReminderWorker's own doc comment on why every
+      // check here is client-side). The authoritative values in practice
+      // are computed once, client-side, from this Publisher's own already-
+      // synced records — the same trust model every other computed value
+      // in this app (Dashboard totals, Consolidated Report, ...) already
+      // uses — validated only for ownership, congregation, and the hours-
+      // confirmation shape above.
       allow write: if !hasGrant(database) &&
-        !(resource != null && resource.data.status == 'POSTED' && resource.data.publisherPersonId == personIdFromToken());
+        !(resource != null && resource.data.status == 'POSTED' && resource.data.publisherPersonId == personIdFromToken()) &&
+        (
+          request.resource == null ? isSuperAdmin(database) : (
+            (request.resource.data.publisherPersonId == personIdFromToken() && hoursAdjustmentValid(request.resource.data)) ||
+            canManagePublisherReportsFor(database, request.resource.data.congregationId)
+          )
+        );
+    }
+
+    // "Preaching Time Records — Super Admin Management Module" spec §8/§10 —
+    // this collection had NO dedicated rule before this (it fell through to
+    // the broad `isSignedIn()` catch-all at the bottom of this file), so
+    // nothing stopped any signed-in Publisher from reading, editing, or
+    // outright deleting any OTHER publisher's per-day preaching time log.
+    // Read/create/update keep that same broad `isSignedIn()`-style baseline
+    // every other un-migrated collection in this file still has (this task
+    // isn't a general congregation-isolation pass for this collection —
+    // narrowing read access would also break "Consolidated Monthly Report",
+    // which already relies on every admin being able to read every
+    // publisher's records) — the one deliberate, real tightening here is
+    // `delete`: spec §8's own diagram ("Role = Super Admin? NO -> Reject
+    // Request") is enforced here, server-side, not just by hiding the Force
+    // Delete button in the UI. A non-Super-Admin client cannot get Firestore
+    // to execute a delete on this collection no matter what the app would
+    // otherwise let through or how the request is crafted.
+    match /preachingTimeRecords/{recordId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isSuperAdmin(database);
     }
 
     // "My Bible Text Record" module spec §20/§31: "Never trust a
@@ -454,7 +541,7 @@ service cloud.firestore {
     // live account, not a regression.
     match /{document=**} {
       allow read, write: if isSignedIn() && !document.matches(
-        '^(interestedPeople|passwordResetRequests|people|userAccessGrants|congregations|groups|roleAssignments|monthlyReports|bibleTextCategories|bibleTextRecords|groupChats)(/.*)?$'
+        '^(interestedPeople|passwordResetRequests|people|userAccessGrants|congregations|groups|roleAssignments|monthlyReports|bibleTextCategories|bibleTextRecords|groupChats|preachingTimeRecords)(/.*)?$'
       );
     }
   }

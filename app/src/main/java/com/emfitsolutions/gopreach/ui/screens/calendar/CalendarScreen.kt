@@ -268,6 +268,8 @@ private fun EventDialog(
         confirmLabel = "Save",
         errorMessage = errorMessage,
         maxContentHeight = 420.dp,
+        hasUnsavedChanges = title != (existingEvent?.title ?: "") || description != (existingEvent?.description ?: "") ||
+            startTime != existingEvent?.startTime || endTime != existingEvent?.endTime,
     ) {
                 OutlinedTextField(
                     value = title,

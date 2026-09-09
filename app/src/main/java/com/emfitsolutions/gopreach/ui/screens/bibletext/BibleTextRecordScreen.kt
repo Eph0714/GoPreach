@@ -5,8 +5,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,14 +19,12 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FilterList
-import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -53,6 +49,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
@@ -99,20 +96,23 @@ private fun BibleTextRecord.referenceLabel(): String {
 private val BibleTextCategory.eventLabel: String get() = event.ifBlank { LEGACY_EVENT_PLACEHOLDER }
 
 /**
- * "My Bible Text Record: Event/Topic Record Structure Upgrade" — a
- * Publisher's personal Event → Bible Text organizer. Add/Edit/Delete an
- * Event (Event/Theme-Topic/Speaker), then add one or more Bible Texts under
- * it (Bible Book/Chapter selected from visual boxes, never a dropdown —
- * spec §3/§4/§22) — search across Event/Theme/Speaker/Remarks, plus an
- * optional Bible Book/Chapter reference filter (spec §8-§12). Every read/
- * write here is scoped to the Publisher's own records only (see
- * [BibleTextRecordViewModel]'s doc comment for the ownership model).
+ * "My Bible Text Record" — a Publisher's personal Event → Bible Text
+ * organizer. Add/Edit/Delete an Event (Event and Theme/Topic are searchable
+ * dropdowns sourced from this module's existing sample lists, per "Redesign
+ * the My Bible Text Record" §1/§2; Speaker stays free text), then add one or
+ * more Bible Texts under it — Bible Book is a two-level Book list → that
+ * book's Chapters navigator with a Back control (§3-§5), never both shown at
+ * once; Bible Language is fixed to English and never shown in the UI (§6).
+ * Search across Event/Theme/Speaker/Remarks, plus an optional Bible
+ * Book/Chapter reference filter. Every read/write here is scoped to the
+ * Publisher's own records only (see [BibleTextRecordViewModel]'s doc comment
+ * for the ownership model).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BibleTextRecordScreen(
     publisherPersonId: String,
-    currentPerson: Person?,
+    @Suppress("UNUSED_PARAMETER") currentPerson: Person?,
     onBack: () -> Unit,
     viewModel: BibleTextRecordViewModel = hiltViewModel(),
 ) {
@@ -131,7 +131,6 @@ fun BibleTextRecordScreen(
     if (selected == null) {
         EventListScreen(
             publisherPersonId = publisherPersonId,
-            currentPerson = currentPerson,
             eventsWithTexts = eventsWithTexts,
             onOpenEvent = { selectedEventId = it },
             onBack = onBack,
@@ -140,7 +139,6 @@ fun BibleTextRecordScreen(
     } else {
         EventDetailScreen(
             publisherPersonId = publisherPersonId,
-            currentPerson = currentPerson,
             eventWithTexts = selected,
             onBack = { selectedEventId = null },
             onDeleted = { selectedEventId = null },
@@ -152,11 +150,10 @@ fun BibleTextRecordScreen(
 // ---------------------------------------------------------------------------
 // Event list — search, filter, and the "+Add Event" entry point.
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun EventListScreen(
     publisherPersonId: String,
-    currentPerson: Person?,
     eventsWithTexts: List<EventWithTexts>,
     onOpenEvent: (String) -> Unit,
     onBack: () -> Unit,
@@ -174,7 +171,6 @@ private fun EventListScreen(
 
     var showAddEvent by remember { mutableStateOf(false) }
     var pendingDeleteEvent by remember { mutableStateOf<EventWithTexts?>(null) }
-    var showPreferredLanguage by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
 
     val referenceBooks = remember { NwtBibleReferenceData.booksFor(NwtBibleReferenceData.defaultVersion.id, "en") }
@@ -228,9 +224,6 @@ private fun EventListScreen(
                 title = { Text("My Bible Text Record") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
                 actions = {
-                    IconButton(onClick = { showPreferredLanguage = true }) {
-                        Icon(Icons.Rounded.Language, contentDescription = "Preferred Bible Language")
-                    }
                     IconButton(onClick = { showFilters = !showFilters }) {
                         Icon(Icons.Rounded.FilterList, contentDescription = "Filters")
                     }
@@ -376,18 +369,6 @@ private fun EventListScreen(
             dismissButton = { TextButton(onClick = { pendingDeleteEvent = null }) { Text("Cancel") } },
         )
     }
-
-    if (showPreferredLanguage && currentPerson != null) {
-        PreferredLanguageDialog(
-            currentLanguageId = currentPerson.preferredBibleLanguageId,
-            onSave = { languageId ->
-                viewModel.updatePreferredLanguage(currentPerson, languageId)
-                showToast("Preferred Bible language updated.")
-                showPreferredLanguage = false
-            },
-            onDismiss = { showPreferredLanguage = false },
-        )
-    }
 }
 
 /** "Add a print button" — same [ReportTable]/[ReportPrinter] shape every
@@ -441,7 +422,6 @@ private fun EventCard(item: EventWithTexts, onClick: () -> Unit, onDelete: () ->
 @Composable
 private fun EventDetailScreen(
     publisherPersonId: String,
-    currentPerson: Person?,
     eventWithTexts: EventWithTexts,
     onBack: () -> Unit,
     onDeleted: () -> Unit,
@@ -507,7 +487,6 @@ private fun EventDetailScreen(
             existing = null,
             eventId = event.id,
             publisherPersonId = publisherPersonId,
-            preferredLanguageId = currentPerson?.preferredBibleLanguageId,
             onSave = { viewModel.saveRecord(it); showToast("Bible text added successfully.") },
             onDismiss = { showAddText = false },
         )
@@ -518,7 +497,6 @@ private fun EventDetailScreen(
             existing = toEditText,
             eventId = event.id,
             publisherPersonId = publisherPersonId,
-            preferredLanguageId = currentPerson?.preferredBibleLanguageId,
             onSave = { viewModel.saveRecord(it); showToast("Bible text updated successfully."); pendingEditText = null },
             onDismiss = { pendingEditText = null },
         )
@@ -592,6 +570,14 @@ private fun BibleTextCard(text: BibleTextRecord, onEdit: () -> Unit, onDelete: (
 // ---------------------------------------------------------------------------
 // Add/Edit Event
 
+/** "Redesign the My Bible Text Record" §1/§2 — Event and Theme/Topic are now
+ * dropdowns sourced from this module's existing sample lists ([SUGGESTED_EVENTS]/
+ * [SUGGESTED_THEME_TOPICS] — the exact same values the old free-text fields
+ * offered as suggestion chips; no option added, removed, or reworded). Both
+ * stay searchable-and-editable ([SearchableOptionField]) rather than a
+ * strict closed dropdown, so an existing record's Event/Theme/Topic value is
+ * always shown even if it was typed before this list existed and isn't one
+ * of the sample values (spec §7 — never silently drop/replace an old value). */
 @Composable
 private fun AddEditEventDialog(
     existing: BibleTextCategory?,
@@ -623,28 +609,26 @@ private fun AddEditEventDialog(
         title = if (existing == null) "Add Event" else "Edit Event",
         onConfirm = ::submit,
         confirmLabel = if (existing == null) "Save Event" else "Save",
+        hasUnsavedChanges = eventText != existing?.event.orEmpty() || themeTopic != existing?.name.orEmpty() ||
+            speaker != existing?.speaker.orEmpty(),
         errorMessage = errorMessage,
     ) {
-        OutlinedTextField(
+        SearchableOptionField(
+            label = "Event",
             value = eventText,
+            options = SUGGESTED_EVENTS,
             onValueChange = { eventText = it; errorMessage = null },
-            label = { Text("Event *") },
-            placeholder = { Text("e.g. Public Talk") },
-            singleLine = true,
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth(),
+            placeholder = "Select or search Event",
+            required = true,
         )
-        SuggestionChips(suggestions = SUGGESTED_EVENTS, onPick = { eventText = it })
-        OutlinedTextField(
+        SearchableOptionField(
+            label = "Theme/Topic",
             value = themeTopic,
+            options = SUGGESTED_THEME_TOPICS,
             onValueChange = { themeTopic = it; errorMessage = null },
-            label = { Text("Theme/Topic *") },
-            placeholder = { Text("e.g. Strengthening Our Faith") },
-            singleLine = true,
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth(),
+            placeholder = "Select or search Theme/Topic",
+            required = true,
         )
-        SuggestionChips(suggestions = SUGGESTED_THEME_TOPICS.take(8), onPick = { themeTopic = it })
         OutlinedTextField(
             value = speaker,
             onValueChange = { speaker = it },
@@ -657,18 +641,54 @@ private fun AddEditEventDialog(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+/** A dropdown that's still typeable (a "combobox") — spec §1/§2 want a
+ * dropdown the Publisher *selects* from, but also (§7) never lose an old
+ * record's value if it isn't one of [options]. Typing narrows [options] to
+ * matches (spec: "searchable if the list is long"); picking one from the
+ * menu or leaving typed text as-is both just set [value] via [onValueChange]
+ * — there's no separate "committed selection" state, so an old custom value
+ * displays exactly as saved instead of being coerced onto a list entry. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SuggestionChips(suggestions: List<String>, onPick: (String) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        suggestions.forEach { suggestion ->
-            AssistChip(onClick = { onPick(suggestion) }, label = { Text(suggestion, style = MaterialTheme.typography.labelSmall) })
+private fun SearchableOptionField(
+    label: String,
+    value: String,
+    options: List<String>,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    required: Boolean = false,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val filtered = remember(value, options) {
+        if (value.isBlank()) options else options.filter { it.contains(value.trim(), ignoreCase = true) }
+    }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { onValueChange(it); expanded = true },
+            label = { Text(if (required) "$label *" else label) },
+            placeholder = { Text(placeholder) },
+            singleLine = true,
+            visualTransformation = VisualTransformation.None,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor()
+                .onFocusChanged { if (it.isFocused) expanded = true },
+        )
+        if (filtered.isNotEmpty()) {
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                filtered.forEach { option ->
+                    DropdownMenuItem(text = { Text(option) }, onClick = { onValueChange(option); expanded = false })
+                }
+            }
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Add/Edit Bible Text — visual Book/Chapter box selection (spec §3/§4).
+// Add/Edit Bible Text — Book → Chapters two-level navigation (spec §3-§5),
+// Bible Language removed from the UI entirely and fixed to English (§6).
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -676,17 +696,23 @@ private fun BibleTextRecordDialog(
     existing: BibleTextRecord?,
     eventId: String,
     publisherPersonId: String,
-    preferredLanguageId: String?,
     onSave: (BibleTextRecord) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val version = NwtBibleReferenceData.defaultVersion
-    var languageId by remember {
-        mutableStateOf(existing?.languageId ?: preferredLanguageId ?: NwtBibleReferenceData.languages.first().id)
-    }
+    // Spec §6 — "Bible Language = English as the system default", no picker
+    // shown anywhere in this dialog. An existing record keeps whatever
+    // language it already had (spec §7: never silently change saved data);
+    // every new record is created as English.
+    val languageId = existing?.languageId ?: NwtBibleReferenceData.languages.first().id
     val books = remember(languageId) { NwtBibleReferenceData.booksFor(version.id, languageId) }
     var bookId by remember { mutableStateOf(existing?.bibleBookId?.ifBlank { null }) }
     val selectedBook = books.firstOrNull { it.id == bookId }
+    // Spec §3 — starts on the Chapters view when editing a record that
+    // already has a book (so the Publisher immediately sees what's saved),
+    // and on the Book list otherwise. Toggled only by picking a book (spec
+    // §3: "Select Genesis -> Genesis Chapters") or pressing Back (spec §4).
+    var showingBookList by remember { mutableStateOf(bookId == null) }
     // Spec test 6 — changing the Bible Book always resets the selected
     // Chapter; an already-valid chapter for the *previous* book is never
     // carried over to a book it might not even have that many chapters in.
@@ -739,38 +765,50 @@ private fun BibleTextRecordDialog(
         confirmLabel = if (existing == null) "Save Bible Text" else "Save",
         errorMessage = errorMessage,
         maxContentHeight = 620.dp,
+        hasUnsavedChanges = bookId != existing?.bibleBookId?.ifBlank { null } ||
+            chapter != existing?.chapter?.takeIf { it > 0 } ||
+            versesText != existing?.verses.orEmpty() || remarks != existing?.remarks.orEmpty(),
     ) {
-        LabeledDropdown(
-            label = "Bible Language",
-            selectedLabel = NwtBibleReferenceData.language(languageId)?.name ?: "Select",
-            options = NwtBibleReferenceData.languages.map { it.id to it.name },
-            onSelected = { newLanguageId ->
-                languageId = newLanguageId ?: return@LabeledDropdown
-                val newBooks = NwtBibleReferenceData.booksFor(version.id, newLanguageId)
-                // Same book (by language-independent id) if it still exists
-                // in the new language's list; the selected Chapter itself
-                // never needs resetting here — the book (and so its chapter
-                // count) hasn't actually changed, only its display language.
-                bookId = newBooks.firstOrNull { it.id == bookId }?.id ?: bookId
-            },
-            required = true,
-        )
-        Text("Select Bible Book *", style = MaterialTheme.typography.labelMedium)
-        BibleBookGrid(
-            books = books,
-            selectedBookId = bookId,
-            onSelect = { newBookId ->
-                if (newBookId != bookId) chapter = null
-                bookId = newBookId
-            },
-        )
-        if (selectedBook != null) {
+        Text("Bible Book *", style = MaterialTheme.typography.labelMedium)
+        if (showingBookList) {
+            // Spec §3 initial view — books only, no chapters shown alongside.
+            BibleBookGrid(
+                books = books,
+                selectedBookId = bookId,
+                onSelect = { newBookId ->
+                    if (newBookId != bookId) chapter = null
+                    bookId = newBookId
+                    showingBookList = false
+                },
+            )
+        } else if (selectedBook != null) {
+            // Spec §3/§4/§5 — only the selected book's chapters, the book
+            // name shown at top, and a Back control that returns to the
+            // full book list without losing this book/chapter selection.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = { showingBookList = true }) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                    Text("Back to Bible Books")
+                }
+            }
+            Text(selectedBook.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Text("Select Chapter *", style = MaterialTheme.typography.labelMedium)
             ChapterGrid(
                 chapterCount = selectedBook.chapterCount,
                 selectedChapter = chapter,
                 onSelect = { chapter = it },
             )
+        } else {
+            // Spec §7 — an old record's [bookId] that no longer matches any
+            // current Bible book (e.g. a removed/renamed id) is preserved
+            // as-is rather than silently cleared; the Publisher still has to
+            // pick a real book from the list to save further changes.
+            Text(
+                "Previously selected Bible Book \"$bookId\" is no longer available. Please select a Bible Book.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            TextButton(onClick = { showingBookList = true }) { Text("Select Bible Book") }
         }
         OutlinedTextField(
             value = versesText,
@@ -797,41 +835,10 @@ private fun BibleTextRecordDialog(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PreferredLanguageDialog(
-    currentLanguageId: String?,
-    onSave: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var languageId by remember { mutableStateOf(currentLanguageId ?: NwtBibleReferenceData.languages.first().id) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Preferred Bible Language") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "New Bible Text Records will default to this language. You can still change it per record.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                LabeledDropdown(
-                    label = "Language",
-                    selectedLabel = NwtBibleReferenceData.language(languageId)?.name ?: "Select",
-                    options = NwtBibleReferenceData.languages.map { it.id to it.name },
-                    onSelected = { languageId = it ?: languageId },
-                )
-            }
-        },
-        confirmButton = { TextButton(onClick = { onSave(languageId) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-/** Shared dropdown shape every non-box picker on this screen uses (Language,
- * Search By, Sort) — [options] is (value, label) so a `null` value ("All",
- * ...) reads naturally alongside real ids. Bible Book/Chapter deliberately
- * do NOT use this — see [BibleBookGrid]/[ChapterGrid] (spec §3/§4: "Do not
- * use a dropdown for selecting the Bible Book/Chapter"). */
+/** Shared dropdown shape every non-box picker on this screen uses (Search By,
+ * Sort) — [options] is (value, label) so a `null` value ("All", ...) reads
+ * naturally alongside real ids. Bible Book/Chapter deliberately do NOT use
+ * this — see [BibleBookGrid]/[ChapterGrid]. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LabeledDropdown(

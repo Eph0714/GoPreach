@@ -3,11 +3,16 @@ package com.emfitsolutions.gopreach.ui.screens.monthlyreport
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.MonthlyReport
+import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.ReportStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
+import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
+import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
+import com.emfitsolutions.gopreach.data.repository.VisitRepository
+import com.emfitsolutions.gopreach.domain.MonthlyReportCalculator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,14 +42,34 @@ private fun daysUntilMonthEnd(): Int {
     return cal.getActualMaximum(Calendar.DAY_OF_MONTH) - cal.get(Calendar.DAY_OF_MONTH)
 }
 
+private fun isPioneer(category: PublisherCategory?) = MonthlyReportCalculator.isPioneerCategory(category)
+
 data class MonthlyReportUiState(
     val category: PublisherCategory? = null,
     val congregationId: String? = null,
     val existingReport: MonthlyReport? = null,
     val selectedPeriodMonth: Long = currentMonthStart(),
-    val bibleStudiesCount: String = "0",
-    val hoursRendered: String = "0",
+
+    /** Spec §3 — automatically calculated, never a field the Publisher types
+     * into (see [MonthlyReportCalculator.countBibleStudiesConducted]). */
+    val bibleStudiesCount: Int = 0,
+    /** Spec §24 — `false` means the calculation genuinely failed (a source
+     * Flow error), not "zero qualifying records"; the screen shows a retry
+     * affordance instead of a bare `0`/`No` in that case. */
+    val calculationFailed: Boolean = false,
+    val isCalculating: Boolean = true,
+
+    /** Spec §7 — required for every [PublisherCategory] now (previously
+     * Publisher-only); pre-filled from [MonthlyReportCalculator
+     * .didParticipateInPreaching] but still Publisher-editable. */
     val participatedInPreaching: Boolean = false,
+
+    // Pioneer-only (see [isPioneer]) — spec §9-§12/§19.
+    val systemCalculatedHours: Double? = null,
+    val hoursRendered: String = "0",
+    val hoursConfirmed: Boolean = false,
+    val hoursAdjustmentRemarks: String = "",
+
     /** Optional free-text note — see [MonthlyReport.remarks]. */
     val remarks: String = "",
     val isSaving: Boolean = false,
@@ -70,9 +95,36 @@ data class MonthlyReportUiState(
      * [existingReport], so it stays correct across the month-boundary reset
      * with no extra state to track. */
     val canSubmitWindow: Boolean get() = selectedPeriodMonth != currentMonthStart() || daysUntilMonthEnd() <= 2
+
+    val isPioneer: Boolean get() = isPioneer(category)
+
+    /** Spec §10/§19 — a Pioneer's manual hours differing from the system
+     * total is what actually *requires* [hoursConfirmed] + non-blank
+     * [hoursAdjustmentRemarks]; accepting the system value as-is needs
+     * neither (spec: "If the Publisher accepts the automatically calculated
+     * value without changing it, additional remarks are not required"). */
+    val hoursDifferFromSystem: Boolean get() {
+        if (!isPioneer) return false
+        val reported = hoursRendered.toDoubleOrNull() ?: return false
+        val system = systemCalculatedHours ?: return false
+        return reported != system
+    }
 }
 
-/** Spec §5.2 — monthly ministry report, required fields vary by [PublisherCategory].
+/**
+ * Spec §5.2, extended by "Update Monthly Report Submission — Automatic Bible
+ * Study Count and Preaching Participation" — monthly ministry report,
+ * required fields varying by [PublisherCategory]. Bible Study count,
+ * suggested preaching participation, and (Pioneer-only) system-calculated
+ * hours are now all derived from this Publisher's own already-synced
+ * records (see [MonthlyReportCalculator]) rather than typed in — the
+ * client-side half of what spec §15/§26 ask for "authoritative server
+ * values"; this app has no Cloud Functions/custom backend to recompute
+ * aggregates a second time server-side (see firestore.rules' `monthlyReports`
+ * rule for the one thing that block *can* actually enforce — hours-
+ * confirmation/remarks-required-when-different, a same-document check —
+ * and this class's own doc comment for the honest limit of what's possible
+ * without introducing one).
  *
  * "Select Month to Report" — a publisher may submit for the current month
  * (subject to [MonthlyReportUiState.canSubmitWindow]'s last-2-days rule) or
@@ -84,6 +136,9 @@ data class MonthlyReportUiState(
 class MonthlyReportViewModel @Inject constructor(
     private val monthlyReportRepository: MonthlyReportRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
+    private val interestedPersonRepository: InterestedPersonRepository,
+    private val visitRepository: VisitRepository,
+    private val preachingTimeRecordRepository: PreachingTimeRecordRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MonthlyReportUiState())
@@ -101,21 +156,72 @@ class MonthlyReportViewModel @Inject constructor(
             combine(
                 roleAssignmentRepository.observeForPerson(publisherPersonId),
                 monthlyReportRepository.observeAll(),
+                interestedPersonRepository.observeAll(),
+                visitRepository.observeAllForPublisher(publisherPersonId),
+                preachingTimeRecordRepository.observeForPublisher(publisherPersonId),
                 _selectedPeriodMonth,
-            ) { assignments, reports, selectedPeriodMonth ->
+            ) { flows ->
+                @Suppress("UNCHECKED_CAST")
+                val assignments = flows[0] as List<com.emfitsolutions.gopreach.data.model.RoleAssignment>
+                @Suppress("UNCHECKED_CAST")
+                val reports = flows[1] as List<MonthlyReport>
+                @Suppress("UNCHECKED_CAST")
+                val interestedPeople = flows[2] as List<com.emfitsolutions.gopreach.data.model.InterestedPerson>
+                @Suppress("UNCHECKED_CAST")
+                val visits = flows[3] as List<com.emfitsolutions.gopreach.data.model.Visit>
+                @Suppress("UNCHECKED_CAST")
+                val preachingTimeRecords = flows[4] as List<com.emfitsolutions.gopreach.data.model.PreachingTimeRecord>
+                val selectedPeriodMonth = flows[5] as Long
+
                 val publisherAssignment = assignments.firstOrNull { it.resolvedRoleTypeOrNull() is RoleType.Publisher }
                 val category = (publisherAssignment?.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category
+                val congregationId = publisherAssignment?.congregationId
                 val existing = reports.firstOrNull {
                     it.publisherPersonId == publisherPersonId && it.periodMonth == selectedPeriodMonth
                 }
+
+                // Spec §5/§6 — ownership + congregation scoping, applied once
+                // here before anything is handed to the pure calculator: only
+                // this Publisher's own Bible Study people, in their own
+                // congregation.
+                val ownBibleStudyPeople = interestedPeople.filter {
+                    it.publisherPersonId == publisherPersonId &&
+                        (congregationId == null || it.congregationId == congregationId) &&
+                        it.pipelineStage == PipelineStage.BIBLE_STUDY
+                }
+                val ownPreachingTimeRecords = preachingTimeRecords.filter {
+                    congregationId == null || it.congregationId == congregationId
+                }
+
+                val calc = MonthlyReportCalculator.calculate(
+                    category = category,
+                    ownBibleStudyPeople = ownBibleStudyPeople,
+                    bibleStudyVisits = visits,
+                    allVisitsForPublisher = visits,
+                    preachingTimeRecords = ownPreachingTimeRecords,
+                    periodMonthStart = selectedPeriodMonth,
+                )
+
+                // Spec §14 — a report already saved for this exact period
+                // keeps its own stored values (what was actually submitted/
+                // locked); anything not yet saved for this period always
+                // shows the fresh calculation, never a stale value carried
+                // over from whichever period was selected before. Spec §21 —
+                // once existing==POSTED, isLocked already prevents further
+                // edits regardless of what's displayed here.
                 MonthlyReportUiState(
                     category = category,
-                    congregationId = publisherAssignment?.congregationId,
+                    congregationId = congregationId,
                     existingReport = existing,
                     selectedPeriodMonth = selectedPeriodMonth,
-                    bibleStudiesCount = (existing?.bibleStudiesCount ?: 0).toString(),
-                    hoursRendered = (existing?.hoursRendered ?: 0.0).toString(),
-                    participatedInPreaching = existing?.participatedInPreaching ?: false,
+                    bibleStudiesCount = existing?.bibleStudiesCount ?: calc.bibleStudiesConducted,
+                    calculationFailed = false,
+                    isCalculating = false,
+                    participatedInPreaching = existing?.participatedInPreaching ?: calc.participatedInPreaching,
+                    systemCalculatedHours = existing?.systemCalculatedHours ?: calc.systemCalculatedHours,
+                    hoursRendered = (existing?.hoursRendered ?: calc.systemCalculatedHours ?: 0.0).toString(),
+                    hoursConfirmed = existing?.hoursConfirmed ?: false,
+                    hoursAdjustmentRemarks = existing?.hoursAdjustmentRemarks.orEmpty(),
                     remarks = existing?.remarks.orEmpty(),
                 )
             }.collect { _uiState.value = it }
@@ -125,18 +231,41 @@ class MonthlyReportViewModel @Inject constructor(
     /** Switching the selected month re-populates the form from whatever
      * report (if any) already exists for that period — same as opening the
      * screen fresh for it, so a publisher who already submitted last
-     * month's report sees it (locked) instead of a blank form. */
+     * month's report sees it (locked) instead of a blank form. Spec §14 —
+     * this also means a manual hours adjustment tied to the *previous*
+     * selection is never silently carried over: [load]'s combine above
+     * re-derives every field (including [MonthlyReportUiState
+     * .systemCalculatedHours]/[MonthlyReportUiState.hoursRendered]) from
+     * scratch for the newly selected month the moment this fires. */
     fun onMonthSelected(periodMonth: Long) {
         _selectedPeriodMonth.value = periodMonth
     }
 
-    fun onBibleStudiesChange(value: String) = update { it.copy(bibleStudiesCount = value.filter { c -> c.isDigit() }) }
+    /** Spec §Final Requirements #1 — Bible Studies Conducted has no setter:
+     * it is never freely editable by the Publisher. */
     fun onHoursChange(value: String) = update { it.copy(hoursRendered = value.filter { c -> c.isDigit() || c == '.' }) }
     fun onParticipatedChange(value: Boolean) = update { it.copy(participatedInPreaching = value) }
+    fun onHoursConfirmedChange(value: Boolean) = update { it.copy(hoursConfirmed = value) }
+    fun onHoursAdjustmentRemarksChange(value: String) = update { it.copy(hoursAdjustmentRemarks = value) }
     fun onRemarksChange(value: String) = update { it.copy(remarks = value) }
 
     private fun update(block: (MonthlyReportUiState) -> MonthlyReportUiState) {
         _uiState.value = block(_uiState.value)
+    }
+
+    /** Spec §10/§19/§26 — a Pioneer whose reported hours differ from the
+     * system-calculated total must confirm accuracy and give remarks before
+     * this can succeed; returns the validation message to show (same
+     * `requiredFieldsMessage`-style contract every other screen's `submit()`
+     * already uses), or `null` if the report is valid to save. */
+    private fun validationError(state: MonthlyReportUiState): String? {
+        if (!state.isPioneer) return null
+        if (!state.hoursDifferFromSystem) return null
+        return when {
+            !state.hoursConfirmed -> "Please confirm that your manually entered preaching hours are accurate and provide remarks explaining the adjustment."
+            state.hoursAdjustmentRemarks.isBlank() -> "Please confirm that your manually entered preaching hours are accurate and provide remarks explaining the adjustment."
+            else -> null
+        }
     }
 
     /** [allowEditWhenLocked] must be the same value the screen itself is
@@ -152,6 +281,11 @@ class MonthlyReportViewModel @Inject constructor(
     fun submit(publisherPersonId: String, allowEditWhenLocked: Boolean = false) {
         val state = _uiState.value
         if (state.isLocked && !allowEditWhenLocked) return
+        val validation = validationError(state)
+        if (validation != null) {
+            _uiState.value = state.copy(errorMessage = validation)
+            return
+        }
         _uiState.value = state.copy(isSaving = true, errorMessage = null)
         viewModelScope.launch {
             val report = MonthlyReport(
@@ -160,9 +294,12 @@ class MonthlyReportViewModel @Inject constructor(
                 congregationId = state.congregationId ?: "",
                 category = state.category ?: PublisherCategory.REGULAR_PUBLISHER,
                 periodMonth = state.selectedPeriodMonth,
-                bibleStudiesCount = state.bibleStudiesCount.toIntOrNull() ?: 0,
-                hoursRendered = if (isPioneer(state.category)) state.hoursRendered.toDoubleOrNull() ?: 0.0 else null,
-                participatedInPreaching = if (!isPioneer(state.category)) state.participatedInPreaching else null,
+                bibleStudiesCount = state.bibleStudiesCount,
+                hoursRendered = if (state.isPioneer) state.hoursRendered.toDoubleOrNull() ?: 0.0 else null,
+                systemCalculatedHours = if (state.isPioneer) state.systemCalculatedHours else null,
+                hoursConfirmed = if (state.isPioneer) state.hoursDifferFromSystem && state.hoursConfirmed else false,
+                hoursAdjustmentRemarks = if (state.isPioneer && state.hoursDifferFromSystem) state.hoursAdjustmentRemarks.trim().ifBlank { null } else null,
+                participatedInPreaching = state.participatedInPreaching,
                 status = ReportStatus.SUBMITTED,
                 submittedAt = System.currentTimeMillis(),
                 remarks = state.remarks.trim().ifBlank { null },
@@ -171,7 +308,4 @@ class MonthlyReportViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isSaving = false, saved = true, existingReport = report)
         }
     }
-
-    private fun isPioneer(category: PublisherCategory?) =
-        category == PublisherCategory.REGULAR_PIONEER || category == PublisherCategory.AUXILIARY_PIONEER
 }

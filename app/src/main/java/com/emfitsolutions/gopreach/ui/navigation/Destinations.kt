@@ -159,4 +159,11 @@ object Destinations {
     // full Add/Edit/permanent-Delete access (unlike SEARCHING/RETURN_VISIT/
     // BIBLE_STUDY above, which are Publisher-only, own-records routes).
     const val ALL_INTERESTED_RECORDS = "all_interested_records"
+
+    // "Preaching Time Records — Super Admin Management Module" — the
+    // Super-Admin's own "All Congregations" view of every Publisher's
+    // per-day Preaching Time log, with full Add/Edit/Delete/Force-Delete —
+    // same "Super-Admin only, unreachable for anyone else" convention as
+    // [ALL_INTERESTED_RECORDS] above.
+    const val ALL_PREACHING_TIME_RECORDS = "all_preaching_time_records"
 }

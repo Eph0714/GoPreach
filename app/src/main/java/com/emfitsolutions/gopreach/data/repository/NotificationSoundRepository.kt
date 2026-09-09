@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.data.repository
 
 import android.content.Context
+import android.media.RingtoneManager
 import android.net.Uri
 import androidx.core.content.edit
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -41,7 +42,7 @@ private const val KEY_IMPORTANT_ENABLED = "notification_important_enabled"
  */
 @Singleton
 class NotificationSoundRepository @Inject constructor(
-    @ApplicationContext context: Context,
+    @ApplicationContext private val context: Context,
 ) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -75,7 +76,8 @@ class NotificationSoundRepository @Inject constructor(
     private val _importantEnabled = MutableStateFlow(prefs.getBoolean(KEY_IMPORTANT_ENABLED, true))
     val importantEnabled: StateFlow<Boolean> = _importantEnabled
 
-    private fun readStoredUri(): Uri? = prefs.getString(KEY_SOUND_URI, null)?.let(Uri::parse)
+    private fun readStoredUri(): Uri? =
+        validatedSoundUri(context, prefs.getString(KEY_SOUND_URI, null)) { prefs.edit { remove(KEY_SOUND_URI) } }
 
     fun setSoundUri(uri: Uri?) {
         prefs.edit { if (uri == null) remove(KEY_SOUND_URI) else putString(KEY_SOUND_URI, uri.toString()) }
@@ -169,6 +171,34 @@ class NotificationSoundRepository @Inject constructor(
          * whichever sound the user already picked, not the system default,
          * if this is a reinstall or the channel was otherwise cleared. */
         fun readStoredSoundUri(context: Context): Uri? =
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_SOUND_URI, null)?.let(Uri::parse)
+            validatedSoundUri(context, context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_SOUND_URI, null)) {
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { remove(KEY_SOUND_URI) }
+            }
+
+        /** "Never allow an invalid sound resource to cause the notification
+         * to become silent" — [Uri.parse] never throws (it happily builds a
+         * `Uri` object out of any string, valid sound or not), so a stored
+         * URI pointing at a since-uninstalled ringtone app's sound or a
+         * deleted media file used to sail straight through into
+         * [android.app.NotificationChannel.setSound]/[NotificationCompat
+         * .Builder.setSound] with nothing ever checking it actually
+         * resolves to a playable sound — Android's own behavior in that case
+         * is to simply not play anything, which reads exactly like this
+         * bug's own symptom ("no notification sound is played"). Resolves
+         * the URI through [RingtoneManager.getRingtone] (the same API the
+         * system's own ringtone picker and every notification actually use
+         * to play a sound) and clears the stored preference the moment it
+         * doesn't resolve, falling back to `null` (the system default
+         * sound, applied by every caller of this repository) rather than a
+         * silently-broken custom one. */
+        private fun validatedSoundUri(context: Context, stored: String?, onInvalid: () -> Unit): Uri? {
+            val uri = stored?.let(Uri::parse) ?: return null
+            val resolvesToARealSound = runCatching { RingtoneManager.getRingtone(context, uri) != null }.getOrDefault(false)
+            if (!resolvesToARealSound) {
+                onInvalid()
+                return null
+            }
+            return uri
+        }
     }
 }

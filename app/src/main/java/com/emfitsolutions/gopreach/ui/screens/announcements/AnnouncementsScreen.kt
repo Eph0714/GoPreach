@@ -359,6 +359,9 @@ private fun AnnouncementDialog(
         onDismissRequest = onDismiss,
         title = if (existing == null) "New Announcement" else "Edit Announcement",
         onConfirm = ::submit,
+        hasUnsavedChanges = title != (existing?.title ?: "") || details != (existing?.details ?: "") ||
+            pickedCongregationId != (existing?.congregationId ?: fixedCongregationId) ||
+            pickedImageUri != null || removeImage || pickedAttachmentUri != null || removeAttachment,
         confirmLabel = if (existing == null) "Create" else "Save",
         errorMessage = errorMessage,
         maxContentHeight = 520.dp,

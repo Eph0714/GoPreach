@@ -248,6 +248,8 @@ private fun EditAdminDialog(
         confirmLabel = "Save Changes",
         errorMessage = errorMessage,
         maxContentHeight = 520.dp,
+        hasUnsavedChanges = firstName != row.person.firstName || lastName != row.person.lastName ||
+            address != row.person.address || contact != row.person.contact || email != (row.person.email ?: ""),
     ) {
                 EditSectionHeader("Personal Information")
                 OutlinedTextField(

@@ -311,6 +311,7 @@ private fun SuperAdminCreateRecordFlow(
         confirmLabel = "Next",
         errorMessage = errorMessage,
         maxContentHeight = 360.dp,
+        hasUnsavedChanges = selectedCongregation != null || selectedPublisher != null,
     ) {
         Text("Choose which congregation and publisher this record belongs to.", style = MaterialTheme.typography.bodySmall)
         SimplePicker(

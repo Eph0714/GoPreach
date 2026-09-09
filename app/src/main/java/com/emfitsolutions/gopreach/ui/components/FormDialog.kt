@@ -14,6 +14,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
@@ -42,26 +47,69 @@ import com.emfitsolutions.gopreach.R
  * tapping Save with something missing always produces this message instead
  * of just silently doing nothing — the caller's onConfirm is expected to
  * re-check and only actually save when there's nothing left to report.
+ *
+ * "Prevent Double Submission" — every one of this app's dozens of Save/Add/
+ * Update dialogs goes through this one Confirm button, so the guard lives
+ * here once instead of being re-implemented per call site: the first tap
+ * disables the button (via [hasConfirmed], reset fresh every time this
+ * composable enters composition — i.e. every time the dialog is newly
+ * shown) so a rapid double-tap can never fire [onConfirm] twice, even
+ * though most callers' own save is a synchronous, effectively-instant
+ * write to the local offline cache and simply dismiss this dialog
+ * immediately afterward rather than awaiting a network round-trip (see
+ * OfflineFirestoreRepository's own doc comments) — that near-instant
+ * dismissal still leaves a real, if narrow, multi-tap-in-one-frame window
+ * this closes. A validation failure ([errorMessage] appearing) is not a
+ * real submission, so [hasConfirmed] only latches once [onConfirm] itself
+ * is actually invoked — the caller is still free to tap Save again right
+ * away after fixing the flagged field.
+ *
+ * "Cancel Action" spec §5 — [hasUnsavedChanges] is the one thing only the
+ * caller can know (it owns every field's `remember`ed state, this composable
+ * owns none of it): pass a live `true`/`false` — typically "does any field
+ * still differ from what it started as" — and tapping Cancel (or dismissing
+ * via backdrop tap/system back, both of which already route through
+ * [onDismissRequest] the exact same way) shows a "Discard changes?" /
+ * "Keep Editing" | "Discard" confirmation first instead of closing straight
+ * away; [onDismissRequest] itself only ever runs once that's confirmed (or
+ * was never needed because nothing changed). Defaults to `false` — every
+ * existing call site that doesn't pass it keeps its exact old
+ * dismiss-immediately behavior, opting in is additive.
  */
 @Composable
 fun FormDialog(
     onDismissRequest: () -> Unit,
     title: String,
     onConfirm: () -> Unit,
-    // "Settings -> Language" (see AppLanguage) — defaults sourced from
-    // strings.xml rather than a literal, so every one of this app's dozens
-    // of FormDialog call sites that don't override these picks up the
-    // signed-in user's language automatically, with no other file needing
-    // to change.
+    // Sourced from strings.xml rather than a literal, so every one of this
+    // app's dozens of FormDialog call sites that don't override these stays
+    // in sync with a single copy of the label text.
     confirmLabel: String = stringResource(R.string.action_save),
     dismissLabel: String = stringResource(R.string.action_cancel),
     confirmEnabled: Boolean = true,
     errorMessage: String? = null,
     maxContentHeight: Dp = 480.dp,
+    hasUnsavedChanges: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    var hasConfirmed by remember { mutableStateOf(false) }
+    // [errorMessage] here is the CALLER's own state — it only actually
+    // changes to non-null on the recomposition *after* [onConfirm] set it
+    // (checking it synchronously inside the onClick below would only ever
+    // see the value from before this click, since Compose state updates
+    // apply on the next recomposition, not mid-callback). Re-arming here
+    // reacts to that later recomposition correctly.
+    LaunchedEffect(errorMessage) {
+        if (errorMessage != null) hasConfirmed = false
+    }
+
+    var showDiscardConfirm by remember { mutableStateOf(false) }
+    fun requestDismiss() {
+        if (hasUnsavedChanges) showDiscardConfirm = true else onDismissRequest()
+    }
+
     AlertDialog(
-        onDismissRequest = onDismissRequest,
+        onDismissRequest = ::requestDismiss,
         title = { Text(title) },
         text = {
             Column(
@@ -79,14 +127,38 @@ fun FormDialog(
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    TextButton(onClick = onDismissRequest) { Text(dismissLabel) }
-                    TextButton(onClick = onConfirm, enabled = confirmEnabled) { Text(confirmLabel) }
+                    TextButton(onClick = ::requestDismiss, enabled = !hasConfirmed) { Text(dismissLabel) }
+                    TextButton(
+                        onClick = {
+                            if (!hasConfirmed) {
+                                hasConfirmed = true
+                                onConfirm()
+                            }
+                        },
+                        enabled = confirmEnabled && !hasConfirmed,
+                    ) { Text(confirmLabel) }
                 }
             }
         },
         confirmButton = {},
         dismissButton = {},
     )
+
+    if (showDiscardConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDiscardConfirm = false },
+            title = { Text(stringResource(R.string.discard_changes_title)) },
+            text = { Text(stringResource(R.string.discard_changes_message)) },
+            confirmButton = {
+                TextButton(onClick = { showDiscardConfirm = false; onDismissRequest() }) {
+                    Text(stringResource(R.string.action_discard))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardConfirm = false }) { Text(stringResource(R.string.action_keep_editing)) }
+            },
+        )
+    }
 }
 
 /**

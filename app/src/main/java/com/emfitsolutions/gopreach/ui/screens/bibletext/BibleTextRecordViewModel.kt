@@ -5,10 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.export.BibleTextExportFile
 import com.emfitsolutions.gopreach.data.model.BibleTextCategory
 import com.emfitsolutions.gopreach.data.model.BibleTextRecord
-import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.repository.BibleTextCategoryRepository
 import com.emfitsolutions.gopreach.data.repository.BibleTextRecordRepository
-import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -83,7 +81,6 @@ val SUGGESTED_EVENTS: List<String> = listOf(
 class BibleTextRecordViewModel @Inject constructor(
     private val recordRepository: BibleTextRecordRepository,
     private val eventRepository: BibleTextCategoryRepository,
-    private val personRepository: PersonRepository,
 ) : ViewModel() {
 
     fun recordsFor(publisherPersonId: String): Flow<List<BibleTextRecord>> =
@@ -124,12 +121,6 @@ class BibleTextRecordViewModel @Inject constructor(
             toDelete.forEach { recordRepository.delete(it.id) }
             eventRepository.delete(eventId)
         }
-    }
-
-    /** Spec §4 — "Preferred Bible Language": auto-selected on a new record,
-     * changeable per record without affecting this saved default. */
-    fun updatePreferredLanguage(person: Person, languageId: String) {
-        viewModelScope.launch { personRepository.save(person.copy(preferredBibleLanguageId = languageId)) }
     }
 
     /** "The receiving Publisher can import the data[;] the imported data

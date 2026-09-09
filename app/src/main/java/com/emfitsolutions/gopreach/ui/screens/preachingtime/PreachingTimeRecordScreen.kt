@@ -225,7 +225,8 @@ private fun PreachingTimeRecordDialog(
     onSave: (PreachingTimeRecord) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var date by remember { mutableStateOf(existingRecord?.date?.takeIf { it != 0L } ?: System.currentTimeMillis()) }
+    val initialDate = remember { existingRecord?.date?.takeIf { it != 0L } ?: System.currentTimeMillis() }
+    var date by remember { mutableStateOf(initialDate) }
     var hoursText by remember { mutableStateOf(existingRecord?.hoursConsumed?.toString().orEmpty()) }
     var remarks by remember { mutableStateOf(existingRecord?.remarks.orEmpty()) }
 
@@ -265,6 +266,8 @@ private fun PreachingTimeRecordDialog(
         confirmLabel = if (existingRecord == null) "Add" else "Save",
         errorMessage = errorMessage,
         maxContentHeight = 500.dp,
+        hasUnsavedChanges = date != initialDate || hoursText != existingRecord?.hoursConsumed?.toString().orEmpty() ||
+            remarks != existingRecord?.remarks.orEmpty(),
     ) {
                 DateTimeField(label = "Date", valueMillis = date, onValueChange = { date = it })
                 OutlinedTextField(

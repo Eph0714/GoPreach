@@ -357,6 +357,8 @@ private fun MidweekItemDialog(
         confirmLabel = if (existing == null) "Add" else "Save",
         errorMessage = errorMessage,
         maxContentHeight = 400.dp,
+        hasUnsavedChanges = particular != (existing?.particular ?: "") || duration != (existing?.durationMinutes ?: "") ||
+            assignedTo != (existing?.assignedTo ?: ""),
     ) {
         OutlinedTextField(
             value = particular,
@@ -635,6 +637,9 @@ private fun PublicTalkScheduleDialog(
         confirmEnabled = !isSaving,
         errorMessage = errorMessage,
         maxContentHeight = 480.dp,
+        hasUnsavedChanges = date != existing?.date || theme != (existing?.theme ?: "") || speaker != (existing?.speaker ?: "") ||
+            chairman != (existing?.chairman ?: "") || watchtowerConductor != (existing?.watchtowerConductor ?: "") ||
+            watchtowerReader != (existing?.watchtowerReader ?: "") || micServers != (existing?.micServers ?: ""),
     ) {
         OutlinedButton(
             onClick = {
@@ -844,6 +849,7 @@ private fun CartAssignmentDialog(
         confirmLabel = if (existing == null) "Add" else "Save",
         errorMessage = errorMessage,
         maxContentHeight = 360.dp,
+        hasUnsavedChanges = date != existing?.date || location != (existing?.location ?: "") || publishers != (existing?.publishers ?: ""),
     ) {
         OutlinedButton(
             onClick = {

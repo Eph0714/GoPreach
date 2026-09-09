@@ -50,6 +50,15 @@ fun DeleteChoiceDialog(
     permanentDeleteImpactSummary: String? = null,
 ) {
     var showPermanentConfirm by remember { mutableStateOf(false) }
+    // "Prevent Double Submission" — every Manage screen's Delete flow goes
+    // through this one shared dialog, so the guard lives here once. Latches
+    // on the first tap of either action (a fresh instance of this composable
+    // is created each time a caller shows it, so this always starts unarmed);
+    // there's nothing to "re-arm on failure" here the way FormDialog's Save
+    // needs — [onMoveToInactive]/[onDeletePermanently] are fire-and-forget
+    // local-cache writes that don't report failure back to this dialog, and
+    // it dismisses itself immediately after either one anyway.
+    var hasActed by remember { mutableStateOf(false) }
     val showToast = rememberActionToast()
 
     if (!showPermanentConfirm) {
@@ -66,19 +75,28 @@ fun DeleteChoiceDialog(
             confirmButton = {
                 Column(horizontalAlignment = Alignment.End) {
                     Button(
-                        onClick = { onMoveToInactive(); showToast("\"$recordLabel\" moved to Inactive."); onDismiss() },
+                        onClick = {
+                            if (!hasActed) {
+                                hasActed = true
+                                onMoveToInactive()
+                                showToast("\"$recordLabel\" moved to Inactive.")
+                                onDismiss()
+                            }
+                        },
+                        enabled = !hasActed,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Move to Inactive") }
                     if (canPermanentlyDelete) {
                         OutlinedButton(
                             onClick = { showPermanentConfirm = true },
+                            enabled = !hasActed,
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         ) { Text("Delete Permanently") }
                     }
                 }
             },
             dismissButton = {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onDismiss, enabled = !hasActed) { Text("Cancel") }
             },
         )
     } else {
@@ -107,11 +125,20 @@ fun DeleteChoiceDialog(
                 ) {
                     if (permanentDeleteBlockedReason == null) {
                         Button(
-                            onClick = { onDeletePermanently(); showToast("\"$recordLabel\" permanently deleted."); onDismiss() },
+                            onClick = {
+                                if (!hasActed) {
+                                    hasActed = true
+                                    onDeletePermanently()
+                                    showToast("\"$recordLabel\" permanently deleted.")
+                                    onDismiss()
+                                }
+                            },
+                            enabled = !hasActed,
                         ) { Text("Delete Permanently") }
                     }
                     TextButton(
                         onClick = { if (permanentDeleteBlockedReason != null) onDismiss() else showPermanentConfirm = false },
+                        enabled = !hasActed,
                         modifier = Modifier.padding(top = 8.dp),
                     ) {
                         Text(if (permanentDeleteBlockedReason != null) "Close" else "Cancel")

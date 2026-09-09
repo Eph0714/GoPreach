@@ -281,18 +281,6 @@ fun AdminHomeScreen(
         else -> setOfNotNull(ownCongregationId ?: ownGroupCongregationId)
     }
 
-    // "Forward to Other Congregation... The congregation 'Service Overseer'
-    // in the receiving congregation will see a notification bell" spec —
-    // this app has no push backend (see NotificationHelper's doc comment),
-    // so this fires a local notification the moment a *new* pending request
-    // streams in while this Main Form is composed, rather than a persisted
-    // "unseen since last app close" count. The drawer's own live badge (see
-    // GoPreachSidePanelContent/ForwardRequestsScreen) is what surfaces
-    // requests that arrived before this session opened.
-    if (canViewForwardRequests) {
-        ForwardRequestNotifier(congregationIds = visibleCongregationIds)
-    }
-
     // Unified notification balloon (spec: "Add a notification balloon for
     // Service Overseer, Elders, Admin, publisher and super admin") — every
     // admin-track role except a grant-based Circuit Overseer (not named in
@@ -315,13 +303,10 @@ fun AdminHomeScreen(
         notificationCenterViewModel.unseenCountFor(visibleNotificationItemsFlow, currentPersonId)
     }
     val notificationUnseenCount by notificationUnseenFlow.collectAsStateWithLifecycle(initialValue = 0)
-    com.emfitsolutions.gopreach.ui.components.NewItemNotifier(
-        items = notificationItemsFlow,
-        onlyCategories = setOf(
-            com.emfitsolutions.gopreach.data.repository.NotificationCategory.ANNOUNCEMENT,
-            com.emfitsolutions.gopreach.data.repository.NotificationCategory.CALENDAR_SCHEDULE,
-        ),
-    )
+    // "Fix the Notification Sound system" — sound for this balloon (and for
+    // Forward Requests/Group Chat below) now fires from
+    // NotificationSoundCoordinator, Application-wide, not nested here — see
+    // its own doc comment.
 
     // "Group Chat Setting" Chat Box icon (spec §6) — every active member
     // gets this regardless of account context; membership is keyed by
@@ -329,7 +314,6 @@ fun AdminHomeScreen(
     // wiring beyond currentPersonId, already resolved above.
     val chatBoxEntriesFlow = remember(currentPersonId) { groupChatViewModel.chatBoxEntriesFor(currentPersonId) }
     val chatBoxEntries by chatBoxEntriesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    com.emfitsolutions.gopreach.ui.components.GroupChatMessageNotifier(chatBoxEntries)
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
@@ -644,29 +628,7 @@ fun AdminHomeScreen(
     }
 }
 
-/** See the call site's doc comment above — fires one local notification per
- * app session per new pending count increase, not on the initial load. */
-@Composable
-private fun ForwardRequestNotifier(
-    congregationIds: Set<String>?,
-    viewModel: com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestsViewModel = hiltViewModel(),
-) {
-    val context = LocalContext.current
-    val requestsFlow = remember(congregationIds) { viewModel.pendingRequestsFor(congregationIds) }
-    val requests by requestsFlow.collectAsStateWithLifecycle(initialValue = null)
-    var lastSeenCount by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(requests) {
-        val current = requests ?: return@LaunchedEffect
-        val previous = lastSeenCount
-        if (previous != null && current.size > previous) {
-            com.emfitsolutions.gopreach.notifications.NotificationHelper.notify(
-                context,
-                id = 9100,
-                title = "New Forward Request",
-                text = "A publisher has forwarded a record to your congregation for review.",
-                category = com.emfitsolutions.gopreach.data.repository.NotificationCategory.TRANSFER_REQUEST,
-            )
-        }
-        lastSeenCount = current.size
-    }
-}
+// "Fix the Notification Sound system" — ForwardRequestNotifier used to live
+// here; its logic is now covered by NotificationSoundCoordinator's unified
+// item watcher (Application-scoped), which already includes pending
+// cross-congregation Forward Requests in its Transfer Request category.

@@ -13,11 +13,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,7 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.R
-import com.emfitsolutions.gopreach.data.model.PublisherCategory
+import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -80,8 +84,10 @@ fun MonthlyReportScreen(
     // OfflineFirestoreRepository) with no toast/dialog of any kind; the form
     // simply reflects the now-submitted state (Submit button disabling once
     // locked, etc.) instead of announcing it.
-    val isPioneer = uiState.category == PublisherCategory.REGULAR_PIONEER || uiState.category == PublisherCategory.AUXILIARY_PIONEER
+    val isPioneer = uiState.isPioneer
     val effectivelyLocked = uiState.isLocked && !allowEditWhenLocked
+    val monthFormat = remember { SimpleDateFormat("MMMM yyyy", Locale.getDefault()) }
+    val selectedMonthLabel = remember(uiState.selectedPeriodMonth) { monthFormat.format(Date(uiState.selectedPeriodMonth)) }
     // The submission-window gate only applies to a publisher's own normal
     // submit flow — an Elder editing on someone's behalf (allowEditWhenLocked)
     // isn't restricted to the last-2-days window.
@@ -140,41 +146,103 @@ fun MonthlyReportScreen(
                 )
             }
 
-            OutlinedTextField(
-                value = uiState.bibleStudiesCount,
-                onValueChange = viewModel::onBibleStudiesChange,
-                label = { Text(stringResource(R.string.monthly_report_bible_studies_label)) },
-                singleLine = true,
-                enabled = !effectivelyLocked,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                visualTransformation = VisualTransformation.None,
+            // Spec §3/§Final Requirements #1 — automatically calculated, never
+            // a field the Publisher types into; §24 — a genuine calculation
+            // failure shows a retry, not a bare "0" that looks the same as a
+            // real zero-studies month.
+            if (uiState.calculationFailed) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            stringResource(R.string.monthly_report_calculation_failed, selectedMonthLabel),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        TextButton(onClick = { viewModel.onMonthSelected(uiState.selectedPeriodMonth) }) {
+                            Text(stringResource(R.string.monthly_report_calculation_retry))
+                        }
+                    }
+                }
+            } else {
+                ReadOnlyField(
+                    label = stringResource(R.string.monthly_report_bible_studies_label),
+                    value = uiState.bibleStudiesCount.toString(),
+                )
+                Text(
+                    stringResource(R.string.monthly_report_bible_studies_auto_note),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // Spec §7 — required for every Publisher category now, not just
+            // Non-Pioneers; the label always names the exact month selected
+            // above, never "this month" in the abstract.
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-            )
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(R.string.monthly_report_participated_question, selectedMonthLabel),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = uiState.participatedInPreaching,
+                    onCheckedChange = viewModel::onParticipatedChange,
+                    enabled = !effectivelyLocked,
+                )
+            }
 
             if (isPioneer) {
+                HorizontalDivider()
+                // Spec §9/§11/§12/§19 — the read-only "My Total Hours" system
+                // total for the selected month, kept visually separate from
+                // the Publisher's own editable, final reported value below.
+                ReadOnlyField(
+                    label = stringResource(R.string.monthly_report_system_hours_label),
+                    value = "%.2f".format(uiState.systemCalculatedHours ?: 0.0),
+                )
                 OutlinedTextField(
                     value = uiState.hoursRendered,
                     onValueChange = viewModel::onHoursChange,
-                    label = { Text(stringResource(R.string.monthly_report_hours_rendered)) },
+                    label = { Text(stringResource(R.string.monthly_report_reported_hours_label)) },
                     singleLine = true,
                     enabled = !effectivelyLocked,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(stringResource(R.string.monthly_report_participated_question), style = MaterialTheme.typography.bodyLarge)
-                    Switch(
-                        checked = uiState.participatedInPreaching,
-                        onCheckedChange = viewModel::onParticipatedChange,
+                // Spec §10/§13 — the confirmation checkbox and required
+                // remarks only ever appear once the Publisher has actually
+                // changed the value away from the system-calculated total;
+                // accepting it as-is needs neither.
+                if (uiState.hoursDifferFromSystem) {
+                    Text(
+                        stringResource(R.string.monthly_report_hours_differ_notice, selectedMonthLabel),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = uiState.hoursConfirmed,
+                            onCheckedChange = viewModel::onHoursConfirmedChange,
+                            enabled = !effectivelyLocked,
+                        )
+                        Text(stringResource(R.string.monthly_report_hours_confirm_checkbox), style = MaterialTheme.typography.bodyMedium)
+                    }
+                    OutlinedTextField(
+                        value = uiState.hoursAdjustmentRemarks,
+                        onValueChange = viewModel::onHoursAdjustmentRemarksChange,
+                        label = { Text(stringResource(R.string.monthly_report_hours_adjustment_remarks)) },
+                        isError = uiState.hoursAdjustmentRemarks.isBlank(),
                         enabled = !effectivelyLocked,
+                        visualTransformation = VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
+                HorizontalDivider()
             }
 
             OutlinedTextField(

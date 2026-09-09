@@ -282,6 +282,14 @@ private fun GroupDialog(
     var servant by remember { mutableStateOf<Person?>(null) }
     var assistant by remember { mutableStateOf<Person?>(null) }
     var preselected by remember { mutableStateOf(existingGroup == null) }
+    // "Discard changes?" needs to compare against what was actually
+    // preselected from the existing Group, not the placeholder `null` these
+    // three start at before that preselection runs below — same reasoning
+    // as the Elder edit dialogs' own initialIsGroupOverseer/
+    // initialPublisherCategory snapshots.
+    var initialOverseer by remember { mutableStateOf<Person?>(null) }
+    var initialServant by remember { mutableStateOf<Person?>(null) }
+    var initialAssistant by remember { mutableStateOf<Person?>(null) }
 
     val overseerCandidates by remember(congregationId, servant, assistant) {
         if (congregationId != null) {
@@ -311,6 +319,9 @@ private fun GroupDialog(
         overseer = overseerCandidates.firstOrNull { it.id == existingGroup?.overseerPersonId }
         servant = servantCandidates.firstOrNull { it.id == existingGroup?.servantPersonId }
         assistant = assistantCandidates.firstOrNull { it.person.id == existingGroup?.assistantPersonId }?.person
+        initialOverseer = overseer
+        initialServant = servant
+        initialAssistant = assistant
         preselected = true
     }
 
@@ -328,9 +339,12 @@ private fun GroupDialog(
         if (congregationId != null) viewModel.membersFor(congregationId) else kotlinx.coroutines.flow.flowOf(emptyList())
     }.collectAsStateWithLifecycle(initialValue = emptyList())
     var checkedMemberIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var initialCheckedMemberIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var membersPreselected by remember { mutableStateOf(existingGroup == null) }
     if (!membersPreselected && memberCandidates.isNotEmpty()) {
-        checkedMemberIds = memberCandidates.filter { it.assignment.groupId == existingGroup?.id }.map { it.person.id }.toSet()
+        val preselectedIds = memberCandidates.filter { it.assignment.groupId == existingGroup?.id }.map { it.person.id }.toSet()
+        checkedMemberIds = preselectedIds
+        initialCheckedMemberIds = preselectedIds
         membersPreselected = true
     }
 
@@ -384,6 +398,10 @@ private fun GroupDialog(
         confirmLabel = if (existingGroup == null) "Create" else "Save",
         errorMessage = errorMessage,
         maxContentHeight = 480.dp,
+        hasUnsavedChanges = name != (existingGroup?.name ?: "") ||
+            pickedCongregation?.id != existingGroup?.congregationId ||
+            overseer?.id != initialOverseer?.id || servant?.id != initialServant?.id || assistant?.id != initialAssistant?.id ||
+            checkedMemberIds != initialCheckedMemberIds,
     ) {
                 if (fixedCongregationId == null) {
                     CongregationPickerDropdown(

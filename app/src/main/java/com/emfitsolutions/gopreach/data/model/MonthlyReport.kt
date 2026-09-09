@@ -20,14 +20,25 @@ enum class ReportStatus { DRAFT, SUBMITTED, POSTED }
  *
  * | Category              | Uses                                              |
  * |------------------------|---------------------------------------------------|
- * | Regular Pioneer        | bibleStudiesCount, hoursRendered                   |
- * | Auxiliary Pioneer      | bibleStudiesCount, hoursRendered (+ active date range, see [AuxiliaryPioneerRange]) |
+ * | Regular Pioneer        | bibleStudiesCount, participatedInPreaching, hoursRendered |
+ * | Auxiliary Pioneer      | bibleStudiesCount, participatedInPreaching, hoursRendered (+ active date range, see [AuxiliaryPioneerRange]) |
  * | Regular Publisher      | bibleStudiesCount, participatedInPreaching         |
  * | Unbaptized Publisher   | bibleStudiesCount, participatedInPreaching         |
  *
- * `bibleStudiesCount` is entered by the publisher as the number of studies actually
- * conducted in the period — a count derived from [BibleStudyRecord]-linked activity,
- * not the number of [Visit] rows logged.
+ * "Update Monthly Report Submission — Automatic Bible Study Count and
+ * Preaching Participation" — [bibleStudiesCount] is no longer typed in by the
+ * Publisher at all: it's the count of *distinct* [InterestedPerson] (see that
+ * class's own doc comment on why a "Bible Study" is just one of its
+ * [PipelineStage] values, not a separate collection) owned by
+ * [publisherPersonId] with [InterestedPerson.pipelineStage] ==
+ * [PipelineStage.BIBLE_STUDY] that had at least one qualifying [Visit] during
+ * [periodMonth] — never the number of Visit rows themselves (see
+ * [com.emfitsolutions.gopreach.domain.MonthlyReportCalculator] for the actual
+ * calculation, shared with [participatedInPreaching]'s own suggested value
+ * and [systemCalculatedHours]). [participatedInPreaching] now applies to
+ * *every* category (previously null'd out for Pioneers, who only ever
+ * reported hours) — pre-filled from the same calculation but still a
+ * Publisher-editable Yes/No, same as before.
  *
  * Lock semantics: editable by [publisherPersonId] themselves while [status]
  * is DRAFT *or* SUBMITTED — locked out only once [ReportStatus.POSTED] (see
@@ -48,12 +59,39 @@ data class MonthlyReport(
     /** Report period, first-of-month epoch millis (e.g. 2026-08-01). */
     val periodMonth: Long = 0L,
 
+    /** Automatically calculated (see this class's own doc comment) — never a
+     * free-text field the Publisher types into. */
     val bibleStudiesCount: Int = 0,
 
-    // Pioneer-only fields
+    // Pioneer-only field — the Publisher's own final, submitted total (what
+    // every existing consumer of this field — Dashboard totals, Consolidated
+    // Report, ManagePublisherReportsScreen — already reads). May equal
+    // [systemCalculatedHours] (accepted as-is) or differ from it (a manual
+    // adjustment, which then requires [hoursConfirmed] + non-blank
+    // [hoursAdjustmentRemarks] — enforced both client-side and in
+    // firestore.rules' `monthlyReports` write rule).
     val hoursRendered: Double? = null,
 
-    // Publisher-only field
+    /** Pioneer-only — the "My Total Hours" total for [periodMonth] at the
+     * moment this report was last saved, kept separately from
+     * [hoursRendered] purely for comparison/audit (spec §12/§19: "preserve
+     * the system-calculated value... do not allow the Publisher to overwrite
+     * or alter" it). `null` for a Non-Pioneer, or if this report predates
+     * this field's introduction. */
+    val systemCalculatedHours: Double? = null,
+
+    /** Pioneer-only — required `true` whenever [hoursRendered] differs from
+     * [systemCalculatedHours] (spec §10/§19); meaningless (left `false`)
+     * when they match, or for a Non-Pioneer. */
+    val hoursConfirmed: Boolean = false,
+
+    /** Pioneer-only — required non-blank whenever [hoursRendered] differs
+     * from [systemCalculatedHours] (spec §10); distinct from the general
+     * [remarks] field below, which stays optional for every category. */
+    val hoursAdjustmentRemarks: String? = null,
+
+    // Every category's field now (see this class's own doc comment) — was
+    // Publisher-only (non-Pioneer) before this pass.
     val participatedInPreaching: Boolean? = null,
 
     val status: ReportStatus = ReportStatus.DRAFT,

@@ -140,7 +140,8 @@ fun ManualCoordinatesDialog(
     onConfirm: (CoordinatesValue) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var inputText by remember { mutableStateOf(initial?.let { "${it.lat}, ${it.lng}" }.orEmpty()) }
+    val initialText = remember { initial?.let { "${it.lat}, ${it.lng}" }.orEmpty() }
+    var inputText by remember { mutableStateOf(initialText) }
     var isResolving by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
@@ -172,6 +173,7 @@ fun ManualCoordinatesDialog(
         dismissLabel = "CANCEL",
         confirmEnabled = !isResolving,
         maxContentHeight = 280.dp,
+        hasUnsavedChanges = inputText != initialText,
     ) {
         OutlinedTextField(
             value = inputText,

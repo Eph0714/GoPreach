@@ -177,6 +177,11 @@ private fun ReviewForwardRequestDialog(
     val publishers by publishersFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var assigning by remember { mutableStateOf(false) }
     var selectedPublisher by remember { mutableStateOf<Person?>(null) }
+    // "Prevent Double Submission" — this dialog predates FormDialog's own
+    // built-in guard and isn't built on it (a custom two-step Accept/Assign
+    // flow), so it needs its own; a fresh instance of this composable is
+    // created each time a request is opened, so this always starts unarmed.
+    var hasActed by remember { mutableStateOf(false) }
 
     if (readOnly) {
         AlertDialog(
@@ -235,26 +240,30 @@ private fun ReviewForwardRequestDialog(
         },
         confirmButton = {
             if (!assigning) {
-                TextButton(onClick = { assigning = true }) { Text("Accept") }
+                TextButton(onClick = { assigning = true }, enabled = !hasActed) { Text("Accept") }
             } else {
                 TextButton(
                     onClick = {
                         val publisher = selectedPublisher
-                        if (publisher != null) {
+                        if (publisher != null && !hasActed) {
+                            hasActed = true
                             viewModel.accept(request, publisher, currentPersonId)
                             onAccepted(publisher)
                             onDismiss()
                         }
                     },
-                    enabled = selectedPublisher != null,
+                    enabled = selectedPublisher != null && !hasActed,
                 ) { Text("Confirm") }
             }
         },
         dismissButton = {
             if (!assigning) {
-                TextButton(onClick = onDecline) { Text("Decline") }
+                TextButton(
+                    onClick = { if (!hasActed) { hasActed = true; onDecline() } },
+                    enabled = !hasActed,
+                ) { Text("Decline") }
             } else {
-                TextButton(onClick = { assigning = false; selectedPublisher = null }) { Text("Back") }
+                TextButton(onClick = { assigning = false; selectedPublisher = null }, enabled = !hasActed) { Text("Back") }
             }
         },
     )

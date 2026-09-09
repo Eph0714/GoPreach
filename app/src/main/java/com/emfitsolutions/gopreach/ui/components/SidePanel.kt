@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.HorizontalDivider
@@ -181,6 +182,9 @@ fun GoPreachSidePanelContent(
             // Searching/Return Visit/Bible Study entry point in this app
             // (Publisher context, own records only).
             if (isSuperAdmin) add(SideItem(stringResource(R.string.side_interested_records_all_congregations), Icons.Rounded.Groups, Destinations.ALL_INTERESTED_RECORDS))
+            // "Preaching Time Records — Super Admin Management Module" —
+            // same "Super-Admin only" gating as the item above.
+            if (isSuperAdmin) add(SideItem(stringResource(R.string.side_preaching_time_records_all_congregations), Icons.Rounded.Schedule, Destinations.ALL_PREACHING_TIME_RECORDS))
             if (canManageUsers) add(SideItem(stringResource(R.string.side_user_management), Icons.Rounded.ManageAccounts, Destinations.MANAGE_USERS))
         }
         add(SideSection(stringResource(R.string.side_section_other), otherItems))

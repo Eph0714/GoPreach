@@ -254,6 +254,9 @@ private fun EditCongregationDialog(
         confirmLabel = "Save Changes",
         errorMessage = errorMessage,
         maxContentHeight = 480.dp,
+        hasUnsavedChanges = name != congregation.name || province != congregation.province ||
+            cityMunicipality != congregation.cityMunicipality || barangay != congregation.barangay ||
+            code != congregation.code || languages != congregation.languages,
     ) {
                 EditSectionHeader("Congregation/Group Information")
                 OutlinedTextField(

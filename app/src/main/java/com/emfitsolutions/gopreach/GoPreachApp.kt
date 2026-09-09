@@ -8,6 +8,7 @@ import com.emfitsolutions.gopreach.data.sync.RemoteSyncCoordinator
 import com.emfitsolutions.gopreach.data.sync.SyncScheduler
 import com.emfitsolutions.gopreach.notifications.CalendarAlarmRescheduler
 import com.emfitsolutions.gopreach.notifications.NotificationHelper
+import com.emfitsolutions.gopreach.notifications.NotificationSoundCoordinator
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -37,12 +38,20 @@ class GoPreachApp : Application(), Configuration.Provider {
     @Inject
     lateinit var syncScheduler: SyncScheduler
 
+    @Inject
+    lateinit var notificationSoundCoordinator: NotificationSoundCoordinator
+
     override fun onCreate() {
         super.onCreate()
         remoteSyncCoordinator.startAll()
         NotificationHelper.ensureChannel(this)
         reminderScheduler.ensureScheduled()
         calendarAlarmRescheduler.start()
+        // "Fix the Notification Sound system" — see NotificationSoundCoordinator's
+        // own doc comment: every notification trigger now runs at application
+        // scope, for as long as the process is alive, instead of being tied to
+        // whichever screen (if any) is currently on top.
+        notificationSoundCoordinator.start()
         // "Make the App Synchronize to server automatically if there are
         // internet or mobile data available" — see SyncScheduler
         // .ensureAutomaticSyncStarted's own doc comment for the two triggers

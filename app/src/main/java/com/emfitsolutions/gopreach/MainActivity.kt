@@ -29,15 +29,14 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
-    // AppCompatActivity, not a bare ComponentActivity/FragmentActivity, for two
-    // independent reasons that both still hold: (1) androidx.biometric.BiometricPrompt
-    // (used by the login screen's fingerprint/face sign-in) needs a FragmentManager to
-    // host its internal dialog fragment — AppCompatActivity is itself a FragmentActivity,
-    // so that's unaffected; (2) per-app language (Settings -> Language) needs
-    // AppCompatDelegate's locale-aware attachBaseContext to actually take effect on
-    // API < 33 without extra manual Context-wrapping code (see AppLanguageRepository.kt).
-    // AppCompatActivity is itself a ComponentActivity, so setContent{}/enableEdgeToEdge()
-    // below are unaffected.
+    // AppCompatActivity, not a bare ComponentActivity/FragmentActivity: androidx
+    // .biometric.BiometricPrompt (used by the login screen's fingerprint/face
+    // sign-in) needs a FragmentManager to host its internal dialog fragment —
+    // AppCompatActivity is itself a FragmentActivity, so that's covered. (The
+    // per-app language feature this class used to also justify itself by has
+    // since been removed — GoPreach is English-only now — but this is still
+    // needed for biometric login.) AppCompatActivity is itself a
+    // ComponentActivity, so setContent{}/enableEdgeToEdge() below are unaffected.
 
     @Inject
     lateinit var themePreferenceRepository: ThemePreferenceRepository
