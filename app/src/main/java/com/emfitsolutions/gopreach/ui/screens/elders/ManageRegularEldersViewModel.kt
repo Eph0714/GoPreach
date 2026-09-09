@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.ui.screens.elders
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.AdminRole
+import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
@@ -10,14 +11,18 @@ import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
+import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -30,7 +35,14 @@ class ManageRegularEldersViewModel @Inject constructor(
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val groupRepository: GroupRepository,
     private val auditLogRepository: AuditLogRepository,
+    congregationRepository: CongregationRepository,
 ) : ViewModel() {
+
+    /** "Add a filter for Congregation" (Super-Admin only) — the dropdown's
+     * own option list; [rowsFor] already filters by `assignment.congregationId`
+     * directly, this is just the name list to pick from. */
+    val congregations: StateFlow<List<Congregation>> = congregationRepository.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun rowsFor(visibleCongregationId: String?): Flow<List<ElderRow>> = combine(
         personRepository.observeAll(),
@@ -38,7 +50,9 @@ class ManageRegularEldersViewModel @Inject constructor(
         groupRepository.observeAll(),
     ) { people, assignments, groups ->
         assignments
-            .filter { (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER }
+            // resolvedRoleTypeOrNull, never the throwing resolvedRoleType — see
+            // DashboardStats.computeStatMembers' doc comment.
+            .filter { (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER }
             .filter { visibleCongregationId == null || it.congregationId == visibleCongregationId }
             .mapNotNull { assignment ->
                 val person = people.firstOrNull { it.id == assignment.personId } ?: return@mapNotNull null

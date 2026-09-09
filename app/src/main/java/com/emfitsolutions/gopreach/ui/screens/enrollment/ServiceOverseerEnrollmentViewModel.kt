@@ -100,7 +100,7 @@ class ServiceOverseerEnrollmentViewModel @Inject constructor(
                 // screen is also reachable by a Coordinator Elder — so both
                 // of their own-congregation roles need checking here.
                 enrollerAssignments.firstOrNull {
-                    val role = (it.resolvedRoleType() as? RoleType.Admin)?.role
+                    val role = (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role
                     role == AdminRole.ADMIN_PER_CONGREGATION || role == AdminRole.COORDINATOR_ELDER
                 }?.congregationId
             }

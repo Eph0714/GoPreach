@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.ui.screens.admins
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.AdminRole
+import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
@@ -46,13 +47,22 @@ class ManageAdminsViewModel @Inject constructor(
         congregationRepository.observeAll(),
     ) { people, assignments, congregations ->
         assignments
-            .filter { (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.ADMIN_PER_CONGREGATION }
+            // resolvedRoleTypeOrNull, never the throwing resolvedRoleType — see
+            // DashboardStats.computeStatMembers' doc comment for why (as? alone
+            // doesn't help; the throw happens before the cast ever runs).
+            .filter { (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.ADMIN_PER_CONGREGATION }
             .mapNotNull { assignment ->
                 val person = people.firstOrNull { it.id == assignment.personId } ?: return@mapNotNull null
                 val congregationName = congregations.firstOrNull { it.id == assignment.congregationId }?.name ?: "Unassigned"
                 AdminRow(person, assignment, congregationName, assignment.status == RoleAssignmentStatus.ACTIVE)
             }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** "Add a filter for Congregation" (Super-Admin only) — the dropdown's
+     * own option list, active congregations only, same source [admins]'
+     * name-resolution already reads from. */
+    val congregations: StateFlow<List<Congregation>> = congregationRepository.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun updatePerson(person: Person) {
         viewModelScope.launch { personRepository.save(person) }

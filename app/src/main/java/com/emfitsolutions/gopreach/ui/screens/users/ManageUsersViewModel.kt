@@ -47,7 +47,10 @@ class ManageUsersViewModel @Inject constructor(
         userAccessGrantRepository.observeAll(),
     ) { people, assignments, grants ->
         assignments
-            .filter { (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.CIRCUIT_OVERSEER }
+            // resolvedRoleTypeOrNull, never the throwing resolvedRoleType — see
+            // DashboardStats.computeStatMembers' doc comment for the crash this
+            // avoids (as? alone doesn't help; the throw happens before the cast).
+            .filter { (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.CIRCUIT_OVERSEER }
             .mapNotNull { assignment ->
                 val person = people.firstOrNull { it.id == assignment.personId } ?: return@mapNotNull null
                 RestrictedUserRow(person, assignment, grants.firstOrNull { it.personId == person.id })

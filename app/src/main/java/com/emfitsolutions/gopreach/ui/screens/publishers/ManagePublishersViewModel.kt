@@ -82,12 +82,16 @@ class ManagePublishersViewModel @Inject constructor(
 
     fun rowsFor(visibleCongregationId: String?): Flow<List<PublisherRow>> =
         combine(personRepository.observeAll(), roleAssignmentRepository.observeAll(), groups) { people, assignments, groups ->
+            // resolvedRoleTypeOrNull, never the throwing resolvedRoleType — see
+            // DashboardStats.computeStatMembers' doc comment; a row that fails
+            // to parse is simply excluded (mapNotNull below) rather than
+            // crashing this whole screen.
             val rows = assignments
-                .filter { it.resolvedRoleType() is RoleType.Publisher }
+                .filter { it.resolvedRoleTypeOrNull() is RoleType.Publisher }
                 .filter { visibleCongregationId == null || it.congregationId == visibleCongregationId }
                 .mapNotNull { assignment ->
                     val person = people.firstOrNull { it.id == assignment.personId } ?: return@mapNotNull null
-                    val category = (assignment.resolvedRoleType() as RoleType.Publisher).category
+                    val category = (assignment.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category ?: return@mapNotNull null
                     val groupName = groups.firstOrNull { it.id == assignment.groupId }?.name ?: "Unassigned"
                     PublisherRow(person, assignment, category, groupName)
                 }

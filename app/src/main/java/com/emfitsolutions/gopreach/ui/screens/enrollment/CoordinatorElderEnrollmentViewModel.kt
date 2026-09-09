@@ -101,7 +101,7 @@ class CoordinatorElderEnrollmentViewModel @Inject constructor(
                 state.selectedCongregationId
             } else {
                 enrollerAssignments.firstOrNull {
-                    (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.ADMIN_PER_CONGREGATION
+                    (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.ADMIN_PER_CONGREGATION
                 }?.congregationId
             }
             if (congregationId == null) {

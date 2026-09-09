@@ -103,8 +103,8 @@ class MonthlyReportViewModel @Inject constructor(
                 monthlyReportRepository.observeAll(),
                 _selectedPeriodMonth,
             ) { assignments, reports, selectedPeriodMonth ->
-                val publisherAssignment = assignments.firstOrNull { it.resolvedRoleType() is RoleType.Publisher }
-                val category = (publisherAssignment?.resolvedRoleType() as? RoleType.Publisher)?.category
+                val publisherAssignment = assignments.firstOrNull { it.resolvedRoleTypeOrNull() is RoleType.Publisher }
+                val category = (publisherAssignment?.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category
                 val existing = reports.firstOrNull {
                     it.publisherPersonId == publisherPersonId && it.periodMonth == selectedPeriodMonth
                 }

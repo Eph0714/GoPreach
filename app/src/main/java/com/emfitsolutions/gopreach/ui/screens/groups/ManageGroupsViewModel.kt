@@ -100,7 +100,9 @@ class ManageGroupsViewModel @Inject constructor(
                     assignment.status == RoleAssignmentStatus.ACTIVE &&
                         assignment.congregationId == congregationId &&
                         (assignment.regularElderRole == role || assignment.regularElderRole == null) &&
-                        (assignment.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER &&
+                        // resolvedRoleTypeOrNull, never the throwing resolvedRoleType
+                        // (see DashboardStats.computeStatMembers' doc comment).
+                        (assignment.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER &&
                         assignment.personId !in excludePersonIds
                 }
                 .mapNotNull { assignment -> people.firstOrNull { it.id == assignment.personId } }
@@ -299,7 +301,7 @@ class ManageGroupsViewModel @Inject constructor(
      * dangling, so this is purely informational. */
     suspend fun permanentDeleteImpactSummary(groupId: String): String? {
         val memberCount = roleAssignmentRepository.observeAll().first()
-            .count { it.groupId == groupId && (it.resolvedRoleType() as? RoleType.Admin)?.role != AdminRole.REGULAR_ELDER }
+            .count { it.groupId == groupId && (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role != AdminRole.REGULAR_ELDER }
         return if (memberCount > 0) {
             "This will unassign $memberCount publisher(s) currently in this group (they become Unassigned, not deleted)."
         } else null

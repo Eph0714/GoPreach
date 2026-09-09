@@ -62,7 +62,23 @@ fun computeStatMembers(
         .filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId in congregationsById }
         .forEach { assignment ->
             val congregationId = assignment.congregationId ?: return@forEach
-            val labels: Set<String> = when (val role = assignment.resolvedRoleType()) {
+            // Bug fix ("Super Admin login automatically closes app"):
+            // [RoleAssignment.resolvedRoleType] THROWS for any roleType
+            // string it can't parse (a legacy/corrupted document, or one
+            // written under a since-renamed/removed AdminRole/
+            // PublisherCategory enum constant) — see that function's own doc
+            // comment. Called here over *every* congregation's assignments
+            // (this dashboard is Super-Admin's unscoped, all-congregations
+            // view), a single such row anywhere in the whole database used
+            // to crash the dashboard the instant it loaded, immediately
+            // after a correct login — exactly the "closes right after
+            // Authenticate" symptom, and specifically a Super-Admin problem
+            // since no other role's dashboard is ever exposed to every
+            // congregation's data at once. [resolvedRoleTypeOrNull] never
+            // throws; a row it can't parse is skipped (contributes no label)
+            // instead of taking the whole dashboard down with it.
+            val labels: Set<String> = when (val role = assignment.resolvedRoleTypeOrNull()) {
+                null -> emptySet()
                 is RoleType.Admin -> when (role.role) {
                     // "Total Elders" counts Coordinator Elder, Regular Elder,
                     // and Service Overseer — every Elder-title role in the
@@ -206,10 +222,12 @@ data class CongregationStats(
             // (reported: "3 elders shown, only 2 actually enrolled"). Also
             // requires the Person doc to actually exist — same "don't count
             // an unknown member" rule [countDistinctAdmins] applies.
-            val publisherAssignments = active.filter { it.resolvedRoleType() is RoleType.Publisher && it.personId in peopleById }
+            // See computeStatMembers' matching comment — resolvedRoleTypeOrNull,
+            // never the throwing resolvedRoleType, over data this broad.
+            val publisherAssignments = active.filter { it.resolvedRoleTypeOrNull() is RoleType.Publisher && it.personId in peopleById }
                 .distinctBy { it.personId }
             fun countOf(category: PublisherCategory) = publisherAssignments.count {
-                (it.resolvedRoleType() as RoleType.Publisher).category == category
+                (it.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category == category
             }
             // Coordinator Elder + Regular Elder + Service Overseer (see
             // ELDER_ROLES/countDistinctAdmins) — a person holding more than
@@ -226,7 +244,7 @@ data class CongregationStats(
                 congregationId = congregation.id,
                 congregationName = congregation.name,
                 totalPublishers = publisherAssignments.count {
-                    (it.resolvedRoleType() as RoleType.Publisher).category != PublisherCategory.REMOVED_PUBLISHER
+                    (it.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category != PublisherCategory.REMOVED_PUBLISHER
                 },
                 totalElders = elderCount,
                 totalMinisterial = ministerialCount,
@@ -265,10 +283,12 @@ data class CongregationStats(
             val peopleById = people.associateBy { it.id }
             val congregationIds = congregations.map { it.id }.toSet()
             val active = assignments.filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId in congregationIds }
-            val publisherAssignments = active.filter { it.resolvedRoleType() is RoleType.Publisher && it.personId in peopleById }
+            // See computeStatMembers' matching comment — resolvedRoleTypeOrNull,
+            // never the throwing resolvedRoleType, over data this broad.
+            val publisherAssignments = active.filter { it.resolvedRoleTypeOrNull() is RoleType.Publisher && it.personId in peopleById }
                 .distinctBy { it.personId }
             fun countOf(category: PublisherCategory) = publisherAssignments.count {
-                (it.resolvedRoleType() as RoleType.Publisher).category == category
+                (it.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category == category
             }
             // Coordinator Elder + Regular Elder + Service Overseer (see
             // ELDER_ROLES) — a person holding more than one at once still
@@ -287,7 +307,7 @@ data class CongregationStats(
                 congregationId = "",
                 congregationName = "All Congregations/Groups",
                 totalPublishers = publisherAssignments.count {
-                    (it.resolvedRoleType() as RoleType.Publisher).category != PublisherCategory.REMOVED_PUBLISHER
+                    (it.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category != PublisherCategory.REMOVED_PUBLISHER
                 },
                 totalElders = elderCount,
                 totalMinisterial = ministerialCount,
@@ -338,7 +358,7 @@ private val MINISTERIAL_ROLES = setOf(AdminRole.MINISTERIAL_SERVANT)
 private fun countDistinctAdmins(assignments: List<RoleAssignment>, people: List<Person>, roles: Set<AdminRole>): Int {
     val peopleById = people.associateBy { it.id }
     return assignments
-        .filter { (it.resolvedRoleType() as? RoleType.Admin)?.role in roles }
+        .filter { (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in roles }
         .mapNotNull { peopleById[it.personId] }
         .map { it.duplicateNameKey() }
         .distinct()

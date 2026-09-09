@@ -59,7 +59,9 @@ class ManageCoordinatorEldersViewModel @Inject constructor(
         congregationRepository.observeAll(),
     ) { people, assignments, congregations ->
         assignments
-            .filter { (it.resolvedRoleType() as? RoleType.Admin)?.role == AdminRole.COORDINATOR_ELDER }
+            // resolvedRoleTypeOrNull, never the throwing resolvedRoleType — see
+            // DashboardStats.computeStatMembers' doc comment.
+            .filter { (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.COORDINATOR_ELDER }
             .filter { visibleCongregationId == null || it.congregationId == visibleCongregationId }
             .mapNotNull { assignment ->
                 val person = people.firstOrNull { it.id == assignment.personId } ?: return@mapNotNull null
