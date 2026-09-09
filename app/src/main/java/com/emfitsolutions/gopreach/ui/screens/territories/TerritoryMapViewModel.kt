@@ -87,13 +87,32 @@ class TerritoryMapViewModel @Inject constructor(
     private val _resolvedAddresses = MutableStateFlow<Map<String, String>>(emptyMap())
 
     // Guards against re-launching a reverse-geocode lookup for the same
-    // person on every recomposition of the combine below (a plain "is it in
-    // the resolved map yet" check alone would re-fire once per person for
-    // every recombination while the very first lookup is still in flight,
-    // since none of those in-flight lookups have written back yet) — a
-    // synchronized Set since this is read/written from whichever dispatcher
-    // the combine happens to run on plus every launched lookup coroutine.
+    // (person, coordinate) pair on every recomposition of the combine below
+    // (a plain "is it in the resolved map yet" check alone would re-fire
+    // once per person for every recombination while the very first lookup
+    // is still in flight, since none of those in-flight lookups have
+    // written back yet) — a synchronized Set since this is read/written
+    // from whichever dispatcher the combine happens to run on plus every
+    // launched lookup coroutine.
+    //
+    // Bug fix ("Territory Maps — Automatic Location ... Cleanup" spec §2:
+    // "Remove the old location reference if it is no longer valid"): both
+    // this Set and [_resolvedAddresses] used to be keyed by personId alone.
+    // Editing a person's GPS coordinates (a brand-new [lat,lng] on the exact
+    // same document) left the *old* reverse-geocoded address cached under
+    // that same key forever — `resolved[person.id]` was already non-null,
+    // so the lookup above never re-fired, and the row kept showing the
+    // stale pre-edit address (in List View, search matching, and the map's
+    // own popup) even though the marker's own pin correctly jumped to the
+    // new coordinates (that part reads person.gpsLat/gpsLng directly, not
+    // this cache). Keying by [resolveKey] (person id + the exact
+    // coordinates) instead makes an edited GPS location a cache miss like
+    // any other never-seen point, which resolves fresh and simply leaves
+    // the old key's stale entry unused (harmless — an in-memory map wiped on
+    // process death, not a persisted leak).
     private val requestedIds = Collections.synchronizedSet(mutableSetOf<String>())
+
+    private fun resolveKey(personId: String, lat: Double, lng: Double) = "$personId:$lat:$lng"
 
     /** [congregationId] null means every congregation (Super-Admin). Only
      * [RecordStatus.ACTIVE] records with a saved location are shown — same
@@ -110,10 +129,13 @@ class TerritoryMapViewModel @Inject constructor(
                 .filter { congregationId == null || it.congregationId == congregationId }
 
             withLocation.forEach { person ->
-                if (resolved[person.id] == null && requestedIds.add(person.id)) {
+                val lat = person.gpsLat!!
+                val lng = person.gpsLng!!
+                val key = resolveKey(person.id, lat, lng)
+                if (resolved[key] == null && requestedIds.add(key)) {
                     viewModelScope.launch {
-                        val address = runCatching { locationTracker.reverseGeocode(person.gpsLat!!, person.gpsLng!!) }.getOrNull()
-                        _resolvedAddresses.update { it + (person.id to address.orEmpty()) }
+                        val address = runCatching { locationTracker.reverseGeocode(lat, lng) }.getOrNull()
+                        _resolvedAddresses.update { it + (key to address.orEmpty()) }
                     }
                 }
             }
@@ -123,7 +145,7 @@ class TerritoryMapViewModel @Inject constructor(
                     TerritoryMapRow(
                         person = person,
                         congregationName = congregations.firstOrNull { it.id == person.congregationId }?.name ?: "—",
-                        resolvedLocation = resolved[person.id]?.ifBlank { null },
+                        resolvedLocation = resolved[resolveKey(person.id, person.gpsLat!!, person.gpsLng!!)]?.ifBlank { null },
                     )
                 }
                 .sortedBy { it.person.name }
