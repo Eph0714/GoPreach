@@ -78,6 +78,14 @@ fun ElderListScreen(
      * editor) — null (the default) keeps every other caller's existing
      * edit dialog exactly as it was. */
     editDialogContent: (@Composable (row: ElderRow, onDismiss: () -> Unit) -> Unit)? = null,
+    /** "Add a filter for Congregation" (Super-Admin only) — rendered right
+     * below "Show Inactive" when non-null; each caller supplies its own
+     * [com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown]
+     * only when it's operating unscoped (fixedCongregationId == null), and
+     * [rows] has already been filtered by the caller before it ever reaches
+     * this composable — this slot only renders the control, it doesn't
+     * filter anything itself. */
+    congregationFilterContent: (@Composable () -> Unit)? = null,
 ) {
     var showInactive by remember { mutableStateOf(false) }
     val visibleRows = rows.filter { showInactive || it.isActive }
@@ -112,6 +120,11 @@ fun ElderListScreen(
             ) {
                 Checkbox(checked = showInactive, onCheckedChange = { showInactive = it })
                 Text("Show Inactive")
+            }
+            if (congregationFilterContent != null) {
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    congregationFilterContent()
+                }
             }
         if (visibleRows.isEmpty()) {
             Column(

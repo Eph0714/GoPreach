@@ -53,6 +53,7 @@ import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
@@ -80,7 +81,11 @@ fun ManageGroupsScreen(
     onBack: () -> Unit,
     viewModel: ManageGroupsViewModel = hiltViewModel(),
 ) {
-    val rowsFlow = remember(fixedCongregationId) { viewModel.rowsFor(fixedCongregationId) }
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
+    // "Add a filter for Congregation" (Super-Admin only).
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val effectiveCongregationId = fixedCongregationId ?: congregationFilter
+    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
     val allRows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showInactive by remember { mutableStateOf(false) }
     val rows = allRows.filter { showInactive || it.group.status == RecordStatus.ACTIVE }
@@ -116,6 +121,14 @@ fun ManageGroupsScreen(
             ) {
                 Checkbox(checked = showInactive, onCheckedChange = { showInactive = it })
                 Text("Show Inactive")
+            }
+            if (fixedCongregationId == null) {
+                CongregationFilterDropdown(
+                    congregations = congregations,
+                    selectedCongregationId = congregationFilter,
+                    onSelected = { congregationFilter = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
             }
         if (rows.isEmpty()) {
             Column(

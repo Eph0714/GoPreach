@@ -32,6 +32,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
@@ -49,9 +50,11 @@ fun ManageServiceOverseersScreen(
     onAddNew: () -> Unit,
     viewModel: ManageServiceOverseersViewModel = hiltViewModel(),
 ) {
-    val rowsFlow = remember(fixedCongregationId) { viewModel.rowsFor(fixedCongregationId) }
-    val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val effectiveCongregationId = fixedCongregationId ?: congregationFilter
+    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
+    val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     ElderListScreen(
         title = "Service Overseers",
@@ -64,6 +67,16 @@ fun ManageServiceOverseersScreen(
         onSetActive = { row, active -> viewModel.setActive(row.assignment, active, currentPersonId) },
         onEdit = { _, updated -> viewModel.updatePerson(updated) },
         onPermanentlyDelete = { row -> viewModel.permanentlyDelete(row, currentPersonId) },
+        congregationFilterContent = if (fixedCongregationId == null) {
+            {
+                CongregationFilterDropdown(
+                    congregations = congregations,
+                    selectedCongregationId = congregationFilter,
+                    onSelected = { congregationFilter = it },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        } else null,
         editDialogContent = { row, onDismiss ->
             // "In editing Service overseer, allow the user to edit also the
             // roles, and other details" — a dedicated editor (Congregation +

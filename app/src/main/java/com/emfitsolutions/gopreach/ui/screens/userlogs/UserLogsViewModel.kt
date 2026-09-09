@@ -3,11 +3,16 @@ package com.emfitsolutions.gopreach.ui.screens.userlogs
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.AuditLogEntry
+import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
+import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -24,7 +29,13 @@ data class LogRow(val entry: AuditLogEntry, val actorName: String)
 class UserLogsViewModel @Inject constructor(
     private val auditLogRepository: AuditLogRepository,
     private val personRepository: PersonRepository,
+    congregationRepository: CongregationRepository,
 ) : ViewModel() {
+
+    /** "Add a filter for Congregation" (Super-Admin only) — the dropdown's
+     * own option list. */
+    val congregations: StateFlow<List<Congregation>> = congregationRepository.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun rowsFor(visibleCongregationId: String?): Flow<List<LogRow>> =
         combine(auditLogRepository.observeAll(), personRepository.observeAll()) { entries, people ->

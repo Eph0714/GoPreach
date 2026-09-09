@@ -64,6 +64,7 @@ import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.ReportStatus
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.FormDialog
@@ -188,6 +189,22 @@ fun ManagePublisherReportsScreen(
             ) {
                 DateRangeFilterBar(range = uiState.dateRange, onRangeChange = viewModel::setDateRange)
 
+                // "Add a filter for Congregation" (Super-Admin only) — always
+                // visible now, independent of "Show" below, rather than a
+                // third mutually-exclusive show-mode (see ReportShowMode's own
+                // doc comment for the change). An Admin/Coordinator Elder/
+                // Service Overseer is already scoped to exactly one
+                // congregation ([fixedCongregationId] non-null), so this
+                // stays hidden for them — nothing for them to filter.
+                if (fixedCongregationId == null) {
+                    CongregationFilterDropdown(
+                        congregations = uiState.congregationsInScope,
+                        selectedCongregationId = uiState.selectedCongregationId,
+                        onSelected = viewModel::selectCongregation,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
                 Text(stringResource(R.string.manage_reports_show_label), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
@@ -200,17 +217,6 @@ fun ManagePublisherReportsScreen(
                         onClick = { viewModel.setShowMode(ReportShowMode.BY_PUBLISHER) },
                         label = { Text(stringResource(R.string.manage_reports_by_publisher)) },
                     )
-                    // Super-Admin only — an Admin/Coordinator Elder/Service
-                    // Overseer is already scoped to exactly one congregation
-                    // ([fixedCongregationId] non-null), so this option would
-                    // be a no-op for them.
-                    if (fixedCongregationId == null) {
-                        FilterChip(
-                            selected = uiState.showMode == ReportShowMode.BY_CONGREGATION,
-                            onClick = { viewModel.setShowMode(ReportShowMode.BY_CONGREGATION) },
-                            label = { Text(stringResource(R.string.manage_reports_by_congregation)) },
-                        )
-                    }
                 }
 
                 if (uiState.showMode == ReportShowMode.BY_PUBLISHER) {
@@ -218,13 +224,6 @@ fun ManagePublisherReportsScreen(
                         publishers = uiState.publishersInScope,
                         selectedId = uiState.selectedPublisherId,
                         onSelected = viewModel::selectPublisher,
-                    )
-                }
-                if (uiState.showMode == ReportShowMode.BY_CONGREGATION) {
-                    CongregationPickerDropdown(
-                        congregations = uiState.congregationsInScope,
-                        selectedId = uiState.selectedCongregationId,
-                        onSelected = viewModel::selectCongregation,
                     )
                 }
 
@@ -462,31 +461,6 @@ private fun PublisherPickerDropdown(publishers: List<Person>, selectedId: String
             DropdownMenuItem(text = { Text(allLabel) }, onClick = { onSelected(null); expanded = false })
             publishers.forEach { person ->
                 DropdownMenuItem(text = { Text(person.fullName) }, onClick = { onSelected(person.id); expanded = false })
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CongregationPickerDropdown(congregations: List<Congregation>, selectedId: String?, onSelected: (String?) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val allLabel = stringResource(R.string.manage_reports_all)
-    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: allLabel
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-        OutlinedTextField(
-            value = selectedName,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(stringResource(R.string.reports_congregation_group_label)) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth().menuAnchor(),
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text(allLabel) }, onClick = { onSelected(null); expanded = false })
-            congregations.forEach { congregation ->
-                DropdownMenuItem(text = { Text(congregation.name) }, onClick = { onSelected(congregation.id); expanded = false })
             }
         }
     }

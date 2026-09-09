@@ -59,6 +59,7 @@ import coil.compose.AsyncImage
 import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.model.Announcement
 import com.emfitsolutions.gopreach.data.model.Congregation
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -83,7 +84,10 @@ fun AnnouncementsScreen(
     viewModel: ManageAnnouncementsViewModel = hiltViewModel(),
 ) {
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
-    val rowsFlow = remember(fixedCongregationId) { viewModel.rowsFor(fixedCongregationId) }
+    // "Add a filter for Congregation" (Super-Admin only).
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val effectiveCongregationId = fixedCongregationId ?: congregationFilter
+    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingEdit by remember { mutableStateOf<Announcement?>(null) }
@@ -116,6 +120,15 @@ fun AnnouncementsScreen(
             }
         },
     ) { padding ->
+      Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        if (fixedCongregationId == null) {
+            CongregationFilterDropdown(
+                congregations = congregations,
+                selectedCongregationId = congregationFilter,
+                onSelected = { congregationFilter = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
         if (rows.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -128,7 +141,7 @@ fun AnnouncementsScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -185,6 +198,7 @@ fun AnnouncementsScreen(
                 }
             }
         }
+      }
     }
 
     if (showCreateDialog) {

@@ -26,10 +26,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** "Show" mode — spec: "Show (All, By Publisher, [By congregation for
- * (Super Admin) only])". [BY_CONGREGATION] is only ever reachable when the
- * viewer isn't already scoped to one congregation (see [fixedCongregationId]). */
-enum class ReportShowMode { ALL, BY_PUBLISHER, BY_CONGREGATION }
+/** "Show" mode — spec: "Show (All, By Publisher)". Congregation filtering
+ * used to be a third mutually-exclusive mode here (`BY_CONGREGATION`); it's
+ * now the same always-visible [CongregationFilterDropdown] every other
+ * Super-Admin screen uses instead — see [selectCongregation] — so it composes
+ * with either mode rather than being its own. */
+enum class ReportShowMode { ALL, BY_PUBLISHER }
 
 /** One row of the report table — sourced directly from a submitted (or
  * unlocked-for-edit) [MonthlyReport], which already carries the publisher's
@@ -104,12 +106,17 @@ class ManagePublisherReportsViewModel @Inject constructor(
     fun setShowMode(mode: ReportShowMode) = _showMode.update {
         // Switching away from a mode clears its own selection, so a stale
         // pick from a previous mode never silently keeps filtering once
-        // it's no longer shown as selected in the UI.
+        // it's no longer shown as selected in the UI. The Congregation filter
+        // is independent of this now (see [selectCongregation]), so it's
+        // deliberately untouched here — picking "By Publisher" never resets
+        // an already-chosen Congregation, and vice versa.
         if (mode != ReportShowMode.BY_PUBLISHER) _selectedPublisherId.update { null }
-        if (mode != ReportShowMode.BY_CONGREGATION) _selectedCongregationId.update { null }
         mode
     }
     fun selectPublisher(personId: String?) = _selectedPublisherId.update { personId }
+
+    /** "Add a filter for Congregation" (Super-Admin only) — always-available,
+     * independent of [showMode]; `null` means "All Congregations." */
     fun selectCongregation(congregationId: String?) = _selectedCongregationId.update { congregationId }
     fun setSearchQuery(query: String) = _searchQuery.update { query }
 
@@ -159,7 +166,7 @@ class ManagePublisherReportsViewModel @Inject constructor(
 
         val rows = raw.reports
             .filter { fixedCongregationId == null || it.congregationId == fixedCongregationId }
-            .filter { f.showMode != ReportShowMode.BY_CONGREGATION || f.selectedCongregationId == null || it.congregationId == f.selectedCongregationId }
+            .filter { f.selectedCongregationId == null || it.congregationId == f.selectedCongregationId }
             .filter { f.showMode != ReportShowMode.BY_PUBLISHER || f.selectedPublisherId == null || it.publisherPersonId == f.selectedPublisherId }
             .filter { f.dateRange.overlapsMonth(it.periodMonth) }
             .mapNotNull { report ->

@@ -2,6 +2,7 @@ package com.emfitsolutions.gopreach.ui.screens.pipeline
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.ForwardRequest
 import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
 import com.emfitsolutions.gopreach.data.model.Person
@@ -9,15 +10,19 @@ import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
+import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -33,7 +38,13 @@ class ForwardRequestsViewModel @Inject constructor(
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val personRepository: PersonRepository,
     private val auditLogRepository: AuditLogRepository,
+    congregationRepository: CongregationRepository,
 ) : ViewModel() {
+
+    /** "Add a filter for Congregation" (Super-Admin only) — the dropdown's
+     * own option list. */
+    val congregations: StateFlow<List<Congregation>> = congregationRepository.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Pending requests addressed to any of [congregationIds] — `null` means
      * every congregation (Super-Admin). */

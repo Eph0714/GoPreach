@@ -53,6 +53,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.LocationSharingSettings
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
@@ -100,8 +101,16 @@ fun ShareLocationScreen(
     LaunchedEffect(currentPersonId) { viewModel.observeOwnSharedLocation(currentPersonId) }
     val myLocation by viewModel.myLocation.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
-    val rowsFlow = remember(visibleCongregationId, searchQuery) {
-        viewModel.rowsFor(visibleCongregationId, currentPersonId, searchQuery)
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+    // "Move the By Congregation from textbox to Dropdown same as the other
+    // module filter" — a real, always-visible Congregation dropdown now,
+    // replacing the free-text "type the congregation name into Search"
+    // behavior; only meaningful when [visibleCongregationId] is already
+    // unscoped (Super-Admin).
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val effectiveCongregationId = visibleCongregationId ?: congregationFilter
+    val rowsFlow = remember(effectiveCongregationId, searchQuery) {
+        viewModel.rowsFor(effectiveCongregationId, currentPersonId, searchQuery)
     }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val dateFormat = remember { SimpleDateFormat("MMMM d, yyyy – h:mm a", Locale.getDefault()) }
@@ -294,10 +303,18 @@ fun ShareLocationScreen(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
             } else {
+                if (visibleCongregationId == null) {
+                    CongregationFilterDropdown(
+                        congregations = congregations,
+                        selectedCongregationId = congregationFilter,
+                        onSelected = { congregationFilter = it },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = { Text("Search: Name, Status, Group" + if (visibleCongregationId == null) ", Congregation" else "") },
+                    label = { Text("Search: Name, Status, Group") },
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                     visualTransformation = VisualTransformation.None,

@@ -43,6 +43,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Schedule
 import com.emfitsolutions.gopreach.data.model.ScheduleKind
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -65,7 +66,15 @@ fun CalendarScreen(
     onBack: () -> Unit,
     viewModel: CalendarViewModel = hiltViewModel(),
 ) {
-    val eventsFlow = remember(scope) { viewModel.eventsFor(scope, currentPersonId) }
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+    // "Add a filter for Congregation" (Super-Admin only) — only offered when
+    // [scope] is already unscoped (AdminTrack with a null congregationId);
+    // every other scope is already fixed to one congregation, so there's
+    // nothing for them to filter.
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val isSuperAdminScope = scope is CalendarScope.AdminTrack && scope.congregationId == null
+    val effectiveScope = if (isSuperAdminScope) (scope as CalendarScope.AdminTrack).copy(congregationId = congregationFilter) else scope
+    val eventsFlow = remember(effectiveScope) { viewModel.eventsFor(effectiveScope, currentPersonId) }
     val events by eventsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingEdit by remember { mutableStateOf<Schedule?>(null) }
@@ -91,16 +100,25 @@ fun CalendarScreen(
             }
         },
     ) { padding ->
+      Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        if (isSuperAdminScope) {
+            CongregationFilterDropdown(
+                congregations = congregations,
+                selectedCongregationId = congregationFilter,
+                onSelected = { congregationFilter = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
         if (events.isEmpty()) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text("Nothing on the calendar yet.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -140,6 +158,7 @@ fun CalendarScreen(
                 }
             }
         }
+      }
     }
 
     if (showCreateDialog) {

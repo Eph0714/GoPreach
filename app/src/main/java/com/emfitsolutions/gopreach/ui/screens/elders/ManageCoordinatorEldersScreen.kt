@@ -33,6 +33,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
@@ -50,9 +51,15 @@ fun ManageCoordinatorEldersScreen(
     onAddNew: () -> Unit,
     viewModel: ManageCoordinatorEldersViewModel = hiltViewModel(),
 ) {
-    val rowsFlow = remember(fixedCongregationId) { viewModel.rowsFor(fixedCongregationId) }
-    val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+    // "Add a filter for Congregation" (Super-Admin only) — only meaningful
+    // when this screen has no fixed scope already; a scoped Admin/Coordinator
+    // Elder never sees this (fixedCongregationId is already their one
+    // congregation), so the dropdown is never even rendered for them.
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val effectiveCongregationId = fixedCongregationId ?: congregationFilter
+    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
+    val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     ElderListScreen(
         title = "Coordinator Elders",
@@ -65,6 +72,16 @@ fun ManageCoordinatorEldersScreen(
         onSetActive = { row, active -> viewModel.setActive(row.assignment, active, currentPersonId) },
         onEdit = { _, updated -> viewModel.updatePerson(updated) },
         onPermanentlyDelete = { row -> viewModel.permanentlyDelete(row, currentPersonId) },
+        congregationFilterContent = if (fixedCongregationId == null) {
+            {
+                CongregationFilterDropdown(
+                    congregations = congregations,
+                    selectedCongregationId = congregationFilter,
+                    onSelected = { congregationFilter = it },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        } else null,
         editDialogContent = { row, onDismiss ->
             // "Allow the Role to be edited" — same dedicated editor
             // (Congregation + Select Role, on top of Personal Information)

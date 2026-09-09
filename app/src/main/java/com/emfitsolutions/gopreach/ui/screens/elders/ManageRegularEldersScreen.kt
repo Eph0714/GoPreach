@@ -29,6 +29,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
@@ -46,7 +47,10 @@ fun ManageRegularEldersScreen(
     onAddNew: () -> Unit,
     viewModel: ManageRegularEldersViewModel = hiltViewModel(),
 ) {
-    val rowsFlow = remember(fixedCongregationId) { viewModel.rowsFor(fixedCongregationId) }
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val effectiveCongregationId = fixedCongregationId ?: congregationFilter
+    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     ElderListScreen(
@@ -60,6 +64,16 @@ fun ManageRegularEldersScreen(
         onSetActive = { row, active -> viewModel.setActive(row.assignment, active, currentPersonId) },
         onEdit = { _, updated -> viewModel.updatePerson(updated) },
         onPermanentlyDelete = { row -> viewModel.permanentlyDelete(row, currentPersonId) },
+        congregationFilterContent = if (fixedCongregationId == null) {
+            {
+                CongregationFilterDropdown(
+                    congregations = congregations,
+                    selectedCongregationId = congregationFilter,
+                    onSelected = { congregationFilter = it },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        } else null,
         editDialogContent = { row, onDismiss ->
             // "Allow the Role to be edited" — a dedicated editor (Personal
             // Information + Select Role), not the generic Personal-

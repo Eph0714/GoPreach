@@ -2,12 +2,17 @@ package com.emfitsolutions.gopreach.ui.screens.calendar
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Schedule
 import com.emfitsolutions.gopreach.data.model.ScheduleKind
+import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.ScheduleRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -35,7 +40,13 @@ sealed class CalendarScope {
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
     private val scheduleRepository: ScheduleRepository,
+    congregationRepository: CongregationRepository,
 ) : ViewModel() {
+
+    /** "Add a filter for Congregation" (Super-Admin only) — the dropdown's
+     * own option list. */
+    val congregations: StateFlow<List<Congregation>> = congregationRepository.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun eventsFor(scope: CalendarScope, viewerPersonId: String): Flow<List<Schedule>> =
         scheduleRepository.observeAll().map { all ->

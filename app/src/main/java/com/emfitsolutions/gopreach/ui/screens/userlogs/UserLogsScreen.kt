@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -61,7 +62,14 @@ fun UserLogsScreen(
     onBack: () -> Unit,
     viewModel: UserLogsViewModel = hiltViewModel(),
 ) {
-    val rowsFlow = remember(visibleCongregationId) { viewModel.rowsFor(visibleCongregationId) }
+    // "Add a filter for Congregation" — only meaningful when this screen has
+    // no fixed scope already (Super-Admin); an Admin/Coordinator Elder is
+    // already scoped to their own congregation upstream via
+    // [visibleCongregationId], so this stays unused for them.
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val effectiveCongregationId = visibleCongregationId ?: congregationFilter
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy h:mm a", Locale.getDefault()) }
     val showToast = rememberActionToast()
@@ -106,16 +114,25 @@ fun UserLogsScreen(
             )
         },
     ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        if (visibleCongregationId == null) {
+            CongregationFilterDropdown(
+                congregations = congregations,
+                selectedCongregationId = congregationFilter,
+                onSelected = { congregationFilter = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
         if (rows.isEmpty()) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text("No activity recorded yet.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -150,6 +167,7 @@ fun UserLogsScreen(
                     }
                 }
             }
+        }
         }
     }
 

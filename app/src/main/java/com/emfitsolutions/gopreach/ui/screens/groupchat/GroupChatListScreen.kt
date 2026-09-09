@@ -39,6 +39,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.model.GroupChat
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 
 /**
@@ -61,8 +62,14 @@ fun GroupChatListScreen(
     viewModel: GroupChatViewModel = hiltViewModel(),
 ) {
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
-    val chatsFlow = remember(canManage, fixedCongregationId, currentPersonId) {
-        if (canManage) viewModel.managedGroupChats(fixedCongregationId) else viewModel.myGroupChats(currentPersonId)
+    // "Add a filter for Congregation" (Super-Admin only) — only meaningful
+    // for the manage view; a plain participant already only ever sees their
+    // own chats via [GroupChatViewModel.myGroupChats], not a congregation-wide
+    // list.
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val effectiveCongregationId = fixedCongregationId ?: congregationFilter
+    val chatsFlow = remember(canManage, effectiveCongregationId, currentPersonId) {
+        if (canManage) viewModel.managedGroupChats(effectiveCongregationId) else viewModel.myGroupChats(currentPersonId)
     }
     val chats by chatsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -86,6 +93,15 @@ fun GroupChatListScreen(
             }
         },
     ) { padding ->
+      Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        if (canManage && fixedCongregationId == null) {
+            CongregationFilterDropdown(
+                congregations = congregations,
+                selectedCongregationId = congregationFilter,
+                onSelected = { congregationFilter = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
         if (chats.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -98,7 +114,7 @@ fun GroupChatListScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -113,6 +129,7 @@ fun GroupChatListScreen(
                 }
             }
         }
+      }
     }
 
     if (showCreateDialog) {

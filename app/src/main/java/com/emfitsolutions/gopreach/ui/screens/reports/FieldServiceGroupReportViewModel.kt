@@ -1,6 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.reports
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
@@ -13,7 +15,10 @@ import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
 /** One publisher line under a Field Service Group's three named roles —
@@ -50,6 +55,11 @@ class FieldServiceGroupReportViewModel @Inject constructor(
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
 ) : ViewModel() {
+
+    /** "Add a filter for Congregation" (Super-Admin only) — the dropdown's
+     * own option list. */
+    val congregations: StateFlow<List<Congregation>> = congregationRepository.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun rowsFor(congregationIds: Set<String>?): Flow<List<FieldServiceGroupReportRow>> =
         combine(

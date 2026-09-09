@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
@@ -69,8 +70,16 @@ fun ManageAdminsScreen(
     viewModel: ManageAdminsViewModel = hiltViewModel(),
 ) {
     val allAdmins by viewModel.admins.collectAsStateWithLifecycle()
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle()
     var showInactive by remember { mutableStateOf(false) }
-    val admins = allAdmins.filter { showInactive || it.isActive }
+    // "Add a filter for Congregation" — this screen has no fixed congregation
+    // scope at all (Manage Admins is Super-Admin only, always every
+    // congregation), so this is purely a display filter, not a security
+    // boundary; `null` (the default) means "All Congregations."
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val admins = allAdmins
+        .filter { showInactive || it.isActive }
+        .filter { congregationFilter == null || it.assignment.congregationId == congregationFilter }
     var lookupTarget by remember { mutableStateOf<Person?>(null) }
     var pendingEdit by remember { mutableStateOf<AdminRow?>(null) }
     var pendingDeactivate by remember { mutableStateOf<AdminRow?>(null) }
@@ -101,6 +110,12 @@ fun ManageAdminsScreen(
                 Checkbox(checked = showInactive, onCheckedChange = { showInactive = it })
                 Text("Show Inactive")
             }
+            CongregationFilterDropdown(
+                congregations = congregations,
+                selectedCongregationId = congregationFilter,
+                onSelected = { congregationFilter = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
         if (admins.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),

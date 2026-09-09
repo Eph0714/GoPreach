@@ -39,6 +39,7 @@ import com.emfitsolutions.gopreach.data.model.ForwardRequest
 import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
@@ -64,9 +65,13 @@ fun ForwardRequestsScreen(
     viewModel: ForwardRequestsViewModel = hiltViewModel(),
     publisherForwardViewModel: PublisherForwardRequestsViewModel = hiltViewModel(),
 ) {
-    val requestsFlow = remember(congregationIds) { viewModel.pendingRequestsFor(congregationIds) }
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+    // "Add a filter for Congregation" (Super-Admin only).
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val effectiveCongregationIds = congregationFilter?.let { setOf(it) } ?: congregationIds
+    val requestsFlow = remember(effectiveCongregationIds) { viewModel.pendingRequestsFor(effectiveCongregationIds) }
     val requests by requestsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val publisherRequestsFlow = remember(congregationIds) { publisherForwardViewModel.requestsFor(congregationIds) }
+    val publisherRequestsFlow = remember(effectiveCongregationIds) { publisherForwardViewModel.requestsFor(effectiveCongregationIds) }
     val publisherRequests by publisherRequestsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var selected by remember { mutableStateOf<ForwardRequest?>(null) }
     val showToast = rememberActionToast()
@@ -79,13 +84,22 @@ fun ForwardRequestsScreen(
             )
         },
     ) { padding ->
+      Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        if (congregationIds == null) {
+            CongregationFilterDropdown(
+                congregations = congregations,
+                selectedCongregationId = congregationFilter,
+                onSelected = { congregationFilter = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
         if (requests.isEmpty() && publisherRequests.isEmpty()) {
-            Column(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("No forward requests.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -110,6 +124,7 @@ fun ForwardRequestsScreen(
                 }
             }
         }
+      }
     }
 
     selected?.let { request ->

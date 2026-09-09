@@ -28,8 +28,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 
 /** "Field Service Group Overseer"/"Servant"/"Assistant" already have a
  * shared label ([com.emfitsolutions.gopreach.ui.components.displayLabel] on
@@ -59,7 +62,13 @@ fun FieldServiceGroupReportScreen(
     viewModel: FieldServiceGroupReportViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
-    val rowsFlow = remember(congregationIds) { viewModel.rowsFor(congregationIds) }
+    val congregations by viewModel.congregations.collectAsStateWithLifecycle()
+    // "Add a filter for Congregation" (Super-Admin only) — a real scoped
+    // role's own [congregationIds] is already a fixed one-element set, so
+    // this stays unused for them.
+    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    val effectiveCongregationIds = congregationFilter?.let { setOf(it) } ?: congregationIds
+    val rowsFlow = remember(effectiveCongregationIds) { viewModel.rowsFor(effectiveCongregationIds) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     // Only worth labeling each block with its own congregation when more
     // than one could actually appear — a role scoped to their own single
@@ -81,13 +90,22 @@ fun FieldServiceGroupReportScreen(
             )
         },
     ) { padding ->
+      Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        if (congregationIds == null) {
+            CongregationFilterDropdown(
+                congregations = congregations,
+                selectedCongregationId = congregationFilter,
+                onSelected = { congregationFilter = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
         if (rows.isEmpty()) {
-            Column(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("No field service groups yet.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -113,6 +131,7 @@ fun FieldServiceGroupReportScreen(
                 }
             }
         }
+      }
     }
 }
 
