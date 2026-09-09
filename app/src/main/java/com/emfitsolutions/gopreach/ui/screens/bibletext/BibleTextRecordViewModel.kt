@@ -15,13 +15,18 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** "Add an initial category" — the starter set every Publisher's own
- * category list is seeded with the first time they have none (see
- * [BibleTextRecordViewModel.seedDefaultCategoriesIfNeeded]). Plain names,
- * not ids — a Publisher can freely rename, delete, or add to these
- * afterward, same as any category they created themselves; nothing else in
- * this module treats a default category specially once it exists. */
-val DEFAULT_BIBLE_TEXT_CATEGORIES: List<String> = listOf(
+/** Quick-pick suggestions offered on the Add/Edit Event dialog's Theme/Topic
+ * field (spec §1's own examples list, plus this module's pre-upgrade default
+ * category set — carried over so a Publisher who relied on those still finds
+ * them here). Plain strings the Publisher can also ignore and type over —
+ * nothing else in this module treats a suggested value specially once it's
+ * been typed into an Event's [BibleTextCategory.name]. */
+val SUGGESTED_THEME_TOPICS: List<String> = listOf(
+    "Love for Jehovah",
+    "Strengthening Our Faith",
+    "Endurance in Difficult Times",
+    "Kingdom Preaching",
+    "Family Worship",
     "God and His Attributes",
     "Jesus Christ",
     "The Bible and Its Teachings",
@@ -52,66 +57,40 @@ val DEFAULT_BIBLE_TEXT_CATEGORIES: List<String> = listOf(
     "Bible Study and Understanding",
 )
 
-/** Result of attempting to delete a [BibleTextCategory] — spec §11 "Category
- * Delete Protection": a category currently assigned to one or more records
- * is never silently deleted (or, worse, silently orphans those records). */
-sealed class CategoryDeleteResult {
-    data object Deleted : CategoryDeleteResult()
-    /** [recordCount] records still reference this category — the caller
-     * (the screen) offers "reassign to another category" or "cancel". */
-    data class InUse(val recordCount: Int) : CategoryDeleteResult()
-}
+/** Quick-pick suggestions for the Event field itself (spec §1's own examples). */
+val SUGGESTED_EVENTS: List<String> = listOf(
+    "Public Talk",
+    "Congregation Bible Study",
+    "Regional Convention",
+    "Circuit Assembly",
+    "Memorial",
+    "Special Meeting",
+    "Personal Bible Study",
+    "Ministry Meeting",
+)
 
 /**
- * "My Bible Text Record" module (spec §1-§34) — a Publisher's personal
- * Bible-reference organizer. Every read/write here is scoped to whichever
- * [publisherPersonId] the caller passes, resolved by the screen from the
- * signed-in session (never a value the UI lets the Publisher type/pick
- * themselves) — the same "ownership from the session, not the frontend"
- * rule [BibleTextRecordRepository]'s own doc comment describes, backed
+ * "My Bible Text Record" module — a Publisher's personal Event → Bible Text
+ * organizer. Every read/write here is scoped to whichever [publisherPersonId]
+ * the caller passes, resolved by the screen from the signed-in session
+ * (never a value the UI lets the Publisher type/pick themselves) — the same
+ * "ownership from the session, not the frontend" rule
+ * [BibleTextRecordRepository]'s own doc comment describes, backed
  * server-side by firestore.rules' matching `bibleTextRecords`/
  * `bibleTextCategories` blocks.
  */
 @HiltViewModel
 class BibleTextRecordViewModel @Inject constructor(
     private val recordRepository: BibleTextRecordRepository,
-    private val categoryRepository: BibleTextCategoryRepository,
+    private val eventRepository: BibleTextCategoryRepository,
     private val personRepository: PersonRepository,
 ) : ViewModel() {
 
     fun recordsFor(publisherPersonId: String): Flow<List<BibleTextRecord>> =
         recordRepository.observeForPublisher(publisherPersonId)
 
-    fun categoriesFor(publisherPersonId: String): Flow<List<BibleTextCategory>> =
-        categoryRepository.observeForPublisher(publisherPersonId)
-
-    /** In-memory guard so a rapid recomposition/re-collection of
-     * [categoriesFor] can't call [seedDefaultCategoriesIfNeeded] twice
-     * before the first save round-trips through the offline cache and the
-     * flow re-emits a non-empty list — not persisted, since "already
-     * seeded, stay empty" isn't something this needs to remember past this
-     * ViewModel's own lifetime; a genuinely still-empty list next time this
-     * screen opens is exactly the case this feature exists for. */
-    private val seededForPublisher = mutableSetOf<String>()
-
-    /** "Add an initial category" — the first time a Publisher's own
-     * category list is genuinely empty (a brand-new Publisher, or one who
-     * deleted every category they had), seeds it with
-     * [DEFAULT_BIBLE_TEXT_CATEGORIES] so they land on a populated Category
-     * dropdown instead of an empty one with no starting point. Every seeded
-     * category is a completely ordinary [BibleTextCategory] afterward —
-     * freely renamable/deletable, no different from one the Publisher
-     * typed in themselves. */
-    fun seedDefaultCategoriesIfNeeded(publisherPersonId: String, currentCategories: List<BibleTextCategory>) {
-        if (currentCategories.isNotEmpty()) return
-        if (!seededForPublisher.add(publisherPersonId)) return
-        viewModelScope.launch {
-            val now = System.currentTimeMillis()
-            DEFAULT_BIBLE_TEXT_CATEGORIES.forEach { name ->
-                categoryRepository.save(BibleTextCategory(publisherPersonId = publisherPersonId, name = name, createdAt = now, updatedAt = now))
-            }
-        }
-    }
+    fun eventsFor(publisherPersonId: String): Flow<List<BibleTextCategory>> =
+        eventRepository.observeForPublisher(publisherPersonId)
 
     fun saveRecord(record: BibleTextRecord) {
         viewModelScope.launch { recordRepository.save(record) }
@@ -121,48 +100,29 @@ class BibleTextRecordViewModel @Inject constructor(
         viewModelScope.launch { recordRepository.delete(recordId) }
     }
 
-    fun saveCategory(category: BibleTextCategory) {
-        viewModelScope.launch { categoryRepository.save(category) }
+    fun saveEvent(event: BibleTextCategory) {
+        viewModelScope.launch { eventRepository.save(event) }
     }
 
-    /** "Allow the publisher to add a category directly upon enrolling new
-     * Bible Text record" — a suspend variant of [saveCategory] that hands
-     * the saved (id-assigned) category straight back, so the Add/Edit Bible
-     * Text dialog can select it immediately instead of waiting for the next
-     * [categoriesFor] emission to catch up before the new category is even
-     * choosable. */
-    suspend fun saveCategoryAndReturn(category: BibleTextCategory): BibleTextCategory = categoryRepository.save(category)
+    /** Hands the saved (id-assigned) Event straight back so the caller can
+     * navigate into its (still-empty) Bible Text list immediately, without
+     * waiting for the next [eventsFor] emission to catch up. */
+    suspend fun saveEventAndReturn(event: BibleTextCategory): BibleTextCategory = eventRepository.save(event)
 
-    /** Spec §11 — checks every one of [publisherPersonId]'s own records
-     * before deleting; a category in use is reported back as
-     * [CategoryDeleteResult.InUse] instead of being deleted, so the screen
-     * can offer reassignment rather than deleting out from under live
-     * records. */
-    fun deleteCategory(publisherPersonId: String, categoryId: String, onResult: (CategoryDeleteResult) -> Unit) {
+    /** "If the Publisher deletes an Event... Deleting the Event will also
+     * remove its associated Bible Text records" (spec §16) — unlike the old
+     * flat Category (a reusable tag other records could be reassigned away
+     * from before deleting it), an Event is one specific occasion: nothing
+     * else should end up "under" a different occasion just because this one
+     * was deleted, so this always cascades rather than offering
+     * reassignment. The screen shows spec §16's warning *before* calling
+     * this, not after. */
+    fun deleteEventCascade(publisherPersonId: String, eventId: String) {
         viewModelScope.launch {
-            val inUseCount = recordRepository.observeForPublisher(publisherPersonId).first()
-                .count { it.categoryId == categoryId }
-            if (inUseCount > 0) {
-                onResult(CategoryDeleteResult.InUse(inUseCount))
-                return@launch
-            }
-            categoryRepository.delete(categoryId)
-            onResult(CategoryDeleteResult.Deleted)
-        }
-    }
-
-    /** "Reassign the records to another category" (spec §11), then deletes
-     * the now-unused category — one user action, not two separate taps a
-     * Publisher could abandon halfway through and leave the old category
-     * still in use by nothing. */
-    fun reassignRecordsAndDeleteCategory(publisherPersonId: String, fromCategoryId: String, toCategoryId: String) {
-        viewModelScope.launch {
-            val toReassign = recordRepository.observeForPublisher(publisherPersonId).first()
-                .filter { it.categoryId == fromCategoryId }
-            toReassign.forEach { record ->
-                recordRepository.save(record.copy(categoryId = toCategoryId, updatedAt = System.currentTimeMillis()))
-            }
-            categoryRepository.delete(fromCategoryId)
+            val toDelete = recordRepository.observeForPublisher(publisherPersonId).first()
+                .filter { it.categoryId == eventId }
+            toDelete.forEach { recordRepository.delete(it.id) }
+            eventRepository.delete(eventId)
         }
     }
 
@@ -177,30 +137,35 @@ class BibleTextRecordViewModel @Inject constructor(
      * every imported record becomes a brand-new [BibleTextRecord] with a
      * fresh Firestore-assigned id, owned by [publisherPersonId]; nothing the
      * receiving Publisher already has is ever matched, overwritten, or
-     * deleted. A category is only created when no existing category of that
-     * exact name (case-insensitive) already exists for this Publisher —
-     * reusing an existing one by name instead of creating a duplicate is the
-     * one bit of "merging" this does, and it never renames/deletes/touches
-     * an existing category to do it. */
+     * deleted. An Event is only created when no existing Event with the
+     * exact same Event+Theme/Topic+Speaker already exists for this Publisher
+     * — reusing an existing one instead of creating a duplicate occasion is
+     * the one bit of "merging" this does, and it never renames/deletes/
+     * touches an existing Event to do it. */
     suspend fun importRecords(
         publisherPersonId: String,
         file: BibleTextExportFile,
-        existingCategories: List<BibleTextCategory>,
+        existingEvents: List<BibleTextCategory>,
     ): ImportResult {
-        val categoryIdByName = existingCategories.associateTo(mutableMapOf()) { it.name.trim().lowercase() to it.id }
-        var newCategoryCount = 0
-        file.records.map { it.categoryName.trim() }.distinct().forEach { name ->
-            val key = name.lowercase()
-            if (!categoryIdByName.containsKey(key)) {
+        fun key(event: String, theme: String, speaker: String?) =
+            Triple(event.trim().lowercase(), theme.trim().lowercase(), speaker?.trim()?.lowercase().orEmpty())
+
+        val eventIdByKey = existingEvents.associateTo(mutableMapOf()) { key(it.event, it.name, it.speaker) to it.id }
+        var newEventCount = 0
+        file.records.map { Triple(it.eventName, it.themeTopic, it.speaker) }.distinct().forEach { (event, theme, speaker) ->
+            val k = key(event, theme, speaker)
+            if (!eventIdByKey.containsKey(k)) {
                 val now = System.currentTimeMillis()
-                val saved = categoryRepository.save(BibleTextCategory(publisherPersonId = publisherPersonId, name = name, createdAt = now, updatedAt = now))
-                categoryIdByName[key] = saved.id
-                newCategoryCount++
+                val saved = eventRepository.save(
+                    BibleTextCategory(publisherPersonId = publisherPersonId, event = event.trim(), name = theme.trim(), speaker = speaker?.trim()?.ifBlank { null }, createdAt = now, updatedAt = now),
+                )
+                eventIdByKey[k] = saved.id
+                newEventCount++
             }
         }
         var newRecordCount = 0
         file.records.forEach { exported ->
-            val categoryId = categoryIdByName[exported.categoryName.trim().lowercase()] ?: return@forEach
+            val eventId = eventIdByKey[key(exported.eventName, exported.themeTopic, exported.speaker)] ?: return@forEach
             val now = System.currentTimeMillis()
             recordRepository.save(
                 BibleTextRecord(
@@ -210,7 +175,7 @@ class BibleTextRecordViewModel @Inject constructor(
                     bibleBookId = exported.bibleBookId,
                     chapter = exported.chapter,
                     verses = exported.verses,
-                    categoryId = categoryId,
+                    categoryId = eventId,
                     remarks = exported.remarks,
                     createdAt = now,
                     updatedAt = now,
@@ -218,10 +183,10 @@ class BibleTextRecordViewModel @Inject constructor(
             )
             newRecordCount++
         }
-        return ImportResult(newCategoryCount, newRecordCount)
+        return ImportResult(newEventCount, newRecordCount)
     }
 }
 
-/** [newCategories]/[newRecords] — how many of each [importRecords] actually
- * added, for the "Imported X records and Y new categories" confirmation. */
-data class ImportResult(val newCategories: Int, val newRecords: Int)
+/** [newEvents]/[newRecords] — how many of each [importRecords] actually
+ * added, for the "Imported X records and Y new events" confirmation. */
+data class ImportResult(val newEvents: Int, val newRecords: Int)

@@ -7,6 +7,7 @@ import androidx.core.content.FileProvider
 import com.emfitsolutions.gopreach.data.model.BibleTextCategory
 import com.emfitsolutions.gopreach.data.model.BibleTextRecord
 import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
 import java.io.File
 
 /** Marks a JSON file as one this app's own "My Bible Text Record" share/
@@ -15,14 +16,26 @@ import java.io.File
  * incompatible export shape) rather than silently misreading it as records. */
 private const val EXPORT_FILE_TYPE = "gopreach-bible-text-export"
 
-/** One portable, publisher-independent Bible Text Record. [categoryName] —
- * not a categoryId — since a category id only means something inside the
- * *exporting* Publisher's own `bibleTextCategories`; the receiving Publisher
- * resolves-or-creates their own category by this name on import (see
+/** One portable, publisher-independent Bible Text Record. [eventName]/
+ * [themeTopic]/[speaker] — not a category/event id — since an id only means
+ * something inside the *exporting* Publisher's own `bibleTextCategories`;
+ * the receiving Publisher resolves-or-creates their own Event by this
+ * Event+Theme/Topic+Speaker combination on import (see
  * [com.emfitsolutions.gopreach.ui.screens.bibletext.BibleTextRecordViewModel
- * .importRecords]), rather than any id ever crossing Publishers. */
+ * .importRecords]), rather than any id ever crossing Publishers.
+ *
+ * [themeTopic] keeps its pre-upgrade wire name (`categoryName`, via
+ * [SerializedName]) so a file exported by an older app build still imports
+ * correctly — that field held exactly this value before this module's
+ * Event/Topic restructuring, just under the old flat "Category" name.
+ * [eventName]/[speaker] are new and simply come back blank/null from an old
+ * file, same "migrate rather than lose data" default this module's own
+ * [com.emfitsolutions.gopreach.data.model.BibleTextCategory] uses for a
+ * pre-upgrade Event. */
 data class ExportedBibleTextRecord(
-    val categoryName: String,
+    @SerializedName("categoryName") val themeTopic: String,
+    val eventName: String = "",
+    val speaker: String? = null,
     val bibleVersionId: String,
     val languageId: String,
     val bibleBookId: String,
@@ -49,10 +62,13 @@ data class BibleTextExportFile(
 object BibleTextExporter {
     private val gson = Gson()
 
-    fun buildExportJson(records: List<BibleTextRecord>, categoriesById: Map<String, BibleTextCategory>): String {
+    fun buildExportJson(records: List<BibleTextRecord>, eventsById: Map<String, BibleTextCategory>): String {
         val exported = records.map { record ->
+            val event = eventsById[record.categoryId]
             ExportedBibleTextRecord(
-                categoryName = categoriesById[record.categoryId]?.name ?: "Uncategorized",
+                eventName = event?.event.orEmpty(),
+                themeTopic = event?.name ?: "Uncategorized",
+                speaker = event?.speaker,
                 bibleVersionId = record.bibleVersionId,
                 languageId = record.languageId,
                 bibleBookId = record.bibleBookId,
