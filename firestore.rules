@@ -284,26 +284,41 @@ service cloud.firestore {
       // own doc comment for the exact list); a plain Publisher never
       // legitimately writes here at all, so this closes the gap without
       // narrowing anything the app actually uses.
-      // Every one of these three additionally requires
-      // `isSuperAdmin(database) || !isPrivilegedRoleType(...)` — an
-      // Admin/Coordinator Elder/Service Overseer/Secretary passes
-      // [canManageRoleAssignmentsFor] for their own congregation, but can
-      // still never create, edit, or remove a Super-Admin/Circuit-Overseer
-      // RoleAssignment (spec §11/§12/§30) that way; only Super-Admin ever
-      // satisfies the left side of that `||` for one of those two roles.
+      // Bug fix, caught by an actual rules-emulator test run, not just a
+      // syntax dry-run — [restrictedAllows] is `!hasGrant(db) || (...)`: for
+      // any *non*-restricted account (every built-in role — Super-Admin,
+      // Admin, Coordinator Elder, Service Overseer, Secretary — none of
+      // which ever hold a `userAccessGrants` doc), `!hasGrant(db)` alone is
+      // already `true`, so `restrictedAllows(...)` returns `true`
+      // unconditionally for them regardless of the permission/congregation
+      // argument. Combining that with the new [canManageRoleAssignmentsFor]/
+      // [isPrivilegedRoleType] check via a plain top-level `||` (as this
+      // used to read) meant the *old*, blanket-permissive branch still won
+      // every time for a non-restricted account — a Congregation Admin could
+      // still create a SUPER_ADMIN/CIRCUIT_OVERSEER RoleAssignment, or one
+      // for another congregation entirely, exactly the gap this rule was
+      // supposed to close, just via a different `||` arm. Each
+      // `restrictedAllows(...)` branch below is now explicitly gated behind
+      // `hasGrant(database)` so it only ever applies to an actual grant-based
+      // restricted user (its only real purpose — see [restrictedAllows]'s
+      // own doc comment) and can never again act as an accidental bypass for
+      // everyone else.
       allow create: if (!hasGrant(database) && canManageRoleAssignmentsFor(database, request.resource.data.get('congregationId', null)) &&
           (isSuperAdmin(database) || !isPrivilegedRoleType(request.resource.data.get('roleType', '')))) ||
-        restrictedAllows(database, 'MANAGE_ELDERS', request.resource.data.get('congregationId', null)) ||
-        restrictedAllows(database, 'MANAGE_PUBLISHERS', request.resource.data.get('congregationId', null));
+        (hasGrant(database) && (
+          restrictedAllows(database, 'MANAGE_ELDERS', request.resource.data.get('congregationId', null)) ||
+          restrictedAllows(database, 'MANAGE_PUBLISHERS', request.resource.data.get('congregationId', null))));
       allow update: if (!hasGrant(database) && canManageRoleAssignmentsFor(database, resource.data.get('congregationId', null)) &&
           (isSuperAdmin(database) ||
             (!isPrivilegedRoleType(resource.data.get('roleType', '')) && !isPrivilegedRoleType(request.resource.data.get('roleType', ''))))) ||
-        restrictedAllows(database, 'MANAGE_ELDERS', resource.data.get('congregationId', null)) ||
-        restrictedAllows(database, 'MANAGE_PUBLISHERS', resource.data.get('congregationId', null));
+        (hasGrant(database) && (
+          restrictedAllows(database, 'MANAGE_ELDERS', resource.data.get('congregationId', null)) ||
+          restrictedAllows(database, 'MANAGE_PUBLISHERS', resource.data.get('congregationId', null))));
       allow delete: if (!hasGrant(database) && canManageRoleAssignmentsFor(database, resource.data.get('congregationId', null)) &&
           (isSuperAdmin(database) || !isPrivilegedRoleType(resource.data.get('roleType', '')))) ||
-        restrictedAllows(database, 'MANAGE_ELDERS', resource.data.get('congregationId', null)) ||
-        restrictedAllows(database, 'MANAGE_PUBLISHERS', resource.data.get('congregationId', null));
+        (hasGrant(database) && (
+          restrictedAllows(database, 'MANAGE_ELDERS', resource.data.get('congregationId', null)) ||
+          restrictedAllows(database, 'MANAGE_PUBLISHERS', resource.data.get('congregationId', null))));
     }
 
     match /monthlyReports/{reportId} {
