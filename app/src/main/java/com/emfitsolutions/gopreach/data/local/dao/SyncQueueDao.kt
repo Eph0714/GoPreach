@@ -32,8 +32,8 @@ interface SyncQueueDao {
 
     /** Rows kept for investigation/manual recovery rather than deleted (spec:
      * "do not silently delete the pending operation") — drives the distinct
-     * "Sync Error" status ([com.emfitsolutions.gopreach.data.sync
-     * .SyncStatusCenter.Status.SYNC_ERROR]). */
+     * "Sync Error" recovery affordance ([com.emfitsolutions.gopreach.data.sync
+     * .SyncStatusCenter.permanentFailureCount]). */
     @Query("SELECT COUNT(*) FROM pending_sync_operations WHERE isPermanentFailure = 1")
     fun observePermanentFailureCount(): Flow<Int>
 

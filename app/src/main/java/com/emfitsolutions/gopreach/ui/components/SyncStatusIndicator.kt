@@ -27,6 +27,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.local.PendingSyncOperationEntity
+import com.emfitsolutions.gopreach.data.sync.ConnectivityObserver
 import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
 import com.emfitsolutions.gopreach.data.sync.SyncScheduler
 import com.emfitsolutions.gopreach.data.sync.SyncStatusCenter
@@ -39,12 +40,22 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SyncStatusIndicatorViewModel @Inject constructor(
+    connectivityObserver: ConnectivityObserver,
     syncStatusCenter: SyncStatusCenter,
     private val offlineFirestoreRepository: OfflineFirestoreRepository,
     private val syncScheduler: SyncScheduler,
 ) : ViewModel() {
-    val snapshot: StateFlow<SyncStatusCenter.Snapshot> = syncStatusCenter.snapshot
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SyncStatusCenter.Snapshot(SyncStatusCenter.Status.WAITING_FOR_INTERNET, 0, 0))
+    /** "GoPreach — Fix Online/Offline Status and Sync Indicator" spec §3/§4 —
+     * real, validated internet connectivity, independent of whatever the sync
+     * queue is doing (spec §6). */
+    val isOnline: StateFlow<Boolean> = connectivityObserver.observe()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), connectivityObserver.isOnline())
+
+    /** A completely separate concern from [isOnline] — see this file's own
+     * [SyncStatusIndicator] doc comment for why these are two distinct pieces
+     * of UI rather than one conflated badge. */
+    val permanentFailureCount: StateFlow<Int> = syncStatusCenter.permanentFailureCount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     /** Bug fix — "Sync Error" used to be a dead end with nothing to actually
      * look at; this is the list the recovery dialog below shows. */
@@ -65,58 +76,47 @@ class SyncStatusIndicatorViewModel @Inject constructor(
     }
 }
 
-private fun SyncStatusCenter.Status.emoji(): String = when (this) {
-    SyncStatusCenter.Status.SYNCED -> "🟢"
-    SyncStatusCenter.Status.SYNCING -> "🟡"
-    SyncStatusCenter.Status.WAITING_FOR_INTERNET -> "🔴"
-    SyncStatusCenter.Status.RETRYING -> "⚠️"
-    SyncStatusCenter.Status.SYNC_ERROR -> "⚠️"
-}
-
-/** Spec §7's own example wording ("✓ All changes synchronized" / "↻ 3
- * changes waiting to sync" / "⚠ Sync temporarily unavailable — retrying
- * automatically") — a permanent [SyncStatusCenter.Status.SYNC_ERROR] is the
- * one state that actually tells the Publisher something needs attention,
- * rather than "just wait, this resolves itself." */
-private fun SyncStatusCenter.Snapshot.label(): String = when (status) {
-    SyncStatusCenter.Status.SYNCED ->
-        if (pendingCount > 0) "↻ $pendingCount change${if (pendingCount == 1) "" else "s"} waiting to sync" else "✓ All changes synchronized"
-    SyncStatusCenter.Status.SYNCING -> "Syncing…"
-    SyncStatusCenter.Status.WAITING_FOR_INTERNET ->
-        "Offline — $pendingCount change${if (pendingCount == 1) "" else "s"} will sync automatically"
-    SyncStatusCenter.Status.RETRYING -> "Sync temporarily unavailable — retrying automatically"
-    SyncStatusCenter.Status.SYNC_ERROR ->
-        "Sync error — $permanentFailureCount change${if (permanentFailureCount == 1) "" else "s"} need attention (tap for details)"
-}
-
 /**
- * Real-time connection/sync status badge — independent of
- * [ManualSyncViewModel]/[SyncToServerButton]'s own state, since those only
- * reflect a *manually*-triggered run: this reflects the sync system as a
- * whole, including the automatic background triggers
- * ([com.emfitsolutions.gopreach.data.sync.SyncScheduler]).
+ * The Main Form's real-time connection indicator — "GoPreach — Fix Online/Offline
+ * Status and Sync Indicator" spec: shows **only** whether this device currently
+ * has validated internet connectivity ([ConnectivityObserver]), updating
+ * automatically the instant that changes (spec §4), never derived from — or
+ * described in terms of — sync completion (spec §6/§8: "do not use the
+ * synchronization result as the online/offline indicator"; "do not show Online
+ * merely because Wi-Fi/mobile data is turned on"). This replaces the old badge
+ * that rendered "✓ All changes synchronized" / "Sync temporarily unavailable" /
+ * etc. here — that text conflated two different questions ("is there a
+ * connection" vs. "is local data synced with the server") into one line.
  *
- * Bug fix ("Sync Error" was a dead end) — tapping the badge while it's
- * showing [SyncStatusCenter.Status.SYNC_ERROR] now opens a dialog listing
- * exactly which record(s) failed permanently and why, with a **Retry**
- * (puts it back in the normal, automatic retry queue — e.g. the underlying
- * permission/data problem has since been fixed) or **Discard** (gives up on
- * this one specific change for good) per item, instead of leaving the
- * Publisher looking at a badge with nothing they can actually do about it.
+ * A permanent sync failure ("Sync Error") still needs a way back to the
+ * recovery dialog (see [SyncErrorDetailsDialog]) — that's kept, but as its own,
+ * clearly separate, secondary bit of text next to the Online/Offline indicator,
+ * not folded into it, so the two states can never be mistaken for each other.
  */
 @Composable
 fun SyncStatusIndicator(
     modifier: Modifier = Modifier,
     viewModel: SyncStatusIndicatorViewModel = hiltViewModel(),
 ) {
-    val snapshot by viewModel.snapshot.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val permanentFailureCount by viewModel.permanentFailureCount.collectAsStateWithLifecycle()
     var showDetails by remember { mutableStateOf(false) }
-    Row(
-        modifier = modifier.clickable(enabled = snapshot.status == SyncStatusCenter.Status.SYNC_ERROR) { showDetails = true },
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(snapshot.status.emoji(), modifier = Modifier.padding(end = 6.dp))
-        Text(snapshot.label(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Text(if (isOnline) "🟢" else "🔴", modifier = Modifier.padding(end = 6.dp))
+        Text(
+            if (isOnline) "Online" else "Offline",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (permanentFailureCount > 0) {
+            Text(
+                "  ⚠️ Sync error — $permanentFailureCount need${if (permanentFailureCount == 1) "s" else ""} attention (tap for details)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.clickable { showDetails = true },
+            )
+        }
     }
 
     if (showDetails) {
