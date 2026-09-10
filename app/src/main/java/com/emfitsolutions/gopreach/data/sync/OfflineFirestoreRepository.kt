@@ -221,4 +221,26 @@ class OfflineFirestoreRepository @Inject constructor(
     }
 
     fun observePendingSyncCount(): Flow<Int> = syncQueueDao.observePendingCount()
+
+    /** Bug fix — "Sync Error" used to be a dead end: the status badge showed
+     * it, but nothing in the app let the Publisher see which record failed,
+     * why, or do anything about it. This is what actually backs that recovery
+     * UI (see [com.emfitsolutions.gopreach.ui.components.SyncStatusIndicator]). */
+    fun observePermanentSyncFailures(): Flow<List<PendingSyncOperationEntity>> = syncQueueDao.observePermanentFailures()
+
+    /** Puts a permanently-failed operation back into the normal retry queue —
+     * does not touch [PendingSyncOperationEntity.lastError]/`retryCount`, so
+     * what actually happened is never lost, just no longer a dead end. */
+    suspend fun retryPermanentSyncFailure(operation: PendingSyncOperationEntity) {
+        syncQueueDao.retryPermanentFailure(operation.id)
+    }
+
+    /** Discards a permanently-failed operation outright — the one case this
+     * app *does* delete a pending operation without it ever reaching the
+     * server, and only after the Publisher explicitly chose to (never
+     * automatic — see [SyncQueueDao.markPermanentFailure]'s own doc comment
+     * on why silently dropping one was the wrong default). */
+    suspend fun discardPermanentSyncFailure(operation: PendingSyncOperationEntity) {
+        syncQueueDao.remove(operation)
+    }
 }

@@ -64,4 +64,22 @@ interface SyncQueueDao {
      * deleted. */
     @Query("UPDATE pending_sync_operations SET retryCount = retryCount + 1, lastError = :error, isPermanentFailure = 1 WHERE id = :id")
     suspend fun markPermanentFailure(id: Long, error: String)
+
+    /** Bug fix — a permanent failure previously had no user-facing recovery
+     * at all: [SyncStatusCenter][com.emfitsolutions.gopreach.data.sync
+     * .SyncStatusCenter] surfaced "Sync Error", but nothing in the app ever
+     * showed *which* record failed or *why*, and there was no way back into
+     * [getAllPending]'s retry loop short of editing the record again (which
+     * only works if the Publisher happens to touch that exact record). This
+     * is what a "Retry" action on that error actually needs to see. */
+    @Query("SELECT * FROM pending_sync_operations WHERE isPermanentFailure = 1 ORDER BY createdAt ASC")
+    fun observePermanentFailures(): Flow<List<PendingSyncOperationEntity>>
+
+    /** The other half of that same fix — an explicit "Retry" puts the row
+     * back into [getAllPending]'s normal retry loop (e.g. the Publisher's
+     * congregation/permissions changed since, or the original rejection was
+     * actually transient and misclassified); it does not reset [retryCount]
+     * or [lastError], so the history of what happened is never lost. */
+    @Query("UPDATE pending_sync_operations SET isPermanentFailure = 0 WHERE id = :id")
+    suspend fun retryPermanentFailure(id: Long)
 }
