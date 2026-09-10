@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import androidx.compose.ui.window.DialogProperties
 
 /** "FORWARD TO OTHER PUBLISHER" spec flow — the *receiving* publisher's
  * "Forwarded to Me" queue: full record details, [ACCEPT]/[DECLINE] directly
@@ -84,6 +85,7 @@ fun PublisherForwardRequestsScreen(
 
     selected?.let { request ->
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { selected = null },
             title = { Text("Forwarded Record") },
             text = {

@@ -101,6 +101,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.window.DialogProperties
 
 private fun PipelineStage.label(): String = when (this) {
     PipelineStage.SEARCHING -> "Searching"
@@ -651,32 +652,79 @@ internal fun PipelinePersonDetailScreen(
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
     val sortedVisits = remember(visits) { visits.sortedByDescending { it.visitDate } }
     val createdByName by remember(livePerson.createdByPersonId) { viewModel.personName(livePerson.createdByPersonId) }.collectAsStateWithLifecycle(initialValue = null)
+    val assignedPublisherName by remember(livePerson.publisherPersonId) { viewModel.personName(livePerson.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
     val forwardRequestFlow = remember(livePerson.pendingForwardRequestId) { viewModel.forwardRequestFor(livePerson) }
     val forwardRequest by forwardRequestFlow.collectAsStateWithLifecycle(initialValue = null)
     val publisherForwardRequestFlow = remember(livePerson.pendingPublisherForwardRequestId) { viewModel.publisherForwardRequestFor(livePerson) }
     val publisherForwardRequest by publisherForwardRequestFlow.collectAsStateWithLifecycle(initialValue = null)
     val showToast = rememberActionToast()
 
+    // "Territory Map Return Visit Permissions" — opening this screen for a
+    // record another Publisher owns (only possible via the Territory Map;
+    // every other route into this screen already scopes to the caller's own
+    // records) never grants edit/delete rights over the *parent* record
+    // itself, only View + (for Return Visit) Add Visit History. A Bible
+    // Study is stricter still: [canAddVisit] below excludes it entirely
+    // unless [isOwner] — this permission is never shared with Bible Study,
+    // per that spec's own explicit exclusion. [canManageAllVisitHistory] is
+    // the pre-existing Super-Admin override (SuperAdminInterestedRecordsScreen)
+    // and always wins regardless of stage/ownership. A hidden/disabled
+    // button is never the real enforcement — see firestore.rules'
+    // `interestedPeople`/`visits` rules for the actual one; this only keeps
+    // the UI from offering an action the backend would reject anyway.
+    val isOwner = currentPersonId == livePerson.publisherPersonId
+    val canManageParent = isOwner || canManageAllVisitHistory
+    val canAddVisit = when (stage) {
+        PipelineStage.SEARCHING -> false
+        PipelineStage.BIBLE_STUDY -> canManageParent
+        PipelineStage.RETURN_VISIT -> true
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(livePerson.name) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
-                actions = { IconButton(onClick = { showEditDialog = true }) { Icon(Icons.Rounded.Edit, contentDescription = "Edit") } },
+                actions = {
+                    // "The Edit Return Visit button must not be available to
+                    // Publisher B" — only the record's own owner (or the
+                    // Super-Admin override) ever sees this, regardless of
+                    // stage.
+                    if (canManageParent) {
+                        IconButton(onClick = { showEditDialog = true }) { Icon(Icons.Rounded.Edit, contentDescription = "Edit") }
+                    }
+                },
             )
         },
         floatingActionButton = {
             // "Add Visit" only applies once there's an actual visit history to
             // keep — Searching has none yet (spec's own module description).
-            if (stage != PipelineStage.SEARCHING) {
+            if (canAddVisit) {
                 FloatingActionButton(onClick = { showAddVisit = true }) { Icon(Icons.Rounded.Add, contentDescription = "Log Visit") }
             }
         },
     ) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // "If necessary, display the parent record as: Return Visit —
+            // View Only" — shown once, above every section, whenever the
+            // signed-in Publisher isn't this record's owner.
+            if (!canManageParent) {
+                item {
+                    Text(
+                        "${stage.fullLabel()} — View Only",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
             item {
                 EditSectionHeader("Personal Information")
                 Text("Name: ${livePerson.name}", style = MaterialTheme.typography.bodyMedium)
+                // "Assigned Publisher: Publisher A" — the record's owner,
+                // shown to every viewer (Territory Map's whole point is
+                // letting another Publisher see whose record this is), never
+                // implied to change just because someone else opened it.
+                Text("Assigned Publisher: ${assignedPublisherName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Gender: ${livePerson.gender?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Spouse: ${livePerson.spouse ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Address: ${livePerson.address}", style = MaterialTheme.typography.bodyMedium)
@@ -692,7 +740,7 @@ internal fun PipelinePersonDetailScreen(
             }
             item {
                 EditSectionHeader("Location", modifier = Modifier.padding(top = 16.dp))
-                GpsLocationSection(person = livePerson, currentPersonId = currentPersonId, viewModel = viewModel)
+                GpsLocationSection(person = livePerson, currentPersonId = currentPersonId, canEdit = canManageParent, viewModel = viewModel)
             }
             item {
                 EditSectionHeader("Notes", modifier = Modifier.padding(top = 16.dp))
@@ -706,25 +754,31 @@ internal fun PipelinePersonDetailScreen(
             // Return Visit/Bible Study, per spec. Stacked full-width buttons
             // (not side-by-side) — two long labels in one Row used to overflow
             // past the screen edge on a normal phone width, which read as
-            // "not presentable."
-            item {
-                EditSectionHeader("Actions", modifier = Modifier.padding(top = 16.dp))
-                PipelineActionButtons(
-                    stage = stage,
-                    forwardRequest = forwardRequest,
-                    publisherForwardRequest = publisherForwardRequest,
-                    onAdvanceStage = { newStage -> pendingStageChange = newStage },
-                    onShowForwardDialog = { showForwardDialog = true },
-                    onShowForwardToPublisherDialog = { showForwardToPublisherDialog = true },
-                    onCancelForward = {
-                        viewModel.cancelForward(forwardRequest!!, currentPersonId)
-                        showToast("Forward request cancelled.")
-                    },
-                    onCancelPublisherForward = {
-                        viewModel.cancelPublisherForward(publisherForwardRequest!!, currentPersonId)
-                        showToast("Forward request cancelled.")
-                    },
-                )
+            // "not presentable." "Territory Map Return Visit Permissions" —
+            // every action here changes the *parent* record (status, owner,
+            // congregation), so none of it is offered to a Publisher who
+            // isn't this record's owner; they only ever get View + Add Visit
+            // History (see [canAddVisit]/the FAB above).
+            if (canManageParent) {
+                item {
+                    EditSectionHeader("Actions", modifier = Modifier.padding(top = 16.dp))
+                    PipelineActionButtons(
+                        stage = stage,
+                        forwardRequest = forwardRequest,
+                        publisherForwardRequest = publisherForwardRequest,
+                        onAdvanceStage = { newStage -> pendingStageChange = newStage },
+                        onShowForwardDialog = { showForwardDialog = true },
+                        onShowForwardToPublisherDialog = { showForwardToPublisherDialog = true },
+                        onCancelForward = {
+                            viewModel.cancelForward(forwardRequest!!, currentPersonId)
+                            showToast("Forward request cancelled.")
+                        },
+                        onCancelPublisherForward = {
+                            viewModel.cancelPublisherForward(publisherForwardRequest!!, currentPersonId)
+                            showToast("Forward request cancelled.")
+                        },
+                    )
+                }
             }
             if (stage != PipelineStage.SEARCHING) {
                 item { EditSectionHeader("System Information", modifier = Modifier.padding(top = 16.dp))
@@ -752,13 +806,21 @@ internal fun PipelinePersonDetailScreen(
                             }
                             // "Each Publisher may edit or delete only the Visit
                             // History entries that they personally created"
-                            // (spec §8) — a hidden button isn't the real
-                            // enforcement (see saveVisit/deleteVisit's own doc
-                            // comments for the backstop check, and
-                            // firestore.rules for the actual one), but another
-                            // Publisher's entry shows no action controls at all
-                            // rather than a disabled one, per spec §17.
-                            if (visit.createdByPersonId == currentPersonId || canManageAllVisitHistory) {
+                            // (spec §8) for a Return Visit/Searching record —
+                            // a hidden button isn't the real enforcement (see
+                            // saveVisit/deleteVisit's own doc comments for the
+                            // backstop check, and firestore.rules for the
+                            // actual one), but another Publisher's entry shows
+                            // no action controls at all rather than a
+                            // disabled one, per spec §17. "Territory Map
+                            // Return Visit Permissions" spec §3/§7 — a Bible
+                            // Study has no such per-entry ownership: only that
+                            // record's own enrolled Publisher may touch *any*
+                            // of its visit history, regardless of who
+                            // actually logged each entry.
+                            val canManageThisVisit = canManageAllVisitHistory ||
+                                if (stage == PipelineStage.BIBLE_STUDY) isOwner else visit.createdByPersonId == currentPersonId
+                            if (canManageThisVisit) {
                                 Row {
                                     IconButton(onClick = { pendingEditVisit = visit }) { Icon(Icons.Rounded.Edit, contentDescription = "Edit visit") }
                                     IconButton(onClick = { pendingDeleteVisit = visit }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete visit") }
@@ -782,10 +844,18 @@ internal fun PipelinePersonDetailScreen(
         AddVisitDialog(
             existingVisit = null,
             interestedPersonId = person.id,
-            publisherPersonId = person.publisherPersonId,
+            // "The new Return Visit history must automatically record:
+            // Visited By: Publisher B" — the Publisher actually logging this
+            // visit, never the parent record's own owner (that would be
+            // [person.publisherPersonId], wrong for exactly the cross-
+            // Publisher case this feature exists for).
+            publisherPersonId = currentPersonId,
             currentPersonId = currentPersonId,
             stage = stage,
-            onSave = { viewModel.saveVisit(it, currentPersonId, canManageAllVisitHistory); showToast("Visit logged.") },
+            onSave = {
+                viewModel.saveVisit(it, currentPersonId, canManageAllVisitHistory, stage, livePerson.publisherPersonId)
+                showToast("Visit logged.")
+            },
             onDismiss = { showAddVisit = false },
         )
     }
@@ -795,10 +865,16 @@ internal fun PipelinePersonDetailScreen(
         AddVisitDialog(
             existingVisit = toEditVisit,
             interestedPersonId = person.id,
-            publisherPersonId = person.publisherPersonId,
+            // Irrelevant for an edit — existingVisit != null preserves its
+            // own already-stored publisherPersonId unchanged (see
+            // AddVisitDialog's own submit()).
+            publisherPersonId = toEditVisit.publisherPersonId,
             currentPersonId = currentPersonId,
             stage = stage,
-            onSave = { viewModel.saveVisit(it, currentPersonId, canManageAllVisitHistory, existingVisit = toEditVisit); showToast("Visit updated.") },
+            onSave = {
+                viewModel.saveVisit(it, currentPersonId, canManageAllVisitHistory, stage, livePerson.publisherPersonId, existingVisit = toEditVisit)
+                showToast("Visit updated.")
+            },
             onDismiss = { pendingEditVisit = null },
         )
     }
@@ -812,12 +888,13 @@ internal fun PipelinePersonDetailScreen(
     val toDeleteVisit = pendingDeleteVisit
     if (toDeleteVisit != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDeleteVisit = null },
             title = { Text("Delete Visit?") },
             text = { Text("This will permanently delete the visit logged on ${dateFormat.format(Date(toDeleteVisit.visitDate))}. This cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.deleteVisit(person.id, toDeleteVisit, currentPersonId, canManageAllVisitHistory)
+                    viewModel.deleteVisit(person.id, toDeleteVisit, currentPersonId, canManageAllVisitHistory, stage, livePerson.publisherPersonId)
                     showToast("Visit deleted.")
                     pendingDeleteVisit = null
                 }) { Text("Delete") }
@@ -838,6 +915,7 @@ internal fun PipelinePersonDetailScreen(
     if (toStage != null) {
         val movingBackward = toStage == livePerson.pipelineStage.previousStage()
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingStageChange = null },
             title = { Text("Move ${livePerson.pipelineStage.fullLabel()} to ${toStage.fullLabel()}?") },
             text = {
@@ -1161,7 +1239,7 @@ private fun SupportingImagePreview(image: SupportingImage?) {
 }
 
 @Composable
-private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String, viewModel: PipelineViewModel) {
+private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String, canEdit: Boolean, viewModel: PipelineViewModel) {
     val coroutineScope = rememberCoroutineScope()
     var isCapturing by remember { mutableStateOf(false) }
     var pendingCapture by remember { mutableStateOf<LatLng?>(null) }
@@ -1221,21 +1299,32 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
                     ClickableCoordinatesText(lat = person.gpsLat!!, lng = person.gpsLng!!, label = person.name.ifBlank { null })
                     if (person.gpsAccuracy != null) Text("Accuracy: ${person.gpsAccuracy.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
                     if (person.gpsCapturedAt != null) Text("Captured: ${formatRecordTimestamp(person.gpsCapturedAt)}", style = MaterialTheme.typography.bodySmall)
-                    Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { startCapture() }) { Text("Edit Location") }
-                        OutlinedButton(onClick = { showClearConfirm = true }, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Clear Location") }
+                    // "Cannot Change the parent address/location" — a
+                    // Publisher who doesn't own this record sees the
+                    // captured location above, never these mutation controls.
+                    if (canEdit) {
+                        Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { startCapture() }) { Text("Edit Location") }
+                            OutlinedButton(onClick = { showClearConfirm = true }, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Clear Location") }
+                        }
                     }
                 }
             }
             else -> Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("No location captured", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Button(onClick = { startCapture() }) {
-                    Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text("Capture Current Location")
-                }
-                OutlinedButton(onClick = { showManualEntry = true }) {
-                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                    Text("Enter Location Manually")
+                Text(
+                    if (canEdit) "No location captured" else "No location captured yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (canEdit) {
+                    Button(onClick = { startCapture() }) {
+                        Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text("Capture Current Location")
+                    }
+                    OutlinedButton(onClick = { showManualEntry = true }) {
+                        Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text("Enter Location Manually")
+                    }
                 }
             }
         }
@@ -1255,6 +1344,7 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
     }
     if (showClearConfirm) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { showClearConfirm = false },
             title = { Text("Clear GPS Location?") },
             text = { Text("This will remove the saved GPS coordinates from this record.") },
@@ -1349,6 +1439,7 @@ private fun AddVisitDialog(
 private fun VisitDetailDialog(visit: Visit, stage: PipelineStage, dateFormat: SimpleDateFormat, onDismiss: () -> Unit, viewModel: PipelineViewModel) {
     val visitorName by remember(visit.publisherPersonId) { viewModel.personName(visit.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
     AlertDialog(
+        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
         onDismissRequest = onDismiss,
         title = { Text("Visit Details") },
         text = {

@@ -50,25 +50,26 @@ data class MonthlyReportUiState(
     val existingReport: MonthlyReport? = null,
     val selectedPeriodMonth: Long = currentMonthStart(),
 
-    /** Spec §3 — automatically calculated, never a field the Publisher types
-     * into (see [MonthlyReportCalculator.countBibleStudiesConducted]). */
-    val bibleStudiesCount: Int = 0,
+    /** Pre-filled from [MonthlyReportCalculator.countBibleStudiesConducted]
+     * but, per the simplified report form, still Publisher-editable — same
+     * "automatic but can be edited" treatment as [hoursRendered]. */
+    val bibleStudiesRendered: String = "0",
     /** Spec §24 — `false` means the calculation genuinely failed (a source
      * Flow error), not "zero qualifying records"; the screen shows a retry
      * affordance instead of a bare `0`/`No` in that case. */
     val calculationFailed: Boolean = false,
     val isCalculating: Boolean = true,
 
-    /** Spec §7 — required for every [PublisherCategory] now (previously
-     * Publisher-only); pre-filled from [MonthlyReportCalculator
-     * .didParticipateInPreaching] but still Publisher-editable. */
+    /** Only shown/used for the non-Pioneer categories (Regular Publisher,
+     * Unbaptized Publisher) — a Pioneer already reports actual hours below,
+     * so this question doesn't apply to them. Pre-filled from
+     * [MonthlyReportCalculator.didParticipateInPreaching] but still
+     * Publisher-editable. */
     val participatedInPreaching: Boolean = false,
 
     // Pioneer-only (see [isPioneer]) — spec §9-§12/§19.
     val systemCalculatedHours: Double? = null,
     val hoursRendered: String = "0",
-    val hoursConfirmed: Boolean = false,
-    val hoursAdjustmentRemarks: String = "",
 
     /** Optional free-text note — see [MonthlyReport.remarks]. */
     val remarks: String = "",
@@ -214,14 +215,12 @@ class MonthlyReportViewModel @Inject constructor(
                     congregationId = congregationId,
                     existingReport = existing,
                     selectedPeriodMonth = selectedPeriodMonth,
-                    bibleStudiesCount = existing?.bibleStudiesCount ?: calc.bibleStudiesConducted,
+                    bibleStudiesRendered = (existing?.bibleStudiesCount ?: calc.bibleStudiesConducted).toString(),
                     calculationFailed = false,
                     isCalculating = false,
                     participatedInPreaching = existing?.participatedInPreaching ?: calc.participatedInPreaching,
                     systemCalculatedHours = existing?.systemCalculatedHours ?: calc.systemCalculatedHours,
                     hoursRendered = (existing?.hoursRendered ?: calc.systemCalculatedHours ?: 0.0).toString(),
-                    hoursConfirmed = existing?.hoursConfirmed ?: false,
-                    hoursAdjustmentRemarks = existing?.hoursAdjustmentRemarks.orEmpty(),
                     remarks = existing?.remarks.orEmpty(),
                 )
             }.collect { _uiState.value = it }
@@ -241,31 +240,13 @@ class MonthlyReportViewModel @Inject constructor(
         _selectedPeriodMonth.value = periodMonth
     }
 
-    /** Spec §Final Requirements #1 — Bible Studies Conducted has no setter:
-     * it is never freely editable by the Publisher. */
     fun onHoursChange(value: String) = update { it.copy(hoursRendered = value.filter { c -> c.isDigit() || c == '.' }) }
+    fun onBibleStudiesChange(value: String) = update { it.copy(bibleStudiesRendered = value.filter { c -> c.isDigit() }) }
     fun onParticipatedChange(value: Boolean) = update { it.copy(participatedInPreaching = value) }
-    fun onHoursConfirmedChange(value: Boolean) = update { it.copy(hoursConfirmed = value) }
-    fun onHoursAdjustmentRemarksChange(value: String) = update { it.copy(hoursAdjustmentRemarks = value) }
     fun onRemarksChange(value: String) = update { it.copy(remarks = value) }
 
     private fun update(block: (MonthlyReportUiState) -> MonthlyReportUiState) {
         _uiState.value = block(_uiState.value)
-    }
-
-    /** Spec §10/§19/§26 — a Pioneer whose reported hours differ from the
-     * system-calculated total must confirm accuracy and give remarks before
-     * this can succeed; returns the validation message to show (same
-     * `requiredFieldsMessage`-style contract every other screen's `submit()`
-     * already uses), or `null` if the report is valid to save. */
-    private fun validationError(state: MonthlyReportUiState): String? {
-        if (!state.isPioneer) return null
-        if (!state.hoursDifferFromSystem) return null
-        return when {
-            !state.hoursConfirmed -> "Please confirm that your manually entered preaching hours are accurate and provide remarks explaining the adjustment."
-            state.hoursAdjustmentRemarks.isBlank() -> "Please confirm that your manually entered preaching hours are accurate and provide remarks explaining the adjustment."
-            else -> null
-        }
     }
 
     /** [allowEditWhenLocked] must be the same value the screen itself is
@@ -277,15 +258,20 @@ class MonthlyReportViewModel @Inject constructor(
      * disabled wiring had nothing else standing between it and a save going
      * through anyway. Firestore's own security rules are still the real,
      * server-side backstop against a genuinely malicious client — this is
-     * about this app's own UI never doing it by accident. */
+     * about this app's own UI never doing it by accident.
+     *
+     * Reaching this at all, for a Pioneer whose hours differ from the
+     * system-calculated total, already implies confirmation — the screen
+     * gates its Submit button behind a one-off confirmation dialog (spec's
+     * "must be a separate message confirmation", not an inline checkbox +
+     * required-remarks field cluttering the form) before ever calling this.
+     * firestore.rules' `hoursAdjustmentValid` still requires a non-blank
+     * `hoursAdjustmentRemarks` alongside `hoursConfirmed` on the same
+     * document, so a fixed note is recorded automatically instead of asking
+     * the Publisher to type one. */
     fun submit(publisherPersonId: String, allowEditWhenLocked: Boolean = false) {
         val state = _uiState.value
         if (state.isLocked && !allowEditWhenLocked) return
-        val validation = validationError(state)
-        if (validation != null) {
-            _uiState.value = state.copy(errorMessage = validation)
-            return
-        }
         _uiState.value = state.copy(isSaving = true, errorMessage = null)
         viewModelScope.launch {
             val report = MonthlyReport(
@@ -294,12 +280,16 @@ class MonthlyReportViewModel @Inject constructor(
                 congregationId = state.congregationId ?: "",
                 category = state.category ?: PublisherCategory.REGULAR_PUBLISHER,
                 periodMonth = state.selectedPeriodMonth,
-                bibleStudiesCount = state.bibleStudiesCount,
+                bibleStudiesCount = state.bibleStudiesRendered.toIntOrNull() ?: 0,
                 hoursRendered = if (state.isPioneer) state.hoursRendered.toDoubleOrNull() ?: 0.0 else null,
                 systemCalculatedHours = if (state.isPioneer) state.systemCalculatedHours else null,
-                hoursConfirmed = if (state.isPioneer) state.hoursDifferFromSystem && state.hoursConfirmed else false,
-                hoursAdjustmentRemarks = if (state.isPioneer && state.hoursDifferFromSystem) state.hoursAdjustmentRemarks.trim().ifBlank { null } else null,
-                participatedInPreaching = state.participatedInPreaching,
+                hoursConfirmed = state.isPioneer && state.hoursDifferFromSystem,
+                hoursAdjustmentRemarks = if (state.isPioneer && state.hoursDifferFromSystem) {
+                    "Publisher confirmed the adjusted hours."
+                } else {
+                    null
+                },
+                participatedInPreaching = if (state.isPioneer) null else state.participatedInPreaching,
                 status = ReportStatus.SUBMITTED,
                 submittedAt = System.currentTimeMillis(),
                 remarks = state.remarks.trim().ifBlank { null },

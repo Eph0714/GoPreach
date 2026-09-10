@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import com.emfitsolutions.gopreach.R
 
 /**
@@ -110,6 +111,19 @@ fun FormDialog(
 
     AlertDialog(
         onDismissRequest = ::requestDismiss,
+        // "Outside clicks must be ignored for dismissal purposes" — every
+        // Add/Edit form in the app goes through this one composable, so this
+        // is the single highest-leverage fix: Compose's own default
+        // (`DialogProperties()`) treats a tap outside the dialog exactly
+        // like tapping Cancel, which used to silently discard whatever the
+        // Publisher had typed (or, worse, sometimes skip the "Discard
+        // changes?" prompt entirely — see [requestDismiss]). `dismissOnBackPress`
+        // stays `true`: the system Back gesture/button is still a legitimate,
+        // *intentional* way to leave a form (spec's own "Back, where
+        // appropriate"), and still goes through the exact same
+        // [requestDismiss] → unsaved-changes-confirmation path as the
+        // Cancel button always has.
+        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
         title = { Text(title) },
         text = {
             Column(
@@ -147,6 +161,12 @@ fun FormDialog(
     if (showDiscardConfirm) {
         AlertDialog(
             onDismissRequest = { showDiscardConfirm = false },
+            // Same rule applied to the confirmation prompt itself — an
+            // accidental outside tap here must not silently pick either
+            // side of "Discard changes? / Keep Editing"; it just re-arms
+            // for an explicit tap on one of those two buttons (the
+            // underlying form's data is untouched either way).
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             title = { Text(stringResource(R.string.discard_changes_title)) },
             text = { Text(stringResource(R.string.discard_changes_message)) },
             confirmButton = {

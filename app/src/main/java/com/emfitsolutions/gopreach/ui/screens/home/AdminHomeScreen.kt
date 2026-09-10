@@ -77,6 +77,7 @@ import com.emfitsolutions.gopreach.ui.screens.dashboard.DashboardStatsContent
 import com.emfitsolutions.gopreach.ui.screens.notifications.NotificationCenterViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.window.DialogProperties
 
 /** Landing point for the Admin context (spec §5.1) — a Side Panel (spec's
  * "Role-Based Dashboard, Side Panel & Graphical Reports" enhancement) plus a
@@ -123,7 +124,7 @@ fun AdminHomeScreen(
     // Publishers under their own congregation, on top of everyone
     // [canEnrollRegularElderOrPublisher] already covers. Kept as its own flag
     // so Service Overseer doesn't also gain Regular Elder enrollment access.
-    val canEnrollPublisher = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER ||
+    val canEnrollPublisher = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY ||
         Permission.MANAGE_PUBLISHERS in grantPermissions
     // New Service Overseer role — unlike Coordinator Elder enrollment, a
     // Coordinator Elder *can* create one (same three-role set as Regular
@@ -145,7 +146,7 @@ fun AdminHomeScreen(
     val canManageAnnouncements = canEnrollRegularElderOrPublisher
     // "Consolidated Monthly Report" spec — Service Overseer, Coordinator
     // Elder, Admin (own congregation), and Super-Admin (all congregations).
-    val canViewConsolidatedReport = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER
+    val canViewConsolidatedReport = canEnrollRegularElderOrPublisher || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY
     // "Field Service Group Report" — same viewer set as the Consolidated
     // Report, widened to also include Regular Elder ("Use the entities for
     // Admin, Coordinator/Elder, Regular Elder, Service Overseer"): Super-
@@ -191,7 +192,7 @@ fun AdminHomeScreen(
     // Super-Admin/Coordinator Elder/Regular Elder only to also include
     // Admin and Service Overseer, per that explicit access list.
     val canViewContactRecord = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION ||
-        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.REGULAR_ELDER
+        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY || role == AdminRole.REGULAR_ELDER
     // Publishers/Groups: Super-Admin/Admin/Coordinator Elder only (spec §3 permission matrix — Regular Elder ❌).
     val canManagePublishersAndGroups = canViewUserLogs
     // "Territory Map" — "allow the publishers, coordinator elders, regular
@@ -202,17 +203,17 @@ fun AdminHomeScreen(
     // view-only regardless of role — the screen itself has no edit/delete
     // action for anyone (see TerritoryMapScreen).
     val canViewTerritoryMap = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION ||
-        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.REGULAR_ELDER
+        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY || role == AdminRole.REGULAR_ELDER
     // "Meeting Assignments" — "the Coordinator-elder, elder, service
     // overseer, admin can make an assignment for the meetings, the super
     // admin can do so [too]" — same role set as [canViewTerritoryMap] today,
     // kept as its own flag since the two features may diverge later.
     val canEditMeetingAssignments = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION ||
-        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.REGULAR_ELDER
+        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY || role == AdminRole.REGULAR_ELDER
     // "CREATING GROUPS" spec — Service Overseer can also create/manage
     // Groups under their own congregation, same as Coordinator Elder,
     // without gaining the wider Publisher-management access above.
-    val canManageGroups = canManagePublishersAndGroups || role == AdminRole.SERVICE_OVERSEER ||
+    val canManageGroups = canManagePublishersAndGroups || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY ||
         Permission.MANAGE_GROUPS in grantPermissions
     // Drawer-only widening of the Regular Elder item for a grant-based
     // Circuit Overseer — deliberately *not* folded into
@@ -238,7 +239,7 @@ fun AdminHomeScreen(
     // drawer+stats shell as every built-in Admin-track role, instead of the
     // old tile-grid layout it was still stuck on.
     val hideMainFormButtons = isSuperAdmin || role == AdminRole.ADMIN_PER_CONGREGATION ||
-        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.REGULAR_ELDER ||
+        role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY || role == AdminRole.REGULAR_ELDER ||
         role == AdminRole.MINISTERIAL_SERVANT || role == AdminRole.CIRCUIT_OVERSEER
     // Same scoping GoPreachNavGraph's standalone Dashboard Reports route uses
     // (see its `ownCongregationId ?: ownGroupAssignment?.congregationId`) —
@@ -254,7 +255,7 @@ fun AdminHomeScreen(
     // correct login instead of just being skipped like it holds no such role.
     val activeAssignment = session.activeRoleAssignment
     val ownCongregationId = activeAssignment?.takeIf {
-        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT)
+        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY, AdminRole.MINISTERIAL_SERVANT)
     }?.congregationId
     val ownGroupAssignment = activeAssignment?.takeIf {
         (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
@@ -387,6 +388,7 @@ fun AdminHomeScreen(
     }
     if (showExitConfirm) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { showExitConfirm = false },
             title = { Text(stringResource(R.string.home_exit_title)) },
             text = { Text(stringResource(R.string.home_exit_message)) },
@@ -587,11 +589,17 @@ fun AdminHomeScreen(
                                     DashboardTile(stringResource(R.string.side_congregations_groups), Icons.Rounded.AccountBalance, { onNavigate(Destinations.MANAGE_CONGREGATIONS) })
                                     DashboardTile(stringResource(R.string.side_admins), Icons.Rounded.AdminPanelSettings, { onNavigate(Destinations.MANAGE_ADMINS) })
                                 }
-                                if (canEnrollCoordinatorElder) {
-                                    DashboardTile(stringResource(R.string.side_coordinator_elder), Icons.Rounded.PersonAdd, { onNavigate(Destinations.MANAGE_COORDINATOR_ELDERS) })
-                                }
                                 if (canEnrollRegularElderOrPublisher) {
-                                    DashboardTile(stringResource(R.string.side_regular_elder), Icons.Rounded.PersonAdd, { onNavigate(Destinations.MANAGE_REGULAR_ELDERS) })
+                                    // "Consolidate Elder, Coordinator Elder,
+                                    // Service Overseer and Secretary
+                                    // Enrollment" — one "Elders" tile
+                                    // replaces the separate Coordinator
+                                    // Elder/Regular Elder tiles this old
+                                    // tile-grid layout used to show (see
+                                    // SidePanel's own identical
+                                    // consolidation for the drawer this
+                                    // grid is otherwise superseded by).
+                                    DashboardTile(stringResource(R.string.side_elders), Icons.Rounded.PersonAdd, { onNavigate(Destinations.MANAGE_ELDERS) })
                                     DashboardTile(stringResource(R.string.side_publisher), Icons.Rounded.PersonAdd, { onNavigate(Destinations.ENROLL_PUBLISHER) })
                                 }
                             }

@@ -64,6 +64,7 @@ import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * "Announcement Module" — one screen for both sides:
@@ -225,6 +226,7 @@ fun AnnouncementsScreen(
     val toDelete = pendingDelete
     if (toDelete != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDelete = null },
             title = { Text("Delete Announcement?") },
             text = { Text("\"${toDelete.title}\" will be permanently deleted. This cannot be undone.") },
@@ -239,6 +241,7 @@ fun AnnouncementsScreen(
     val toView = viewingDetail
     if (toView != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { viewingDetail = null },
             title = { Text(toView.title) },
             text = {

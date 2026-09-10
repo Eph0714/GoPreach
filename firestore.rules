@@ -90,9 +90,46 @@ function canManagePublisherReportsFor(db, congregationId) {
     isSuperAdmin(db) || (
       myPerson(db).get('activeCongregationId', null) == congregationId &&
       myPerson(db).get('activeAdminRole', null) in
-        ['ADMIN_PER_CONGREGATION', 'COORDINATOR_ELDER', 'REGULAR_ELDER', 'SERVICE_OVERSEER']
+        // "Secretary must have the same access level and permissions as
+        // Service Overseer" — added alongside it here, not in place of it.
+        ['ADMIN_PER_CONGREGATION', 'COORDINATOR_ELDER', 'REGULAR_ELDER', 'SERVICE_OVERSEER', 'SECRETARY']
     )
   );
+}
+
+// "Role assignment security" (Elders consolidation spec §33/§34) — the exact
+// admin-track role set that ever *enrolls* someone or edits their roles
+// anywhere in this app (Manage Admins/Congregations/Elders/Ministerial
+// Servants/Groups/Publishers/Users, and every enrollment screen — see each
+// one's own client-side gating): Super-Admin, or an Admin/Coordinator
+// Elder/Service Overseer/Secretary active in the exact congregation the
+// RoleAssignment belongs to. Deliberately narrower than
+// [canManagePublisherReportsFor] — Regular Elder can *view* Monthly Reports
+// but never enrolls anyone or edits a RoleAssignment anywhere in the app, so
+// it's left out here on purpose (including it would reopen the very
+// self-elevation gap this function exists to close).
+function canManageRoleAssignmentsFor(db, congregationId) {
+  return isSignedIn() && exists(/databases/$(db)/documents/people/$(personIdFromToken())) && (
+    isSuperAdmin(db) || (
+      myPerson(db).get('activeCongregationId', null) == congregationId &&
+      myPerson(db).get('activeAdminRole', null) in
+        ['ADMIN_PER_CONGREGATION', 'COORDINATOR_ELDER', 'SERVICE_OVERSEER', 'SECRETARY']
+    )
+  );
+}
+
+// "Congregation Admin Access Control" spec §11/§12/§15/§30 — a
+// [RoleType.serialize]-shaped `roleType` string ("ADMIN:SUPER_ADMIN"/
+// "ADMIN:CIRCUIT_OVERSEER") naming one of the two roles nobody below
+// Super-Admin may ever assign, edit, or remove: "the Admin is not assigning
+// Super Admin... is not assigning Circuit Overseer." [canManageRoleAssignmentsFor]
+// alone only checks *whose* congregation a write targets, never *which*
+// role it names — without this, an Admin/Coordinator Elder/Service
+// Overseer/Secretary could otherwise write a RoleAssignment naming either of
+// these two roles for their own congregation and it would pass that check
+// outright.
+function isPrivilegedRoleType(roleType) {
+  return roleType == 'ADMIN:SUPER_ADMIN' || roleType == 'ADMIN:CIRCUIT_OVERSEER';
 }
 
 // Spec §10/§19/§26 — a Pioneer's manually-adjusted preaching hours must carry
@@ -181,7 +218,22 @@ service cloud.firestore {
     // (see file-level note above).
     match /people/{personId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      // Bug fix ("Congregation Admin Access Control" spec §11/§30 — "cannot
+      // assign themselves Super Admin"): this used to be plain
+      // `isSignedIn()`, meaning ANY signed-in account (a Publisher included)
+      // could set `isSuperAdmin: true` on *any* `people` document — their
+      // own or anyone else's — with a single direct Firestore write, no app
+      // UI involved at all. No legitimate flow in this app ever sets this
+      // field on any document (it's bootstrapped once by hand per
+      // SETUP.md — see [isSuperAdmin]'s own doc comment); requiring it to
+      // stay exactly what it already was on every write (`false` on a
+      // brand-new document, unchanged on every update) closes that
+      // self-escalation path completely without touching a single
+      // legitimate write this app's own code makes.
+      allow create: if isSignedIn() && request.resource.data.get('isSuperAdmin', false) == false;
+      allow update: if isSignedIn() &&
+        request.resource.data.get('isSuperAdmin', false) == resource.data.get('isSuperAdmin', false);
+      allow delete: if isSignedIn();
     }
 
     // User Access Management (spec §2/§6-§8/§13): only a Super-Admin may
@@ -219,10 +271,37 @@ service cloud.firestore {
       allow read: if !hasGrant(database) ||
         restrictedAllows(database, 'VIEW_ELDERS', resource.data.get('congregationId', null)) ||
         restrictedAllows(database, 'VIEW_PUBLISHERS', resource.data.get('congregationId', null));
-      allow create: if !hasGrant(database) ||
+      // Bug fix ("Role assignment security" — spec §33/§34): this used to be
+      // `!hasGrant(database) || ...`, meaning ANY signed-in, non-restricted
+      // account — a plain Publisher included — could write an arbitrary
+      // RoleAssignment document, congregation and role both entirely
+      // client-chosen, and elevate themselves (or anyone) to Coordinator
+      // Elder/Super-Admin/any other role with a single direct Firestore
+      // call, no matter what the app's own UI hid or disabled. Every
+      // legitimate write in this app's own code is already performed by an
+      // admin-track account's session (every enrollment screen and every
+      // Manage screen that edits a role — see canManageRoleAssignmentsFor's
+      // own doc comment for the exact list); a plain Publisher never
+      // legitimately writes here at all, so this closes the gap without
+      // narrowing anything the app actually uses.
+      // Every one of these three additionally requires
+      // `isSuperAdmin(database) || !isPrivilegedRoleType(...)` — an
+      // Admin/Coordinator Elder/Service Overseer/Secretary passes
+      // [canManageRoleAssignmentsFor] for their own congregation, but can
+      // still never create, edit, or remove a Super-Admin/Circuit-Overseer
+      // RoleAssignment (spec §11/§12/§30) that way; only Super-Admin ever
+      // satisfies the left side of that `||` for one of those two roles.
+      allow create: if (!hasGrant(database) && canManageRoleAssignmentsFor(database, request.resource.data.get('congregationId', null)) &&
+          (isSuperAdmin(database) || !isPrivilegedRoleType(request.resource.data.get('roleType', '')))) ||
         restrictedAllows(database, 'MANAGE_ELDERS', request.resource.data.get('congregationId', null)) ||
         restrictedAllows(database, 'MANAGE_PUBLISHERS', request.resource.data.get('congregationId', null));
-      allow update, delete: if !hasGrant(database) ||
+      allow update: if (!hasGrant(database) && canManageRoleAssignmentsFor(database, resource.data.get('congregationId', null)) &&
+          (isSuperAdmin(database) ||
+            (!isPrivilegedRoleType(resource.data.get('roleType', '')) && !isPrivilegedRoleType(request.resource.data.get('roleType', ''))))) ||
+        restrictedAllows(database, 'MANAGE_ELDERS', resource.data.get('congregationId', null)) ||
+        restrictedAllows(database, 'MANAGE_PUBLISHERS', resource.data.get('congregationId', null));
+      allow delete: if (!hasGrant(database) && canManageRoleAssignmentsFor(database, resource.data.get('congregationId', null)) &&
+          (isSuperAdmin(database) || !isPrivilegedRoleType(resource.data.get('roleType', '')))) ||
         restrictedAllows(database, 'MANAGE_ELDERS', resource.data.get('congregationId', null)) ||
         restrictedAllows(database, 'MANAGE_PUBLISHERS', resource.data.get('congregationId', null));
     }
@@ -433,6 +512,16 @@ service cloud.firestore {
       return get(/databases/$(db)/documents/interestedPeople/$(personId)).data.get('publisherPersonId', null);
     }
 
+    // "Territory Map Return Visit Permissions" — a Bible Study's visit
+    // history is deliberately excluded from the shared Return Visit history
+    // permission below; this is how a `visits` write rule tells the two
+    // apart, since [Visit] itself carries no stage of its own (see that
+    // model's own doc comment) — it's always the *parent* InterestedPerson's
+    // current [PipelineStage] name that decides.
+    function interestedPersonPipelineStage(db, personId) {
+      return get(/databases/$(db)/documents/interestedPeople/$(personId)).data.get('pipelineStage', null);
+    }
+
     // True for the Super-Admin (every congregation), or a signed-in caller
     // whose own denormalized `activeCongregationId` (Publisher or the four
     // admin-track roles alike) matches [congregationId].
@@ -450,49 +539,96 @@ service cloud.firestore {
       // congregation — never a client-chosen one (spec §20: "Do not trust...
       // TerritoryCongregationID [when] supplied by the frontend").
       allow create: if inMyActiveCongregation(database, request.resource.data.get('congregationId', null));
-      // Allowed if the caller can access EITHER the record's existing
-      // congregation (an ordinary same-congregation edit/GPS-capture/stage
-      // advance) OR the congregation it's being moved TO (the "Forward to
-      // Other Congregation" accept flow, performed by someone active in the
-      // *receiving* congregation, not the sending one — see
-      // ForwardRequestsViewModel.accept). Either way, a congregation with no
-      // relationship to the record at all — neither its current nor its
-      // requested owner — can never touch it.
-      allow update: if inMyActiveCongregation(database, resource.data.get('congregationId', null)) ||
-        inMyActiveCongregation(database, request.resource.data.get('congregationId', null));
-      allow delete: if inMyActiveCongregation(database, resource.data.get('congregationId', null));
+      // "Territory Map Return Visit Permissions" bug fix — this used to be
+      // just `inMyActiveCongregation`, meaning ANY Publisher active in the
+      // same congregation could edit or delete ANY OTHER Publisher's Return
+      // Visit/Bible Study/Searching record outright, entirely regardless of
+      // what the app's own UI showed or hid (the exact "must NOT rely only
+      // on hiding buttons" gap that feature's spec calls out). Now: the
+      // record's own owner, an admin-track role/Super-Admin (unchanged
+      // capability — see canManagePublisherReportsFor's own doc comment for
+      // the identical role set), or one of the two existing ownership-
+      // transfer flows below — nothing else.
+      allow update: if resource.data.get('publisherPersonId', null) == personIdFromToken() ||
+        canManagePublisherReportsFor(database, resource.data.get('congregationId', null)) ||
+        // "Forward to Other Congregation" accept — performed by an
+        // admin-track role active in the *receiving* congregation (see
+        // ForwardRequestsViewModel.accept; that screen is itself restricted
+        // to Super-Admin/Admin/Coordinator Elder/Service Overseer — see
+        // GoPreachNavGraph's own FORWARD_REQUESTS route), never the sending
+        // congregation's owner directly.
+        canManagePublisherReportsFor(database, request.resource.data.get('congregationId', null)) ||
+        // "Forward to Other Publisher" accept (same congregation, Publisher-
+        // to-Publisher, no admin step — PublisherForwardRequestsViewModel
+        // .accept) — legitimate specifically because setting
+        // `pendingPublisherForwardRequestId` in the first place already
+        // required being this record's *current* owner (this same `update`
+        // rule, before this clause even applies); the accepting Publisher
+        // may only ever set `publisherPersonId` to their own id here, never
+        // an arbitrary third party's (spec §13: "must not be able to
+        // manipulate... publisherPersonId... to gain edit/delete/add-history
+        // access" — this exception grants none of those, only the one
+        // specific reassignment a pending request already authorized).
+        (resource.data.get('pendingPublisherForwardRequestId', null) != null &&
+          request.resource.data.get('publisherPersonId', null) == personIdFromToken());
+      allow delete: if resource.data.get('publisherPersonId', null) == personIdFromToken() ||
+        canManagePublisherReportsFor(database, resource.data.get('congregationId', null));
 
       match /visits/{visitId} {
         allow read: if isSignedIn();
         // The creator field must be the caller's own real identity — never
         // trust a client-supplied Publisher id (spec §20) — and only within
-        // the parent Return Visit's own Territory Congregation.
+        // the parent Return Visit's own Territory Congregation. "Territory
+        // Map Return Visit Permissions" spec §3/§12 — a Bible Study's visit
+        // history is excluded from the shared "any congregation member may
+        // add Return Visit history" permission entirely: only that Bible
+        // Study's own enrolled Publisher (`interestedPersonOwnerId`) or
+        // Super-Admin may add one. A Return Visit (or Searching) record has
+        // no such extra check — any same-congregation Publisher may add
+        // their own visit to it, same as before.
         allow create: if inMyActiveCongregation(database, interestedPersonCongregationId(database, personId)) &&
-          request.resource.data.get('createdByPersonId', null) == personIdFromToken();
+          request.resource.data.get('createdByPersonId', null) == personIdFromToken() &&
+          (interestedPersonPipelineStage(database, personId) != 'BIBLE_STUDY' ||
+            isSuperAdmin(database) ||
+            interestedPersonOwnerId(database, personId) == personIdFromToken());
         // "Each Publisher may edit... only the Visit History entries that
-        // they personally created" (spec §8) — congregation access AND
-        // per-entry ownership both required; the creator field itself may
-        // never change on an edit. Super-Admin is the one explicitly
-        // authorized override this app's role system actually has today
-        // (mirrors [canManageAllVisitHistory] in PipelineScreen/
-        // PipelineViewModel).
+        // they personally created" (spec §8) for a Return Visit/Searching
+        // record — congregation access AND per-entry ownership both
+        // required; the creator field itself may never change on an edit.
+        // For a Bible Study, per the same exclusion as `create` above, only
+        // that record's own enrolled Publisher may edit *any* of its visit
+        // history, not merely the entries they personally logged (spec §3:
+        // "Only the enrolled publisher may edit the Bible Study visit
+        // history" — no per-entry-creator carve-out for this stage). Super-
+        // Admin is the one explicitly authorized override this app's role
+        // system actually has today (mirrors [canManageAllVisitHistory] in
+        // PipelineScreen/PipelineViewModel).
         allow update: if inMyActiveCongregation(database, interestedPersonCongregationId(database, personId)) &&
-          (isSuperAdmin(database) || resource.data.get('createdByPersonId', null) == personIdFromToken()) &&
+          (isSuperAdmin(database) ||
+            (interestedPersonPipelineStage(database, personId) == 'BIBLE_STUDY' &&
+              interestedPersonOwnerId(database, personId) == personIdFromToken()) ||
+            (interestedPersonPipelineStage(database, personId) != 'BIBLE_STUDY' &&
+              resource.data.get('createdByPersonId', null) == personIdFromToken())) &&
           request.resource.data.get('createdByPersonId', null) == resource.data.get('createdByPersonId', null) &&
           request.resource.data.get('interestedPersonId', null) == resource.data.get('interestedPersonId', null);
-        // Same ownership rule as update, PLUS a narrow cascade exception:
-        // the Return Visit's own original/enrolled Publisher (its
-        // `publisherPersonId`) may delete any of its Visit History entries,
-        // not just their own — needed for PipelineViewModel.permanentlyDelete,
-        // which deletes every visit under a record when that record's owner
-        // permanently deletes the whole thing (spec's "Admin Record
-        // Deletion"). This is scoped to deleting the entry alongside its own
-        // parent, never a standing grant to edit/reassign another
-        // Publisher's history — update above still has no such exception.
+        // Same ownership rule as update, PLUS (Return Visit/Searching only)
+        // a narrow cascade exception: the record's own original/enrolled
+        // Publisher (its `publisherPersonId`) may delete any of its Visit
+        // History entries, not just their own — needed for
+        // PipelineViewModel.permanentlyDelete, which deletes every visit
+        // under a record when that record's owner permanently deletes the
+        // whole thing (spec's "Admin Record Deletion"). This is scoped to
+        // deleting the entry alongside its own parent, never a standing
+        // grant to edit/reassign another Publisher's history — update above
+        // still has no such exception. For a Bible Study this cascade
+        // exception and the plain owner-delete case collapse into the same
+        // "enrolled Publisher only" check anyway, so no separate branch is
+        // needed there.
         allow delete: if inMyActiveCongregation(database, interestedPersonCongregationId(database, personId)) &&
           (isSuperAdmin(database) ||
-            resource.data.get('createdByPersonId', null) == personIdFromToken() ||
-            interestedPersonOwnerId(database, personId) == personIdFromToken());
+            interestedPersonOwnerId(database, personId) == personIdFromToken() ||
+            (interestedPersonPipelineStage(database, personId) != 'BIBLE_STUDY' &&
+              resource.data.get('createdByPersonId', null) == personIdFromToken()));
       }
     }
 

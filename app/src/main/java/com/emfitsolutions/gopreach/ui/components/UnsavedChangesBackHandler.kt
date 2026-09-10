@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * "Proper Back Button and Page Navigation Behavior" spec §4 — a form/enrollment
@@ -50,6 +51,7 @@ fun rememberUnsavedChangesBackHandler(
 
     if (showDialog) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { showDialog = false },
             title = { Text("Unsaved Changes") },
             text = { Text("You have changes that have not been saved.") },

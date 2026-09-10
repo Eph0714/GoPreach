@@ -73,6 +73,7 @@ import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * "Manage Publisher Report" module. [fixedCongregationId] is the security
@@ -358,6 +359,7 @@ fun ManagePublisherReportsScreen(
     val toDelete = pendingDelete
     if (toDelete != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDelete = null },
             title = { Text(stringResource(R.string.manage_reports_delete_title)) },
             text = { Text(stringResource(R.string.manage_reports_delete_message, toDelete.person.fullName)) },
@@ -373,6 +375,7 @@ fun ManagePublisherReportsScreen(
     if (showPostAllConfirm) {
         val submittedCount = uiState.rows.count { it.report.status == ReportStatus.SUBMITTED }
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { showPostAllConfirm = false },
             title = { Text(stringResource(R.string.manage_reports_post_confirm_title, submittedCount, if (submittedCount == 1) "" else "s")) },
             text = {

@@ -70,6 +70,7 @@ import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import kotlinx.coroutines.launch
+import androidx.compose.ui.window.DialogProperties
 
 /** Spec §11 — the Publisher may either search across every field at once, or
  * pin the search to one specific one. */
@@ -347,6 +348,7 @@ private fun EventListScreen(
     val toDelete = pendingDeleteEvent
     if (toDelete != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDeleteEvent = null },
             title = { Text("Delete Event?") },
             text = {
@@ -504,6 +506,7 @@ private fun EventDetailScreen(
     val toDeleteText = pendingDeleteText
     if (toDeleteText != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDeleteText = null },
             title = { Text("Delete Bible Text?") },
             text = { Text("Are you sure you want to delete this Bible text (${toDeleteText.referenceLabel()})?") },
@@ -519,6 +522,7 @@ private fun EventDetailScreen(
     }
     if (pendingDeleteEvent) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDeleteEvent = false },
             title = { Text("Delete Event?") },
             text = {
@@ -720,15 +724,27 @@ private fun BibleTextRecordDialog(
     var versesText by remember { mutableStateOf(existing?.verses.orEmpty()) }
     var remarks by remember { mutableStateOf(existing?.remarks.orEmpty()) }
 
-    // Spec §9 — a single verse ("3") or a range ("3-4", "10-12"); rejects
-    // "abc", "3--4", "-4", "hello", etc. Chapter/verse *existence* is already
-    // enforced structurally by the Chapter grid (only ever offers
-    // 1..chapterCount) rather than needing a separate existence check here.
-    val versesValid = remember(versesText) { Regex("""^\d+(-\d+)?$""").matches(versesText.trim()) }
+    // Bug fix: a publisher citing more than one verse in the same chapter
+    // (e.g. "16, 18" or "3-4, 8") is a normal, common case — the old regex
+    // only ever accepted a single verse ("3") or a single range ("3-4"),
+    // silently rejecting anything else as "invalid" even though the field
+    // visibly had text in it; from the Save button's error message ("Verses
+    // is required.") that read as a bug ("I typed a verse and it still says
+    // required"), not as "wrong format". Now a comma-separated list of
+    // verses/ranges is accepted too ("3", "3-4", "3, 5", "3-4, 8"); still
+    // rejects "abc", "3--4", "-4", "hello", trailing/leading commas, etc.
+    // Chapter/verse *existence* is already enforced structurally by the
+    // Chapter grid (only ever offers 1..chapterCount) rather than needing a
+    // separate existence check here.
+    val versePartRegex = remember { Regex("""^\d+(-\d+)?$""") }
     val verseRangeValid = remember(versesText) {
-        if (!versesValid) return@remember false
-        val parts = versesText.trim().split("-")
-        parts.size == 1 || (parts[0].toInt() <= parts[1].toInt())
+        val trimmed = versesText.trim()
+        if (trimmed.isEmpty()) return@remember false
+        val parts = trimmed.split(",").map { it.trim() }
+        parts.isNotEmpty() && parts.all { part ->
+            versePartRegex.matches(part) &&
+                part.split("-").let { it.size == 1 || it[0].toInt() <= it[1].toInt() }
+        }
     }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -736,10 +752,19 @@ private fun BibleTextRecordDialog(
         val message = requiredFieldsMessage(
             "Bible Book" to (bookId != null),
             "Chapter" to (chapter != null && chapter!! > 0),
-            "Verses" to (versesText.isNotBlank() && verseRangeValid),
+            "Verses" to versesText.isNotBlank(),
         )
         if (message != null) {
             errorMessage = message
+            return
+        }
+        // Reported separately from the block above — a Verses field that
+        // *has* text but doesn't parse as a verse/range list is a format
+        // problem, not a missing-field one; conflating the two into the same
+        // "is required" message is exactly what made this look like a bug
+        // rather than a validation error to the Publisher.
+        if (!verseRangeValid) {
+            errorMessage = "Please enter a valid verse or verse range (e.g. 3, 3-4, or 3, 5)."
             return
         }
         val now = System.currentTimeMillis()
@@ -812,14 +837,14 @@ private fun BibleTextRecordDialog(
         }
         OutlinedTextField(
             value = versesText,
-            onValueChange = { versesText = it.filter { c -> c.isDigit() || c == '-' } },
+            onValueChange = { versesText = it.filter { c -> c.isDigit() || c == '-' || c == ',' || c == ' ' } },
             label = { Text("Verses *") },
-            placeholder = { Text("e.g. 3 or 3-4") },
+            placeholder = { Text("e.g. 3, 3-4, or 3, 5") },
             singleLine = true,
             isError = versesText.isNotBlank() && !verseRangeValid,
             supportingText = {
                 if (versesText.isNotBlank() && !verseRangeValid) {
-                    Text("Please enter a valid verse or verse range (e.g. 3 or 3-4).")
+                    Text("Please enter a valid verse or verse range (e.g. 3, 3-4, or 3, 5).")
                 }
             },
             visualTransformation = VisualTransformation.None,

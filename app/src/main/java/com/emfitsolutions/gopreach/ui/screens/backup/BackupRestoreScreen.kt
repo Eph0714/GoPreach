@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.window.DialogProperties
 
 /** Spec §3/§5.1 — Backup & Restore, Super-Admin only. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -61,6 +62,7 @@ fun BackupRestoreScreen(
 
     if (pendingRestoreUri != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingRestoreUri = null },
             title = { Text("Restore from backup?") },
             text = { Text("This overwrites the current congregation data with whatever this file contains. This cannot be undone unless you have another backup. Continue?") },

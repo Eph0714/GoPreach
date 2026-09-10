@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.data.sync
 
 import android.content.Context
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
@@ -9,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.WorkRequest
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -78,15 +80,35 @@ class SyncScheduler @Inject constructor(
             .launchIn(appScope)
 
         val periodicRequest = PeriodicWorkRequestBuilder<SyncWorker>(AUTO_SYNC_INTERVAL_MINUTES, TimeUnit.MINUTES)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setConstraints(networkConnectedConstraints())
+            .setBackoffCriteria(standardBackoffPolicy, standardBackoffDelayMillis, TimeUnit.MILLISECONDS)
             .build()
         WorkManager.getInstance(context)
             .enqueueUniquePeriodicWork(PERIODIC_AUTO_SYNC_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, periodicRequest)
     }
 
+    /** `NetworkType.CONNECTED` (not restricted to Wi-Fi) — spec §13: sync
+     * works over Wi-Fi, mobile data, or any other connection Android itself
+     * considers usable; nothing in this scheduler singles out Wi-Fi. */
+    private fun networkConnectedConstraints() = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+
+    /** Spec §3.9 — an explicit, appropriate backoff strategy rather than
+     * relying on WorkManager's own unstated default: exponential, starting
+     * at WorkManager's own minimum ([WorkRequest.MIN_BACKOFF_MILLIS], 10s),
+     * doubling on each further [androidx.work.ListenableWorker.Result.retry]
+     * up to WorkManager's own internal cap (~5h) — quick to recover from a
+     * brief blip, without hammering Firebase/the network during a longer
+     * outage. Applied to every [SyncWorker] request this scheduler enqueues
+     * (the periodic safety net above, the automatic reconnect trigger below,
+     * and the tracked manual "Sync to Server" request further down) so all
+     * three retry the same way. */
+    private val standardBackoffPolicy = BackoffPolicy.EXPONENTIAL
+    private val standardBackoffDelayMillis = WorkRequest.MIN_BACKOFF_MILLIS
+
     private fun enqueueAutomaticSyncNow() {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setConstraints(networkConnectedConstraints())
+            .setBackoffCriteria(standardBackoffPolicy, standardBackoffDelayMillis, TimeUnit.MILLISECONDS)
             .build()
         WorkManager.getInstance(context)
             .enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, request)
@@ -134,7 +156,8 @@ class SyncScheduler @Inject constructor(
      * permanently stuck on "Checking for pending changes...". */
     fun requestSyncNow(): UUID {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setConstraints(networkConnectedConstraints())
+            .setBackoffCriteria(standardBackoffPolicy, standardBackoffDelayMillis, TimeUnit.MILLISECONDS)
             // "Do not show the system message if there are record[s]
             // automatically syncing" — this flag is what lets SyncWorker/
             // SyncStatusCenter tell this, the one explicit "Sync to Server"

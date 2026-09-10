@@ -60,6 +60,7 @@ import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.window.DialogProperties
 
 /** "Shared Location Module — List View and Map View... same design,
  * behavior, and functionality already implemented in the Territory Map
@@ -366,6 +367,7 @@ fun ShareLocationScreen(
 
     if (showConsentDialog) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { showConsentDialog = false },
             title = { Text("Share Your Location?") },
             text = {

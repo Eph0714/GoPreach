@@ -39,6 +39,7 @@ import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * Spec §3 — "user logs": Super-Admin sees everything and can delete entries;
@@ -174,6 +175,7 @@ fun UserLogsScreen(
     if (showBulkDeleteConfirm) {
         val count = selectedIds.size
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { showBulkDeleteConfirm = false },
             title = { Text("Delete $count Log ${if (count == 1) "Entry" else "Entries"}?") },
             text = { Text("This will permanently delete $count selected log ${if (count == 1) "entry" else "entries"}. This cannot be undone.") },

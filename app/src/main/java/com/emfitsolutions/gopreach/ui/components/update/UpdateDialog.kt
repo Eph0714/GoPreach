@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.Intent
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * Hosted once, near the app's root (see MainActivity) — reflects whatever
@@ -59,6 +60,7 @@ fun UpdateHost(viewModel: UpdateViewModel = hiltViewModel()) {
             // until Update Now is tapped, so there's nothing to relay to
             // someone else in the meantime).
             AlertDialog(
+                properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
                 onDismissRequest = if (s.info.isCritical) ({}) else viewModel::dismiss,
                 title = { Text(if (s.info.isCritical) "Update Required" else "Update Available") },
                 text = {
@@ -101,6 +103,7 @@ fun UpdateHost(viewModel: UpdateViewModel = hiltViewModel()) {
 
         is UpdateCheckState.Downloading -> {
             AlertDialog(
+                properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
                 onDismissRequest = {},
                 title = { Text("Updating GoPreach...") },
                 text = {
@@ -116,6 +119,7 @@ fun UpdateHost(viewModel: UpdateViewModel = hiltViewModel()) {
 
         is UpdateCheckState.ReadyToInstall -> {
             AlertDialog(
+                properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
                 onDismissRequest = {},
                 title = { Text("Installing Update...") },
                 text = {
@@ -130,6 +134,7 @@ fun UpdateHost(viewModel: UpdateViewModel = hiltViewModel()) {
 
         is UpdateCheckState.Failed -> {
             AlertDialog(
+                properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
                 onDismissRequest = viewModel::dismiss,
                 title = { Text("Update Failed") },
                 text = { Text("${s.message}\n\nYour current version is still available.") },
@@ -144,6 +149,7 @@ fun UpdateHost(viewModel: UpdateViewModel = hiltViewModel()) {
 
         is UpdateCheckState.UpToDate -> {
             AlertDialog(
+                properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
                 onDismissRequest = viewModel::dismiss,
                 title = { Text("GoPreach is up to date.") },
                 text = { Text("Version ${s.version}") },

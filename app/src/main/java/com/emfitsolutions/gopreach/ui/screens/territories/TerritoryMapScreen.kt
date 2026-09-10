@@ -14,7 +14,6 @@ import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.emfitsolutions.gopreach.BuildConfig
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -94,6 +93,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import com.emfitsolutions.gopreach.data.location.LatLng
 import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
@@ -110,6 +110,7 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+import androidx.compose.ui.window.DialogProperties
 
 private const val TAG = "TerritoryMap"
 
@@ -138,10 +139,10 @@ fun TerritoryMapScreen(
     focusLat: Double? = null,
     focusLng: Double? = null,
     focusName: String? = null,
-    // "Add a filter in Territory Map" — Super-Admin and the four named
-    // admin-track roles only (see GoPreachNavGraph's own gating); a
-    // Publisher/Ministerial Servant viewing their own map keeps the exact
-    // pre-filter experience, no Filters action shown at all.
+    // "Territory Map Congregation and Field Service Group Filters" —
+    // effectively always `true` now (see GoPreachNavGraph's own call site);
+    // kept as its own parameter rather than inlined since this screen still
+    // shouldn't assume every future caller wants the filter row.
     showAdvancedFilter: Boolean = false,
     onBack: () -> Unit,
     viewModel: TerritoryMapViewModel = hiltViewModel(),
@@ -196,6 +197,23 @@ fun TerritoryMapScreen(
     }
     var advancedFilter by remember { mutableStateOf(TerritoryFilterState()) }
     var showFilterSheet by remember { mutableStateOf(false) }
+
+    // "Territory Map Congregation and Field Service Group Filters" spec §1/
+    // §2/§17 — Congregation is the first filter for every role, but only
+    // Super-Admin's own choice ever actually varies it: every other role's
+    // effective congregation is always [fixedCongregationId] — the same
+    // server-resolved value [tryOpenDetails] above already trusts — never
+    // anything read from [advancedFilter], which has no field a scoped
+    // role's own client could even set to another congregation (see
+    // [TerritoryFilterState]'s own doc comment). This is what actually makes
+    // "cannot select/manipulate another congregation" true for them: the UI
+    // has no control that could produce a different value in the first
+    // place, on top of [rowsFor]'s own filtering below.
+    val effectiveCongregationId = if (isSuperAdmin) advancedFilter.congregationId else fixedCongregationId
+    val fixedCongregationName by remember(fixedCongregationId) {
+        if (fixedCongregationId != null) viewModel.congregationById(fixedCongregationId).map { it?.name } else flowOf(null)
+    }.collectAsStateWithLifecycle(initialValue = null)
+
     val groupMemberIdsFlow = remember(advancedFilter.groupId) {
         advancedFilter.groupId?.let { viewModel.groupMemberPublisherIds(it) } ?: flowOf(emptySet())
     }
@@ -214,23 +232,36 @@ fun TerritoryMapScreen(
             }
         }
     }
-    val rowsFlow = remember(fixedCongregationId) { viewModel.rowsFor(fixedCongregationId) }
+    // Spec §16 — [effectiveCongregationId] (the selected/assigned
+    // congregation) is the primary restriction passed down to [rowsFor]/
+    // [publisherRowsFor] themselves, same as [fixedCongregationId] always
+    // was for a scoped role; Super-Admin's own selection now narrows the
+    // exact same way once they pick one, instead of always pulling every
+    // congregation's data first and only filtering it on-device afterward.
+    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     // "For publisher account they can see other publishers that share their
     // location in the map" — only collected (and only ever asked of the
     // repository) when [canSeePublisherLocations] actually allows it, so an
     // unauthorized role's screen never even subscribes to every other
     // publisher's live position.
-    val publisherRowsFlow = remember(fixedCongregationId, currentPersonId, canSeePublisherLocations) {
-        if (canSeePublisherLocations) viewModel.publisherRowsFor(fixedCongregationId, currentPersonId) else flowOf(emptyList())
+    val publisherRowsFlow = remember(effectiveCongregationId, currentPersonId, canSeePublisherLocations) {
+        if (canSeePublisherLocations) viewModel.publisherRowsFor(effectiveCongregationId, currentPersonId) else flowOf(emptyList())
     }
     val publisherRows by publisherRowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    // "Add a filter in Territory Map" — Search By narrows first (its own
-    // dropdown selection, if any), which is also what the Sub Filter's
+    // Spec §11 — the "Publisher" map-point kind is itself filterable by
+    // Field Service Group too (a Publisher's own group membership, via their
+    // RoleAssignment — same [groupMemberIds] the pipeline rows below use),
+    // not just Searching/Return Visit/Bible Study records.
+    val filteredPublisherRows = remember(publisherRows, advancedFilter.groupId, groupMemberIds) {
+        if (advancedFilter.groupId != null) publisherRows.filter { it.person.id in groupMemberIds } else publisherRows
+    }
+    // "Add a filter in Territory Map" — Congregation/Field Service Group/
+    // Publisher narrow first, which is also what the Location section's
     // Municipality/Barangay option lists are derived from (see
-    // TerritoryFilterSheet), then the full filter (Search By + Sub Filter +
-    // Inner Sub Filter) is what actually reaches List View/Map View below.
-    val searchByRows = remember(rows, advancedFilter.searchBy, advancedFilter.congregationId, advancedFilter.groupId, advancedFilter.publisherPersonId, groupMemberIds) {
+    // TerritoryFilterSheet), then the full filter (those plus Location and
+    // Record Type) is what actually reaches List View/Map View below.
+    val searchByRows = remember(rows, advancedFilter.congregationId, advancedFilter.groupId, advancedFilter.publisherPersonId, groupMemberIds) {
         applyTerritoryFilter(rows, advancedFilter.copy(province = null, cityMunicipality = null, barangay = null, innerFilter = TerritoryInnerFilter.ALL), groupMemberIds)
     }
     val advancedFilteredRows = remember(rows, advancedFilter, groupMemberIds) {
@@ -302,7 +333,7 @@ fun TerritoryMapScreen(
             Box(modifier = Modifier.fillMaxSize().padding(padding)) {
                 TerritoryLiveMap(
                     rows = advancedFilteredRows,
-                    publisherRows = publisherRows,
+                    publisherRows = filteredPublisherRows,
                     canSeePublisherLocations = canSeePublisherLocations,
                     getCurrentLocation = viewModel::currentLocation,
                     hasLocationPermission = viewModel::hasLocationPermission,
@@ -390,7 +421,15 @@ fun TerritoryMapScreen(
     if (showFilterSheet) {
         TerritoryFilterSheet(
             isSuperAdmin = isSuperAdmin,
-            congregationIds = if (isSuperAdmin) null else setOfNotNull(fixedCongregationId),
+            fixedCongregationId = fixedCongregationId,
+            fixedCongregationName = fixedCongregationName,
+            // "The Field Service Group list must depend on the selected
+            // Congregation" — the *effective* one now (Super-Admin's current
+            // pick, `null` meaning every congregation for "All
+            // Congregations"), not a static "every congregation this role
+            // could ever pick," so switching Congregation always refreshes
+            // this to match.
+            congregationIds = if (isSuperAdmin) effectiveCongregationId?.let(::setOf) else setOfNotNull(fixedCongregationId),
             filter = advancedFilter,
             searchByRows = searchByRows,
             resultCount = advancedFilteredRows.size,
@@ -1136,6 +1175,7 @@ private fun TerritoryLiveMap(
 
     if (showDiagnostics) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { showDiagnostics = false },
             title = { Text("Map Diagnostics") },
             text = {
@@ -1606,21 +1646,29 @@ private fun jsEscape(text: String): String =
 
 /**
  * "Add a filter in Territory Map... make it simple, professional and
- * modern. check the spacing and design" — Search By, then Location, then
- * Record Type, each a plainly-labeled section with generous, consistent
- * spacing rather than dividers doing the separating. Every choice here
- * applies immediately (there's nothing to "submit"); "Done" just closes the
- * sheet, and the header's own live count is the confirmation that a change
- * actually did something. [searchByRows] is the map's own rows already
- * narrowed by whatever Search By currently holds (see [TerritoryMapScreen]'s
- * own `searchByRows`) — the Location section's Municipality/Barangay option
- * lists are derived from it, so a choice here can never describe a
- * combination with zero matching records.
+ * modern. check the spacing and design" — extended by "Territory Map
+ * Congregation and Field Service Group Filters" (spec §18's exact required
+ * order): **Congregation** first — Super-Admin picks any active congregation
+ * (or "All Congregations"); every other role sees their own single
+ * [fixedCongregationName]/[fixedCongregationId], shown but never editable
+ * (spec §2/§9) — then **Record Type**, then **Field Service Group** (scoped
+ * to whichever congregation is currently effective — see [congregationIds]),
+ * then Publisher and Location as additional, still-freely-combinable
+ * sub-filters (spec §7 preserves everything that already worked). Every
+ * choice here applies immediately (there's nothing to "submit"); "Done" just
+ * closes the sheet, and the header's own live count is the confirmation that
+ * a change actually did something. [searchByRows] is the map's own rows
+ * already narrowed by Congregation/Record Type/Field Service Group/Publisher
+ * (see [TerritoryMapScreen]'s own `searchByRows`) — the Location section's
+ * Municipality/Barangay option lists are derived from it, so a choice here
+ * can never describe a combination with zero matching records.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun TerritoryFilterSheet(
     isSuperAdmin: Boolean,
+    fixedCongregationId: String?,
+    fixedCongregationName: String?,
     congregationIds: Set<String>?,
     filter: TerritoryFilterState,
     searchByRows: List<TerritoryMapRow>,
@@ -1632,6 +1680,12 @@ private fun TerritoryFilterSheet(
     val sheetState = rememberModalBottomSheetState()
     val congregations by remember(isSuperAdmin) { if (isSuperAdmin) viewModel.congregationsFor(null) else flowOf(emptyList()) }
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    // "The Field Service Group list must depend on the selected Congregation"
+    // — [congregationIds] is the *effective* one (Super-Admin's current
+    // selection, or the scoped role's fixed one — see [TerritoryMapScreen]'s
+    // own call site), never a static "every congregation this role could
+    // ever see" set, so switching Congregation here always refreshes this to
+    // match (spec §5/§14).
     val groups by remember(congregationIds) { viewModel.groupsFor(congregationIds) }.collectAsStateWithLifecycle(initialValue = emptyList())
     val publishers by remember(congregationIds) { viewModel.publishersFor(congregationIds) }.collectAsStateWithLifecycle(initialValue = emptyList())
 
@@ -1675,57 +1729,66 @@ private fun TerritoryFilterSheet(
                 }
             }
 
-            FilterSection(title = "Search By") {
-                // "FOR SUPER ADMIN: ... All, Congregation... / OR OTHER
-                // USERS: ... Field Service Group, Publisher" — a scoped
-                // role's own single congregation is already implicit
-                // everywhere else, so the Congregation option is Super-Admin
-                // only; "All" is offered to everyone as the neutral default.
-                val options = buildList {
-                    add(TerritorySearchBy.ALL)
-                    if (isSuperAdmin) add(TerritorySearchBy.CONGREGATION)
-                    add(TerritorySearchBy.FIELD_SERVICE_GROUP)
-                    add(TerritorySearchBy.PUBLISHER)
+            // Spec §1/§2/§18 — Congregation is always the *first* filter,
+            // for every role. Super-Admin gets a real dropdown ("All
+            // Congregations" plus every active congregation); every other
+            // role sees their own assigned congregation's name, read-only —
+            // there is no field on [TerritoryFilterState] a scoped role's
+            // client could even set to another congregation in the first
+            // place (see that state's own doc comment).
+            FilterSection(title = "Congregation") {
+                if (isSuperAdmin) {
+                    FilterDropdownField(
+                        label = "Congregation",
+                        options = congregations.map { it.id to it.name },
+                        selectedId = filter.congregationId,
+                        // Spec §14/§15 — changing Congregation always clears
+                        // Field Service Group; a group from the previous
+                        // congregation must never silently carry over.
+                        onSelected = { onFilterChange(filter.copy(congregationId = it, groupId = null)) },
+                    )
+                } else {
+                    ReadOnlyField("Congregation", fixedCongregationName ?: "—")
                 }
+            }
+
+            FilterSection(title = "Record Type") {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    options.forEach { option ->
+                    TerritoryInnerFilter.entries.forEach { option ->
                         androidx.compose.material3.FilterChip(
-                            selected = filter.searchBy == option,
-                            onClick = {
-                                onFilterChange(filter.copy(searchBy = option, congregationId = null, groupId = null, publisherPersonId = null))
-                            },
+                            selected = filter.innerFilter == option,
+                            onClick = { onFilterChange(filter.copy(innerFilter = option)) },
                             label = { Text(option.label()) },
                         )
                     }
                 }
-                AnimatedVisibility(visible = filter.searchBy != TerritorySearchBy.ALL) {
-                    Box(modifier = Modifier.padding(top = 12.dp)) {
-                        when (filter.searchBy) {
-                            TerritorySearchBy.CONGREGATION -> FilterDropdownField(
-                                label = "Congregation/Group",
-                                options = congregations.map { it.id to it.name },
-                                selectedId = filter.congregationId,
-                                onSelected = { onFilterChange(filter.copy(congregationId = it)) },
-                            )
-                            TerritorySearchBy.FIELD_SERVICE_GROUP -> FilterDropdownField(
-                                label = "Field Service Group",
-                                options = groups.map { group ->
-                                    val congregationName = congregations.firstOrNull { it.id == group.congregationId }?.name
-                                    group.id to (if (isSuperAdmin && congregationName != null) "${group.name} — $congregationName" else group.name)
-                                },
-                                selectedId = filter.groupId,
-                                onSelected = { onFilterChange(filter.copy(groupId = it)) },
-                            )
-                            TerritorySearchBy.PUBLISHER -> FilterDropdownField(
-                                label = "Publisher",
-                                options = publishers.map { it.id to it.fullName },
-                                selectedId = filter.publisherPersonId,
-                                onSelected = { onFilterChange(filter.copy(publisherPersonId = it)) },
-                            )
-                            TerritorySearchBy.ALL -> Unit
-                        }
-                    }
-                }
+            }
+
+            // Spec §6/§18 — scoped to whichever congregation is currently
+            // effective (see [congregationIds]/[groups] above); labeled with
+            // its own congregation name only when Super-Admin is browsing
+            // "All Congregations" at once (spec §8: "if Field Service Groups
+            // have identical names in different congregations, identify them
+            // using their congregation").
+            FilterSection(title = "Field Service Group") {
+                FilterDropdownField(
+                    label = "Field Service Group",
+                    options = groups.map { group ->
+                        val congregationName = congregations.firstOrNull { it.id == group.congregationId }?.name
+                        group.id to (if (isSuperAdmin && filter.congregationId == null && congregationName != null) "${group.name} — $congregationName" else group.name)
+                    },
+                    selectedId = filter.groupId,
+                    onSelected = { onFilterChange(filter.copy(groupId = it)) },
+                )
+            }
+
+            FilterSection(title = "Publisher") {
+                FilterDropdownField(
+                    label = "Publisher",
+                    options = publishers.map { it.id to it.fullName },
+                    selectedId = filter.publisherPersonId,
+                    onSelected = { onFilterChange(filter.copy(publisherPersonId = it)) },
+                )
             }
 
             FilterSection(title = "Location") {
@@ -1759,18 +1822,6 @@ private fun TerritoryFilterSheet(
                 }
             }
 
-            FilterSection(title = "Record Type") {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TerritoryInnerFilter.entries.forEach { option ->
-                        androidx.compose.material3.FilterChip(
-                            selected = filter.innerFilter == option,
-                            onClick = { onFilterChange(filter.copy(innerFilter = option)) },
-                            label = { Text(option.label()) },
-                        )
-                    }
-                }
-            }
-
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(
                     onClick = { onFilterChange(TerritoryFilterState(province = if (!isSuperAdmin) filter.province else null)) },
@@ -1792,13 +1843,6 @@ private fun FilterSection(title: String, content: @Composable () -> Unit) {
         Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         content()
     }
-}
-
-private fun TerritorySearchBy.label(): String = when (this) {
-    TerritorySearchBy.ALL -> "All"
-    TerritorySearchBy.CONGREGATION -> "Congregation/Group"
-    TerritorySearchBy.FIELD_SERVICE_GROUP -> "Field Service Group"
-    TerritorySearchBy.PUBLISHER -> "Publisher"
 }
 
 private fun TerritoryInnerFilter.label(): String = when (this) {

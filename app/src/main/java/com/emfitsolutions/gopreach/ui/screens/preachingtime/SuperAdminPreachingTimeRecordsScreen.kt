@@ -60,6 +60,7 @@ import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * "Preaching Time Records — Super Admin Management Module" — the Super-
@@ -245,6 +246,7 @@ fun SuperAdminPreachingTimeRecordsScreen(
     val toDelete = pendingDelete
     if (toDelete != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDelete = null },
             title = { Text("Delete Preaching Time Record") },
             text = { Text("Are you sure you want to delete this Preaching Time Record?") },
@@ -264,6 +266,7 @@ fun SuperAdminPreachingTimeRecordsScreen(
     val toForceDelete = pendingForceDelete
     if (toForceDelete != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingForceDelete = null },
             icon = { Icon(Icons.Rounded.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Force Delete Warning") },

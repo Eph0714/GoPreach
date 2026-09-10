@@ -76,6 +76,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.window.DialogProperties
 
 private enum class MeetingAssignmentCategory(val label: String) {
     MIDWEEK("Midweek Meeting Schedule"),
@@ -307,6 +308,7 @@ private fun MidweekMeetingScheduleTab(
     if (toDelete != null) {
         val (section, index) = toDelete
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDelete = null },
             title = { Text("Delete Assignment?") },
             text = { Text("This removes it from the schedule for this week.") },
@@ -549,6 +551,7 @@ private fun PublicTalkScheduleTab(
     val toDelete = pendingDelete
     if (toDelete != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDelete = null },
             title = { Text("Delete this schedule?") },
             text = { Text("This removes the ${dateFormat.format(Date(toDelete.date))} row.") },
@@ -785,6 +788,7 @@ private fun CartAssignmentTab(
     val toDelete = pendingDelete
     if (toDelete != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDelete = null },
             title = { Text("Permanently Delete Cart Assignment?") },
             text = { Text("This permanently removes the ${dateFormat.format(Date(toDelete.date))} — ${toDelete.location} row. This cannot be undone.") },

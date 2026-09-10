@@ -86,7 +86,7 @@ fun computeStatMembers(
                     // (e.g. a Coordinator Elder who's also a Regular Elder
                     // via a Group Overseer assignment) still counts once;
                     // that dedup happens below (by personId, then by name).
-                    AdminRole.COORDINATOR_ELDER, AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER -> setOf("Total Elders")
+                    AdminRole.COORDINATOR_ELDER, AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY -> setOf("Total Elders")
                     // "Total Ministerial" — same "use the same logic in
                     // counting elders" dedup, applied below alongside "Total
                     // Elders" rather than duplicating that block.
@@ -326,12 +326,13 @@ data class CongregationStats(
 }
 
 /** Every Elder-title [AdminRole] "Total Elders" counts: Coordinator Elder,
- * Regular Elder, and Service Overseer. Ministerial Servant is deliberately
- * not included — spec's own wording calls it out as "Not an Elder — a
- * distinct appointed position," even though it's enrolled the same way
- * (see [MINISTERIAL_ROLES]/"Total Ministerial" — its own, separate count,
- * same dedup logic). */
-private val ELDER_ROLES = setOf(AdminRole.COORDINATOR_ELDER, AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER)
+ * Regular Elder, Service Overseer, and Secretary (enrolled the same way,
+ * Service-Overseer-equivalent access — see that role's own doc comment).
+ * Ministerial Servant is deliberately not included — spec's own wording
+ * calls it out as "Not an Elder — a distinct appointed position," even
+ * though it's enrolled the same way (see [MINISTERIAL_ROLES]/"Total
+ * Ministerial" — its own, separate count, same dedup logic). */
+private val ELDER_ROLES = setOf(AdminRole.COORDINATOR_ELDER, AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY)
 
 /** "Total Ministerial" — Ministerial Servant, counted with the exact same
  * dedup rules as [ELDER_ROLES]/"Total Elders" (per explicit request: "use

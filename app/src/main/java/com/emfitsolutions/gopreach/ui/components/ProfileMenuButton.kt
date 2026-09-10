@@ -39,6 +39,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * The top-right profile avatar + menu, present on every role's Main Form
@@ -115,6 +116,7 @@ fun ProfileMenuButton(
 
     if (showViewImage) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { showViewImage = false },
             title = { Text(fullName) },
             text = {

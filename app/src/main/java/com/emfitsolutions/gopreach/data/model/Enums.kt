@@ -13,6 +13,20 @@ enum class AdminRole {
      * Elder/Admin see the same for their congregation, Super-Admin for every
      * congregation (see ConsolidatedReportViewModel). */
     SERVICE_OVERSEER,
+    /** "Consolidate Elder, Coordinator Elder, Service Overseer and Secretary
+     * Enrollment" — a brand-new role, enrolled the same way as
+     * [SERVICE_OVERSEER] (through `Enrollment → Elders`, no separate module),
+     * and deliberately given **the exact same access as [SERVICE_OVERSEER]**
+     * everywhere in the app: every permission/UI-gating check that lists
+     * [SERVICE_OVERSEER] also lists this role (grep `AdminRole.SECRETARY` to
+     * find every one of those sites — there is no single shared "Service
+     * Overseer permission set" constant this app's existing role-checking
+     * style could hang off of, so each site was updated individually rather
+     * than introduced as a new abstraction). Unlike [SERVICE_OVERSEER], not
+     * capped at one active per congregation — nothing in the spec asked for
+     * that, and inventing a restriction the source spec never stated would
+     * violate "the system must not invent new restrictions." */
+    SECRETARY,
     REGULAR_ELDER,
     /** Not an Elder — a distinct appointed position (spec: "MINISTERIAL
      * ACCOUNT"), enrollable by Super-Admin, Admin (own congregation), and
@@ -50,6 +64,7 @@ fun AdminRole.displayLabel(): String = when (this) {
     AdminRole.ADMIN_PER_CONGREGATION -> "Admin"
     AdminRole.COORDINATOR_ELDER -> "Coordinator Elder"
     AdminRole.SERVICE_OVERSEER -> "Service Overseer"
+    AdminRole.SECRETARY -> "Secretary"
     AdminRole.REGULAR_ELDER -> "Regular Elder"
     AdminRole.MINISTERIAL_SERVANT -> "Ministerial Servant"
     AdminRole.CIRCUIT_OVERSEER -> "Circuit Overseer"

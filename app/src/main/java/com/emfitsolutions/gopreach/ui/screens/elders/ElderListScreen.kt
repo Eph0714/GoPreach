@@ -43,6 +43,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.RegularElderRole
+import com.emfitsolutions.gopreach.data.model.RoleAssignment
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
@@ -53,7 +55,27 @@ import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 
-/** Shared list UI for [ManageCoordinatorEldersScreen] and [ManageRegularEldersScreen] —
+/** One row backed by a single admin-track [RoleAssignment] — the shape
+ * [ManageMinisterialServantsScreen]/ViewModel still uses (Ministerial
+ * Servant stays its own separate module, one role per person, unlike the
+ * consolidated "Elders" module's own [EldersRow], which aggregates every
+ * role a person holds into one row instead). Relocated here from the
+ * now-removed ManageCoordinatorEldersViewModel.kt, this file's other
+ * long-standing consumer alongside Ministerial Servant before the
+ * "Consolidate Elder, Coordinator Elder, Service Overseer and Secretary
+ * Enrollment" update. */
+data class ElderRow(
+    val person: Person,
+    val assignment: RoleAssignment,
+    val scopeName: String,
+    val isActive: Boolean,
+    /** Only meaningful for a Regular-Elder-shaped row — their Group Overseer/
+     * Servant/Assistant assignment (null otherwise, or not yet placed in a
+     * Group role). */
+    val regularElderRole: RegularElderRole? = null,
+)
+
+/** Shared list UI for [ManageMinisterialServantsScreen] —
  * same card layout as Manage Admins (name/scope/contact/edit/delete(deactivate)/
  * temp-credential lookup), just parameterized by title and what "scope" means
  * for that role. [canPermanentlyDelete] is Super-Admin-only, per the "Admin

@@ -71,6 +71,7 @@ import com.emfitsolutions.gopreach.data.model.GroupChatAttachmentType
 import com.emfitsolutions.gopreach.data.model.GroupChatMessage
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import androidx.compose.ui.window.DialogProperties
 
 /** A picked-but-not-yet-sent attachment — shown as its own row above the
  * input box (spec §8: "show file name, file type/icon, file size, upload
@@ -320,6 +321,7 @@ fun GroupChatScreen(
     val toDeleteForEveryone = pendingDeleteForEveryone
     if (toDeleteForEveryone != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDeleteForEveryone = null },
             title = { Text(stringResource(R.string.chat_delete_for_everyone_title)) },
             text = { Text(stringResource(R.string.chat_delete_for_everyone_message)) },
@@ -372,6 +374,7 @@ private fun UnauthorizedGroupChatScreen(
 private fun EditMessageDialog(message: GroupChatMessage, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var text by remember(message.id) { mutableStateOf(message.text) }
     AlertDialog(
+        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.chat_edit_message_title)) },
         text = {

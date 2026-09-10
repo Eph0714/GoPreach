@@ -210,28 +210,36 @@ class TerritoryMapViewModel @Inject constructor(
     fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
 
     // ---------------------------------------------------------------------
-    // "Add a filter in Territory Map" — Search By / Sub Filter / Inner Sub
-    // Filter. [congregationIds] is the same `null` = Super-Admin (every
-    // congregation) convention every flow above already uses.
+    // "Add a filter in Territory Map" / "Territory Map Congregation and
+    // Field Service Group Filters" — Congregation / Field Service Group /
+    // Publisher / Location / Record Type. [congregationIds] is the same
+    // `null` = every congregation convention every flow above already uses —
+    // for Super-Admin, `null` means "All Congregations" was chosen; for a
+    // scoped role, the caller ([TerritoryMapScreen]) always passes exactly
+    // their one assigned congregation, never `null`.
 
-    /** Search By "Congregation" dropdown — Super-Admin only (see
-     * [TerritoryMapScreen]'s own gating; a scoped role never sees this
-     * dropdown at all since they have exactly one congregation already). */
+    /** Congregation dropdown — Super-Admin only (see [TerritoryMapScreen]'s
+     * own gating; a scoped role never sees this as an editable dropdown at
+     * all since they have exactly one congregation already, shown read-only
+     * instead). */
     fun congregationsFor(congregationIds: Set<String>?): Flow<List<Congregation>> =
         congregationRepository.observeAll().map { list ->
             list.filter { it.status == RecordStatus.ACTIVE && (congregationIds == null || it.id in congregationIds) }.sortedBy { it.name }
         }
 
-    /** Search By "Field Service Group" dropdown. */
+    /** Field Service Group dropdown — scoped to whichever congregation is
+     * currently *effective* (see [TerritoryMapScreen]'s own
+     * `effectiveCongregationId`), so switching Congregation always refreshes
+     * this list to match (spec §5/§14) rather than a static "every
+     * congregation this role could ever pick." */
     fun groupsFor(congregationIds: Set<String>?): Flow<List<Group>> =
         groupRepository.observeAll().map { list ->
             list.filter { it.status == RecordStatus.ACTIVE && (congregationIds == null || it.congregationId in congregationIds) }.sortedBy { it.name }
         }
 
-    /** Search By "Publisher" dropdown — every active Publisher in scope,
-     * regardless of category (a Regular/Auxiliary Pioneer's own Bible
-     * Studies/Return Visits are just as filterable here as a Regular
-     * Publisher's). */
+    /** Publisher dropdown — every active Publisher in scope, regardless of
+     * category (a Regular/Auxiliary Pioneer's own Bible Studies/Return
+     * Visits are just as filterable here as a Regular Publisher's). */
     fun publishersFor(congregationIds: Set<String>?): Flow<List<Person>> =
         combine(roleAssignmentRepository.observeAll(), personRepository.observeAll()) { assignments, people ->
             assignments
@@ -264,13 +272,6 @@ class TerritoryMapViewModel @Inject constructor(
         }
 }
 
-/** "Search by: All, Congregation, Field Service Group, Publisher" —
- * [CONGREGATION] is offered to Super-Admin only (see [TerritoryMapScreen]'s
- * own role gating); a scoped role's own single congregation is already
- * implicit in every other mode, so it would be a redundant, always-one-
- * option dropdown for them. */
-enum class TerritorySearchBy { ALL, CONGREGATION, FIELD_SERVICE_GROUP, PUBLISHER }
-
 /** "Inner Sub Filter: All, Bible Study, Return Visit, Searched Interested" —
  * a direct, named alternative to picking [PipelineStage] by hand; kept as
  * its own enum (rather than reusing [PipelineStage] plus a nullable "ALL")
@@ -282,15 +283,23 @@ enum class TerritoryInnerFilter(val stage: PipelineStage?) {
     SEARCHED_INTERESTED(PipelineStage.SEARCHING),
 }
 
-/** The full "Add a filter in Territory Map" state — Search By, then Sub
- * Filter (Province/City -> Municipality -> Barangay, same cascade as
- * [com.emfitsolutions.gopreach.ui.components.PhilippineAddressPicker], just
- * read from data already on each [InterestedPerson] rather than the PSGC
- * lookup table itself), then Inner Sub Filter. Every field left at its
- * default (ALL / null) is a no-op — the unfiltered view is just this default
- * state, never a special case elsewhere. */
+/** The full "Add a filter in Territory Map" state, extended by "Territory
+ * Map Congregation and Field Service Group Filters" — every field here is
+ * independently applicable and freely combinable (spec §7: "the filters must
+ * work together"), not a mutually-exclusive "pick one" the way the old
+ * `searchBy` mode used to force Congregation/Field Service Group/Publisher
+ * to be. [congregationId] is Super-Admin only (`null` = "All Congregations");
+ * a scoped role's single congregation is never stored here at all — it's
+ * always [com.emfitsolutions.gopreach.ui.screens.territories.TerritoryMapScreen]'s
+ * own server-resolved `fixedCongregationId`, so there is no field on this
+ * state a scoped role's own client could tamper with to reach another
+ * congregation's data (spec §15/§17). [groupId] is cleared every time
+ * [congregationId] changes (see [TerritoryMapScreen]'s own Congregation
+ * dropdown `onSelected`) — spec §14/§15: a Field Service Group from the
+ * *previous* congregation must never silently carry over. Every field left
+ * at its default (`null`) is a no-op — the unfiltered view is just this
+ * default state, never a special case elsewhere. */
 data class TerritoryFilterState(
-    val searchBy: TerritorySearchBy = TerritorySearchBy.ALL,
     val congregationId: String? = null,
     val groupId: String? = null,
     val publisherPersonId: String? = null,
@@ -302,22 +311,23 @@ data class TerritoryFilterState(
     val isActive: Boolean get() = this != TerritoryFilterState()
 }
 
-/** Applies [filter] to [rows] — the one place Search By/Sub Filter/Inner Sub
- * Filter actually narrow the map, shared by List View and Map View alike so
- * neither can ever show a different result for the same filter. [groupMemberPublisherIds]
- * is precomputed by the caller (every active Publisher currently assigned to
- * [TerritoryFilterState.groupId], via their own RoleAssignment — a Field
- * Service Group has no direct link to an InterestedPerson, only to the
- * Publisher who owns it) since resolving it needs RoleAssignment data this
- * plain function deliberately doesn't take a dependency on. */
+/** Applies [filter] to [rows] — the one place every filter actually narrows
+ * the map, shared by List View and Map View alike so neither can ever show a
+ * different result for the same filter. Every field stacks independently
+ * (spec §7/§12 — Congregation + Record Type + Field Service Group, and
+ * Publisher/Location on top of those, all at once) rather than picking just
+ * one, the same way Province/City/Barangay already did before this pass.
+ * [groupMemberPublisherIds] is precomputed by the caller (every active
+ * Publisher currently assigned to [TerritoryFilterState.groupId], via their
+ * own RoleAssignment — a Field Service Group has no direct link to an
+ * InterestedPerson, only to the Publisher who owns it) since resolving it
+ * needs RoleAssignment data this plain function deliberately doesn't take a
+ * dependency on. */
 fun applyTerritoryFilter(rows: List<TerritoryMapRow>, filter: TerritoryFilterState, groupMemberPublisherIds: Set<String>): List<TerritoryMapRow> {
     var result = rows
-    result = when (filter.searchBy) {
-        TerritorySearchBy.ALL -> result
-        TerritorySearchBy.CONGREGATION -> if (filter.congregationId != null) result.filter { it.person.congregationId == filter.congregationId } else result
-        TerritorySearchBy.FIELD_SERVICE_GROUP -> if (filter.groupId != null) result.filter { it.person.publisherPersonId in groupMemberPublisherIds } else result
-        TerritorySearchBy.PUBLISHER -> if (filter.publisherPersonId != null) result.filter { it.person.publisherPersonId == filter.publisherPersonId } else result
-    }
+    if (filter.congregationId != null) result = result.filter { it.person.congregationId == filter.congregationId }
+    if (filter.groupId != null) result = result.filter { it.person.publisherPersonId in groupMemberPublisherIds }
+    if (filter.publisherPersonId != null) result = result.filter { it.person.publisherPersonId == filter.publisherPersonId }
     if (filter.province != null) result = result.filter { it.person.province == filter.province }
     if (filter.cityMunicipality != null) result = result.filter { it.person.cityMunicipality == filter.cityMunicipality }
     if (filter.barangay != null) result = result.filter { it.person.barangay == filter.barangay }

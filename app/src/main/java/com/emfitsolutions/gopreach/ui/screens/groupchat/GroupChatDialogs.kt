@@ -37,6 +37,7 @@ import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.GroupChat
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * "Select Congregation" dropdown — Super-Admin only (spec §5: "a real
@@ -299,6 +300,7 @@ fun ManageParticipantsDialog(
 
     if (showDeleteConfirm) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text(stringResource(R.string.chat_delete_group_chat_title)) },
             text = { Text(stringResource(R.string.chat_delete_group_chat_message, chat.groupName)) },

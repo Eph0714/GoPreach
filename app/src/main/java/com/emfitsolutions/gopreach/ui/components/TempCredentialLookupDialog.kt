@@ -10,6 +10,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.domain.CredentialGenerator
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * Tapping a Person row on a Manage-X list (Admins, Publishers, Coordinator/
@@ -23,6 +24,7 @@ import com.emfitsolutions.gopreach.domain.CredentialGenerator
 fun TempCredentialLookupDialog(person: Person, onDismiss: () -> Unit) {
     val tempPassword = person.temporaryPassword
     AlertDialog(
+        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
         onDismissRequest = onDismiss,
         title = { Text("Temporary Sign-In") },
         text = {

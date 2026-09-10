@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import androidx.compose.ui.window.DialogProperties
 
 /** What the "SYNC TO SERVER" button is doing right now — separate from the passive
  * pending-count indicator ([SyncStatusButton]), this only reflects a run the user

@@ -20,8 +20,8 @@ enum class ReportStatus { DRAFT, SUBMITTED, POSTED }
  *
  * | Category              | Uses                                              |
  * |------------------------|---------------------------------------------------|
- * | Regular Pioneer        | bibleStudiesCount, participatedInPreaching, hoursRendered |
- * | Auxiliary Pioneer      | bibleStudiesCount, participatedInPreaching, hoursRendered (+ active date range, see [AuxiliaryPioneerRange]) |
+ * | Regular Pioneer        | bibleStudiesCount, hoursRendered (participatedInPreaching left null — not asked) |
+ * | Auxiliary Pioneer      | bibleStudiesCount, hoursRendered (+ active date range, see [AuxiliaryPioneerRange]; participatedInPreaching left null — not asked) |
  * | Regular Publisher      | bibleStudiesCount, participatedInPreaching         |
  * | Unbaptized Publisher   | bibleStudiesCount, participatedInPreaching         |
  *
@@ -35,10 +35,11 @@ enum class ReportStatus { DRAFT, SUBMITTED, POSTED }
  * [periodMonth] — never the number of Visit rows themselves (see
  * [com.emfitsolutions.gopreach.domain.MonthlyReportCalculator] for the actual
  * calculation, shared with [participatedInPreaching]'s own suggested value
- * and [systemCalculatedHours]). [participatedInPreaching] now applies to
- * *every* category (previously null'd out for Pioneers, who only ever
- * reported hours) — pre-filled from the same calculation but still a
- * Publisher-editable Yes/No, same as before.
+ * and [systemCalculatedHours]). [participatedInPreaching] is only asked of
+ * the non-Pioneer categories (Regular Publisher, Unbaptized Publisher) — a
+ * Pioneer already reports actual hours, so the question is left `null` for
+ * them (see the table above) — pre-filled from the same calculation but
+ * still a Publisher-editable Yes/No.
  *
  * Lock semantics: editable by [publisherPersonId] themselves while [status]
  * is DRAFT *or* SUBMITTED — locked out only once [ReportStatus.POSTED] (see
@@ -80,14 +81,20 @@ data class MonthlyReport(
      * this field's introduction. */
     val systemCalculatedHours: Double? = null,
 
-    /** Pioneer-only — required `true` whenever [hoursRendered] differs from
+    /** Pioneer-only — `true` whenever [hoursRendered] differs from
      * [systemCalculatedHours] (spec §10/§19); meaningless (left `false`)
-     * when they match, or for a Non-Pioneer. */
+     * when they match, or for a Non-Pioneer. Set automatically once the
+     * Publisher accepts [MonthlyReportScreen]'s one-off confirmation dialog
+     * for a changed value — there is no separate on-form checkbox for this
+     * (kept off the form on purpose; see that screen's own doc comment). */
     val hoursConfirmed: Boolean = false,
 
-    /** Pioneer-only — required non-blank whenever [hoursRendered] differs
-     * from [systemCalculatedHours] (spec §10); distinct from the general
-     * [remarks] field below, which stays optional for every category. */
+    /** Pioneer-only — a fixed, non-blank note recorded automatically
+     * whenever [hoursRendered] differs from [systemCalculatedHours], purely
+     * so firestore.rules' `hoursAdjustmentValid` same-document check is
+     * satisfied (spec §10); distinct from the general [remarks] field below,
+     * which stays optional, Publisher-typed, and shown on the form for every
+     * category. */
     val hoursAdjustmentRemarks: String? = null,
 
     // Every category's field now (see this class's own doc comment) — was

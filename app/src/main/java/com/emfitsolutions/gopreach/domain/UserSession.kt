@@ -207,7 +207,7 @@ class UserSession @Inject constructor(
                     val resolvedRole = s.activeRoleAssignment?.resolvedRoleTypeOrNull()
                     val role = (resolvedRole as? RoleType.Admin)?.role
                     val congregationId = when {
-                        role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT) ->
+                        role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY, AdminRole.MINISTERIAL_SERVANT) ->
                             s.activeRoleAssignment?.congregationId
                         resolvedRole is RoleType.Publisher -> s.activeRoleAssignment?.congregationId
                         else -> null

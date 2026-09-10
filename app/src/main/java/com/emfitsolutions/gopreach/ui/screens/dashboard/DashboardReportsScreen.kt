@@ -63,6 +63,7 @@ import com.emfitsolutions.gopreach.ui.components.charts.StatCard
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.window.DialogProperties
 
 // A fixed color code shared between the KPI cards and the donut chart, so
 // "Regular Pioneers" (say) always reads as the same color everywhere on this
@@ -269,6 +270,7 @@ fun DashboardStatsContent(
                 .filter { displayed.congregationId.isBlank() || it.congregationId == displayed.congregationId }
                 .sortedBy { it.fullName }
             AlertDialog(
+                properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
                 onDismissRequest = { selectedDetail = null },
                 title = { Text(detail.label) },
                 text = {

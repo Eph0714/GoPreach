@@ -71,6 +71,7 @@ import com.emfitsolutions.gopreach.ui.components.RoundIconActionButton
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import kotlinx.coroutines.launch
+import androidx.compose.ui.window.DialogProperties
 
 /** A way to get to the destination — mirrors Google Maps' own `travelmode`
  * values, covering both "by walking" and "different kinds of vehicle" (car,
@@ -330,6 +331,7 @@ fun FindLocationScreen(
     val toDelete = pendingDelete
     if (toDelete != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDelete = null },
             title = { Text("Delete Saved Location?") },
             text = { Text("This removes \"${toDelete.remarks.ifBlank { "this location" }}\" from your saved locations.") },
@@ -409,6 +411,7 @@ private fun AssignToRecordDialog(
     val records by recordsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     AlertDialog(
+        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
         onDismissRequest = onDismiss,
         title = { Text("Assign to Record") },
         text = {

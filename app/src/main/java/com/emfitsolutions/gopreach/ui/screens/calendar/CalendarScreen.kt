@@ -51,6 +51,7 @@ import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * Spec §6.2 — Calendar. A single chronological list rather than a month grid
@@ -185,6 +186,7 @@ fun CalendarScreen(
     val toDelete = pendingDelete
     if (toDelete != null) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { pendingDelete = null },
             title = { Text("Delete \"${toDelete.title}\"?") },
             text = { Text("This removes the calendar entry.") },

@@ -99,12 +99,14 @@
     <string name="side_section_other">Other</string>
     <string name="side_congregations_groups">Congregations/Groups</string>
     <string name="side_admins">Admins</string>
-    <string name="side_coordinator_elder">Coordinator Elder</string>
-    <string name="side_service_overseer">Service Overseer</string>
+    <!-- "Consolidate Elder, Coordinator Elder, Service Overseer and
+         Secretary Enrollment" — one "Elders" item (renamed from "Regular
+         Elder") replaces the separate Coordinator Elder/Service Overseer/
+         Regular Elder items this drawer used to show. -->
+    <string name="side_elders">Elders</string>
     <string name="side_ministerial_servant">Ministerial Servant</string>
     <string name="side_announcements">Announcements</string>
     <string name="side_groups">Field Service Groups</string>
-    <string name="side_regular_elder">Regular Elder</string>
     <string name="side_publisher">Publisher</string>
     <string name="side_territory_map">Territory Map</string>
     <string name="side_backup_restore">Backup &amp; Restore</string>
@@ -146,17 +148,15 @@
     <string name="monthly_report_select_month">Select Month to Report</string>
     <string name="monthly_report_posted_locked">This report has been posted and can now only be changed by your Service Overseer, Admin, or Super-Admin.</string>
     <string name="monthly_report_bible_studies_label">Number of Bible Studies Conducted</string>
-    <string name="monthly_report_bible_studies_auto_note">Automatically calculated from Bible Study records</string>
     <string name="monthly_report_calculation_failed">Unable to calculate your report data for %1$s. Please try again.</string>
     <string name="monthly_report_calculation_retry">Retry</string>
-    <string name="monthly_report_hours_rendered">Hours Rendered</string>
-    <string name="monthly_report_system_hours_label">System-calculated hours</string>
-    <string name="monthly_report_reported_hours_label">Reported hours</string>
-    <string name="monthly_report_hours_confirm_checkbox">I confirm that the reported preaching hours are accurate.</string>
-    <string name="monthly_report_hours_adjustment_remarks">Remarks (required when hours are changed)</string>
-    <string name="monthly_report_hours_differ_notice">Your reported preaching hours differ from the system-calculated total for %1$s. Please confirm the value and provide remarks before submitting.</string>
+    <string name="monthly_report_accumulated_hours_label">Accumulated Hours</string>
+    <string name="monthly_report_hours_confirm_dialog_title">Confirm Reported Hours</string>
+    <string name="monthly_report_hours_confirm_dialog_message">Your Accumulated Hours for %1$s is different from your system-calculated total. Submit this value anyway?</string>
+    <string name="monthly_report_hours_confirm_dialog_confirm">Submit</string>
+    <string name="monthly_report_hours_confirm_dialog_cancel">Cancel</string>
     <string name="monthly_report_participated_question">Did you participate in preaching during %1$s?</string>
-    <string name="monthly_report_remarks">Remarks (optional)</string>
+    <string name="monthly_report_remarks">Remarks</string>
     <string name="monthly_report_submission_window_message">Submission for the current month opens 2 days before it ends. To report now, select the previous month instead.</string>
     <string name="monthly_report_submit_button">Submit Report</string>
 

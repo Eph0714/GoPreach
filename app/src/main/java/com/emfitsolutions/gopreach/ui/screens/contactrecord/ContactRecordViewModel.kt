@@ -51,7 +51,7 @@ data class ContactRow(
  * (broader — Ministerial Servant and the pipeline stages still show up
  * under "All," just without their own dedicated filter chip, since spec's
  * own filter list doesn't mention them). */
-val CONTACT_ROLE_FILTERS = listOf(REGULAR_PUBLISHER, REGULAR_PIONEER, AUXILIARY_PIONEER, SERVICE_OVERSEER, CONGREGATION_ELDER, REGULAR_ELDER)
+val CONTACT_ROLE_FILTERS = listOf(REGULAR_PUBLISHER, REGULAR_PIONEER, AUXILIARY_PIONEER, SERVICE_OVERSEER, SECRETARY, CONGREGATION_ELDER, REGULAR_ELDER)
 
 const val REGULAR_PUBLISHER = "Regular Publisher"
 const val REGULAR_PIONEER = "Regular Pioneer"
@@ -69,6 +69,11 @@ const val BIBLE_STUDY = "Bible Study"
  * underlying role/permissions are untouched. */
 const val CONGREGATION_ELDER = "Congregation Elder"
 const val SERVICE_OVERSEER = "Service Overseer"
+/** "Secretary must have the same access level and permissions as Service
+ * Overseer" — same reasoning as [CONGREGATION_ELDER]: only the display label
+ * differs, the underlying [AdminRole.SECRETARY] carries Service-Overseer-
+ * equivalent access everywhere else in the app. */
+const val SECRETARY = "Secretary"
 const val REGULAR_ELDER = "Regular Elder"
 const val MINISTERIAL_SERVANT = "Ministerial Servant"
 
@@ -129,6 +134,7 @@ class ContactRecordViewModel @Inject constructor(
                     is RoleType.Admin -> when (role.role) {
                         AdminRole.COORDINATOR_ELDER -> CONGREGATION_ELDER
                         AdminRole.SERVICE_OVERSEER -> SERVICE_OVERSEER
+                        AdminRole.SECRETARY -> SECRETARY
                         AdminRole.REGULAR_ELDER -> REGULAR_ELDER
                         AdminRole.MINISTERIAL_SERVANT -> MINISTERIAL_SERVANT
                         else -> null

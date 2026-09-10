@@ -39,7 +39,7 @@ import javax.inject.Singleton
  * the [NotificationItem] list this class filters. */
 private val ADMIN_ROLES_WITH_REPORT_ACCESS = setOf(
     AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER,
-    AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER,
+    AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY,
 )
 
 /** The [NotificationItem] categories worth an audible alert — Monthly Report

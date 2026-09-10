@@ -17,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * The "Admin Record Deletion and Inactive Status" spec's replacement for the
@@ -63,6 +64,7 @@ fun DeleteChoiceDialog(
 
     if (!showPermanentConfirm) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = onDismiss,
             title = { Text("What would you like to do with \"$recordLabel\"?") },
             text = {
@@ -101,6 +103,7 @@ fun DeleteChoiceDialog(
         )
     } else {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = onDismiss,
             title = { Text("Permanently Delete Record?") },
             text = {

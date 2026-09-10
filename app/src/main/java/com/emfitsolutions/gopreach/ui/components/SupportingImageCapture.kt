@@ -50,6 +50,7 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.math.min
+import androidx.compose.ui.window.DialogProperties
 
 private const val TAG = "SupportingImageCapture"
 
@@ -198,6 +199,7 @@ fun SupportingImageSection(
 
     if (showClearConfirm) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { showClearConfirm = false },
             title = { Text("Clear Supporting Image?") },
             text = { Text("This will remove the saved image from this Interested Person record.") },

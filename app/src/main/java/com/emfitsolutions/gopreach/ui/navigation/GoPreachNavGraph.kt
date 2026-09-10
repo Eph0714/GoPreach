@@ -28,17 +28,14 @@ import com.emfitsolutions.gopreach.ui.screens.congregations.ManageCongregationsS
 import com.emfitsolutions.gopreach.ui.screens.contactrecord.ContactRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.controlpanel.ControlPanelScreen
 import com.emfitsolutions.gopreach.ui.screens.dashboard.DashboardReportsScreen
-import com.emfitsolutions.gopreach.ui.screens.elders.ManageCoordinatorEldersScreen
+import com.emfitsolutions.gopreach.ui.screens.elders.ManageEldersScreen
+import com.emfitsolutions.gopreach.ui.screens.elders.ManageEldersViewModel
 import com.emfitsolutions.gopreach.ui.screens.elders.ManageMinisterialServantsScreen
-import com.emfitsolutions.gopreach.ui.screens.elders.ManageRegularEldersScreen
-import com.emfitsolutions.gopreach.ui.screens.elders.ManageServiceOverseersScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.AdminEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.CongregationEnrollmentScreen
-import com.emfitsolutions.gopreach.ui.screens.enrollment.CoordinatorElderEnrollmentScreen
+import com.emfitsolutions.gopreach.ui.screens.enrollment.EldersEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.MinisterialServantEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.PublisherEnrollmentScreen
-import com.emfitsolutions.gopreach.ui.screens.enrollment.RegularElderEnrollmentScreen
-import com.emfitsolutions.gopreach.ui.screens.enrollment.ServiceOverseerEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.findlocation.FindLocationScreen
 import com.emfitsolutions.gopreach.ui.screens.groups.ManageGroupsScreen
 import com.emfitsolutions.gopreach.ui.screens.home.AdminHomeScreen
@@ -114,7 +111,7 @@ fun GoPreachNavGraph(
     // session.
     val activeAssignment = session.activeRoleAssignment
     val ownCongregationId = activeAssignment?.takeIf {
-        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT)
+        (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY, AdminRole.MINISTERIAL_SERVANT)
     }?.congregationId
     // A Regular Elder's own group (spec §3: their CRUD/view scope is "own group", not congregation-wide).
     val ownGroupAssignment = activeAssignment?.takeIf {
@@ -253,15 +250,13 @@ fun GoPreachNavGraph(
                 onDone = { navController.popBackStack() },
             )
         }
-        composable(Destinations.ENROLL_COORDINATOR_ELDER) {
-            CoordinatorElderEnrollmentScreen(
-                currentPersonId = currentPersonId,
-                onBack = { navController.popBackStack() },
-                onDone = { navController.popBackStack() },
-            )
-        }
-        composable(Destinations.ENROLL_SERVICE_OVERSEER) {
-            ServiceOverseerEnrollmentScreen(
+        // "Consolidate Elder, Coordinator Elder, Service Overseer and
+        // Secretary Enrollment" — one Add form (Regular Elder/Coordinator
+        // Elder/Service Overseer/Secretary, all via checkboxes) replaces the
+        // three separate ENROLL_COORDINATOR_ELDER/ENROLL_SERVICE_OVERSEER/
+        // ENROLL_REGULAR_ELDER routes those used to be.
+        composable(Destinations.ENROLL_ELDER) {
+            EldersEnrollmentScreen(
                 currentPersonId = currentPersonId,
                 onBack = { navController.popBackStack() },
                 onDone = { navController.popBackStack() },
@@ -269,13 +264,6 @@ fun GoPreachNavGraph(
         }
         composable(Destinations.ENROLL_MINISTERIAL_SERVANT) {
             MinisterialServantEnrollmentScreen(
-                currentPersonId = currentPersonId,
-                onBack = { navController.popBackStack() },
-                onDone = { navController.popBackStack() },
-            )
-        }
-        composable(Destinations.ENROLL_REGULAR_ELDER) {
-            RegularElderEnrollmentScreen(
                 currentPersonId = currentPersonId,
                 onBack = { navController.popBackStack() },
                 onDone = { navController.popBackStack() },
@@ -305,25 +293,23 @@ fun GoPreachNavGraph(
                 onAddNew = { navController.navigate(Destinations.ENROLL_ADMIN) },
             )
         }
-        composable(Destinations.MANAGE_COORDINATOR_ELDERS) {
-            ManageCoordinatorEldersScreen(
-                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+        // "Consolidate Elder, Coordinator Elder, Service Overseer and
+        // Secretary Enrollment" — one Manage screen (Regular Elder,
+        // Coordinator Elder, Service Overseer, and Secretary all shown
+        // together, with a Role filter to narrow) replaces the three
+        // separate MANAGE_COORDINATOR_ELDERS/MANAGE_SERVICE_OVERSEERS/
+        // MANAGE_REGULAR_ELDERS routes those used to be. Falls back through
+        // a Regular Elder's own group's congregation, same as
+        // MANAGE_ANNOUNCEMENTS/etc. above, since this module now also covers
+        // Regular Elder (whose own RoleAssignment carries a groupId, not a
+        // congregationId, directly).
+        composable(Destinations.MANAGE_ELDERS) {
+            ManageEldersScreen(
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
                 currentPersonId = currentPersonId,
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
-                onAddNew = { navController.navigate(Destinations.ENROLL_COORDINATOR_ELDER) },
-            )
-        }
-        composable(Destinations.MANAGE_SERVICE_OVERSEERS) {
-            // Reachable by Super-Admin, Admin, and Coordinator Elder (unlike
-            // Coordinator Elder enrollment itself, which a Coordinator Elder
-            // cannot reach) — see canEnrollServiceOverseer's gating.
-            ManageServiceOverseersScreen(
-                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
-                currentPersonId = currentPersonId,
-                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
-                onBack = { navController.popBackStack() },
-                onAddNew = { navController.navigate(Destinations.ENROLL_SERVICE_OVERSEER) },
+                onAddNew = { navController.navigate(Destinations.ENROLL_ELDER) },
             )
         }
         composable(Destinations.MANAGE_MINISTERIAL_SERVANTS) {
@@ -335,15 +321,6 @@ fun GoPreachNavGraph(
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
                 onAddNew = { navController.navigate(Destinations.ENROLL_MINISTERIAL_SERVANT) },
-            )
-        }
-        composable(Destinations.MANAGE_REGULAR_ELDERS) {
-            ManageRegularEldersScreen(
-                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
-                currentPersonId = currentPersonId,
-                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
-                onBack = { navController.popBackStack() },
-                onAddNew = { navController.navigate(Destinations.ENROLL_REGULAR_ELDER) },
             )
         }
         composable(Destinations.BACKUP_RESTORE) {
@@ -459,14 +436,18 @@ fun GoPreachNavGraph(
                 // other publishers (see `visibleCongregationId` above),
                 // Super-Admin included via the [fixedCongregationId] null case.
                 canSeePublisherLocations = currentRole == AdminRole.SUPER_ADMIN ||
-                    currentRole in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER) ||
+                    currentRole in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY) ||
                     ownPublisherAssignment != null,
-                // "Add a filter in Territory Map" — Super-Admin plus the
-                // four named admin-track roles; a Publisher/Ministerial
-                // Servant viewing their own map keeps the pre-filter
-                // experience unchanged.
-                showAdvancedFilter = currentRole == AdminRole.SUPER_ADMIN ||
-                    currentRole in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER),
+                // "Territory Map Congregation and Field Service Group
+                // Filters" — every role now gets the Congregation (fixed for
+                // anyone but Super-Admin)/Record Type/Field Service Group
+                // filter row, including a plain Publisher/Ministerial
+                // Servant, who previously saw no filter affordance at all;
+                // [fixedCongregationId] above already scopes what each of
+                // them can ever select, so widening this to everyone adds no
+                // new data access, only a filter UI over what they could
+                // already see.
+                showAdvancedFilter = true,
                 focusLat = focusLat,
                 focusLng = focusLng,
                 focusName = focusName,
@@ -532,7 +513,7 @@ fun GoPreachNavGraph(
                 // these four roles, not the wider set that can merely view
                 // this screen (Regular Elder/Ministerial Servant included).
                 canExport = currentRole == AdminRole.SUPER_ADMIN || currentRole == AdminRole.ADMIN_PER_CONGREGATION ||
-                    currentRole == AdminRole.COORDINATOR_ELDER || currentRole == AdminRole.SERVICE_OVERSEER,
+                    currentRole == AdminRole.COORDINATOR_ELDER || currentRole == AdminRole.SERVICE_OVERSEER || currentRole == AdminRole.SECRETARY,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -582,7 +563,7 @@ fun GoPreachNavGraph(
             // permission.
             val canEditPublisherReports = currentRole in setOf(
                 AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER,
-                AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER,
+                AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY,
             )
             // "The service overseer will click the POST button... the
             // super admin, admin, and coordinator elder, regular elder can
@@ -647,7 +628,7 @@ fun GoPreachNavGraph(
             // reaching this route is read-only.
             val canEditMeetingAssignments = currentRole in setOf(
                 AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER,
-                AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER,
+                AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY,
             )
             MeetingAssignmentsScreen(
                 currentPersonId = currentPersonId,
@@ -739,7 +720,7 @@ fun GoPreachNavGraph(
             // "widen visibility, never widen approval authority" call as
             // Manage Publisher Reports/Announcements above.
             val canActOnForwardRequests = currentRole in setOf(
-                AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER,
+                AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY,
             )
             ForwardRequestsScreen(
                 congregationIds = if (currentRole == AdminRole.SUPER_ADMIN) null else setOfNotNull(ownCongregationId ?: ownGroupAssignment?.congregationId),
@@ -798,12 +779,12 @@ fun GoPreachNavGraph(
             // "own group only").
             val visibleCongregationId = when (currentRole) {
                 AdminRole.SUPER_ADMIN -> null
-                AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER -> ownCongregationId
+                AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY -> ownCongregationId
                 AdminRole.REGULAR_ELDER -> ownGroupAssignment?.congregationId
                 else -> ownPublisherAssignment?.congregationId
             }
             val canManageLocationSettings = currentRole == AdminRole.SUPER_ADMIN || currentRole in setOf(
-                AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.REGULAR_ELDER,
+                AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY, AdminRole.REGULAR_ELDER,
             )
             ShareLocationScreen(
                 currentPersonId = currentPersonId,
@@ -822,7 +803,7 @@ fun GoPreachNavGraph(
         composable(Destinations.CALENDAR) {
             val scope = when (currentRole) {
                 AdminRole.SUPER_ADMIN -> CalendarScope.AdminTrack(congregationId = null, canEditAll = true)
-                AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.MINISTERIAL_SERVANT ->
+                AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY, AdminRole.MINISTERIAL_SERVANT ->
                     CalendarScope.AdminTrack(congregationId = ownCongregationId, canEditAll = true)
                 AdminRole.REGULAR_ELDER -> CalendarScope.AdminTrack(
                     congregationId = ownGroupAssignment?.congregationId,

@@ -118,12 +118,18 @@ fun GoPreachSidePanelContent(
         val enrollmentItems = buildList {
             if (canManageCongregationsAndAdmins) add(SideItem(stringResource(R.string.side_congregations_groups), Icons.Rounded.AccountBalance, Destinations.MANAGE_CONGREGATIONS))
             if (canManageCongregationsAndAdmins) add(SideItem(stringResource(R.string.side_admins), Icons.Rounded.AdminPanelSettings, Destinations.MANAGE_ADMINS))
-            if (canEnrollCoordinatorElder) add(SideItem(stringResource(R.string.side_coordinator_elder), Icons.Rounded.PersonAdd, Destinations.MANAGE_COORDINATOR_ELDERS))
-            if (canEnrollServiceOverseer) add(SideItem(stringResource(R.string.side_service_overseer), Icons.Rounded.PersonAdd, Destinations.MANAGE_SERVICE_OVERSEERS))
+            // "Consolidate Elder, Coordinator Elder, Service Overseer and
+            // Secretary Enrollment" — one "Elders" item (spec §1/§43)
+            // replaces the separate Coordinator Elder/Service Overseer/
+            // Regular Elder items this drawer used to show; gated the same
+            // way Coordinator Elder enrollment itself always was
+            // ([canEnrollRegularElderOrPublisher] already implies
+            // [canEnrollCoordinatorElder]/[canEnrollServiceOverseer] — see
+            // AdminHomeScreen's own derivation of all three).
+            if (canEnrollRegularElderOrPublisher) add(SideItem(stringResource(R.string.side_elders), Icons.Rounded.PersonAdd, Destinations.MANAGE_ELDERS))
             if (canEnrollMinisterialServant) add(SideItem(stringResource(R.string.side_ministerial_servant), Icons.Rounded.PersonAdd, Destinations.MANAGE_MINISTERIAL_SERVANTS))
             if (canManageAnnouncements) add(SideItem(stringResource(R.string.side_announcements), Icons.Rounded.Campaign, Destinations.MANAGE_ANNOUNCEMENTS))
             if (canManageGroups) add(SideItem(stringResource(R.string.side_groups), Icons.Rounded.Groups, Destinations.MANAGE_GROUPS))
-            if (canEnrollRegularElderOrPublisher) add(SideItem(stringResource(R.string.side_regular_elder), Icons.Rounded.PersonAdd, Destinations.MANAGE_REGULAR_ELDERS))
             // Routes to the Manage Publishers *list* screen (which has its own
             // onAddNew FAB into ENROLL_PUBLISHER), matching every other entry
             // in this section (Congregations/Admins/Coordinator Elder/Regular

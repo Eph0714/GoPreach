@@ -26,14 +26,17 @@ object Destinations {
     // Phase 2 — enrollment (spec §4)
     const val ENROLL_CONGREGATION = "enroll_congregation"
     const val ENROLL_ADMIN = "enroll_admin"
-    const val ENROLL_COORDINATOR_ELDER = "enroll_coordinator_elder"
-    const val ENROLL_REGULAR_ELDER = "enroll_regular_elder"
+    // "Consolidate Elder, Coordinator Elder, Service Overseer and Secretary
+    // Enrollment" — one route (Regular Elder/Coordinator Elder/Service
+    // Overseer/Secretary, picked via checkboxes) replaces the three separate
+    // ENROLL_COORDINATOR_ELDER/ENROLL_SERVICE_OVERSEER/ENROLL_REGULAR_ELDER
+    // routes and their matching MANAGE_* routes this app used to have.
+    // Route strings themselves are never persisted/exposed outside this
+    // running process, so renaming them (rather than keeping the old ones as
+    // aliases) breaks nothing.
+    const val ENROLL_ELDER = "enroll_elder"
+    const val MANAGE_ELDERS = "manage_elders"
     const val ENROLL_PUBLISHER = "enroll_publisher"
-    const val MANAGE_COORDINATOR_ELDERS = "manage_coordinator_elders"
-    const val MANAGE_REGULAR_ELDERS = "manage_regular_elders"
-    // New Service Overseer role.
-    const val ENROLL_SERVICE_OVERSEER = "enroll_service_overseer"
-    const val MANAGE_SERVICE_OVERSEERS = "manage_service_overseers"
     const val CONSOLIDATED_REPORT = "consolidated_report"
     const val FIELD_SERVICE_GROUP_REPORT = "field_service_group_report"
     // "MINISTERIAL ACCOUNT" — multiple per congregation allowed.

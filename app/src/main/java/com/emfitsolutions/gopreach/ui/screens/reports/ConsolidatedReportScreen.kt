@@ -62,6 +62,7 @@ import com.emfitsolutions.gopreach.ui.screens.home.isPioneerCategory
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * "Consolidated Monthly Report" spec — reachable by Service Overseer,
@@ -302,6 +303,7 @@ private fun PublisherRecordsDialog(
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
 
     AlertDialog(
+        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
         onDismissRequest = onDismiss,
         title = { Text(entry.person.fullName) },
         text = {

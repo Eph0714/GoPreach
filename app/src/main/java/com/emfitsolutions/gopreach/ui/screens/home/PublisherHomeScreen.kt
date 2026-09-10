@@ -83,6 +83,7 @@ import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 import com.emfitsolutions.gopreach.ui.screens.announcements.ManageAnnouncementsViewModel
 import com.emfitsolutions.gopreach.ui.screens.notifications.NotificationCenterViewModel
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * Landing point for the Ministry Report App / Publisher context (spec §5.2).
@@ -195,6 +196,7 @@ fun PublisherHomeScreen(
     }
     if (showExitConfirm) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { showExitConfirm = false },
             title = { Text(stringResource(R.string.home_exit_title)) },
             text = { Text(stringResource(R.string.home_exit_message)) },

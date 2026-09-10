@@ -42,6 +42,7 @@ import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import androidx.compose.ui.window.DialogProperties
 
 /** "Forward to Other Congregation" spec flow — the receiving Service
  * Overseer's (also Coordinator Elder/Admin/Super-Admin) incoming review
@@ -185,6 +186,7 @@ private fun ReviewForwardRequestDialog(
 
     if (readOnly) {
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = onDismiss,
             title = { Text("Forward Request") },
             text = {
@@ -203,6 +205,7 @@ private fun ReviewForwardRequestDialog(
     }
 
     AlertDialog(
+        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
         onDismissRequest = onDismiss,
         title = { Text("Forward Request") },
         text = {

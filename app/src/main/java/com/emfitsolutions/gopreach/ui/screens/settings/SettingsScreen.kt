@@ -79,6 +79,7 @@ import kotlinx.coroutines.launch
 import com.emfitsolutions.gopreach.ui.components.ThemeOptionRow
 import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
 import com.emfitsolutions.gopreach.ui.theme.ThemeColorOption
+import androidx.compose.ui.window.DialogProperties
 
 /** Display preference — per-device, not tied to any account (spec §1: "modern
  * Android UI"). Available to every signed-in role. */
@@ -367,6 +368,7 @@ private fun NotificationSoundSection(viewModel: SettingsViewModel) {
     diagnosticsResult?.let { results ->
         val allPassed = results.all { it.passed }
         AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { diagnosticsResult = null },
             title = { Text(stringResource(if (allPassed) R.string.settings_test_notification_sent_title else R.string.settings_test_notification_failed_title)) },
             text = {
@@ -580,6 +582,7 @@ private fun CustomColorPickerDialog(
     var pickedColor by remember { mutableStateOf(initialColor) }
 
     AlertDialog(
+        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.settings_custom_color_title)) },
         text = {

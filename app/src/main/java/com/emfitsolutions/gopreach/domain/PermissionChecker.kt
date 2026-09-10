@@ -57,6 +57,7 @@ object PermissionChecker {
             AdminRole.ADMIN_PER_CONGREGATION,
             AdminRole.COORDINATOR_ELDER,
             AdminRole.SERVICE_OVERSEER,
+            AdminRole.SECRETARY,
             AdminRole.REGULAR_ELDER,
             AdminRole.MINISTERIAL_SERVANT,
             AdminRole.CIRCUIT_OVERSEER,

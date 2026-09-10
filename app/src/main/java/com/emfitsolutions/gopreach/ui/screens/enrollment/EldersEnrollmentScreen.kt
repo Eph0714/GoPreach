@@ -1,13 +1,13 @@
 package com.emfitsolutions.gopreach.ui.screens.enrollment
 
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.Button
@@ -34,18 +34,27 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
+import com.emfitsolutions.gopreach.data.model.RegularElderRole
+import com.emfitsolutions.gopreach.data.model.displayLabel
 import com.emfitsolutions.gopreach.ui.components.TempCredentialsResultCard
 import com.emfitsolutions.gopreach.ui.components.rememberUnsavedChangesBackHandler
 
-/** Spec §4.3 — Coordinator Elder enrollment, by Super-Admin or Admin. */
+/**
+ * "Consolidate Elder, Coordinator Elder, Service Overseer and Secretary
+ * Enrollment" — the single Add form for Regular Elder, Coordinator Elder,
+ * Service Overseer, and Secretary. Reachable by Super-Admin, Admin (own
+ * congregation), and Coordinator Elder (own congregation) — same access set
+ * every one of the three enrollment screens this replaces already shared.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CoordinatorElderEnrollmentScreen(
+fun EldersEnrollmentScreen(
     currentPersonId: String,
     onBack: () -> Unit,
     onDone: () -> Unit,
-    viewModel: CoordinatorElderEnrollmentViewModel = hiltViewModel(),
+    viewModel: EldersEnrollmentViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
@@ -64,7 +73,7 @@ fun CoordinatorElderEnrollmentScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Enroll Coordinator Elder") },
+                title = { Text("Enroll Elder") },
                 navigationIcon = {
                     IconButton(onClick = guardedBack.onBackPressed) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -138,15 +147,27 @@ fun CoordinatorElderEnrollmentScreen(
                     }
 
                     HorizontalDivider()
-                    Text("Select Role (optional)", style = MaterialTheme.typography.titleSmall)
+                    Text("Select Role", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "In addition to Coordinator Elder — a Regular Publisher category and Group Overseer can both apply at once, but only one publisher category at a time.",
+                        "One or more roles may apply to the same person. Group Overseer/Assistant Group Overseer are mutually exclusive with each other, as are the three Publisher categories.",
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    listOf(AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY, AdminRole.REGULAR_ELDER).forEach { role ->
+                        RoleCheckboxRow(
+                            label = role.displayLabel(),
+                            checked = role in uiState.selectedAdminRoles,
+                            onCheckedChange = { viewModel.onAdminRoleToggled(role, it) },
+                        )
+                    }
                     RoleCheckboxRow(
                         label = "Group Overseer",
-                        checked = uiState.isGroupOverseer,
-                        onCheckedChange = viewModel::onGroupOverseerToggled,
+                        checked = uiState.regularElderRole == RegularElderRole.GROUP_OVERSEER,
+                        onCheckedChange = { viewModel.onRegularElderRoleToggled(RegularElderRole.GROUP_OVERSEER, it) },
+                    )
+                    RoleCheckboxRow(
+                        label = "Assistant Group Overseer",
+                        checked = uiState.regularElderRole == RegularElderRole.GROUP_ASSISTANT,
+                        onCheckedChange = { viewModel.onRegularElderRoleToggled(RegularElderRole.GROUP_ASSISTANT, it) },
                     )
                     RoleCheckboxRow(
                         label = "Regular Pioneer",
@@ -179,7 +200,7 @@ fun CoordinatorElderEnrollmentScreen(
                         if (uiState.isSaving) {
                             CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
                         }
-                        Text("Create Coordinator Elder Account")
+                        Text("Create Elder Account")
                     }
                 }
             }
@@ -188,10 +209,11 @@ fun CoordinatorElderEnrollmentScreen(
 }
 
 /** One "Select Role" checkbox — [enabled] false renders it visibly disabled
- * (spec: checking one of the three mutually-exclusive categories disables
- * the other two, not just leaves them checkable-but-ignored). Internal, not
- * private — reused as-is by ServiceOverseerEnrollmentScreen (same package,
- * identical "Select Role" section). */
+ * (used for the three mutually-exclusive Publisher categories: checking one
+ * disables the other two, not just leaves them checkable-but-ignored).
+ * Internal, not private — reused as-is by MinisterialServantEnrollmentScreen
+ * (same package, identical "Select Role" section); relocated here from the
+ * now-removed CoordinatorElderEnrollmentScreen. */
 @Composable
 internal fun RoleCheckboxRow(
     label: String,
