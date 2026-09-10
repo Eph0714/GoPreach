@@ -678,11 +678,11 @@ service cloud.firestore {
     //    ("an Admin must never reach another congregation's chats... even
     //    through direct URLs") never applied; any signed-in user could read
     //    or write any chat/message in any congregation.
-    // The `!document.matches(...)` guard below excludes every one of those
-    // subtrees (plus `interestedPeople`, added by the Territory Map pass)
-    // from this clause, so each keeps only its own, real rule; everything NOT
-    // listed here (schedules, territories, shared locations, app settings,
-    // backups, audit log, ...) is unaffected.
+    // The guard below excludes every one of those subtrees (plus
+    // `interestedPeople`, added by the Territory Map pass) from this clause,
+    // so each keeps only its own, real rule; everything NOT listed here
+    // (schedules, territories, shared locations, app settings, backups,
+    // audit log, ...) is unaffected.
     //
     // Heads-up: this is a genuine tightening, not just a doc fix — any
     // restricted (Circuit Overseer/grant-based) account already provisioned
@@ -690,10 +690,31 @@ service cloud.firestore {
     // this change they're actually held to their configured grant for the
     // first time. Expect that to be a visible, correct narrowing for any such
     // live account, not a regression.
+    //
+    // Bug fix ("Sync Error" on EVERY territory/schedule/shared-location/app-
+    // settings/backup/audit-log write, for every account, always): `document`
+    // bound by a recursive `{document=**}` wildcard is a `path` value, not a
+    // string — `path` has no `.matches()` (that's a String method). The
+    // original `!document.matches('^(...)($/.*)?$')` therefore threw
+    // "Function not found error: Name: [matches]" on every single
+    // evaluation, and Firestore treats an evaluation error as a denial, so
+    // this entire catch-all — the only rule that ever allowed
+    // territories/schedules/sharedLocations/appSettings/backups/auditLog at
+    // all — silently rejected everything with PERMISSION_DENIED. SyncWorker
+    // correctly classifies PERMISSION_DENIED as a permanent failure, which is
+    // exactly the "Sync Error" this was reported as. Confirmed against the
+    // rules emulator: a signed-in Publisher's `setDoc` to `territories/t1`
+    // failed with that exact error before this fix and succeeds after it.
+    // Fixed by comparing the path's own first segment (a plain string a
+    // `path` can be indexed for, no conversion needed) against the same
+    // exclusion list, instead of trying to regex-match the whole path as a
+    // string.
     match /{document=**} {
-      allow read, write: if isSignedIn() && !document.matches(
-        '^(interestedPeople|passwordResetRequests|people|userAccessGrants|congregations|groups|roleAssignments|monthlyReports|bibleTextCategories|bibleTextRecords|groupChats|preachingTimeRecords)(/.*)?$'
-      );
+      allow read, write: if isSignedIn() && !(document[0] in [
+        'interestedPeople', 'passwordResetRequests', 'people', 'userAccessGrants', 'congregations',
+        'groups', 'roleAssignments', 'monthlyReports', 'bibleTextCategories', 'bibleTextRecords',
+        'groupChats', 'preachingTimeRecords'
+      ]);
     }
   }
 }

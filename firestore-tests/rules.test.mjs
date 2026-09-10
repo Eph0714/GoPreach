@@ -219,6 +219,36 @@ async function run() {
     record("Super Admin CAN edit any congregation's records", true);
   })().catch((e) => record("Super Admin CAN edit any congregation's records", false, e.message));
 
+  // ============ TEST 7: catch-all `{document=**}` block (schedules,
+  // territories, shared locations, app settings, backups, audit log) ============
+  // This is the exact bug that was fixed (`document.matches(...)` — `document`
+  // is a `path`, which has no `.matches()` — threw "Function not found" on
+  // every evaluation, and an evaluation error denies, so this catch-all
+  // rejected EVERY read/write to these collections, for every account,
+  // always, with PERMISSION_DENIED — reported app-side as "Sync Error").
+  await (async () => {
+    const ref = doc(asPubA, "territories", "t1");
+    await assertSucceeds(setDoc(ref, { name: "Territory 1", congregationId: "congA" }));
+    record("Publisher CAN write a territory (catch-all block reachable, not a dead rule)", true);
+  })().catch((e) => record("Publisher CAN write a territory (catch-all block reachable, not a dead rule)", false, e.message));
+
+  await (async () => {
+    const ref = doc(asPubA, "schedules", "s1");
+    await assertSucceeds(setDoc(ref, { congregationId: "congA" }));
+    record("Publisher CAN write a schedule (catch-all block reachable)", true);
+  })().catch((e) => record("Publisher CAN write a schedule (catch-all block reachable)", false, e.message));
+
+  // The catch-all must still stay OUT of every collection with its own real
+  // rule — this is the privilege-escalation gap the guard was built to close
+  // in the first place (see this block's own comment in firestore.rules);
+  // re-check it here so this suite fails loudly if a future edit to the
+  // exclusion list (or its shape) ever reopens it.
+  await (async () => {
+    const ref = doc(asPubA, "userAccessGrants", "pubA");
+    await assertFails(setDoc(ref, { scopeType: "ALL_CONGREGATIONS", permissions: ["MANAGE_USERS"] }));
+    record("Publisher still CANNOT self-grant via userAccessGrants (catch-all correctly excludes it)", true);
+  })().catch((e) => record("Publisher still CANNOT self-grant via userAccessGrants (catch-all correctly excludes it)", false, e.message));
+
   await testEnv.cleanup();
 
   console.log("\n=== SUMMARY ===");
