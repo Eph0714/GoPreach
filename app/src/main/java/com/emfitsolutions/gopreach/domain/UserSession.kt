@@ -206,8 +206,25 @@ class UserSession @Inject constructor(
                     val person = s.person ?: return@map null
                     val resolvedRole = s.activeRoleAssignment?.resolvedRoleTypeOrNull()
                     val role = (resolvedRole as? RoleType.Admin)?.role
+                    // Bug fix ("Sync Error" — PERMISSION_DENIED stuck permanent
+                    // for a Regular Elder): this role list used to omit
+                    // AdminRole.REGULAR_ELDER, so a Regular Elder's
+                    // `activeCongregationId` was always denormalized as
+                    // `null` here even though their own RoleAssignment
+                    // always carries a real one (see
+                    // EldersEnrollmentViewModel — every role, Regular Elder
+                    // included, is created with `congregationId` set; only
+                    // `groupId` is the Regular-Elder-specific extra scope).
+                    // firestore.rules' `canManagePublisherReportsFor` (Monthly
+                    // Report writes, and the Territory Map/Return Visit
+                    // ownership rule) explicitly checks
+                    // `myPerson(db).activeCongregationId` for this exact
+                    // role — against a value that could only ever be `null`,
+                    // that check could never pass, so every one of those
+                    // writes failed outright the instant the corresponding
+                    // rule was enforced server-side.
                     val congregationId = when {
-                        role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY, AdminRole.MINISTERIAL_SERVANT) ->
+                        role in setOf(AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY, AdminRole.MINISTERIAL_SERVANT, AdminRole.REGULAR_ELDER) ->
                             s.activeRoleAssignment?.congregationId
                         resolvedRole is RoleType.Publisher -> s.activeRoleAssignment?.congregationId
                         else -> null
