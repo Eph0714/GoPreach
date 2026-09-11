@@ -7,6 +7,7 @@ import com.emfitsolutions.gopreach.data.repository.BibleTextCategoryRepository
 import com.emfitsolutions.gopreach.data.repository.BibleTextRecordRepository
 import com.emfitsolutions.gopreach.data.repository.CartAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
+import com.emfitsolutions.gopreach.data.repository.DashboardModuleLayoutRepository
 import com.emfitsolutions.gopreach.data.repository.ElderTitleRepository
 import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
@@ -95,6 +96,7 @@ class RemoteSyncCoordinator @Inject constructor(
     private val midweekMeetingScheduleRepository: MidweekMeetingScheduleRepository,
     private val publicTalkScheduleRepository: PublicTalkScheduleRepository,
     private val cartAssignmentRepository: CartAssignmentRepository,
+    private val dashboardModuleLayoutRepository: DashboardModuleLayoutRepository,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     private var started = false
@@ -153,5 +155,6 @@ class RemoteSyncCoordinator @Inject constructor(
         midweekMeetingScheduleRepository.startRemoteSync().startTracked(uidChanged)
         publicTalkScheduleRepository.startRemoteSync().startTracked(uidChanged)
         cartAssignmentRepository.startRemoteSync().startTracked(uidChanged)
+        dashboardModuleLayoutRepository.startRemoteSync().startTracked(uidChanged)
     }
 }

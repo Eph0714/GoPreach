@@ -81,6 +81,21 @@
     <string name="home_tile_group_chat_title">Group Chat</string>
     <string name="home_tile_group_chat_subtitle">Congregation Chats</string>
 
+    <!-- "Publishers App – Customizable Module Navigation Redesign" —
+         long-press-to-move Main Form/Side Panel dialogs. -->
+    <string name="dashboard_layout_side_panel_title">Side Panel</string>
+    <string name="dashboard_layout_side_panel_empty">No modules in the Side Panel yet. Long-press a Main Form module to move it here.</string>
+    <string name="dashboard_layout_move_module">Move Module</string>
+    <string name="dashboard_layout_move_to_side_panel">Move to Side Panel</string>
+    <string name="dashboard_layout_move_to_main_form">Move to Main Form</string>
+    <string name="dashboard_layout_confirm_to_side_panel">Do you want to move this module to the Side Panel?</string>
+    <string name="dashboard_layout_confirm_to_main_form">Do you want to move this module to the Main Form?</string>
+    <string name="dashboard_layout_moved_success">Module moved successfully.</string>
+    <string name="dashboard_layout_reset_title">Reset Dashboard Layout</string>
+    <string name="dashboard_layout_reset_confirm">Do you want to restore the default dashboard layout?</string>
+    <string name="dashboard_layout_reset_confirm_button">Yes, Reset</string>
+    <string name="dashboard_layout_reset_success">Dashboard layout restored to default.</string>
+
     <string name="home_nav_home">Home</string>
     <string name="home_nav_reports">Reports</string>
     <string name="home_nav_calendar">Calendar</string>

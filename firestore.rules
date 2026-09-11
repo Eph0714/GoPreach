@@ -671,6 +671,16 @@ service cloud.firestore {
           request.resource.data.get('congregationId', null) == myPerson(database).get('activeCongregationId', null));
     }
 
+    // "Publishers App – Customizable Module Navigation Redesign" — a
+    // Publisher's own personal Main Form/Side Panel arrangement (spec §6).
+    // Purely a per-account display preference (which panel an
+    // already-authorized module sits in), never a permission grant (spec
+    // §10) — so, same as `presence/{personId}` above, only the session
+    // itself may ever read or write its own document.
+    match /dashboardModuleLayouts/{personId} {
+      allow read, write: if isSignedIn() && personIdFromToken() == personId;
+    }
+
     // Everything else (schedules, territories, shared locations, app
     // settings, backups, audit log, ...): authenticated read/write,
     // unchanged from before — none of these are named in the spec's

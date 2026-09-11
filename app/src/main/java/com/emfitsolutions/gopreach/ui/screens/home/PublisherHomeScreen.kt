@@ -6,7 +6,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,10 +39,12 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.PeopleAlt
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PersonSearch
+import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Timer
@@ -45,35 +52,48 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.R
+import com.emfitsolutions.gopreach.data.model.DashboardModuleId
+import com.emfitsolutions.gopreach.data.model.DashboardModuleLocation
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleType
+import com.emfitsolutions.gopreach.data.model.mainFormModules
+import com.emfitsolutions.gopreach.data.model.sidePanelModules
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.NotificationBell
 import com.emfitsolutions.gopreach.ui.components.ProfileMenuButton
@@ -116,12 +136,16 @@ fun PublisherHomeScreen(
     publisherForwardViewModel: com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsViewModel = hiltViewModel(),
     notificationCenterViewModel: NotificationCenterViewModel = hiltViewModel(),
     groupChatViewModel: com.emfitsolutions.gopreach.ui.screens.groupchat.GroupChatViewModel = hiltViewModel(),
+    // "Publishers App – Customizable Module Navigation Redesign".
+    layoutViewModel: PublisherDashboardLayoutViewModel = hiltViewModel(),
 ) {
     val session by viewModel.state.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val pendingSyncCount by viewModel.pendingSyncCount.collectAsStateWithLifecycle()
     val showToast = rememberActionToast()
     val currentPersonId = session.person?.id.orEmpty()
+    LaunchedEffect(currentPersonId) { layoutViewModel.setPersonId(currentPersonId) }
+    val moduleLayout by layoutViewModel.layout.collectAsStateWithLifecycle()
     // "Multiple Role Login Detection & Role Selection" spec §7 — this screen
     // only ever renders when the session's own active role already resolved
     // to Publisher (see GoPreachNavGraph's routing), so its own assignment
@@ -205,6 +229,46 @@ fun PublisherHomeScreen(
         )
     }
 
+    // "Publishers App – Customizable Module Navigation Redesign" — every
+    // module this Publisher can reach, then split across the two panels
+    // per their own saved [moduleLayout] (spec §5: per-account, restored on
+    // any device). [allTiles] only needs to change when the badge counts or
+    // Pioneer-gating actually do; [moduleLayout] changing (a move, a reset,
+    // or the initial load from another device) re-splits the same catalog
+    // without re-fetching anything.
+    val allTiles = publisherModuleTiles(isPioneer, unseenAnnouncements, incomingForwards.size)
+    val tilesById = remember(allTiles) { allTiles.associateBy { it.id } }
+    val mainFormTiles = remember(moduleLayout, tilesById) { moduleLayout.mainFormModules().mapNotNull { tilesById[it] } }
+    val sidePanelTiles = remember(moduleLayout, tilesById) { moduleLayout.sidePanelModules().mapNotNull { tilesById[it] } }
+
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val drawerScope = rememberCoroutineScope()
+    // The module a long-press just targeted, and (once chosen) which panel
+    // the Publisher is being asked to confirm moving it to — null/null means
+    // no dialog is showing (spec §2's exact two-step flow: action menu,
+    // then confirmation).
+    var pendingModuleId by remember { mutableStateOf<DashboardModuleId?>(null) }
+    var pendingTarget by remember { mutableStateOf<DashboardModuleLocation?>(null) }
+    var showResetConfirm by remember { mutableStateOf(false) }
+    val movedSuccessMessage = stringResource(R.string.dashboard_layout_moved_success)
+    val resetSuccessMessage = stringResource(R.string.dashboard_layout_reset_success)
+
+    val onLongPressModule: (DashboardModuleId) -> Unit = { id ->
+        pendingModuleId = id
+        pendingTarget = null
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            SidePanelDrawerContent(
+                tiles = sidePanelTiles,
+                onNavigate = { route -> drawerScope.launch { drawerState.close() }; onNavigate(route) },
+                onLongPressModule = onLongPressModule,
+                onResetLayout = { showResetConfirm = true },
+            )
+        },
+    ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             com.emfitsolutions.gopreach.ui.components.AlarmRingingBanner()
@@ -226,6 +290,7 @@ fun PublisherHomeScreen(
                 onOpenGroupChat = { chatId -> onNavigate(Destinations.groupChatDetail(chatId)) },
                 onViewAllGroupChats = { onNavigate(Destinations.GROUP_CHAT_SETTING) },
                 onOpenSettings = { onNavigate(Destinations.SETTINGS) },
+                onOpenSidePanel = { drawerScope.launch { drawerState.open() } },
                 onImagePicked = { uri ->
                     viewModel.updateProfileImage(uri, onImageUploadFailed = {
                         showToast("Profile image failed to upload. Try again.")
@@ -279,10 +344,9 @@ fun PublisherHomeScreen(
                 }
 
                 FeatureTileGrid(
-                    isPioneer = isPioneer,
-                    unseenAnnouncements = unseenAnnouncements,
-                    pendingPublisherForwards = incomingForwards.size,
+                    tiles = mainFormTiles,
                     onNavigate = onNavigate,
+                    onLongPressModule = onLongPressModule,
                 )
 
                 if (onSwitchToAdmin != null) {
@@ -301,6 +365,83 @@ fun PublisherHomeScreen(
         }
 
         PublisherBottomNavBar(activeRoute = Destinations.PUBLISHER_HOME, onNavigate = onNavigate)
+    }
+    } // ModalNavigationDrawer content
+
+    // "Long Press Icon → Select Move → Confirm → Module Moves → Dashboard
+    // Refreshes" (spec §2/§11) — the two-step dialog itself; [moduleLayout]
+    // already reflects the move the instant it's saved, since it's the same
+    // StateFlow this whole screen renders from, so there is nothing else to
+    // "refresh" here.
+    val pendingId = pendingModuleId
+    if (pendingId != null) {
+        val tile = tilesById[pendingId]
+        val currentLocation = if (pendingId in moduleLayout.sidePanelModules()) DashboardModuleLocation.SIDE_PANEL else DashboardModuleLocation.MAIN_FORM
+        val target = pendingTarget
+        if (target == null) {
+            // Step 1 — "Move Module" action menu.
+            val moveTarget = if (currentLocation == DashboardModuleLocation.MAIN_FORM) DashboardModuleLocation.SIDE_PANEL else DashboardModuleLocation.MAIN_FORM
+            val moveLabel = stringResource(
+                if (moveTarget == DashboardModuleLocation.SIDE_PANEL) R.string.dashboard_layout_move_to_side_panel else R.string.dashboard_layout_move_to_main_form,
+            )
+            AlertDialog(
+                properties = DialogProperties(dismissOnClickOutside = true, dismissOnBackPress = true),
+                onDismissRequest = { pendingModuleId = null },
+                title = { Text(tile?.title ?: stringResource(R.string.dashboard_layout_move_module)) },
+                text = {
+                    TextButton(onClick = { pendingTarget = moveTarget }, modifier = Modifier.fillMaxWidth()) {
+                        Text(moveLabel)
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = { pendingModuleId = null }) { Text(stringResource(R.string.action_cancel)) } },
+            )
+        } else {
+            // Step 2 — confirmation (spec §2: "Do you want to move this
+            // module to the Side Panel/Main Form?").
+            AlertDialog(
+                properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
+                onDismissRequest = { pendingModuleId = null; pendingTarget = null },
+                title = { Text(stringResource(R.string.dashboard_layout_move_module)) },
+                text = {
+                    Text(
+                        stringResource(
+                            if (target == DashboardModuleLocation.SIDE_PANEL) R.string.dashboard_layout_confirm_to_side_panel else R.string.dashboard_layout_confirm_to_main_form,
+                        ),
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        layoutViewModel.moveModule(pendingId, target)
+                        pendingModuleId = null
+                        pendingTarget = null
+                        showToast(movedSuccessMessage)
+                    }) { Text(stringResource(R.string.home_yes)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingModuleId = null; pendingTarget = null }) { Text(stringResource(R.string.home_no)) }
+                },
+            )
+        }
+    }
+
+    // "Reset Dashboard Layout" (spec §9).
+    if (showResetConfirm) {
+        AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
+            onDismissRequest = { showResetConfirm = false },
+            title = { Text(stringResource(R.string.dashboard_layout_reset_title)) },
+            text = { Text(stringResource(R.string.dashboard_layout_reset_confirm)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    layoutViewModel.resetLayout()
+                    showResetConfirm = false
+                    drawerScope.launch { drawerState.close() }
+                    showToast(resetSuccessMessage)
+                }) { Text(stringResource(R.string.dashboard_layout_reset_confirm_button)) }
+            },
+            dismissButton = { TextButton(onClick = { showResetConfirm = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
     }
 }
 
@@ -327,6 +468,10 @@ private fun PublisherWelcomeHeader(
     onOpenGroupChat: (String) -> Unit,
     onViewAllGroupChats: () -> Unit,
     onOpenSettings: () -> Unit,
+    // "Publishers App – Customizable Module Navigation Redesign" — opens the
+    // Side Panel drawer (spec §4), same hamburger-icon convention the Admin
+    // Main Form already uses for its own Side Panel.
+    onOpenSidePanel: () -> Unit,
     onImagePicked: (android.net.Uri) -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -341,10 +486,13 @@ private fun PublisherWelcomeHeader(
     ) {
         Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, start = 12.dp, end = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, start = 4.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End,
             ) {
+                IconButton(onClick = onOpenSidePanel) {
+                    Icon(Icons.Rounded.Menu, contentDescription = stringResource(R.string.dashboard_layout_side_panel_title), tint = Color.White)
+                }
+                Box(modifier = Modifier.weight(1f))
                 // Unified notification balloon — transfer requests,
                 // announcements, calendar schedule; opening it marks
                 // everything currently in scope seen (see
@@ -411,7 +559,12 @@ private fun PublisherWelcomeHeader(
 }
 
 /** One feature tile — an icon circle (theme tonal color), title/subtitle,
- * and an optional notification-style badge count. */
+ * and an optional notification-style badge count. Long-pressing opens the
+ * "Move Module" action menu (spec §2/§11); a short haptic tick and a
+ * momentary scale-up on press are the "slightly enlarge the selected icon...
+ * subtle selection effect" (spec §12) — the move itself never happens until
+ * the Publisher explicitly confirms a destination in the dialog that follows. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FeatureTile(
     title: String,
@@ -421,11 +574,23 @@ private fun FeatureTile(
     iconTint: Color,
     badgeCount: Int,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
     Card(
-        onClick = onClick,
-        modifier = modifier,
+        modifier = modifier
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick,
+                onLongClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                },
+                onLongClickLabel = stringResource(R.string.dashboard_layout_move_module),
+            ),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp, pressedElevation = 4.dp),
     ) {
@@ -476,70 +641,94 @@ private fun FeatureTile(
  * and `.secondaryContainer` — still one theme, just enough tonal variety to
  * tell tiles apart at a glance, the way the reference's per-tile colors did
  * without reintroducing arbitrary hues. */
+/** One catalog entry for a Publisher's customizable Main Form/Side Panel
+ * module (spec: "Publishers App – Customizable Module Navigation Redesign").
+ * [id] is the permanent, stored identity ([DashboardModuleId]); everything
+ * else here is display-only and safe to change freely without touching any
+ * Publisher's saved layout. */
+private data class PublisherModuleTile(
+    val id: DashboardModuleId,
+    val title: String,
+    val subtitle: String,
+    val icon: ImageVector,
+    val route: String,
+    val badge: Int = 0,
+)
+
+/** Every module a Publisher can reach today, still gated by the exact same
+ * conditions [FeatureTileGrid] always used ([isPioneer] for "My Total
+ * Hours") — customization only changes *where* an already-authorized module
+ * is drawn, never which modules exist (spec §10). */
 @Composable
-private fun FeatureTileGrid(
+private fun publisherModuleTiles(
     isPioneer: Boolean,
     unseenAnnouncements: Int,
     pendingPublisherForwards: Int,
-    onNavigate: (String) -> Unit,
-) {
-    data class Tile(val title: String, val subtitle: String, val icon: ImageVector, val route: String, val badge: Int = 0)
-
-    val tiles = buildList {
-        add(Tile(stringResource(R.string.home_tile_monthly_report_title), stringResource(R.string.home_tile_monthly_report_subtitle), Icons.Rounded.Assignment, Destinations.MONTHLY_REPORT))
-        // "Allow the publisher to see all his submitted Report record" —
-        // its own tile since MONTHLY_REPORT's form only ever shows the
-        // current/previous month, not the full history.
-        add(Tile(stringResource(R.string.home_tile_my_reports_title), stringResource(R.string.home_tile_my_reports_subtitle), Icons.AutoMirrored.Rounded.ListAlt, Destinations.MY_SUBMITTED_REPORTS))
-        add(Tile(stringResource(R.string.home_tile_searching_title), stringResource(R.string.home_tile_searching_subtitle), Icons.Rounded.PersonSearch, Destinations.SEARCHING))
-        add(Tile(stringResource(R.string.home_tile_return_visit_title), stringResource(R.string.home_tile_return_visit_subtitle), Icons.Rounded.PeopleAlt, Destinations.RETURN_VISIT))
-        add(Tile(stringResource(R.string.home_tile_bible_study_title), stringResource(R.string.home_tile_bible_study_subtitle), Icons.AutoMirrored.Rounded.MenuBook, Destinations.BIBLE_STUDY))
-        // "FORWARD TO OTHER PUBLISHER" — this Publisher's own incoming queue.
-        add(Tile(stringResource(R.string.home_tile_forwarded_to_me_title), stringResource(R.string.home_tile_forwarded_to_me_subtitle), Icons.AutoMirrored.Rounded.Forward, Destinations.PUBLISHER_FORWARD_REQUESTS, pendingPublisherForwards))
-        // "House Holder Visit History" — a read-only, consolidated view of
-        // this Publisher's own congregation's Searching/Return Visit/Bible
-        // Study records and their visit history (see
-        // HouseholderVisitHistoryScreen's own doc comment); Super-Admin
-        // reaches the same screen unscoped via the drawer instead.
-        add(Tile(stringResource(R.string.home_tile_householder_visit_history_title), stringResource(R.string.home_tile_householder_visit_history_subtitle), Icons.Rounded.History, Destinations.HOUSEHOLDER_VISIT_HISTORY))
-        if (isPioneer) {
-            add(Tile(stringResource(R.string.home_tile_my_total_hours_title), stringResource(R.string.home_tile_my_total_hours_subtitle), Icons.Rounded.Timer, Destinations.PREACHING_TIME_RECORD))
-        }
-        // "My Bible Text Record" module — every Publisher, not just Pioneers.
-        // A distinct icon from "Bible Study" (also MenuBook) — this is a
-        // personal saved-reference collection, not the ministry module.
-        add(Tile(stringResource(R.string.home_tile_my_bible_text_record_title), stringResource(R.string.home_tile_my_bible_text_record_subtitle), Icons.Rounded.Bookmarks, Destinations.MY_BIBLE_TEXT_RECORD))
-        add(Tile(stringResource(R.string.home_tile_my_calendar_title), stringResource(R.string.home_tile_my_calendar_subtitle), Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
-        add(Tile(stringResource(R.string.home_tile_share_my_location_title), stringResource(R.string.home_tile_share_my_location_subtitle), Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
-        add(Tile(stringResource(R.string.home_tile_find_location_title), stringResource(R.string.home_tile_find_location_subtitle), Icons.Rounded.Navigation, Destinations.FIND_LOCATION))
-        // "Add the Territory Module in Publisher. The publisher can see all
-        // the location but cannot edit or delete, view only" — the screen
-        // itself has no edit/delete actions for anyone anymore (see
-        // TerritoryMapScreen), so reaching it here is already read-only by
-        // construction; scoped to the Publisher's own congregation (see
-        // GoPreachNavGraph's MANAGE_TERRITORIES composable).
-        add(Tile(stringResource(R.string.home_tile_territory_map_title), stringResource(R.string.home_tile_territory_map_subtitle), Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES_BASE))
-        // "The record will be seen in the publishers module... called
-        // 'Meeting Assignments.' The publisher will see only meeting
-        // assignments under their congregation" — read-only, see
-        // GoPreachNavGraph's PUBLISHER_MEETING_ASSIGNMENTS composable.
-        add(Tile(stringResource(R.string.home_tile_meeting_cart_assignment_title), stringResource(R.string.home_tile_meeting_cart_assignment_subtitle), Icons.Rounded.Event, Destinations.PUBLISHER_MEETING_ASSIGNMENTS))
-        // "Add a Button under Meeting [and Cart] Assignment[:] 'My
-        // Assignments'... the publisher can see all the assignments under
-        // his name" — a cross-cut of every Midweek/Public Talk/Cart
-        // Assignment record naming this publisher, not just the module's
-        // own currently-selected week/date (see GoPreachNavGraph's
-        // MY_ASSIGNMENTS composable / MeetingAssignmentsViewModel
-        // .myAssignmentsFor).
-        add(Tile(stringResource(R.string.home_tile_my_assignments_title), stringResource(R.string.home_tile_my_assignments_subtitle), Icons.Rounded.Assignment, Destinations.MY_ASSIGNMENTS))
-        add(Tile(stringResource(R.string.home_tile_announcement_title), stringResource(R.string.home_tile_announcement_subtitle), Icons.Rounded.Campaign, Destinations.PUBLISHER_ANNOUNCEMENTS, unseenAnnouncements))
-        // "Group Chat Setting" module — also reachable from the persistent
-        // Chat Box icon in the header (see PublisherWelcomeHeader), this
-        // tile is just a second, more discoverable entry point to the same
-        // GROUP_CHAT_SETTING list.
-        add(Tile(stringResource(R.string.home_tile_group_chat_title), stringResource(R.string.home_tile_group_chat_subtitle), Icons.AutoMirrored.Rounded.Chat, Destinations.GROUP_CHAT_SETTING))
+): List<PublisherModuleTile> = buildList {
+    add(PublisherModuleTile(DashboardModuleId.MONTHLY_REPORT, stringResource(R.string.home_tile_monthly_report_title), stringResource(R.string.home_tile_monthly_report_subtitle), Icons.Rounded.Assignment, Destinations.MONTHLY_REPORT))
+    // "Allow the publisher to see all his submitted Report record" —
+    // its own tile since MONTHLY_REPORT's form only ever shows the
+    // current/previous month, not the full history.
+    add(PublisherModuleTile(DashboardModuleId.MY_SUBMITTED_REPORTS, stringResource(R.string.home_tile_my_reports_title), stringResource(R.string.home_tile_my_reports_subtitle), Icons.AutoMirrored.Rounded.ListAlt, Destinations.MY_SUBMITTED_REPORTS))
+    add(PublisherModuleTile(DashboardModuleId.SEARCHING, stringResource(R.string.home_tile_searching_title), stringResource(R.string.home_tile_searching_subtitle), Icons.Rounded.PersonSearch, Destinations.SEARCHING))
+    add(PublisherModuleTile(DashboardModuleId.RETURN_VISIT, stringResource(R.string.home_tile_return_visit_title), stringResource(R.string.home_tile_return_visit_subtitle), Icons.Rounded.PeopleAlt, Destinations.RETURN_VISIT))
+    add(PublisherModuleTile(DashboardModuleId.BIBLE_STUDY, stringResource(R.string.home_tile_bible_study_title), stringResource(R.string.home_tile_bible_study_subtitle), Icons.AutoMirrored.Rounded.MenuBook, Destinations.BIBLE_STUDY))
+    // "FORWARD TO OTHER PUBLISHER" — this Publisher's own incoming queue.
+    add(PublisherModuleTile(DashboardModuleId.FORWARDED_TO_ME, stringResource(R.string.home_tile_forwarded_to_me_title), stringResource(R.string.home_tile_forwarded_to_me_subtitle), Icons.AutoMirrored.Rounded.Forward, Destinations.PUBLISHER_FORWARD_REQUESTS, pendingPublisherForwards))
+    // "House Holder Visit History" — a read-only, consolidated view of
+    // this Publisher's own congregation's Searching/Return Visit/Bible
+    // Study records and their visit history (see
+    // HouseholderVisitHistoryScreen's own doc comment); Super-Admin
+    // reaches the same screen unscoped via the drawer instead.
+    add(PublisherModuleTile(DashboardModuleId.HOUSEHOLDER_VISIT_HISTORY, stringResource(R.string.home_tile_householder_visit_history_title), stringResource(R.string.home_tile_householder_visit_history_subtitle), Icons.Rounded.History, Destinations.HOUSEHOLDER_VISIT_HISTORY))
+    if (isPioneer) {
+        add(PublisherModuleTile(DashboardModuleId.MY_TOTAL_HOURS, stringResource(R.string.home_tile_my_total_hours_title), stringResource(R.string.home_tile_my_total_hours_subtitle), Icons.Rounded.Timer, Destinations.PREACHING_TIME_RECORD))
     }
+    // "My Bible Text Record" module — every Publisher, not just Pioneers.
+    // A distinct icon from "Bible Study" (also MenuBook) — this is a
+    // personal saved-reference collection, not the ministry module.
+    add(PublisherModuleTile(DashboardModuleId.MY_BIBLE_TEXT_RECORD, stringResource(R.string.home_tile_my_bible_text_record_title), stringResource(R.string.home_tile_my_bible_text_record_subtitle), Icons.Rounded.Bookmarks, Destinations.MY_BIBLE_TEXT_RECORD))
+    add(PublisherModuleTile(DashboardModuleId.MY_CALENDAR, stringResource(R.string.home_tile_my_calendar_title), stringResource(R.string.home_tile_my_calendar_subtitle), Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
+    add(PublisherModuleTile(DashboardModuleId.SHARE_MY_LOCATION, stringResource(R.string.home_tile_share_my_location_title), stringResource(R.string.home_tile_share_my_location_subtitle), Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
+    add(PublisherModuleTile(DashboardModuleId.FIND_LOCATION, stringResource(R.string.home_tile_find_location_title), stringResource(R.string.home_tile_find_location_subtitle), Icons.Rounded.Navigation, Destinations.FIND_LOCATION))
+    // "Add the Territory Module in Publisher. The publisher can see all
+    // the location but cannot edit or delete, view only" — the screen
+    // itself has no edit/delete actions for anyone anymore (see
+    // TerritoryMapScreen), so reaching it here is already read-only by
+    // construction; scoped to the Publisher's own congregation (see
+    // GoPreachNavGraph's MANAGE_TERRITORIES composable).
+    add(PublisherModuleTile(DashboardModuleId.TERRITORY_MAP, stringResource(R.string.home_tile_territory_map_title), stringResource(R.string.home_tile_territory_map_subtitle), Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES_BASE))
+    // "The record will be seen in the publishers module... called
+    // 'Meeting Assignments.' The publisher will see only meeting
+    // assignments under their congregation" — read-only, see
+    // GoPreachNavGraph's PUBLISHER_MEETING_ASSIGNMENTS composable.
+    add(PublisherModuleTile(DashboardModuleId.MEETING_CART_ASSIGNMENT, stringResource(R.string.home_tile_meeting_cart_assignment_title), stringResource(R.string.home_tile_meeting_cart_assignment_subtitle), Icons.Rounded.Event, Destinations.PUBLISHER_MEETING_ASSIGNMENTS))
+    // "Add a Button under Meeting [and Cart] Assignment[:] 'My
+    // Assignments'... the publisher can see all the assignments under
+    // his name" — a cross-cut of every Midweek/Public Talk/Cart
+    // Assignment record naming this publisher, not just the module's
+    // own currently-selected week/date (see GoPreachNavGraph's
+    // MY_ASSIGNMENTS composable / MeetingAssignmentsViewModel
+    // .myAssignmentsFor).
+    add(PublisherModuleTile(DashboardModuleId.MY_ASSIGNMENTS, stringResource(R.string.home_tile_my_assignments_title), stringResource(R.string.home_tile_my_assignments_subtitle), Icons.Rounded.Assignment, Destinations.MY_ASSIGNMENTS))
+    add(PublisherModuleTile(DashboardModuleId.ANNOUNCEMENT, stringResource(R.string.home_tile_announcement_title), stringResource(R.string.home_tile_announcement_subtitle), Icons.Rounded.Campaign, Destinations.PUBLISHER_ANNOUNCEMENTS, unseenAnnouncements))
+    // "Group Chat Setting" module — also reachable from the persistent
+    // Chat Box icon in the header (see PublisherWelcomeHeader), this
+    // tile is just a second, more discoverable entry point to the same
+    // GROUP_CHAT_SETTING list.
+    add(PublisherModuleTile(DashboardModuleId.GROUP_CHAT, stringResource(R.string.home_tile_group_chat_title), stringResource(R.string.home_tile_group_chat_subtitle), Icons.AutoMirrored.Rounded.Chat, Destinations.GROUP_CHAT_SETTING))
+}
 
+/** The Main Form grid — [tiles] is already the resolved, ordered set for
+ * this panel (see [PublisherDashboardLayoutViewModel]/[DashboardModuleLayout
+ * .mainFormModules]); this composable only lays them out and wires long-press
+ * (spec §2/§11: "Long Press Icon → Select Move"). */
+@Composable
+private fun FeatureTileGrid(
+    tiles: List<PublisherModuleTile>,
+    onNavigate: (String) -> Unit,
+    onLongPressModule: (DashboardModuleId) -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         tiles.chunked(2).forEach { row ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -553,6 +742,7 @@ private fun FeatureTileGrid(
                         iconTint = if (useSecondary) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onPrimaryContainer,
                         badgeCount = tile.badge,
                         onClick = { onNavigate(tile.route) },
+                        onLongClick = { onLongPressModule(tile.id) },
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -561,6 +751,92 @@ private fun FeatureTileGrid(
                 // stretching to fill the row alone.
                 if (row.size == 1) Box(modifier = Modifier.weight(1f))
             }
+        }
+    }
+}
+
+/** The Side Panel drawer's own module list — same modules, tucked away
+ * instead of on the Main Form grid (spec §4); long-press works identically
+ * here so a module can be moved back (spec §2's "If the module is currently
+ * on the Side Panel"). */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SidePanelModuleRow(tile: PublisherModuleTile, onNavigate: (String) -> Unit, onLongPressModule: (DashboardModuleId) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = { onNavigate(tile.route) }, onLongClick = { onLongPressModule(tile.id) })
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Box(
+            modifier = Modifier.size(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(tile.icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(tile.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(tile.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (tile.badge > 0) {
+            Badge { Text(tile.badge.toString()) }
+        }
+    }
+}
+
+/**
+ * "Publishers App – Customizable Module Navigation Redesign" — the drawer
+ * content for the Side Panel (spec §4): every module this Publisher has
+ * moved (or defaults to) off the Main Form, plus a "Reset Dashboard Layout"
+ * action (spec §9). Long-pressing any row here opens the same move dialog
+ * as a Main Form tile — the dialog itself is hosted once, inline, near the
+ * end of [PublisherHomeScreen] (see its own "Long Press Icon → Select Move"
+ * comment), driven by the same `pendingModuleId`/`pendingTarget` state this
+ * row's [onLongPressModule] callback sets.
+ */
+@Composable
+private fun SidePanelDrawerContent(
+    tiles: List<PublisherModuleTile>,
+    onNavigate: (String) -> Unit,
+    onLongPressModule: (DashboardModuleId) -> Unit,
+    onResetLayout: () -> Unit,
+) {
+    ModalDrawerSheet {
+        Text(
+            stringResource(R.string.dashboard_layout_side_panel_title),
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(20.dp),
+        )
+        HorizontalDivider()
+        Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            if (tiles.isEmpty()) {
+                Text(
+                    stringResource(R.string.dashboard_layout_side_panel_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(20.dp),
+                )
+            } else {
+                tiles.forEach { tile -> SidePanelModuleRow(tile, onNavigate, onLongPressModule) }
+            }
+        }
+        HorizontalDivider()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onResetLayout),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Icon(Icons.Rounded.RestartAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 20.dp))
+            Text(
+                stringResource(R.string.dashboard_layout_reset_title),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(vertical = 16.dp),
+            )
         }
     }
 }
