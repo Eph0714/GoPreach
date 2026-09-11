@@ -196,16 +196,14 @@ fun GoPreachSidePanelContent(
             if (canManagePublisherReports) {
                 add(SideItem(stringResource(R.string.side_publisher_reports), Icons.Rounded.Assessment, Destinations.MANAGE_PUBLISHER_REPORTS))
             }
+            // "Consolidate 'Forward Request' Modules for Super Admin" — one
+            // entry only. For Super-Admin, GoPreachNavGraph passes
+            // isSuperAdmin = true into this same destination, which then
+            // shows every status across all congregations plus edit/delete
+            // (see ForwardRequestsScreen's own doc comment) instead of a
+            // second, separate drawer item/screen.
             if (canViewForwardRequests) {
                 add(SideItem(stringResource(R.string.side_forward_requests), Icons.Rounded.SwapHoriz, Destinations.FORWARD_REQUESTS))
-            }
-            // "Forward Request Module" — Super-Admin only: every forward
-            // request, both kinds, every status, all-congregations
-            // filterable, with edit/delete (see ForwardRequestModuleScreen's
-            // own doc comment) — distinct from the Service Overseer-facing
-            // Accept/Decline queue right above.
-            if (isSuperAdmin) {
-                add(SideItem(stringResource(R.string.side_forward_request_module), Icons.Rounded.SwapHoriz, Destinations.FORWARD_REQUEST_MODULE))
             }
             if (canViewInterestedPeopleScope) add(SideItem(stringResource(R.string.side_interested_records_scoped), Icons.Rounded.Groups, Destinations.SCOPED_INTERESTED_RECORDS))
             // "The super admin can see all congregation Search[ing]/Bible

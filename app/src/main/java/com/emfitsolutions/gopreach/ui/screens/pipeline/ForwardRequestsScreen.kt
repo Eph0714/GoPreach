@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.ui.screens.pipeline
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -10,8 +11,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -58,13 +63,30 @@ import androidx.compose.ui.window.DialogProperties
  * Ministerial Servant (the notification balloon's "Incoming approval request
  * for transfer [All]" item) without widening *approval authority* — they see
  * the same request details Service Overseer/Coordinator Elder/Admin/
- * Super-Admin do, just with [ACCEPT]/[DECLINE] replaced by a plain [CLOSE]. */
+ * Super-Admin do, just with [ACCEPT]/[DECLINE] replaced by a plain [CLOSE].
+ *
+ * "Consolidate 'Forward Request' Modules for Super Admin" — this one screen
+ * is now also what used to be the separate "Forward Request Module": for
+ * [isSuperAdmin], the same congregation-filtered list additionally shows
+ * *every* status (not just PENDING — see [ForwardRequestsViewModel
+ * .allRequestsFor]/[PublisherForwardRequestsViewModel.requestsFor], which
+ * already return every status regardless), and gains a per-row Edit action
+ * plus checkbox multi-select with Select All / Delete Selected. Every other
+ * role keeps exactly the behavior this screen already had — PENDING-only,
+ * no selection UI, no delete — since none of that is reachable unless
+ * [isSuperAdmin] is true (and the nav graph only ever passes `true` for an
+ * actual Super-Admin session). Deleting a request here only ever removes the
+ * request document itself, never the underlying InterestedPerson record,
+ * and never changes how forwarding, acceptance, notifications, or ownership
+ * work for anyone else — see [ForwardRequestsViewModel.deleteRequest]/
+ * [PublisherForwardRequestsViewModel.deleteRequest]'s own doc comments. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ForwardRequestsScreen(
     congregationIds: Set<String>?,
     currentPersonId: String,
     readOnly: Boolean = false,
+    isSuperAdmin: Boolean = false,
     onBack: () -> Unit,
     viewModel: ForwardRequestsViewModel = hiltViewModel(),
     publisherForwardViewModel: PublisherForwardRequestsViewModel = hiltViewModel(),
@@ -73,17 +95,33 @@ fun ForwardRequestsScreen(
     // "Add a filter for Congregation" (Super-Admin only).
     var congregationFilter by remember { mutableStateOf<String?>(null) }
     val effectiveCongregationIds = congregationFilter?.let { setOf(it) } ?: congregationIds
-    val requestsFlow = remember(effectiveCongregationIds) { viewModel.pendingRequestsFor(effectiveCongregationIds) }
+    val requestsFlow = remember(effectiveCongregationIds, isSuperAdmin) {
+        if (isSuperAdmin) viewModel.allRequestsFor(effectiveCongregationIds) else viewModel.pendingRequestsFor(effectiveCongregationIds)
+    }
     val requests by requestsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val publisherRequestsFlow = remember(effectiveCongregationIds) { publisherForwardViewModel.requestsFor(effectiveCongregationIds) }
     val publisherRequests by publisherRequestsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var selected by remember { mutableStateOf<ForwardRequest?>(null) }
     val showToast = rememberActionToast()
 
+    // Super-Admin-only bulk selection/delete state — see this composable's
+    // own doc comment. Two separate id sets since a congregation-forward and
+    // a publisher-forward request are different document types/collections
+    // ([ForwardRequestRepository]/[PublisherForwardRequestRepository]);
+    // "Select All"/"Delete Selected" act on both together.
+    var selectedCongRequestIds by remember { mutableStateOf(setOf<String>()) }
+    var selectedPublisherRequestIds by remember { mutableStateOf(setOf<String>()) }
+    var editingCongregationRequest by remember { mutableStateOf<ForwardRequest?>(null) }
+    var editingPublisherRequest by remember { mutableStateOf<PublisherForwardRequest?>(null) }
+    var confirmingBulkDelete by remember { mutableStateOf(false) }
+    val totalSelected = selectedCongRequestIds.size + selectedPublisherRequestIds.size
+    val allSelected = (requests.isNotEmpty() || publisherRequests.isNotEmpty()) &&
+        selectedCongRequestIds.size == requests.size && selectedPublisherRequestIds.size == publisherRequests.size
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Forward Requests") },
+                title = { Text("Forward Request") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
             )
         },
@@ -96,6 +134,40 @@ fun ForwardRequestsScreen(
                 onSelected = { congregationFilter = it },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
+        }
+        if (isSuperAdmin && (requests.isNotEmpty() || publisherRequests.isNotEmpty())) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = allSelected,
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            selectedCongRequestIds = requests.map { it.id }.toSet()
+                            selectedPublisherRequestIds = publisherRequests.map { it.id }.toSet()
+                        } else {
+                            selectedCongRequestIds = emptySet()
+                            selectedPublisherRequestIds = emptySet()
+                        }
+                    },
+                )
+                Text("Select All", modifier = Modifier.weight(1f))
+                Text(
+                    "${requests.size + publisherRequests.size} record(s)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (totalSelected > 0) {
+                Button(
+                    onClick = { confirmingBulkDelete = true },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                    Text("Delete Selected ($totalSelected)")
+                }
+            }
         }
         if (requests.isEmpty() && publisherRequests.isEmpty()) {
             Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -113,28 +185,53 @@ fun ForwardRequestsScreen(
                         val personFlow = remember(request.interestedPersonId) { viewModel.personFor(request.interestedPersonId) }
                         val person by personFlow.collectAsStateWithLifecycle(initialValue = null)
                         Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                                Text(request.personNameSnapshot, style = MaterialTheme.typography.titleMedium)
-                                // "Include the basic details of the forwarded
-                                // record, not just the name" — stage + address,
-                                // live off the record itself (see
-                                // ForwardRequestsViewModel.personFor's own doc
-                                // comment).
-                                person?.let { p ->
-                                    Text(stageLabel(p.pipelineStage), style = MaterialTheme.typography.bodySmall)
-                                    addressLine(p)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            Row(modifier = Modifier.fillMaxWidth().padding(start = if (isSuperAdmin) 0.dp else 16.dp)) {
+                                if (isSuperAdmin) {
+                                    Checkbox(
+                                        checked = request.id in selectedCongRequestIds,
+                                        onCheckedChange = { checked ->
+                                            selectedCongRequestIds = if (checked) selectedCongRequestIds + request.id else selectedCongRequestIds - request.id
+                                        },
+                                    )
                                 }
-                                Text("From: ${request.fromPublisherNameSnapshot} · ${request.fromCongregationNameSnapshot}", style = MaterialTheme.typography.bodySmall)
-                                Text("Requested: ${formatRecordTimestamp(request.requestedAt)}", style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = { selected = request }) { Text(if (readOnly) "View" else "Review") }
+                                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp, horizontal = if (isSuperAdmin) 0.dp else 0.dp).padding(end = 16.dp)) {
+                                    Text(request.personNameSnapshot, style = MaterialTheme.typography.titleMedium)
+                                    // "Include the basic details of the forwarded
+                                    // record, not just the name" — stage + address,
+                                    // live off the record itself (see
+                                    // ForwardRequestsViewModel.personFor's own doc
+                                    // comment).
+                                    person?.let { p ->
+                                        Text(stageLabel(p.pipelineStage), style = MaterialTheme.typography.bodySmall)
+                                        addressLine(p)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                                    }
+                                    Text("From: ${request.fromPublisherNameSnapshot} · ${request.fromCongregationNameSnapshot}", style = MaterialTheme.typography.bodySmall)
+                                    Text("To: ${request.toCongregationNameSnapshot}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Requested: ${formatRecordTimestamp(request.requestedAt)}", style = MaterialTheme.typography.bodySmall)
+                                    if (isSuperAdmin) Text("Status: ${statusLabel(request.status)}", style = MaterialTheme.typography.bodySmall, color = statusColor(request.status))
+                                    Row {
+                                        TextButton(onClick = { selected = request }) { Text(if (readOnly) "View" else "Review") }
+                                        if (isSuperAdmin) {
+                                            IconButton(onClick = { editingCongregationRequest = request }) { Icon(Icons.Rounded.Edit, contentDescription = "Edit") }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
                 if (publisherRequests.isNotEmpty()) {
-                    item { Text("To Other Publisher (view only)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp)) }
+                    item { Text(if (isSuperAdmin) "To Other Publisher" else "To Other Publisher (view only)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp)) }
                     items(publisherRequests, key = { it.id }) { request ->
-                        PublisherForwardRequestRow(request)
+                        PublisherForwardRequestRow(
+                            request = request,
+                            isSuperAdmin = isSuperAdmin,
+                            selected = request.id in selectedPublisherRequestIds,
+                            onSelectedChange = { checked ->
+                                selectedPublisherRequestIds = if (checked) selectedPublisherRequestIds + request.id else selectedPublisherRequestIds - request.id
+                            },
+                            onEdit = { editingPublisherRequest = request },
+                        )
                     }
                 }
             }
@@ -159,22 +256,85 @@ fun ForwardRequestsScreen(
             viewModel = viewModel,
         )
     }
+
+    editingCongregationRequest?.let { request ->
+        EditCongregationRequestDialog(
+            request = request,
+            onDismiss = { editingCongregationRequest = null },
+            onSave = { updated ->
+                viewModel.updateRequest(updated, currentPersonId)
+                showToast("Forward request updated.")
+                editingCongregationRequest = null
+            },
+        )
+    }
+    editingPublisherRequest?.let { request ->
+        EditPublisherRequestDialog(
+            request = request,
+            onDismiss = { editingPublisherRequest = null },
+            onSave = { updated ->
+                publisherForwardViewModel.updateRequest(updated, currentPersonId)
+                showToast("Forward request updated.")
+                editingPublisherRequest = null
+            },
+        )
+    }
+    if (confirmingBulkDelete) {
+        AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
+            onDismissRequest = { confirmingBulkDelete = false },
+            title = { Text("Delete Forward Request Record(s)?") },
+            text = { Text("Are you sure you want to delete the selected Forward Request record(s)? This action cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    requests.filter { it.id in selectedCongRequestIds }.forEach { viewModel.deleteRequest(it, currentPersonId) }
+                    publisherRequests.filter { it.id in selectedPublisherRequestIds }.forEach { publisherForwardViewModel.deleteRequest(it, currentPersonId) }
+                    showToast("Forward Request record(s) successfully deleted.")
+                    selectedCongRequestIds = emptySet()
+                    selectedPublisherRequestIds = emptySet()
+                    confirmingBulkDelete = false
+                }) { Text("Yes, Delete") }
+            },
+            dismissButton = { TextButton(onClick = { confirmingBulkDelete = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+private fun statusLabel(status: ForwardRequestStatus): String = when (status) {
+    ForwardRequestStatus.PENDING -> "Pending"
+    ForwardRequestStatus.ACCEPTED -> "Accepted"
+    ForwardRequestStatus.DECLINED -> "Declined"
+    ForwardRequestStatus.CANCELLED -> "Cancelled"
 }
 
 @Composable
-private fun PublisherForwardRequestRow(request: PublisherForwardRequest) {
-    val (statusText, statusColor) = when (request.status) {
-        ForwardRequestStatus.PENDING -> "Pending" to MaterialTheme.colorScheme.tertiary
-        ForwardRequestStatus.ACCEPTED -> "Accepted" to MaterialTheme.colorScheme.primary
-        ForwardRequestStatus.DECLINED -> "Declined" to MaterialTheme.colorScheme.error
-        ForwardRequestStatus.CANCELLED -> "Cancelled" to MaterialTheme.colorScheme.onSurfaceVariant
-    }
+private fun statusColor(status: ForwardRequestStatus) = when (status) {
+    ForwardRequestStatus.PENDING -> MaterialTheme.colorScheme.tertiary
+    ForwardRequestStatus.ACCEPTED -> MaterialTheme.colorScheme.primary
+    ForwardRequestStatus.DECLINED -> MaterialTheme.colorScheme.error
+    ForwardRequestStatus.CANCELLED -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+@Composable
+private fun PublisherForwardRequestRow(
+    request: PublisherForwardRequest,
+    isSuperAdmin: Boolean,
+    selected: Boolean,
+    onSelectedChange: (Boolean) -> Unit,
+    onEdit: () -> Unit,
+) {
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(request.personNameSnapshot, style = MaterialTheme.typography.titleMedium)
-            Text("From: ${request.fromPublisherNameSnapshot} → ${request.toPublisherNameSnapshot}", style = MaterialTheme.typography.bodySmall)
-            Text("Requested: ${formatRecordTimestamp(request.requestedAt)}", style = MaterialTheme.typography.bodySmall)
-            Text("Status: $statusText", style = MaterialTheme.typography.bodySmall, color = statusColor)
+        Row(modifier = Modifier.fillMaxWidth()) {
+            if (isSuperAdmin) Checkbox(checked = selected, onCheckedChange = onSelectedChange)
+            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp).padding(end = 16.dp)) {
+                Text(request.personNameSnapshot, style = MaterialTheme.typography.titleMedium)
+                Text("From: ${request.fromPublisherNameSnapshot} → ${request.toPublisherNameSnapshot}", style = MaterialTheme.typography.bodySmall)
+                Text("Requested: ${formatRecordTimestamp(request.requestedAt)}", style = MaterialTheme.typography.bodySmall)
+                Text("Status: ${statusLabel(request.status)}", style = MaterialTheme.typography.bodySmall, color = statusColor(request.status))
+                if (isSuperAdmin) {
+                    IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, contentDescription = "Edit") }
+                }
+            }
         }
     }
 }
@@ -331,4 +491,94 @@ private fun stageLabel(stage: PipelineStage): String = when (stage) {
 private fun addressLine(person: InterestedPerson): String? {
     val parts = listOfNotNull(person.barangay, person.cityMunicipality, person.province).filter { it.isNotBlank() }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(", ")
+}
+
+/** Super-Admin-only correction tool (see this file's top-of-file doc
+ * comment on consolidating the former "Forward Request Module" in here) —
+ * edits a congregation-forward request's own snapshot fields/status
+ * directly. Never touches the underlying InterestedPerson record. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditCongregationRequestDialog(
+    request: ForwardRequest,
+    onDismiss: () -> Unit,
+    onSave: (ForwardRequest) -> Unit,
+) {
+    var name by remember { mutableStateOf(request.personNameSnapshot) }
+    var status by remember { mutableStateOf(request.status) }
+    var expanded by remember { mutableStateOf(false) }
+    AlertDialog(
+        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Forward Request") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                    OutlinedTextField(
+                        value = status.name,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Status") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        visualTransformation = VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    )
+                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        ForwardRequestStatus.entries.forEach { s ->
+                            DropdownMenuItem(text = { Text(s.name) }, onClick = { status = s; expanded = false })
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(request.copy(personNameSnapshot = name, status = status)) }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Same Super-Admin correction tool as [EditCongregationRequestDialog], for
+ * a same-congregation "Forward to Other Publisher" request instead. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditPublisherRequestDialog(
+    request: PublisherForwardRequest,
+    onDismiss: () -> Unit,
+    onSave: (PublisherForwardRequest) -> Unit,
+) {
+    var name by remember { mutableStateOf(request.personNameSnapshot) }
+    var status by remember { mutableStateOf(request.status) }
+    var expanded by remember { mutableStateOf(false) }
+    AlertDialog(
+        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Forward Request") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                    OutlinedTextField(
+                        value = status.name,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Status") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        visualTransformation = VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    )
+                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        ForwardRequestStatus.entries.forEach { s ->
+                            DropdownMenuItem(text = { Text(s.name) }, onClick = { status = s; expanded = false })
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(request.copy(personNameSnapshot = name, status = status)) }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

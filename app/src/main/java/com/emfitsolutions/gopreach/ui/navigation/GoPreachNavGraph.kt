@@ -40,7 +40,6 @@ import com.emfitsolutions.gopreach.ui.screens.findlocation.FindLocationScreen
 import com.emfitsolutions.gopreach.ui.screens.groups.ManageGroupsScreen
 import com.emfitsolutions.gopreach.ui.screens.home.AdminHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
-import com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestModuleScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestsScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsScreen
@@ -752,6 +751,12 @@ fun GoPreachNavGraph(
                 congregationIds = if (currentRole == AdminRole.SUPER_ADMIN) null else setOfNotNull(ownCongregationId ?: ownGroupAssignment?.congregationId),
                 currentPersonId = currentPersonId,
                 readOnly = !canActOnForwardRequests,
+                // "Consolidate 'Forward Request' Modules for Super Admin" —
+                // the former separate "Forward Request Module" (all
+                // statuses, all-congregations filter, edit/delete) is now
+                // this same screen's Super-Admin-only view; see
+                // ForwardRequestsScreen's own doc comment.
+                isSuperAdmin = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -760,12 +765,6 @@ fun GoPreachNavGraph(
             // scoped to themselves, not their congregation (see
             // PublisherForwardRequestsViewModel.incomingRequestsFor).
             PublisherForwardRequestsScreen(
-                currentPersonId = currentPersonId,
-                onBack = { navController.popBackStack() },
-            )
-        }
-        composable(Destinations.FORWARD_REQUEST_MODULE) {
-            ForwardRequestModuleScreen(
                 currentPersonId = currentPersonId,
                 onBack = { navController.popBackStack() },
             )

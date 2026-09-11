@@ -58,6 +58,19 @@ enum class DashboardModuleId {
  * and defaulting it out of sight read as "I cannot see the forwarded to me"
  * the moment this feature shipped, for every Publisher who had never
  * customized their layout yet.
+ *
+ * "Update the Main Dashboard Navigation" — [MY_SUBMITTED_REPORTS] (My
+ * Reports), [HOUSEHOLDER_VISIT_HISTORY], [SHARE_MY_LOCATION],
+ * [FIND_LOCATION], [MEETING_CART_ASSIGNMENT], [MY_ASSIGNMENTS], and
+ * [GROUP_CHAT] moved back to the Main Form as their default/initial
+ * location, restoring where they originally were. This only changes what a
+ * *never-customized* layout resolves to (see this function's own doc
+ * comment above and [DashboardModuleLayout]'s "deliberately NOT storing
+ * every module" note) — a Publisher who already explicitly moved any of
+ * these to the Side Panel keeps that choice untouched, since their id is
+ * already present in [DashboardModuleLayout.sidePanelModuleIds] and this
+ * function is never consulted for it. [MY_CALENDAR] is the one former
+ * Side-Panel default left as-is; it wasn't named in this request.
  */
 fun DashboardModuleId.defaultLocation(): DashboardModuleLocation = when (this) {
     DashboardModuleId.MY_TOTAL_HOURS,
@@ -69,16 +82,16 @@ fun DashboardModuleId.defaultLocation(): DashboardModuleLocation = when (this) {
     DashboardModuleId.MY_BIBLE_TEXT_RECORD,
     DashboardModuleId.ANNOUNCEMENT,
     DashboardModuleId.FORWARDED_TO_ME,
-    -> DashboardModuleLocation.MAIN_FORM
-
     DashboardModuleId.MY_SUBMITTED_REPORTS,
     DashboardModuleId.HOUSEHOLDER_VISIT_HISTORY,
-    DashboardModuleId.MY_CALENDAR,
     DashboardModuleId.SHARE_MY_LOCATION,
     DashboardModuleId.FIND_LOCATION,
     DashboardModuleId.MEETING_CART_ASSIGNMENT,
     DashboardModuleId.MY_ASSIGNMENTS,
     DashboardModuleId.GROUP_CHAT,
+    -> DashboardModuleLocation.MAIN_FORM
+
+    DashboardModuleId.MY_CALENDAR,
     -> DashboardModuleLocation.SIDE_PANEL
 }
 
