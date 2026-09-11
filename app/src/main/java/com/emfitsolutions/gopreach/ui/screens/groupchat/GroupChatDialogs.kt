@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -152,7 +153,14 @@ fun CreateGroupChatDialog(
 ) {
     var groupName by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-    var pickedCongregationId by remember { mutableStateOf(fixedCongregationId) }
+    // Bug fix — same "Congregation/Group is required" even after picking one,
+    // confirmed root-caused (and fixed) in ManageGroupsScreen's GroupDialog:
+    // `rememberSaveable` (immune to a config change wiping a plain `remember`)
+    // and re-deriving the resolved id fresh inside submit() rather than
+    // trusting a val computed here — a real, confirmed-on-device Compose
+    // staleness where that kind of pre-computed val can go stale inside a
+    // local closure even though the live picked-id state stays correct.
+    var pickedCongregationId by rememberSaveable { mutableStateOf(fixedCongregationId) }
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val congregationId = fixedCongregationId ?: pickedCongregationId
@@ -161,16 +169,17 @@ fun CreateGroupChatDialog(
     val candidates by candidatesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     fun submit() {
+        val resolvedCongregationId = fixedCongregationId ?: pickedCongregationId
         val message = requiredFieldsMessage(
             "Group Chat Name" to groupName.isNotBlank(),
-            "Congregation" to (congregationId != null),
+            "Congregation" to (resolvedCongregationId != null),
         )
         if (message != null) {
             errorMessage = message
             return
         }
         viewModel.createGroupChat(
-            congregationId = congregationId!!,
+            congregationId = resolvedCongregationId!!,
             groupName = groupName.trim(),
             description = description.trim(),
             participantIds = selectedIds.toList(),

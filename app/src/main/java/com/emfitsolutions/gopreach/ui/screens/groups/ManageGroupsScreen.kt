@@ -371,20 +371,22 @@ private fun GroupDialog(
     }.collectAsStateWithLifecycle(initialValue = emptySet())
 
     fun submit() {
-        // TEMPORARY diagnostic logging — remove once the "Congregation/Group
-        // is required" report is confirmed resolved on a real device. Prints
-        // every value the validation below actually reads, so a `adb logcat
-        // -s GroupDialog` capture from a failing Save tap shows exactly which
-        // one was unexpectedly null/empty rather than requiring more guessing.
-        android.util.Log.d(
-            "GroupDialog",
-            "submit(): fixedCongregationId=$fixedCongregationId pickedCongregationId=$pickedCongregationId " +
-                "existingGroup?.congregationId=${existingGroup?.congregationId} resolvedCongregationId=$congregationId " +
-                "congregations.size=${congregations.size} name='$name'",
-        )
+        // Bug fix — confirmed live on-device: tapping Create/Save could
+        // invoke a *stale* `submit()` closure from an earlier recomposition,
+        // one captured back when `congregationId` (a plain `val`, snapshotted
+        // once per recomposition) was still null, before a congregation had
+        // been picked. `pickedCongregationId` itself was always correct
+        // (it's a live `State` read, not a captured snapshot — confirmed via
+        // logcat, which showed the real picked id alongside a null
+        // `congregationId` in the very same log line), so re-deriving the
+        // resolved id HERE, live, at the moment submit() actually runs —
+        // rather than trusting whichever `congregationId` val this
+        // particular closure happened to close over — is immune to that
+        // staleness regardless of which recomposition produced this closure.
+        val resolvedCongregationId = fixedCongregationId ?: pickedCongregationId ?: existingGroup?.congregationId
         val message = requiredFieldsMessage(
             "Field Service Group Name" to name.isNotBlank(),
-            "Congregation/Group" to (congregationId != null),
+            "Congregation/Group" to (resolvedCongregationId != null),
         )
         if (message != null) {
             errorMessage = message
@@ -397,7 +399,7 @@ private fun GroupDialog(
         viewModel.saveWithMembers(
             group = Group(
                 id = existingGroup?.id ?: "",
-                congregationId = congregationId!!,
+                congregationId = resolvedCongregationId!!,
                 name = name.trim(),
                 regularElderPersonId = existingGroup?.regularElderPersonId,
                 overseerPersonId = overseer?.id,

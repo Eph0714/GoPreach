@@ -41,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -434,7 +435,14 @@ private fun LocationSharingSettingsDialog(
     viewModel: ShareLocationViewModel,
     onDismiss: () -> Unit,
 ) {
-    var pickedCongregationId by remember { mutableStateOf(fixedCongregationId ?: congregations.firstOrNull()?.id) }
+    // Bug fix — same "Congregation/Group is required" even after picking one,
+    // confirmed root-caused (and fixed) in ManageGroupsScreen's GroupDialog:
+    // `rememberSaveable` (immune to a config change wiping a plain `remember`)
+    // and re-deriving the resolved id fresh inside submit() rather than
+    // trusting a val computed here — a real, confirmed-on-device Compose
+    // staleness where that kind of pre-computed val can go stale inside a
+    // local closure even though the live picked-id state stays correct.
+    var pickedCongregationId by rememberSaveable { mutableStateOf(fixedCongregationId ?: congregations.firstOrNull()?.id) }
     val congregationId = fixedCongregationId ?: pickedCongregationId
 
     val settings by (
@@ -448,10 +456,11 @@ private fun LocationSharingSettingsDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     fun submit() {
+        val resolvedCongregationId = fixedCongregationId ?: pickedCongregationId
         val duration = durationText.toIntOrNull()
         val accuracy = accuracyText.toIntOrNull()
         val message = requiredFieldsMessage(
-            "Congregation/Group" to (congregationId != null),
+            "Congregation/Group" to (resolvedCongregationId != null),
             "Location Sharing Time" to (duration != null && duration > 0),
             "Accuracy Radius" to (accuracy != null && accuracy > 0),
         )
@@ -461,7 +470,7 @@ private fun LocationSharingSettingsDialog(
         }
         viewModel.saveSettings(
             LocationSharingSettings(
-                congregationId = congregationId!!,
+                congregationId = resolvedCongregationId!!,
                 sharingDurationMinutes = duration!!,
                 accuracyRadiusMeters = accuracy!!,
             ),

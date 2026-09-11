@@ -46,6 +46,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -290,7 +291,15 @@ private fun AnnouncementDialog(
     val context = LocalContext.current
     var title by remember { mutableStateOf(existing?.title ?: "") }
     var details by remember { mutableStateOf(existing?.details ?: "") }
-    var pickedCongregationId by remember { mutableStateOf(existing?.congregationId ?: fixedCongregationId) }
+    // Bug fix — same "Congregation/Group is required" even after picking one,
+    // confirmed root-caused (and fixed) in ManageGroupsScreen's GroupDialog:
+    // `rememberSaveable` (not plain `remember`, immune to a config change
+    // wiping it) instead of a whole-object `remember`, AND submit() below
+    // re-derives the resolved id fresh at call time rather than trusting
+    // this file's own `congregationId` val — a real, confirmed-on-device
+    // Compose staleness where that kind of pre-computed val can go stale
+    // inside a local closure even though the live picked-id state stays correct.
+    var pickedCongregationId by rememberSaveable { mutableStateOf(existing?.congregationId ?: fixedCongregationId) }
     var pickedImageUri by remember { mutableStateOf<Uri?>(null) }
     var removeImage by remember { mutableStateOf(false) }
     // "Allow to add files like pdf, word and excel" — a document attachment,
@@ -324,10 +333,11 @@ private fun AnnouncementDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     fun submit() {
+        val resolvedCongregationId = fixedCongregationId ?: pickedCongregationId
         val message = requiredFieldsMessage(
             "Announcement Title" to title.isNotBlank(),
             "Announcement Details" to details.isNotBlank(),
-            "Congregation/Group" to (congregationId != null),
+            "Congregation/Group" to (resolvedCongregationId != null),
         )
         if (message != null) {
             errorMessage = message
@@ -336,7 +346,7 @@ private fun AnnouncementDialog(
         viewModel.saveWithImage(
             announcement = Announcement(
                 id = existing?.id ?: "",
-                congregationId = congregationId!!,
+                congregationId = resolvedCongregationId!!,
                 title = title.trim(),
                 details = details.trim(),
                 imageUrl = existing?.imageUrl,

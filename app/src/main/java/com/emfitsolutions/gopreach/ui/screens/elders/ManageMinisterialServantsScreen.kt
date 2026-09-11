@@ -16,6 +16,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -106,7 +107,14 @@ private fun MinisterialServantEditDialog(
     var address by remember { mutableStateOf(row.person.address) }
     var contact by remember { mutableStateOf(row.person.contact) }
     var email by remember { mutableStateOf(row.person.email ?: "") }
-    var pickedCongregationId by remember { mutableStateOf(row.assignment.congregationId) }
+    // Bug fix — same "Congregation/Group is required" even after picking one,
+    // confirmed root-caused (and fixed) in ManageGroupsScreen's GroupDialog:
+    // `rememberSaveable` (immune to a config change wiping a plain `remember`)
+    // and re-deriving the resolved id fresh inside submit() rather than
+    // trusting a val computed here — a real, confirmed-on-device Compose
+    // staleness where that kind of pre-computed val can go stale inside a
+    // local closure even though the live picked-id state stays correct.
+    var pickedCongregationId by rememberSaveable { mutableStateOf(row.assignment.congregationId) }
     val congregationId = fixedCongregationId ?: pickedCongregationId
 
     // Same bug fix as Coordinator Elder/Service Overseer/Regular Elder's own
@@ -131,12 +139,13 @@ private fun MinisterialServantEditDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     fun submit() {
+        val resolvedCongregationId = fixedCongregationId ?: pickedCongregationId
         val message = requiredFieldsMessage(
             "First Name" to firstName.isNotBlank(),
             "Last Name" to lastName.isNotBlank(),
             "Address" to address.isNotBlank(),
             "Contact" to contact.isNotBlank(),
-            "Congregation/Group" to (congregationId != null),
+            "Congregation/Group" to (resolvedCongregationId != null),
         )
         if (message != null) {
             errorMessage = message
@@ -151,7 +160,7 @@ private fun MinisterialServantEditDialog(
                 contact = contact.trim(),
                 email = email.trim().ifBlank { null },
             ),
-            newCongregationId = congregationId!!,
+            newCongregationId = resolvedCongregationId!!,
             groupRole = groupRole,
             publisherCategory = publisherCategory,
             actorPersonId = currentPersonId,

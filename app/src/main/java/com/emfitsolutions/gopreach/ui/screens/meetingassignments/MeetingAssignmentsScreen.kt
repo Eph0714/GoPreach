@@ -49,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -103,7 +104,22 @@ fun MeetingAssignmentsScreen(
     viewModel: MeetingAssignmentsViewModel = hiltViewModel(),
 ) {
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
-    var pickedCongregationId by remember(congregations) { mutableStateOf(fixedCongregationId ?: congregations.firstOrNull()?.id) }
+    // Bug fix — same class of issue as ManageGroupsScreen's GroupDialog
+    // ("Congregation/Group is required" even after picking one): `remember`
+    // keyed on the live `congregations` list gets a new List instance on
+    // every Firestore snapshot re-emission, silently resetting the
+    // Super-Admin's own pick back to `congregations.firstOrNull()` — here
+    // that doesn't surface as a validation error (there's no Save button on
+    // this screen), but it does mean the visibly selected congregation could
+    // silently jump to a different one mid-session. `rememberSaveable`,
+    // pre-filled once, isn't keyed on the list at all and survives
+    // configuration changes too.
+    var pickedCongregationId by rememberSaveable { mutableStateOf(fixedCongregationId) }
+    var congregationPreselected by rememberSaveable { mutableStateOf(fixedCongregationId != null) }
+    if (!congregationPreselected && congregations.isNotEmpty()) {
+        pickedCongregationId = congregations.firstOrNull()?.id
+        congregationPreselected = true
+    }
     val congregationId = fixedCongregationId ?: pickedCongregationId
     var category by remember { mutableStateOf(MeetingAssignmentCategory.MIDWEEK) }
 
