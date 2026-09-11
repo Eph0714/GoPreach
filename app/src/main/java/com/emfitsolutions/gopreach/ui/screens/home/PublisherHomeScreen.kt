@@ -237,6 +237,12 @@ fun PublisherHomeScreen(
                 modifier = Modifier.fillMaxSize().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                // "Move it more upward. it must be outside the square panel"
+                // — above and outside the "Keep Your Data Safe" card
+                // entirely now, the first thing the Publisher sees below the
+                // header, not tucked inside the card's own colored box.
+                com.emfitsolutions.gopreach.ui.components.SyncStatusIndicator(modifier = Modifier.padding(horizontal = 4.dp))
+
                 // "Sync to Server" moved to the top of the form (was at the
                 // bottom, past the stats/tiles/switch-account content, where
                 // it was easy to miss) — now the first thing the Publisher
@@ -247,12 +253,6 @@ fun PublisherHomeScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // "Move the icon for Online and Online User at the Top
-                        // of the Keep Your Data Safe Panel so that it will be
-                        // visible" — the very first thing in the card now,
-                        // above the title, instead of sitting just above the
-                        // button lower down where it was easy to miss.
-                        com.emfitsolutions.gopreach.ui.components.SyncStatusIndicator()
                         Text(
                             stringResource(R.string.home_sync_card_title),
                             style = MaterialTheme.typography.titleSmall,
