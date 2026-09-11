@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AccountBalance
 import androidx.compose.material.icons.rounded.AdminPanelSettings
@@ -196,6 +197,10 @@ fun GoPreachSidePanelContent(
             // Searching/Return Visit/Bible Study entry point in this app
             // (Publisher context, own records only).
             if (isSuperAdmin) add(SideItem(stringResource(R.string.side_interested_records_all_congregations), Icons.Rounded.Groups, Destinations.ALL_INTERESTED_RECORDS))
+            // "House Holder Visit History" — Super-Admin only in this
+            // drawer; a Publisher reaches the same screen via their own Main
+            // Form tile instead (see PublisherHomeScreen).
+            if (isSuperAdmin) add(SideItem(stringResource(R.string.side_householder_visit_history), Icons.AutoMirrored.Rounded.ListAlt, Destinations.HOUSEHOLDER_VISIT_HISTORY))
             // "Preaching Time Records — Super Admin Management Module" —
             // same "Super-Admin only" gating as the item above.
             if (isSuperAdmin) add(SideItem(stringResource(R.string.side_preaching_time_records_all_congregations), Icons.Rounded.Schedule, Destinations.ALL_PREACHING_TIME_RECORDS))

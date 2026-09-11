@@ -178,4 +178,11 @@ object Destinations {
     // [ALL_INTERESTED_RECORDS], which is Super-Admin-only and full read/write
     // across every congregation.
     const val SCOPED_INTERESTED_RECORDS = "scoped_interested_records"
+
+    // "House Holder Visit History" — a read-only, consolidated view over the
+    // existing Searching/Return Visit/Bible Study records and their Visit
+    // history, for Super-Admin (every authorized congregation) and Publisher
+    // (their own congregation) accounts. See HouseholderVisitHistoryScreen's
+    // own doc comment.
+    const val HOUSEHOLDER_VISIT_HISTORY = "householder_visit_history"
 }

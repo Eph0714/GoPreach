@@ -373,6 +373,16 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
+        // "House Holder Visit History" — Super-Admin (every authorized
+        // congregation, null) and Publisher (their own congregation) only,
+        // per that module's own spec; the drawer/tile entries below are
+        // gated the same way, but this is the actual scoping boundary.
+        composable(Destinations.HOUSEHOLDER_VISIT_HISTORY) {
+            com.emfitsolutions.gopreach.ui.screens.householdervisithistory.HouseholderVisitHistoryScreen(
+                congregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownPublisherAssignment?.congregationId,
+                onBack = { navController.popBackStack() },
+            )
+        }
         // "Preaching Time Records — Super Admin Management Module" — same
         // "Super-Admin only, hidden AND unreachable for anyone else"
         // guarantee as [ALL_INTERESTED_RECORDS] above (see SidePanel's

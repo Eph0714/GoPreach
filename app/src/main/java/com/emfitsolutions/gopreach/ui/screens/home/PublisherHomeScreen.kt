@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.Bookmarks
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
@@ -495,6 +496,12 @@ private fun FeatureTileGrid(
         add(Tile(stringResource(R.string.home_tile_bible_study_title), stringResource(R.string.home_tile_bible_study_subtitle), Icons.AutoMirrored.Rounded.MenuBook, Destinations.BIBLE_STUDY))
         // "FORWARD TO OTHER PUBLISHER" — this Publisher's own incoming queue.
         add(Tile(stringResource(R.string.home_tile_forwarded_to_me_title), stringResource(R.string.home_tile_forwarded_to_me_subtitle), Icons.AutoMirrored.Rounded.Forward, Destinations.PUBLISHER_FORWARD_REQUESTS, pendingPublisherForwards))
+        // "House Holder Visit History" — a read-only, consolidated view of
+        // this Publisher's own congregation's Searching/Return Visit/Bible
+        // Study records and their visit history (see
+        // HouseholderVisitHistoryScreen's own doc comment); Super-Admin
+        // reaches the same screen unscoped via the drawer instead.
+        add(Tile(stringResource(R.string.home_tile_householder_visit_history_title), stringResource(R.string.home_tile_householder_visit_history_subtitle), Icons.Rounded.History, Destinations.HOUSEHOLDER_VISIT_HISTORY))
         if (isPioneer) {
             add(Tile(stringResource(R.string.home_tile_my_total_hours_title), stringResource(R.string.home_tile_my_total_hours_subtitle), Icons.Rounded.Timer, Destinations.PREACHING_TIME_RECORD))
         }

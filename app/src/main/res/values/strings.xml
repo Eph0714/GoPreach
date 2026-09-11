@@ -58,6 +58,8 @@
     <string name="home_tile_bible_study_subtitle">View &amp; Manage</string>
     <string name="home_tile_forwarded_to_me_title">Forwarded to Me</string>
     <string name="home_tile_forwarded_to_me_subtitle">Accept or Decline</string>
+    <string name="home_tile_householder_visit_history_title">House Holder Visit History</string>
+    <string name="home_tile_householder_visit_history_subtitle">View past visits</string>
     <string name="home_tile_my_total_hours_title">My Total Hours</string>
     <string name="home_tile_my_total_hours_subtitle">Track Preaching Hours</string>
     <string name="home_tile_my_bible_text_record_title">My Bible Text Record</string>
@@ -122,6 +124,7 @@
     <string name="side_contact_record">Contact Record</string>
     <string name="side_interested_records_all_congregations">Interested Records (All Congregations)</string>
     <string name="side_interested_records_scoped">Interested People</string>
+    <string name="side_householder_visit_history">House Holder Visit History</string>
     <string name="side_preaching_time_records_all_congregations">Preaching Time Records (All Congregations)</string>
     <string name="side_user_management">User Management</string>
     <string name="side_account_settings">Account Settings</string>
