@@ -5,6 +5,8 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Handler
+import android.os.Looper
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -82,7 +84,22 @@ class ConnectivityObserver @Inject constructor(
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             .build()
-        cm.registerNetworkCallback(request, callback)
+        // Bug fix ("still shows Online with no internet" / sync never rejects
+        // for "no connection" the way it should): registered with no explicit
+        // Handler, callback delivery depends on whichever thread happened to
+        // call registerNetworkCallback — fine from a Looper-bearing thread
+        // (e.g. Main, which every earlier per-consumer version of this class
+        // used via `viewModelScope`), but this is now a `@Singleton` collected
+        // eagerly on `appScope`, a plain `Dispatchers.IO` thread pool with no
+        // Looper of its own. Registration itself doesn't throw, but callback
+        // delivery silently never happens, so `online` gets its one-time
+        // initial value ([currentlyOnline] computed at app start, when the
+        // device is normally online) and then never updates again — every
+        // later real disconnect is invisible, which is exactly this bug.
+        // Passing the main Looper's Handler explicitly removes any dependency
+        // on the registering thread and guarantees delivery.
+        val mainHandler = Handler(Looper.getMainLooper())
+        cm.registerNetworkCallback(request, callback, mainHandler)
         trySend(currentlyOnline())
         awaitClose { cm.unregisterNetworkCallback(callback) }
     }.distinctUntilChanged()
