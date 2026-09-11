@@ -193,11 +193,12 @@ fun SyncToServerButton(viewModel: ManualSyncViewModel = hiltViewModel()) {
     when (val s = state) {
         ManualSyncState.NoNetwork -> AlertDialog(
             onDismissRequest = viewModel::dismissDialog,
-            title = { Text("No Network Connection") },
+            title = { Text("Sync Failed") },
             text = {
                 Text(
-                    "${pendingChangesPhrase(pendingCount).removeSuffix(".")} stored on this device.\n\n" +
-                        "Connect to the Internet and try again.",
+                    "No internet connection.\n\n" +
+                        "${pendingChangesPhrase(pendingCount).removeSuffix(".")} stored safely on this device and " +
+                        "will sync automatically once you're back online.",
                 )
             },
             confirmButton = { TextButton(onClick = viewModel::dismissDialog) { Text("OK") } },
