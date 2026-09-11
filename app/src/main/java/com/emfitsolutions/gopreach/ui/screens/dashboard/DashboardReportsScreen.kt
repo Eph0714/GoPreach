@@ -151,6 +151,39 @@ fun DashboardStatsContent(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isMultiCongregation = uiState.all.size > 1
 
+    // "Add an export to Excel or PDF feature under this module" — each stat
+    // card's own tap-to-see-names dialog (below) gets its own PDF/Excel
+    // export of exactly the list it shows, independent of the whole-
+    // dashboard export [DashboardReportsScreen] already offers. Declared
+    // here (unconditionally, before this composable's own early returns for
+    // isLoading/error) since `rememberLauncherForActivityResult` must be
+    // called on every composition of this composable, not only while a
+    // dialog happens to be open; [pendingExportTable] is what the launcher's
+    // callback actually writes, set right before each `launch()` call.
+    val context = LocalContext.current
+    val showToast = rememberActionToast()
+    var pendingExportTable by remember { mutableStateOf<ReportTable?>(null) }
+    val exportCsvSuccess = stringResource(R.string.reports_export_csv_success)
+    val exportFailedWrite = stringResource(R.string.reports_export_failed_write)
+    val exportFailedUnknown = stringResource(R.string.reports_export_failed_unknown)
+    val exportFailedGenericTemplate = stringResource(R.string.reports_export_failed_generic)
+    val statExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        val table = pendingExportTable
+        if (uri != null && table != null) {
+            try {
+                val wrote = CsvExporter.write(context, uri, table.title, subtitle = null, columns = table.columns, rows = table.rows, totals = table.totals)
+                if (wrote) {
+                    showToast(exportCsvSuccess)
+                    CsvExporter.openWithChooser(context, uri, "text/csv")
+                } else {
+                    showToast(exportFailedWrite)
+                }
+            } catch (e: Exception) {
+                showToast(exportFailedGenericTemplate.format(e.localizedMessage ?: exportFailedUnknown))
+            }
+        }
+    }
+
     if (uiState.isLoading) {
         Column(modifier = modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
             CircularProgressIndicator(modifier = Modifier.padding(24.dp))
@@ -269,6 +302,18 @@ fun DashboardStatsContent(
                 .filter { detail.label in it.statLabels }
                 .filter { displayed.congregationId.isBlank() || it.congregationId == displayed.congregationId }
                 .sortedBy { it.fullName }
+            // "Add an export to Excel or PDF feature under this module" —
+            // exactly the list this dialog shows, one row per name plus the
+            // headline total as its own summary line (same [ReportTable]
+            // shape every other PDF/Excel export in this app already uses).
+            val memberReportTable = remember(detail, matchingMembers) {
+                ReportTable(
+                    title = detail.label,
+                    columns = listOf("#", "Name"),
+                    rows = matchingMembers.mapIndexed { index, member -> listOf((index + 1).toString(), member.fullName) },
+                    totals = listOf(detail.label to detail.value),
+                )
+            }
             AlertDialog(
                 properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
                 onDismissRequest = { selectedDetail = null },
@@ -300,17 +345,48 @@ fun DashboardStatsContent(
                         }
                         if (matchingMembers.isNotEmpty()) {
                             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                            matchingMembers.forEach { member ->
-                                Text(
-                                    "${member.fullName} (${member.congregationName})",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
+                            // "Do not include the congregation name next to
+                            // the publisher name. Put a separator in each
+                            // name" — just the name now (every name here is
+                            // already scoped to one congregation, either
+                            // [displayed] itself or, for "All Congregations",
+                            // a plain member list where the name alone is
+                            // what was asked for), with a divider line
+                            // between each row rather than one divider above
+                            // the whole list.
+                            matchingMembers.forEachIndexed { index, member ->
+                                Text(member.fullName, style = MaterialTheme.typography.bodyMedium)
+                                if (index != matchingMembers.lastIndex) {
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                }
                             }
                         }
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { selectedDetail = null }) { Text(stringResource(R.string.action_close)) }
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        // Same "print preview always offers Save as PDF" +
+                        // plain-CSV-for-Excel pair every other export in this
+                        // app already uses — disabled rather than hidden
+                        // when there's nothing in this particular list to
+                        // export (e.g. a figure with zero members).
+                        IconButton(
+                            onClick = { ReportPrinter.print(context, memberReportTable) },
+                            enabled = matchingMembers.isNotEmpty(),
+                        ) {
+                            Icon(Icons.Rounded.PictureAsPdf, contentDescription = stringResource(R.string.reports_export_pdf_cd))
+                        }
+                        IconButton(
+                            onClick = {
+                                pendingExportTable = memberReportTable
+                                statExportLauncher.launch("gopreach-${detail.label.lowercase().replace(' ', '-')}-${SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())}.csv")
+                            },
+                            enabled = matchingMembers.isNotEmpty(),
+                        ) {
+                            Icon(Icons.Rounded.TableChart, contentDescription = stringResource(R.string.reports_export_excel_cd))
+                        }
+                        TextButton(onClick = { selectedDetail = null }) { Text(stringResource(R.string.action_close)) }
+                    }
                 },
             )
         }
