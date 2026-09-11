@@ -257,6 +257,12 @@ private fun MinisterialServantEditDialog(
                     onCheckedChange = { checked -> publisherCategory = if (checked) PublisherCategory.REGULAR_PIONEER else null },
                 )
                 MinisterialServantRoleCheckboxRow(
+                    label = "Special Pioneer",
+                    checked = publisherCategory == PublisherCategory.SPECIAL_PIONEER,
+                    enabled = publisherCategory == null || publisherCategory == PublisherCategory.SPECIAL_PIONEER,
+                    onCheckedChange = { checked -> publisherCategory = if (checked) PublisherCategory.SPECIAL_PIONEER else null },
+                )
+                MinisterialServantRoleCheckboxRow(
                     label = "Auxiliary Pioneer",
                     checked = publisherCategory == PublisherCategory.AUXILIARY_PIONEER,
                     enabled = publisherCategory == null || publisherCategory == PublisherCategory.AUXILIARY_PIONEER,

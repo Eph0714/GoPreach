@@ -71,6 +71,7 @@ import androidx.compose.ui.window.DialogProperties
 private val COLOR_PUBLISHERS: Color get() = Color(0xFF1565C0)
 private val COLOR_ELDERS: Color get() = Color(0xFF6A1B9A)
 private val COLOR_REGULAR_PIONEER: Color get() = Color(0xFF2E7D32)
+private val COLOR_SPECIAL_PIONEER: Color get() = Color(0xFF00897B)
 private val COLOR_AUXILIARY_PIONEER: Color get() = Color(0xFF66BB6A)
 private val COLOR_HOURS: Color get() = Color(0xFFE0A526)
 
@@ -120,13 +121,19 @@ private fun memberDisplayName(detailLabel: String, member: StatMember): String {
  * [DashboardReportsScreen] (its PDF/Excel export) so the two can never list
  * a different set of figures — same source, one place this list is defined. */
 private fun buildStatCards(displayed: CongregationStats): List<StatDetail> {
-    val totalHours = displayed.regularPioneerHours + displayed.auxiliaryPioneerHours
+    // "Add Special Pioneer publisher status category" — its own figures
+    // throughout, folded in alongside Regular Pioneer's wherever this
+    // dashboard already breaks Regular Pioneer out as its own line (never
+    // silently absorbed into it — see PublisherCategory.SPECIAL_PIONEER's
+    // own doc comment).
+    val totalHours = displayed.regularPioneerHours + displayed.specialPioneerHours + displayed.auxiliaryPioneerHours
     return listOf(
         StatDetail(
             "Total Publishers", displayed.totalPublishers.toString(),
             breakdown = listOf(
                 "Regular Publishers" to displayed.regularPublishers.toString(),
                 "Regular Pioneers" to displayed.regularPioneers.toString(),
+                "Special Pioneers" to displayed.specialPioneers.toString(),
                 "Auxiliary Pioneers" to displayed.auxiliaryPioneers.toString(),
                 "Unbaptized Publishers" to displayed.unbaptizedPublishers.toString(),
                 "Inactive Publishers" to displayed.inactivePublishers.toString(),
@@ -135,6 +142,7 @@ private fun buildStatCards(displayed: CongregationStats): List<StatDetail> {
         StatDetail("Total Elders", displayed.totalElders.toString(), emptyList()),
         StatDetail("Total Ministerial", displayed.totalMinisterial.toString(), emptyList()),
         StatDetail("Regular Pioneers", displayed.regularPioneers.toString(), emptyList()),
+        StatDetail("Special Pioneers", displayed.specialPioneers.toString(), emptyList()),
         StatDetail("Auxiliary Pioneers", displayed.auxiliaryPioneers.toString(), emptyList()),
         StatDetail("Unbaptized Publishers", displayed.unbaptizedPublishers.toString(), emptyList()),
         StatDetail("Inactive Publishers", displayed.inactivePublishers.toString(), emptyList()),
@@ -144,6 +152,7 @@ private fun buildStatCards(displayed: CongregationStats): List<StatDetail> {
             "Total Preaching Hours", "%.1f".format(totalHours),
             breakdown = listOf(
                 "Regular Pioneer Hours" to "%.1f".format(displayed.regularPioneerHours),
+                "Special Pioneer Hours" to "%.1f".format(displayed.specialPioneerHours),
                 "Auxiliary Pioneer Hours" to "%.1f".format(displayed.auxiliaryPioneerHours),
             ),
         ),
@@ -446,6 +455,7 @@ fun DashboardStatsContent(
                 SimpleBarChart(
                     slices = listOf(
                         BarSlice("Regular Pioneers", displayed.regularPioneerHours.toFloat(), COLOR_REGULAR_PIONEER),
+                        BarSlice("Special Pioneers", displayed.specialPioneerHours.toFloat(), COLOR_SPECIAL_PIONEER),
                         BarSlice("Auxiliary Pioneers", displayed.auxiliaryPioneerHours.toFloat(), COLOR_AUXILIARY_PIONEER),
                     ),
                     modifier = Modifier.padding(top = 8.dp),

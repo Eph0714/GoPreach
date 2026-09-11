@@ -14,6 +14,7 @@ import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
+import com.emfitsolutions.gopreach.domain.MonthlyReportCalculator
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,7 +44,7 @@ data class PublisherReportRow(
     val congregationName: String,
 ) {
     val category: PublisherCategory get() = report.category
-    val isPioneer: Boolean get() = category == PublisherCategory.REGULAR_PIONEER || category == PublisherCategory.AUXILIARY_PIONEER
+    val isPioneer: Boolean get() = MonthlyReportCalculator.isPioneerCategory(category)
     /** Whether the *Publisher* can still edit this report themselves —
      * "allow the publisher to edit the record until the service overseer
      * will mark it as 'Posted'": true only once [ReportStatus.POSTED],

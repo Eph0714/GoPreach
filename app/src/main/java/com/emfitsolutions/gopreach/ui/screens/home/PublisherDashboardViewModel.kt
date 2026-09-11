@@ -19,8 +19,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
+/** "Add Special Pioneer publisher status category" — Special Pioneer gets
+ * exactly Regular Pioneer's treatment everywhere this shared helper is used
+ * (PublisherHomeScreen, ConsolidatedReportViewModel, ...), without touching
+ * Auxiliary Pioneer's own existing behavior (already grouped in here too). */
 fun isPioneerCategory(category: PublisherCategory?): Boolean =
-    category == PublisherCategory.REGULAR_PIONEER || category == PublisherCategory.AUXILIARY_PIONEER
+    category == PublisherCategory.REGULAR_PIONEER ||
+        category == PublisherCategory.SPECIAL_PIONEER ||
+        category == PublisherCategory.AUXILIARY_PIONEER
 
 /** "Complete Publisher Dashboard" spec §1/§21 — everything the square stat
  * cards need, computed the same way (unique-person counts, summed hours,

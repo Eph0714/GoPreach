@@ -105,6 +105,19 @@ enum class AccountStatus { ACTIVE, INACTIVE, SUSPENDED }
 /** Publisher track — categories, not a hierarchy (spec §2.2). */
 enum class PublisherCategory {
     REGULAR_PIONEER,
+    /** "Add Special Pioneer publisher status category" — functionally
+     * equivalent to [REGULAR_PIONEER] everywhere that category drives
+     * eligibility/permissions/calculations (report submission, Bible Study/
+     * preaching-hour calculation, Preaching Time Records, notifications,
+     * ...): every such call site was updated to check both together (see
+     * each one's own doc comment/history for why it, specifically, treats
+     * the two as one group). Kept as its own distinct enum constant, not an
+     * alias, purely so the category still *displays* and *filters* as its
+     * own value (spec: "keep their category values distinct so the system
+     * can correctly display and report REGULAR PIONEER versus SPECIAL
+     * PIONEER") — never silently merged into Regular Pioneer's own display/
+     * filter identity, only its behavior. */
+    SPECIAL_PIONEER,
     AUXILIARY_PIONEER,
     REGULAR_PUBLISHER,
     UNBAPTIZED_PUBLISHER,

@@ -316,6 +316,14 @@ fun ReportsScreen(
                                 stringResource(R.string.reports_total_regular_pioneer, countsByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
+                            // "Add Special Pioneer publisher status category"
+                            // — its own breakdown line, same "keep display
+                            // distinct" treatment Regular/Auxiliary Pioneer
+                            // already get here.
+                            Text(
+                                stringResource(R.string.reports_total_special_pioneer, countsByCategory[PublisherCategory.SPECIAL_PIONEER] ?: 0),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
                             Text(
                                 stringResource(R.string.reports_total_auxiliary_pioneer, countsByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0),
                                 style = MaterialTheme.typography.bodyMedium,
@@ -341,11 +349,19 @@ fun ReportsScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Text(
+                                stringResource(R.string.reports_total_bible_studies_for, PublisherCategory.SPECIAL_PIONEER.displayLabel(), bibleStudiesByCategory[PublisherCategory.SPECIAL_PIONEER] ?: 0),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
                                 stringResource(R.string.reports_total_bible_studies_for, PublisherCategory.AUXILIARY_PIONEER.displayLabel(), bibleStudiesByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Text(
                                 stringResource(R.string.reports_total_hours_for, PublisherCategory.REGULAR_PIONEER.displayLabel(), "%.1f".format(hoursByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0.0)),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                stringResource(R.string.reports_total_hours_for, PublisherCategory.SPECIAL_PIONEER.displayLabel(), "%.1f".format(hoursByCategory[PublisherCategory.SPECIAL_PIONEER] ?: 0.0)),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Text(
@@ -592,6 +608,7 @@ private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateR
             "Bible Studies" to allRows.sumOf { it.totalBibleStudies }.toString(),
             "Hours" to "%.1f".format(allRows.sumOf { it.totalHours }),
             "Total Regular Pioneer" to (countsByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0).toString(),
+            "Total Special Pioneer" to (countsByCategory[PublisherCategory.SPECIAL_PIONEER] ?: 0).toString(),
             "Total Auxiliary Pioneer" to (countsByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0).toString(),
             // "Include the total number of Regular Publisher, Unbaptized
             // Publisher to every group summary and grand total summary" —
@@ -601,8 +618,10 @@ private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateR
             "Total Regular Publisher" to (countsByCategory[PublisherCategory.REGULAR_PUBLISHER] ?: 0).toString(),
             "Total Unbaptized Publisher" to (countsByCategory[PublisherCategory.UNBAPTIZED_PUBLISHER] ?: 0).toString(),
             "Total Bible Studies for Regular Pioneer" to (bibleStudiesByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0).toString(),
+            "Total Bible Studies for Special Pioneer" to (bibleStudiesByCategory[PublisherCategory.SPECIAL_PIONEER] ?: 0).toString(),
             "Total Bible Studies for Auxiliary Pioneer" to (bibleStudiesByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0).toString(),
             "Total Hours for Regular Pioneer" to "%.1f".format(hoursByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0.0),
+            "Total Hours for Special Pioneer" to "%.1f".format(hoursByCategory[PublisherCategory.SPECIAL_PIONEER] ?: 0.0),
             "Total Hours for Auxiliary Pioneer" to "%.1f".format(hoursByCategory[PublisherCategory.AUXILIARY_PIONEER] ?: 0.0),
         ),
     )

@@ -176,6 +176,12 @@ fun EldersEnrollmentScreen(
                         onCheckedChange = { viewModel.onPublisherCategoryToggled(PublisherCategory.REGULAR_PIONEER, it) },
                     )
                     RoleCheckboxRow(
+                        label = "Special Pioneer",
+                        checked = uiState.publisherCategory == PublisherCategory.SPECIAL_PIONEER,
+                        enabled = uiState.publisherCategory == null || uiState.publisherCategory == PublisherCategory.SPECIAL_PIONEER,
+                        onCheckedChange = { viewModel.onPublisherCategoryToggled(PublisherCategory.SPECIAL_PIONEER, it) },
+                    )
+                    RoleCheckboxRow(
                         label = "Auxiliary Pioneer",
                         checked = uiState.publisherCategory == PublisherCategory.AUXILIARY_PIONEER,
                         enabled = uiState.publisherCategory == null || uiState.publisherCategory == PublisherCategory.AUXILIARY_PIONEER,

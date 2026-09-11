@@ -32,8 +32,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.model.MonthlyReport
-import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.ReportStatus
+import com.emfitsolutions.gopreach.domain.MonthlyReportCalculator
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -98,7 +98,7 @@ private val periodFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
 
 @Composable
 private fun SubmittedReportCard(report: MonthlyReport) {
-    val isPioneer = report.category == PublisherCategory.REGULAR_PIONEER || report.category == PublisherCategory.AUXILIARY_PIONEER
+    val isPioneer = MonthlyReportCalculator.isPioneerCategory(report.category)
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

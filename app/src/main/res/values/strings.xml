@@ -253,6 +253,7 @@
     <string name="reports_hours_count">Hours: %1$s</string>
     <string name="reports_interested_people_count">Interested People: %1$d</string>
     <string name="reports_total_regular_pioneer">Total Regular Pioneer: %1$d</string>
+    <string name="reports_total_special_pioneer">Total Special Pioneer: %1$d</string>
     <string name="reports_total_auxiliary_pioneer">Total Auxiliary Pioneer: %1$d</string>
     <string name="reports_total_regular_publisher">Total Regular Publisher: %1$d</string>
     <string name="reports_total_unbaptized_publisher">Total Unbaptized Publisher: %1$d</string>

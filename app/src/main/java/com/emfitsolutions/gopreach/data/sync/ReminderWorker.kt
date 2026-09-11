@@ -69,7 +69,12 @@ class ReminderWorker @AssistedInject constructor(
             set(Calendar.DAY_OF_MONTH, 1)
             set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
         }.timeInMillis
-        val isPioneer = publisherCategory == PublisherCategory.REGULAR_PIONEER || publisherCategory == PublisherCategory.AUXILIARY_PIONEER
+        // Same "Regular Pioneer OR Special Pioneer OR Auxiliary Pioneer"
+        // eligibility MonthlyReportCalculator.calculate itself uses for the
+        // exact same "did this Publisher preach this month" proxy this doc
+        // comment already describes — reused rather than duplicated so the
+        // two can never quietly drift apart.
+        val isPioneer = com.emfitsolutions.gopreach.domain.MonthlyReportCalculator.isPioneerCategory(publisherCategory)
 
         if (daysUntilMonthEnd == 5) {
             val hasParticipated = if (isPioneer) {

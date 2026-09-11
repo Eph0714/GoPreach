@@ -113,7 +113,7 @@ fun List<PublisherReportRow>.categoryCounts(): Map<PublisherCategory, Int> = gro
  * who changed category mid-period must not have their earlier hours
  * silently move into whichever category they hold today. */
 fun List<PublisherReportRow>.categoryHours(): Map<PublisherCategory, Double> = flatMap { it.hoursByReportCategory.entries }
-    .filter { it.key == PublisherCategory.REGULAR_PIONEER || it.key == PublisherCategory.AUXILIARY_PIONEER }
+    .filter { it.key == PublisherCategory.REGULAR_PIONEER || it.key == PublisherCategory.SPECIAL_PIONEER || it.key == PublisherCategory.AUXILIARY_PIONEER }
     .groupBy({ it.key }, { it.value })
     .mapValues { (_, hours) -> hours.sum() }
 
@@ -121,7 +121,7 @@ fun List<PublisherReportRow>.categoryHours(): Map<PublisherCategory, Double> = f
  * "sum by the report's own category, not the publisher's current one" fix as
  * [categoryHours], applied to Bible Studies. */
 fun List<PublisherReportRow>.categoryBibleStudies(): Map<PublisherCategory, Int> = flatMap { it.bibleStudiesByReportCategory.entries }
-    .filter { it.key == PublisherCategory.REGULAR_PIONEER || it.key == PublisherCategory.AUXILIARY_PIONEER }
+    .filter { it.key == PublisherCategory.REGULAR_PIONEER || it.key == PublisherCategory.SPECIAL_PIONEER || it.key == PublisherCategory.AUXILIARY_PIONEER }
     .groupBy({ it.key }, { it.value })
     .mapValues { (_, counts) -> counts.sum() }
 

@@ -51,10 +51,16 @@ data class ContactRow(
  * (broader — Ministerial Servant and the pipeline stages still show up
  * under "All," just without their own dedicated filter chip, since spec's
  * own filter list doesn't mention them). */
-val CONTACT_ROLE_FILTERS = listOf(REGULAR_PUBLISHER, REGULAR_PIONEER, AUXILIARY_PIONEER, SERVICE_OVERSEER, SECRETARY, CONGREGATION_ELDER, REGULAR_ELDER)
+val CONTACT_ROLE_FILTERS = listOf(REGULAR_PUBLISHER, REGULAR_PIONEER, SPECIAL_PIONEER, AUXILIARY_PIONEER, SERVICE_OVERSEER, SECRETARY, CONGREGATION_ELDER, REGULAR_ELDER)
 
 const val REGULAR_PUBLISHER = "Regular Publisher"
 const val REGULAR_PIONEER = "Regular Pioneer"
+/** "Keep their category values distinct so the system can correctly
+ * display and report REGULAR PIONEER versus SPECIAL PIONEER" — its own
+ * filter chip here, not folded into [REGULAR_PIONEER]'s, even though the
+ * two behave identically everywhere eligibility/permissions are checked
+ * (see [PublisherCategory.SPECIAL_PIONEER]'s own doc comment). */
+const val SPECIAL_PIONEER = "Special Pioneer"
 const val AUXILIARY_PIONEER = "Auxiliary Pioneer"
 const val UNBAPTIZED_PUBLISHER = "Unbaptized Publisher"
 const val IRREGULAR_PUBLISHER = "Irregular Publisher"
@@ -142,6 +148,7 @@ class ContactRecordViewModel @Inject constructor(
                     is RoleType.Publisher -> when (role.category) {
                         PublisherCategory.REGULAR_PUBLISHER -> REGULAR_PUBLISHER
                         PublisherCategory.REGULAR_PIONEER -> REGULAR_PIONEER
+                        PublisherCategory.SPECIAL_PIONEER -> SPECIAL_PIONEER
                         PublisherCategory.AUXILIARY_PIONEER -> AUXILIARY_PIONEER
                         PublisherCategory.UNBAPTIZED_PUBLISHER -> UNBAPTIZED_PUBLISHER
                         PublisherCategory.IRREGULAR_PUBLISHER -> IRREGULAR_PUBLISHER

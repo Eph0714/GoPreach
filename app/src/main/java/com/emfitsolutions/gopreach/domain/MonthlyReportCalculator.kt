@@ -125,8 +125,22 @@ object MonthlyReportCalculator {
     fun sumPreachingHours(preachingTimeRecords: List<PreachingTimeRecord>, bounds: MonthBounds): Double =
         preachingTimeRecords.filter { it.status == RecordStatus.ACTIVE && it.date in bounds }.sumOf { it.hoursConsumed }
 
+    /** "Add Special Pioneer publisher status category" — Special Pioneer must
+     * receive exactly [PublisherCategory.REGULAR_PIONEER]'s treatment
+     * wherever pioneer eligibility is checked; since this function already
+     * groups Regular and Auxiliary Pioneer together, adding Special Pioneer
+     * here achieves that without changing Auxiliary Pioneer's own existing
+     * behavior at all (same reasoning the feature's own spec gives for a
+     * "Regular Pioneer OR Auxiliary Pioneer" check: "update it to Regular
+     * Pioneer OR Special Pioneer OR Auxiliary Pioneer"). This is the one
+     * central "is this Publisher a Pioneer for report-calculation purposes"
+     * check [calculate] itself uses, so Bible-Study-count eligibility,
+     * preaching-participation eligibility, and My-Total-Hours-sourced
+     * `systemCalculatedHours` all inherit this automatically. */
     fun isPioneerCategory(category: PublisherCategory?): Boolean =
-        category == PublisherCategory.REGULAR_PIONEER || category == PublisherCategory.AUXILIARY_PIONEER
+        category == PublisherCategory.REGULAR_PIONEER ||
+            category == PublisherCategory.SPECIAL_PIONEER ||
+            category == PublisherCategory.AUXILIARY_PIONEER
 
     /** Convenience wrapper over the three functions above — what
      * [com.emfitsolutions.gopreach.ui.screens.monthlyreport.MonthlyReportViewModel]

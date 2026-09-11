@@ -115,6 +115,14 @@ fun computeStatMembers(
                     if (role.category != PublisherCategory.REMOVED_PUBLISHER) add("Total Publishers")
                     when (role.category) {
                         PublisherCategory.REGULAR_PIONEER -> add("Regular Pioneers")
+                        // Its own breakdown line, same "keep the display/
+                        // filter identity distinct" reasoning as every other
+                        // Special Pioneer touch point in this app — not
+                        // folded into "Regular Pioneers" here even though
+                        // report eligibility treats the two the same
+                        // (see PublisherCategory.SPECIAL_PIONEER's own doc
+                        // comment).
+                        PublisherCategory.SPECIAL_PIONEER -> add("Special Pioneers")
                         PublisherCategory.AUXILIARY_PIONEER -> add("Auxiliary Pioneers")
                         PublisherCategory.UNBAPTIZED_PUBLISHER -> add("Unbaptized Publishers")
                         PublisherCategory.IRREGULAR_PUBLISHER -> add("Irregular Publishers")
@@ -140,6 +148,7 @@ fun computeStatMembers(
                 }
                 is RoleType.Publisher -> when (role.category) {
                     PublisherCategory.REGULAR_PIONEER -> "Regular Pioneer"
+                    PublisherCategory.SPECIAL_PIONEER -> "Special Pioneer"
                     PublisherCategory.AUXILIARY_PIONEER -> "Auxiliary Pioneer"
                     PublisherCategory.UNBAPTIZED_PUBLISHER -> "Unbaptized Publisher"
                     PublisherCategory.IRREGULAR_PUBLISHER -> "Irregular Publisher"
@@ -233,6 +242,13 @@ data class CongregationStats(
      * distinct, non-Elder appointed position. */
     val totalMinisterial: Int,
     val regularPioneers: Int,
+    /** "Add Special Pioneer publisher status category" — its own count, kept
+     * distinct from [regularPioneers] for display/reporting even though
+     * report eligibility treats the two identically (see
+     * [com.emfitsolutions.gopreach.data.model.PublisherCategory
+     * .SPECIAL_PIONEER]'s own doc comment). Already included in
+     * [totalPublishers] above (that count only excludes REMOVED_PUBLISHER). */
+    val specialPioneers: Int,
     val auxiliaryPioneers: Int,
     val regularPublishers: Int,
     val unbaptizedPublishers: Int,
@@ -240,6 +256,7 @@ data class CongregationStats(
     val removedPublishers: Int,
     val totalBibleStudies: Int,
     val regularPioneerHours: Double,
+    val specialPioneerHours: Double,
     val auxiliaryPioneerHours: Double,
 ) {
     companion object {
@@ -293,6 +310,7 @@ data class CongregationStats(
                 totalElders = elderCount,
                 totalMinisterial = ministerialCount,
                 regularPioneers = countOf(PublisherCategory.REGULAR_PIONEER),
+                specialPioneers = countOf(PublisherCategory.SPECIAL_PIONEER),
                 auxiliaryPioneers = countOf(PublisherCategory.AUXILIARY_PIONEER),
                 regularPublishers = countOf(PublisherCategory.REGULAR_PUBLISHER),
                 unbaptizedPublishers = countOf(PublisherCategory.UNBAPTIZED_PUBLISHER),
@@ -300,6 +318,7 @@ data class CongregationStats(
                 removedPublishers = countOf(PublisherCategory.REMOVED_PUBLISHER),
                 totalBibleStudies = congregationReports.sumOf { it.bibleStudiesCount },
                 regularPioneerHours = congregationReports.filter { it.category == PublisherCategory.REGULAR_PIONEER }.sumOf { it.hoursRendered ?: 0.0 },
+                specialPioneerHours = congregationReports.filter { it.category == PublisherCategory.SPECIAL_PIONEER }.sumOf { it.hoursRendered ?: 0.0 },
                 auxiliaryPioneerHours = congregationReports.filter { it.category == PublisherCategory.AUXILIARY_PIONEER }.sumOf { it.hoursRendered ?: 0.0 },
             )
         }
@@ -356,6 +375,7 @@ data class CongregationStats(
                 totalElders = elderCount,
                 totalMinisterial = ministerialCount,
                 regularPioneers = countOf(PublisherCategory.REGULAR_PIONEER),
+                specialPioneers = countOf(PublisherCategory.SPECIAL_PIONEER),
                 auxiliaryPioneers = countOf(PublisherCategory.AUXILIARY_PIONEER),
                 regularPublishers = countOf(PublisherCategory.REGULAR_PUBLISHER),
                 unbaptizedPublishers = countOf(PublisherCategory.UNBAPTIZED_PUBLISHER),
@@ -363,6 +383,7 @@ data class CongregationStats(
                 removedPublishers = countOf(PublisherCategory.REMOVED_PUBLISHER),
                 totalBibleStudies = scopedReports.sumOf { it.bibleStudiesCount },
                 regularPioneerHours = scopedReports.filter { it.category == PublisherCategory.REGULAR_PIONEER }.sumOf { it.hoursRendered ?: 0.0 },
+                specialPioneerHours = scopedReports.filter { it.category == PublisherCategory.SPECIAL_PIONEER }.sumOf { it.hoursRendered ?: 0.0 },
                 auxiliaryPioneerHours = scopedReports.filter { it.category == PublisherCategory.AUXILIARY_PIONEER }.sumOf { it.hoursRendered ?: 0.0 },
             )
         }

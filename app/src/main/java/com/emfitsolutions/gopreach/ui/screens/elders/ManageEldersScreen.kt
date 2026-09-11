@@ -444,6 +444,7 @@ private fun EditElderDialog(
         }
         listOf(
             PublisherCategory.REGULAR_PIONEER to "Regular Pioneer",
+            PublisherCategory.SPECIAL_PIONEER to "Special Pioneer",
             PublisherCategory.AUXILIARY_PIONEER to "Auxiliary Pioneer",
             PublisherCategory.REGULAR_PUBLISHER to "Regular Publisher",
         ).forEach { (category, label) ->

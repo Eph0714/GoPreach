@@ -59,6 +59,7 @@ import com.emfitsolutions.gopreach.ui.components.map.rememberLeafletMapControlle
 private enum class PublisherTypeFilter(val label: String, val category: PublisherCategory?) {
     ALL("All Publisher", null),
     REGULAR_PIONEER("Regular Pioneer", PublisherCategory.REGULAR_PIONEER),
+    SPECIAL_PIONEER("Special Pioneer", PublisherCategory.SPECIAL_PIONEER),
     AUXILIARY_PIONEER("Auxiliary Pioneer", PublisherCategory.AUXILIARY_PIONEER),
     UNBAPTIZED_PUBLISHER("Unbaptized Publisher", PublisherCategory.UNBAPTIZED_PUBLISHER),
 }
