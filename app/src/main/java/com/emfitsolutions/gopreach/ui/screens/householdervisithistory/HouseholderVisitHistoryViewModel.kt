@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -36,11 +37,42 @@ private fun RecordTypeFilter.matches(stage: PipelineStage): Boolean = when (this
     RecordTypeFilter.BIBLE_STUDIES -> stage == PipelineStage.BIBLE_STUDY
 }
 
+/** "Simplify the Filter... ONE search/filter dropdown" — replaces the three
+ * separate Province/Municipality/Barangay dropdowns this module used to have
+ * with one field-picker plus one text box (see [HouseholderVisitHistoryScreen]).
+ * Province/Municipality/Barangay data itself is untouched — still stored and
+ * displayed on the record (spec §2/§3) — only how a person *searches* by it
+ * is simplified. */
+enum class SearchByField(val label: String) {
+    ALL("All"),
+    NAME("Name"),
+    PROVINCE("Province"),
+    MUNICIPALITY("Municipalities"),
+    BARANGAY("Barangay"),
+}
+
+private fun HouseholderRow.matchesSearch(field: SearchByField, query: String): Boolean {
+    if (query.isBlank()) return true
+    fun String?.has() = this != null && contains(query, ignoreCase = true)
+    return when (field) {
+        // "search across the relevant... especially House Holder Name,
+        // Province, Municipality, Barangay" — exactly those four fields,
+        // not a blind whole-record text match (spec §18's own "do not
+        // perform unreliable text matching" still applies to *this*, the
+        // one remaining free-text box).
+        SearchByField.ALL -> person.name.has() || person.province.has() || person.cityMunicipality.has() || person.barangay.has()
+        SearchByField.NAME -> person.name.has()
+        SearchByField.PROVINCE -> person.province.has()
+        SearchByField.MUNICIPALITY -> person.cityMunicipality.has()
+        SearchByField.BARANGAY -> person.barangay.has()
+    }
+}
+
 /** One householder row this module shows — [visits] already sorted newest
- * first (spec §10: "ALWAYS ... descending date order", visit date primary,
- * [Visit.createdAt] as the tie-break for a same-date pair). [publisherName]/
- * [congregationName] are resolved once here so the screen never needs to
- * re-look them up per recomposition. */
+ * first (spec §10/§17: "ALWAYS ... descending date order", visit date
+ * primary, [Visit.createdAt] as the tie-break for a same-date pair).
+ * [publisherName]/[congregationName] are resolved once here so the screen
+ * never needs to re-look them up per recomposition. */
 data class HouseholderRow(
     val person: InterestedPerson,
     val publisherName: String?,
@@ -52,34 +84,27 @@ data class HouseholderVisitHistoryUiState(
     val isLoading: Boolean = true,
     val congregations: List<Congregation> = emptyList(),
     val recordType: RecordTypeFilter = RecordTypeFilter.ALL,
+    val searchByField: SearchByField = SearchByField.ALL,
     val searchQuery: String = "",
-    val province: String? = null,
-    val municipality: String? = null,
-    val barangay: String? = null,
-    /** Every row this session is authorized to see, before the Province/
-     * Municipality/Barangay/search/record-type filters above narrow it —
-     * kept separate from [rows] so the filter dropdowns' own option lists
-     * (see [HouseholderVisitHistoryScreen]) can offer every value actually
-     * *reachable* from the current record-type/search selection, not just
-     * whatever's left after every filter (a Province picked, then a
-     * Municipality dropdown scoped to it, is the point of a cascading
-     * filter — it must not also disappear once a Barangay narrows further). */
-    val scopedRows: List<HouseholderRow> = emptyList(),
     val rows: List<HouseholderRow> = emptyList(),
 )
 
 /**
- * "House Holder Visit History" module — a read-only, consolidated view over
- * the *existing* Searching/Return Visit/Bible Study records
+ * "House Holder Visit History" module — a consolidated view over the
+ * *existing* Searching/Return Visit/Bible Study records
  * ([InterestedPersonRepository]) and their [Visit] history
  * ([VisitRepository]), for Super-Admin (every authorized congregation) and
- * Publisher (their own congregation) accounts. Deliberately builds nothing
- * new: every field this screen shows already exists on [InterestedPerson]/
- * [Visit]; this view only filters, sorts, and displays them (spec §25: "Do
- * not modify existing... simply by viewing, filtering, or exporting").
+ * Publisher (their own congregation) accounts. Builds nothing new: every
+ * field this screen shows already exists on [InterestedPerson]/[Visit]; add/
+ * edit/delete of an individual Visit (spec §8-§14) reuses
+ * [com.emfitsolutions.gopreach.ui.screens.pipeline.PipelinePersonDetailScreen]
+ * unchanged rather than a second, parallel implementation of the same
+ * per-entry-ownership rules that screen (and firestore.rules' `visits` match
+ * block) already enforce correctly — this ViewModel stays a pure
+ * search/filter/list layer.
  *
- * [restrictTo] is the actual security boundary (spec §16), same convention
- * every other congregation-scoped screen in this app uses (see
+ * [restrictTo] is the actual security boundary (spec §16/§24/§25), same
+ * convention every other congregation-scoped screen in this app uses (see
  * [com.emfitsolutions.gopreach.ui.screens.pipeline.ElderInterestedRecordsScreen]) —
  * `null` means Super-Admin's unscoped "every congregation," a real id means
  * exactly that one congregation and nothing else; the UI never exposes a way
@@ -95,10 +120,8 @@ class HouseholderVisitHistoryViewModel @Inject constructor(
 
     private val congregationId = MutableStateFlow<String?>(null)
     private val recordType = MutableStateFlow(RecordTypeFilter.ALL)
+    private val searchByField = MutableStateFlow(SearchByField.ALL)
     private val searchQuery = MutableStateFlow("")
-    private val province = MutableStateFlow<String?>(null)
-    private val municipality = MutableStateFlow<String?>(null)
-    private val barangay = MutableStateFlow<String?>(null)
     private var restricted = false
 
     /** Spec §14/§15/§16 — called once from the nav graph with the signed-in
@@ -112,10 +135,8 @@ class HouseholderVisitHistoryViewModel @Inject constructor(
     }
 
     fun setRecordType(value: RecordTypeFilter) { recordType.value = value }
+    fun setSearchByField(value: SearchByField) { searchByField.value = value }
     fun setSearchQuery(value: String) { searchQuery.value = value }
-    fun setProvince(value: String?) { province.value = value; municipality.value = null; barangay.value = null }
-    fun setMunicipality(value: String?) { municipality.value = value; barangay.value = null }
-    fun setBarangay(value: String?) { barangay.value = value }
 
     init {
         // Same broad, screen-lifetime collection-group listener the
@@ -126,6 +147,13 @@ class HouseholderVisitHistoryViewModel @Inject constructor(
 
     val congregations: StateFlow<List<Congregation>> =
         congregationRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** id -> full name for every Person — used by the PDF/Excel export's own
+     * "Recorded By" column (spec §7/§21/§22), independent of the on-screen
+     * detail view's own live per-visit name lookups. */
+    val personNames: StateFlow<Map<String, String>> = personRepository.observeAll()
+        .map { people -> people.associate { it.id to it.fullName } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private val scopedRowsFlow = combine(
         interestedPersonRepository.observeAll(),
@@ -145,77 +173,34 @@ class HouseholderVisitHistoryViewModel @Inject constructor(
                     person = person,
                     publisherName = personNameById[person.publisherPersonId],
                     congregationName = congregationNameById[person.congregationId] ?: "—",
+                    // "Get ALL visit history... do not show only the latest
+                    // visit... unless there is a performance reason" (spec
+                    // §6/§22) — every visit for this person, always, sorted
+                    // newest-first.
                     visits = (visitsByPerson[person.id].orEmpty())
                         .sortedWith(compareByDescending<Visit> { it.visitDate }.thenByDescending { it.createdAt }),
                 )
             }
     }
 
-    private data class FilterState(
-        val recordType: RecordTypeFilter,
-        val searchQuery: String,
-        val province: String?,
-        val municipality: String?,
-        val barangay: String?,
-    )
+    private data class FilterState(val recordType: RecordTypeFilter, val searchByField: SearchByField, val searchQuery: String)
 
-    private val filterState = combine(recordType, searchQuery, province, municipality, barangay) { rt, q, p, m, b ->
-        FilterState(rt, q, p, m, b)
-    }
+    private val filterState = combine(recordType, searchByField, searchQuery) { rt, field, q -> FilterState(rt, field, q) }
 
     val uiState: StateFlow<HouseholderVisitHistoryUiState> = combine(
         scopedRowsFlow, congregations, filterState,
     ) { scopedRows, congregations, filter ->
-        val (recordType, searchQuery, province, municipality, barangay) = filter
         val filteredRows = scopedRows
-            .filter { recordType.matches(it.person.pipelineStage) }
-            .filter { searchQuery.isBlank() || it.person.name.contains(searchQuery, ignoreCase = true) }
-            .filter { province == null || it.person.province == province }
-            .filter { municipality == null || it.person.cityMunicipality == municipality }
-            .filter { barangay == null || it.person.barangay == barangay }
+            .filter { filter.recordType.matches(it.person.pipelineStage) }
+            .filter { it.matchesSearch(filter.searchByField, filter.searchQuery) }
             .sortedBy { it.person.name }
         HouseholderVisitHistoryUiState(
             isLoading = false,
             congregations = congregations,
-            recordType = recordType,
-            searchQuery = searchQuery,
-            province = province,
-            municipality = municipality,
-            barangay = barangay,
-            scopedRows = scopedRows,
+            recordType = filter.recordType,
+            searchByField = filter.searchByField,
+            searchQuery = filter.searchQuery,
             rows = filteredRows,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HouseholderVisitHistoryUiState())
-
-    /** Province options — spec §5/§18: drawn from the householders actually
-     * reachable at the current Record Type/search selection (not the full
-     * PSGC master list, and not narrowed by Province/Municipality/Barangay
-     * themselves — picking a Province must not make *other* provinces
-     * disappear from this same dropdown). */
-    fun provinceOptions(state: HouseholderVisitHistoryUiState): List<String> =
-        state.scopedRows
-            .filter { state.recordType.matches(it.person.pipelineStage) }
-            .filter { state.searchQuery.isBlank() || it.person.name.contains(state.searchQuery, ignoreCase = true) }
-            .mapNotNull { it.person.province }
-            .distinct()
-            .sorted()
-
-    fun municipalityOptions(state: HouseholderVisitHistoryUiState): List<String> =
-        state.scopedRows
-            .filter { state.recordType.matches(it.person.pipelineStage) }
-            .filter { state.searchQuery.isBlank() || it.person.name.contains(state.searchQuery, ignoreCase = true) }
-            .filter { state.province == null || it.person.province == state.province }
-            .mapNotNull { it.person.cityMunicipality }
-            .distinct()
-            .sorted()
-
-    fun barangayOptions(state: HouseholderVisitHistoryUiState): List<String> =
-        state.scopedRows
-            .filter { state.recordType.matches(it.person.pipelineStage) }
-            .filter { state.searchQuery.isBlank() || it.person.name.contains(state.searchQuery, ignoreCase = true) }
-            .filter { state.province == null || it.person.province == state.province }
-            .filter { state.municipality == null || it.person.cityMunicipality == state.municipality }
-            .mapNotNull { it.person.barangay }
-            .distinct()
-            .sorted()
 }

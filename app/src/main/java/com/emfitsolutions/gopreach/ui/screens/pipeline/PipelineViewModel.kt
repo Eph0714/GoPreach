@@ -295,7 +295,26 @@ class PipelineViewModel @Inject constructor(
             }
             if (!allowed) return
         }
-        viewModelScope.launch { visitRepository.save(visit) }
+        viewModelScope.launch {
+            // "House Holder Visit History" spec §6/§8 — best-effort GPS
+            // capture for a brand-new visit, same silent-on-failure pattern
+            // [captureCurrentLocation] already follows for the parent
+            // record's own location (no permission prompt forced here,
+            // no error surfaced — a visit with no fix just shows "Not
+            // available", it's never blocked from saving over this).
+            // Editing an existing visit never re-captures or otherwise
+            // touches [Visit.visitLat]/[visitLng] — [visit] already carries
+            // [existingVisit]'s own untouched values forward (see
+            // AddVisitDialog's own submit()), preserving that visit's
+            // original coordinates exactly as spec §13 requires.
+            val toSave = if (existingVisit == null && !visit.hasVisitLocation && hasLocationPermission()) {
+                val captured = runCatching { captureCurrentLocation() }.getOrNull()
+                if (captured != null) visit.copy(visitLat = captured.lat, visitLng = captured.lng) else visit
+            } else {
+                visit
+            }
+            visitRepository.save(toSave)
+        }
     }
 
     fun deleteVisit(

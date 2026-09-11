@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.ManageAccounts
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PersonAdd
@@ -122,7 +123,21 @@ fun GoPreachSidePanelContent(
     onNavigate: (String) -> Unit,
     onSignOut: () -> Unit,
 ) {
+    // "Admin Dashboard Menu Reorganization" spec — the drawer's existing
+    // collapsible-section treeview (this composable already had exactly
+    // that shape) regrouped into ENROLLMENT / REPORTS / CONTROL PANEL, in
+    // that exact order (spec §1/§26-28), instead of the old Enrollment/
+    // Control Panel/"Other" split. Every item keeps the *exact same* gating
+    // boolean it already had — this only moves *where* an already-authorized
+    // item is displayed, never who is authorized to see it (spec §34: "Do
+    // not hard-code access based on menu location").
     val sections = buildList {
+        // ENROLLMENT — "Everything related to enrolling and managing users,
+        // publishers, congregation personnel, congregation records, and
+        // organizational enrollment" (spec §2/final requirement). Territory
+        // Map/Meeting & Cart Assignment/Announcements moved out to CONTROL
+        // PANEL below — spec §4/§9/§36 explicitly list all three there, not
+        // here.
         val enrollmentItems = buildList {
             if (canManageCongregationsAndAdmins) add(SideItem(stringResource(R.string.side_congregations_groups), Icons.Rounded.AccountBalance, Destinations.MANAGE_CONGREGATIONS))
             if (canManageCongregationsAndAdmins) add(SideItem(stringResource(R.string.side_admins), Icons.Rounded.AdminPanelSettings, Destinations.MANAGE_ADMINS))
@@ -136,7 +151,6 @@ fun GoPreachSidePanelContent(
             // AdminHomeScreen's own derivation of all three).
             if (canEnrollRegularElderOrPublisher) add(SideItem(stringResource(R.string.side_elders), Icons.Rounded.PersonAdd, Destinations.MANAGE_ELDERS))
             if (canEnrollMinisterialServant) add(SideItem(stringResource(R.string.side_ministerial_servant), Icons.Rounded.PersonAdd, Destinations.MANAGE_MINISTERIAL_SERVANTS))
-            if (canManageAnnouncements) add(SideItem(stringResource(R.string.side_announcements), Icons.Rounded.Campaign, Destinations.MANAGE_ANNOUNCEMENTS))
             if (canManageGroups) add(SideItem(stringResource(R.string.side_groups), Icons.Rounded.Groups, Destinations.MANAGE_GROUPS))
             // Routes to the Manage Publishers *list* screen (which has its own
             // onAddNew FAB into ENROLL_PUBLISHER), matching every other entry
@@ -147,18 +161,18 @@ fun GoPreachSidePanelContent(
             // once the old tile grid (their only other route to it) was
             // hidden for them.
             if (canEnrollPublisher) add(SideItem(stringResource(R.string.side_publisher), Icons.Rounded.People, Destinations.MANAGE_PUBLISHERS))
-            if (canManageTerritories) add(SideItem(stringResource(R.string.side_territory_map), Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES_BASE))
-            if (canEditMeetingAssignments) add(SideItem(stringResource(R.string.home_tile_meeting_cart_assignment_title), Icons.Rounded.Event, Destinations.MEETING_ASSIGNMENTS))
         }
         if (enrollmentItems.isNotEmpty()) add(SideSection(stringResource(R.string.side_section_enrollment), enrollmentItems))
 
-        val controlPanelItems = buildList {
-            if (isSuperAdmin) add(SideItem(stringResource(R.string.side_backup_restore), Icons.Rounded.Backup, Destinations.BACKUP_RESTORE))
-            if (canAccessControlPanel) add(SideItem(stringResource(R.string.side_appearance_app_logo), Icons.Rounded.Tune, Destinations.CONTROL_PANEL))
-        }
-        if (controlPanelItems.isNotEmpty()) add(SideSection(stringResource(R.string.side_section_control_panel), controlPanelItems))
-
-        val otherItems = buildList {
+        // REPORTS — "Everything related to reporting, report submission,
+        // report management, report history, statistics, preaching records,
+        // and report exports" (spec §3/final requirement). House Holder
+        // Visit History and Preaching Time Records land here per spec §14/
+        // §15/§36 explicitly; Interested Records/Forward Requests join them
+        // as the same underlying-record review/approval domain (spec §3's
+        // own "Report Approval/Unlocking" example already treats a review
+        // queue as a Reports-shaped action, not Enrollment or Control Panel).
+        val reportsItems = buildList {
             // "Elder Dashboard Consistent with Admin/Super-Admin Dashboard"
             // spec — these two used to be reachable only via the old tile-grid
             // Main Form body, which is now hidden for every admin-track role
@@ -169,7 +183,6 @@ fun GoPreachSidePanelContent(
             // grid used to give everyone, rather than stranding whoever's
             // tile grid gets hidden next.
             add(SideItem(stringResource(R.string.home_dashboard_header), Icons.Rounded.BarChart, Destinations.DASHBOARD_REPORTS))
-            add(SideItem(stringResource(R.string.side_group_chat_setting), Icons.AutoMirrored.Rounded.Chat, Destinations.GROUP_CHAT_SETTING))
             add(SideItem(stringResource(R.string.side_reports_summary), Icons.Rounded.Assessment, Destinations.REPORTS))
             if (canViewConsolidatedReport) {
                 add(SideItem(stringResource(R.string.side_consolidated_report), Icons.Rounded.Assessment, Destinations.CONSOLIDATED_REPORT))
@@ -186,10 +199,6 @@ fun GoPreachSidePanelContent(
             if (canViewForwardRequests) {
                 add(SideItem(stringResource(R.string.side_forward_requests), Icons.Rounded.SwapHoriz, Destinations.FORWARD_REQUESTS))
             }
-            add(SideItem(stringResource(R.string.home_nav_calendar), Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
-            add(SideItem(stringResource(R.string.side_share_location_settings), Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
-            if (canViewUserLogs) add(SideItem(stringResource(R.string.side_user_logs), Icons.Rounded.History, Destinations.USER_LOGS))
-            if (canViewContactRecord) add(SideItem(stringResource(R.string.side_contact_record), Icons.Rounded.Contacts, Destinations.CONTACT_RECORD))
             if (canViewInterestedPeopleScope) add(SideItem(stringResource(R.string.side_interested_records_scoped), Icons.Rounded.Groups, Destinations.SCOPED_INTERESTED_RECORDS))
             // "The super admin can see all congregation Search[ing]/Bible
             // Study/Return Visit record[s]... Add, Edit, [and permanently]
@@ -204,9 +213,35 @@ fun GoPreachSidePanelContent(
             // "Preaching Time Records — Super Admin Management Module" —
             // same "Super-Admin only" gating as the item above.
             if (isSuperAdmin) add(SideItem(stringResource(R.string.side_preaching_time_records_all_congregations), Icons.Rounded.Schedule, Destinations.ALL_PREACHING_TIME_RECORDS))
+        }
+        if (reportsItems.isNotEmpty()) add(SideSection(stringResource(R.string.side_section_reports), reportsItems))
+
+        // CONTROL PANEL — "Everything related to system settings,
+        // configuration, assignments, communication controls, logs,
+        // administrative controls, and Theme Color Settings" (spec §4/final
+        // requirement).
+        val controlPanelItems = buildList {
+            if (isSuperAdmin) add(SideItem(stringResource(R.string.side_backup_restore), Icons.Rounded.Backup, Destinations.BACKUP_RESTORE))
+            if (canAccessControlPanel) add(SideItem(stringResource(R.string.side_appearance_app_logo), Icons.Rounded.Tune, Destinations.CONTROL_PANEL))
+            add(SideItem(stringResource(R.string.side_group_chat_setting), Icons.AutoMirrored.Rounded.Chat, Destinations.GROUP_CHAT_SETTING))
+            if (canManageAnnouncements) add(SideItem(stringResource(R.string.side_announcements), Icons.Rounded.Campaign, Destinations.MANAGE_ANNOUNCEMENTS))
+            add(SideItem(stringResource(R.string.home_nav_calendar), Icons.Rounded.CalendarMonth, Destinations.CALENDAR))
+            if (canEditMeetingAssignments) add(SideItem(stringResource(R.string.home_tile_meeting_cart_assignment_title), Icons.Rounded.Event, Destinations.MEETING_ASSIGNMENTS))
+            if (canManageTerritories) add(SideItem(stringResource(R.string.side_territory_map), Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES_BASE))
+            add(SideItem(stringResource(R.string.side_share_location_settings), Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
+            if (canViewUserLogs) add(SideItem(stringResource(R.string.side_user_logs), Icons.Rounded.History, Destinations.USER_LOGS))
+            if (canViewContactRecord) add(SideItem(stringResource(R.string.side_contact_record), Icons.Rounded.Contacts, Destinations.CONTACT_RECORD))
+            // "Theme Color Settings — Simplified User Experience" (spec §16/
+            // §24) — a per-device preference every signed-in role already
+            // had (via the profile menu's Settings screen); shown here
+            // unconditionally, same as Account Settings at the bottom of
+            // this drawer, not gated by [canAccessControlPanel] — being
+            // listed under Control Panel doesn't narrow who could already
+            // reach it (spec §34).
+            add(SideItem(stringResource(R.string.side_theme_color_settings), Icons.Rounded.Palette, Destinations.THEME_COLOR_SETTINGS))
             if (canManageUsers) add(SideItem(stringResource(R.string.side_user_management), Icons.Rounded.ManageAccounts, Destinations.MANAGE_USERS))
         }
-        add(SideSection(stringResource(R.string.side_section_other), otherItems))
+        if (controlPanelItems.isNotEmpty()) add(SideSection(stringResource(R.string.side_section_control_panel), controlPanelItems))
     }
 
     ModalDrawerSheet {

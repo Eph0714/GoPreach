@@ -178,7 +178,26 @@ data class Visit(
     /** System-generated (spec §9) — the signed-in session that logged this
      * visit; may differ from [publisherPersonId] (see its doc comment). */
     val createdByPersonId: String = "",
-)
+    /** "House Holder Visit History" spec §6/§7 — this specific visit's own
+     * coordinates, best-effort captured (same [com.emfitsolutions.gopreach
+     * .data.location.LocationTracker]-backed, silently-optional pattern
+     * [InterestedPerson.gpsLat]/[gpsLng] already use) at the moment a NEW
+     * visit is logged — see [PipelineViewModel.saveVisit]. Deliberately its
+     * own field, not a reference to the parent [InterestedPerson]'s current
+     * GPS: a householder's own location can be re-captured/edited later, and
+     * a visit's own coordinates must stay exactly what they were at that
+     * visit regardless (spec: "must not be replaced by the House Holder's
+     * current coordinates... do not replace a visit's coordinates with
+     * another visit's coordinates"). `null` means never captured/unavailable
+     * for this visit, not "same as the household's" — always shown as
+     * "Not available", never silently falling back to another location. An
+     * edit of an existing visit leaves both untouched (see `saveVisit`'s own
+     * doc comment on preserving them). */
+    val visitLat: Double? = null,
+    val visitLng: Double? = null,
+) {
+    val hasVisitLocation: Boolean get() = visitLat != null && visitLng != null
+}
 
 /**
  * "Forward to Other Congregation" spec flow — a cross-congregation transfer

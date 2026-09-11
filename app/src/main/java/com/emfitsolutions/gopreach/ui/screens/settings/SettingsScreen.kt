@@ -16,8 +16,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -27,12 +25,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Campaign
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Notifications
-import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PriorityHigh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -62,8 +58,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -73,8 +67,6 @@ import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.repository.ThemePreference
 import com.emfitsolutions.gopreach.notifications.AlarmScheduler
-import com.emfitsolutions.gopreach.ui.components.ColorWheelPicker
-import com.emfitsolutions.gopreach.ui.components.EyedropperImagePicker
 import kotlinx.coroutines.launch
 import com.emfitsolutions.gopreach.ui.components.ThemeOptionRow
 import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
@@ -87,12 +79,17 @@ import androidx.compose.ui.window.DialogProperties
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    // "Theme Color Settings — Simplified User Experience" (spec §16) — the
+    // wheel/eyedropper/preset picker itself now lives on its own screen
+    // (see ThemeColorSettingsScreen), reachable from here (same reach this
+    // screen always had) and from the Control Panel drawer section; this
+    // screen keeps only Appearance (light/dark)/Notifications/App Version.
+    onNavigateToThemeColorSettings: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val theme by viewModel.theme.collectAsStateWithLifecycle()
     val colorOption by viewModel.colorOption.collectAsStateWithLifecycle()
     val customColor by viewModel.customColor.collectAsStateWithLifecycle()
-    var showCustomColorDialog by remember { mutableStateOf(false) }
     // Explicitly Activity-scoped (not the default nav-entry scope) so this is
     // the *same* instance MainActivity's UpdateHost renders the result of —
     // otherwise tapping "Check for Updates" here would update a ViewModel
@@ -129,68 +126,28 @@ fun SettingsScreen(
             }
 
             Text(stringResource(R.string.settings_theme_color_title), style = MaterialTheme.typography.titleMedium)
-            Text(
-                stringResource(R.string.settings_theme_color_subtitle),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Card(modifier = Modifier.fillMaxWidth()) {
-                // A plain wrapped Row grid, not LazyVerticalGrid — this Card already
-                // sits inside the screen's own scrollable Column, and a lazy grid
-                // nested inside another scrollable container has no bounded height
-                // to lay out against. Six fixed swatches don't need laziness anyway.
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    ThemeColorOption.entries.chunked(3).forEach { rowOptions ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            rowOptions.forEach { option ->
-                                if (option == ThemeColorOption.CUSTOM) {
-                                    // "Let the users select from color wheel...
-                                    // eyedrop a color" — this tile is the entry
-                                    // point into that picker, not a fixed swatch.
-                                    CustomColorSwatchOption(
-                                        customColor = customColor,
-                                        selected = option == colorOption,
-                                        onClick = { showCustomColorDialog = true },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                } else {
-                                    ThemeColorSwatchOption(
-                                        option = option,
-                                        selected = option == colorOption,
-                                        onClick = { viewModel.setColorOption(option) },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                            }
-                            // Pads out the last row so a 7th tile alone
-                            // doesn't stretch to fill the whole row width.
-                            repeat(3 - rowOptions.size) { Box(modifier = Modifier.weight(1f)) }
-                        }
-                    }
-                }
+            Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onNavigateToThemeColorSettings)) {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.theme_color_settings_title)) },
+                    supportingContent = { Text(stringResource(R.string.settings_theme_color_subtitle)) },
+                    leadingContent = {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(
+                                    if (colorOption == ThemeColorOption.CUSTOM) customColor else (colorOption.swatch?.light ?: customColor),
+                                    CircleShape,
+                                )
+                                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                        )
+                    },
+                )
             }
 
             NotificationSoundSection(viewModel = viewModel)
 
             AppVersionSection(updateViewModel = updateViewModel)
         }
-    }
-
-    if (showCustomColorDialog) {
-        CustomColorPickerDialog(
-            initialColor = customColor,
-            onApply = { picked ->
-                viewModel.setCustomColor(picked)
-                showCustomColorDialog = false
-            },
-            onDismiss = { showCustomColorDialog = false },
-        )
     }
 }
 
@@ -497,116 +454,3 @@ private fun launchAppShare(context: android.content.Context, text: String, choos
     context.startActivity(android.content.Intent.createChooser(intent, chooserTitle))
 }
 
-/** One tappable swatch + label in the Theme Color picker — the swatch itself is
- * the option's light-mode primary color, with a check mark overlay when
- * selected, matching the common "pick an accent color" pattern. */
-@Composable
-private fun ThemeColorSwatchOption(
-    option: ThemeColorOption,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier.clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                // Never null here — this composable is only ever called for
-                // the six fixed presets; ThemeColorOption.CUSTOM routes to
-                // CustomColorSwatchOption instead (see SettingsScreen above).
-                .background(option.swatch!!.light, CircleShape)
-                .border(
-                    width = if (selected) 3.dp else 1.dp,
-                    color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
-                    shape = CircleShape,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (selected) {
-                Icon(Icons.Rounded.Check, contentDescription = "Selected", tint = Color.White)
-            }
-        }
-        Text(option.label, style = MaterialTheme.typography.labelSmall)
-    }
-}
-
-/** The "Custom" tile — a wheel/rainbow icon when no custom color has ever
- * been picked yet, otherwise the picked color itself, same swatch shape as
- * every preset. Tapping it (whether or not it's already selected) opens the
- * picker — unlike a preset, "select this option" and "change its color" are
- * the same gesture here. */
-@Composable
-private fun CustomColorSwatchOption(
-    customColor: Color,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier.clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .background(if (selected) customColor else MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                .border(
-                    width = if (selected) 3.dp else 1.dp,
-                    color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
-                    shape = CircleShape,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            val iconTint = if (selected && customColor.luminance() < 0.5f) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-            Icon(Icons.Rounded.Palette, contentDescription = "Custom color", tint = iconTint)
-        }
-        Text(stringResource(R.string.settings_custom_swatch_label), style = MaterialTheme.typography.labelSmall)
-    }
-}
-
-/** The color wheel + eyedropper dialog — spec: "let the users select from
- * color wheel... the user can eyedrop a color he wants." Both feed the same
- * live preview and the same [onApply] color; nothing is actually saved
- * until Apply is tapped, so browsing the wheel/photo never changes the
- * live app theme mid-pick. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CustomColorPickerDialog(
-    initialColor: Color,
-    onApply: (Color) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var pickedColor by remember { mutableStateOf(initialColor) }
-
-    AlertDialog(
-        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.settings_custom_color_title)) },
-        text = {
-            Column(
-                modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()).imePadding(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .background(pickedColor, CircleShape)
-                        .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
-                )
-                ColorWheelPicker(color = pickedColor, onColorChanged = { pickedColor = it })
-                EyedropperImagePicker(onColorPicked = { pickedColor = it }, modifier = Modifier.fillMaxWidth())
-                Text(
-                    stringResource(R.string.settings_custom_color_footnote),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = { TextButton(onClick = { onApply(pickedColor) }) { Text(stringResource(R.string.action_apply)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
-    )
-}

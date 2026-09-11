@@ -380,6 +380,7 @@ fun GoPreachNavGraph(
         composable(Destinations.HOUSEHOLDER_VISIT_HISTORY) {
             com.emfitsolutions.gopreach.ui.screens.householdervisithistory.HouseholderVisitHistoryScreen(
                 congregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownPublisherAssignment?.congregationId,
+                currentPersonId = currentPersonId,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -855,7 +856,19 @@ fun GoPreachNavGraph(
             )
         }
         composable(Destinations.SETTINGS) {
-            SettingsScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onNavigateToThemeColorSettings = { navController.navigate(Destinations.THEME_COLOR_SETTINGS) },
+            )
+        }
+        // "Theme Color Settings — Simplified User Experience" (spec §16) —
+        // reachable both from Settings (above) and from the Control Panel
+        // drawer section (see GoPreachSidePanelContent); same route either
+        // way, no duplicate screen.
+        composable(Destinations.THEME_COLOR_SETTINGS) {
+            com.emfitsolutions.gopreach.ui.screens.settings.ThemeColorSettingsScreen(
+                onBack = { navController.popBackStack() },
+            )
         }
         composable(Destinations.CONTROL_PANEL) {
             ControlPanelScreen(

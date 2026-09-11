@@ -76,6 +76,14 @@ object Destinations {
     const val MANAGE_ADMINS = "manage_admins"
     const val BACKUP_RESTORE = "backup_restore"
     const val USER_LOGS = "user_logs"
+    // "Admin Dashboard Menu Reorganization" spec §16-17 — a dedicated,
+    // simplified color-wheel + preview + Save screen, reachable from the
+    // Control Panel drawer section (every role) and also linked from
+    // [SETTINGS] below (same reach [SETTINGS] already had, just moved off
+    // that screen instead of duplicated onto it). Reuses SettingsViewModel/
+    // ThemePreferenceRepository unchanged — no new storage, no new
+    // permission gate (spec §24: preserve exactly who already had access).
+    const val THEME_COLOR_SETTINGS = "theme_color_settings"
 
     // Phase 4
     const val MANAGE_PUBLISHERS = "manage_publishers"

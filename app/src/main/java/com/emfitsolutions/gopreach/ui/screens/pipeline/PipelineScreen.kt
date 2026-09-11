@@ -66,6 +66,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -720,6 +721,12 @@ internal fun PipelinePersonDetailScreen(
             item {
                 EditSectionHeader("Personal Information")
                 Text("Name: ${livePerson.name}", style = MaterialTheme.typography.bodyMedium)
+                // "House Holder Visit History" spec §5/§20 — the current
+                // status shown prominently alongside the rest of the
+                // personal information, using the exact same PipelineStage
+                // this screen is already scoped to (never a second,
+                // independently-tracked status value).
+                Text("Status: ${stage.fullLabel()}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                 // "Assigned Publisher: Publisher A" — the record's owner,
                 // shown to every viewer (Territory Map's whole point is
                 // letting another Publisher see whose record this is), never
@@ -727,6 +734,15 @@ internal fun PipelinePersonDetailScreen(
                 Text("Assigned Publisher: ${assignedPublisherName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Gender: ${livePerson.gender?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Spouse: ${livePerson.spouse ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                // "Although the filter is simplified... the record must
+                // still contain and display: Province / Municipality/City /
+                // Barangay / Complete Address" (spec §3) — the same
+                // structured fields [address] already sits alongside, shown
+                // explicitly here rather than only ever driving the address
+                // picker/filters behind the scenes.
+                Text("Province: ${livePerson.province ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                Text("Municipality/City: ${livePerson.cityMunicipality ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                Text("Barangay: ${livePerson.barangay ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Address: ${livePerson.address}", style = MaterialTheme.typography.bodyMedium)
                 Text("Children: ${livePerson.children ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Religion: ${livePerson.religion ?: "—"}", style = MaterialTheme.typography.bodyMedium)
@@ -803,6 +819,11 @@ internal fun PipelinePersonDetailScreen(
                                 Text("${stage.visitorLabel()}: ${visitorName ?: "—"}", style = MaterialTheme.typography.bodySmall)
                                 val recordedByName by remember(visit.createdByPersonId) { viewModel.personName(visit.createdByPersonId) }.collectAsStateWithLifecycle(initialValue = null)
                                 Text("Recorded by: ${recordedByName ?: "—"}", style = MaterialTheme.typography.bodySmall)
+                                if (visit.hasVisitLocation) {
+                                    ClickableCoordinatesText(lat = visit.visitLat!!, lng = visit.visitLng!!, style = MaterialTheme.typography.bodySmall, prefix = "Coordinates: ")
+                                } else {
+                                    Text("Coordinates: Not available", style = MaterialTheme.typography.bodySmall)
+                                }
                             }
                             // "Each Publisher may edit or delete only the Visit
                             // History entries that they personally created"
@@ -1438,6 +1459,7 @@ private fun AddVisitDialog(
 @Composable
 private fun VisitDetailDialog(visit: Visit, stage: PipelineStage, dateFormat: SimpleDateFormat, onDismiss: () -> Unit, viewModel: PipelineViewModel) {
     val visitorName by remember(visit.publisherPersonId) { viewModel.personName(visit.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
+    val recordedByName by remember(visit.createdByPersonId) { viewModel.personName(visit.createdByPersonId) }.collectAsStateWithLifecycle(initialValue = null)
     AlertDialog(
         properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
         onDismissRequest = onDismiss,
@@ -1450,6 +1472,20 @@ private fun VisitDetailDialog(visit: Visit, stage: PipelineStage, dateFormat: Si
                 ReadOnlyField("Remarks / Topic Discussed", visit.topicDiscussed ?: "—")
                 ReadOnlyField(stage.visitorLabel(), visitorName ?: "—")
                 ReadOnlyField("Follow-up Date", visit.followUpDate?.let { dateFormat.format(Date(it)) } ?: "—")
+                // "House Holder Visit History" spec §7 — this visit's own
+                // coordinates, clickable (same geo: intent every other
+                // saved-coordinate display in this app already uses) when
+                // present, plain "Not available" text when not — never the
+                // parent record's own current GPS.
+                if (visit.hasVisitLocation) {
+                    Column {
+                        Text("Coordinates", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        ClickableCoordinatesText(lat = visit.visitLat!!, lng = visit.visitLng!!, prefix = "")
+                    }
+                } else {
+                    ReadOnlyField("Coordinates", "Not available")
+                }
+                ReadOnlyField("Recorded By", recordedByName ?: "—")
                 ReadOnlyField("Logged", formatRecordTimestamp(visit.createdAt))
             }
         },

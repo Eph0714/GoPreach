@@ -95,9 +95,14 @@
     <string name="home_no">No</string>
     <string name="role_label_publisher">Publisher</string>
 
-    <!-- Admin-track side navigation drawer (SidePanel.kt) — Phase 2. -->
-    <string name="side_section_enrollment">Enrollment</string>
-    <string name="side_section_control_panel">Control Panel</string>
+    <!-- Admin-track side navigation drawer (SidePanel.kt) — Phase 2.
+         "Admin Dashboard Menu Reorganization" spec §26-28: these three exact
+         section titles/order (ENROLLMENT, REPORTS, CONTROL PANEL) are the
+         only titles the spec permits — never "Settings"/"Configuration"/
+         "Registration"/"Reporting"/etc. -->
+    <string name="side_section_enrollment">ENROLLMENT</string>
+    <string name="side_section_reports">REPORTS</string>
+    <string name="side_section_control_panel">CONTROL PANEL</string>
     <string name="side_section_other">Other</string>
     <string name="side_congregations_groups">Congregations/Groups</string>
     <string name="side_admins">Admins</string>
@@ -360,6 +365,14 @@
     <string name="settings_theme_dark">Dark</string>
     <string name="settings_theme_color_title">Theme Color</string>
     <string name="settings_theme_color_subtitle">Your own choice on this device only — not shared with anyone else.</string>
+    <!-- Theme Color Settings screen (ThemeColorSettingsScreen.kt) — "Admin
+         Dashboard Menu Reorganization" spec §16-25: color wheel, preview,
+         one Save button. -->
+    <string name="theme_color_settings_title">Theme Color Settings</string>
+    <string name="theme_color_settings_preview_label">Selected Color Preview</string>
+    <string name="theme_color_settings_presets_label">Or pick a preset</string>
+    <string name="theme_color_settings_saved_message">Theme color saved.</string>
+    <string name="side_theme_color_settings">Theme Color Settings</string>
     <string name="settings_notifications_title">Notifications</string>
     <string name="settings_notifications_subtitle">Transfer requests, announcements, and monthly report reminders. Calendar Alarms you\'ve scheduled still ring either way.</string>
     <string name="settings_sounds_title">Enable Notification Sounds</string>
