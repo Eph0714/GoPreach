@@ -60,7 +60,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -298,9 +297,10 @@ fun PublisherHomeScreen(
     }
 }
 
-/** Gradient welcome header — colors drawn from the theme's primary/
- * primaryContainer tones (never hard-coded green/blue), rounded at the
- * bottom to read as one soft panel, matching the reference's shape. */
+/** Welcome header — a flat, solid panel in the theme's own primary color
+ * (never hard-coded green/blue, and no gradient — "use solid color in
+ * themes, not gradient color"), rounded at the bottom to read as one soft
+ * panel, matching the reference's shape. */
 @Composable
 private fun PublisherWelcomeHeader(
     greetingName: String,
@@ -327,9 +327,7 @@ private fun PublisherWelcomeHeader(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                Brush.verticalGradient(
-                    listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primaryContainer),
-                ),
+                MaterialTheme.colorScheme.primary,
                 shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
             )
             .padding(bottom = 20.dp),

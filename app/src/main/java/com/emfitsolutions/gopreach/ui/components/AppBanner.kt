@@ -13,12 +13,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
- * The gradient banner shown on entry/dashboard screens (login, home).
+ * The banner shown on entry/dashboard screens (login, home) — a flat, solid
+ * panel in the theme's own primary color ("use solid color in themes, not
+ * gradient color"), not currently wired into any screen (both login and
+ * home have their own dedicated hero panels — see [GradientHero] and
+ * [com.emfitsolutions.gopreach.ui.components.DashboardHero]).
  *
  * The app logo shown here (or a fallback wordmark when no custom logo has been
  * uploaded) is customizable at runtime by the Super-Admin via the Control Panel
@@ -40,15 +43,10 @@ fun AppBanner(
             .fillMaxWidth()
             .height(200.dp)
             .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
-            .background(
-                Brush.verticalGradient(
-                    // Theme-driven, not a hardcoded brand color, so this reads deep
-                    // purple in light mode and bright purple on #121212 in dark mode
-                    // (spec: two distinct theme identities, not just a dimmed copy of
-                    // the light one).
-                    colors = listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary),
-                )
-            ),
+            // Theme-driven, not a hardcoded brand color, so this reads deep purple in
+            // light mode and bright purple on #121212 in dark mode (spec: two distinct
+            // theme identities, not just a dimmed copy of the light one).
+            .background(MaterialTheme.colorScheme.primary),
         contentAlignment = Alignment.Center,
     ) {
         Column(

@@ -13,18 +13,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * The gradient hero panel used behind the login screen's content — a deeper
- * take on [AppBanner]'s gradient with soft decorative shapes for a bit of
- * visual interest on the app's very first screen, in the same spirit as a
- * typical "welcome" hero mockup (diagonal streaks, translucent blobs) but
- * restrained to keep the look "professional and simple" rather than busy.
+ * The hero panel used behind the login screen's content — a solid-color take
+ * on [AppBanner]'s panel with soft decorative shapes for a bit of visual
+ * interest on the app's very first screen, in the same spirit as a typical
+ * "welcome" hero mockup (diagonal streaks, translucent blobs) but restrained
+ * to keep the look "professional and simple" rather than busy.
+ *
+ * "Use solid color in themes, not gradient color" — flat [MaterialTheme
+ * .colorScheme.primary] instead of the earlier primaryContainer-to-primary
+ * gradient, matching [com.emfitsolutions.gopreach.ui.components.DashboardHero]'s
+ * own already-flat panel.
  */
 @Composable
 fun GradientHero(
@@ -37,12 +41,8 @@ fun GradientHero(
             .fillMaxWidth()
             .height(height)
             .clip(RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp))
-            .background(
-                Brush.verticalGradient(
-                    // Theme-driven: deep purple in light mode, bright purple on #121212 in dark mode.
-                    colors = listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary),
-                )
-            ),
+            // Theme-driven: deep purple in light mode, bright purple on #121212 in dark mode.
+            .background(MaterialTheme.colorScheme.primary),
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
