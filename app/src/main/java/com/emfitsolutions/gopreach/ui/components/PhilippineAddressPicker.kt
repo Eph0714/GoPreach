@@ -4,8 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -344,25 +344,39 @@ private fun SearchableDropdown(
             // two used to be indistinguishable). [options] is also no longer
             // artificially capped at 50 (see [PsgcDao]'s own doc comment),
             // so a fully-loaded list can now run to hundreds of rows (e.g.
-            // Manila's 897 barangays); LazyColumn only composes what's
-            // actually visible, keeping that just as cheap to open as a
-            // short list instead of building every row up front.
-            LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
+            // Manila's 897 barangays).
+            //
+            // Bug fix ("the form will close" / crash when tapping this
+            // dropdown, reproduced live: IllegalStateException "Asking for
+            // intrinsic measurements of SubcomposeLayout layouts is not
+            // supported... This includes... lazy lists"): this menu content
+            // used to be a LazyColumn — itself built on SubcomposeLayout —
+            // nested inside this ExposedDropdownMenuBox's own popup, whose
+            // Material3-internal `exposedDropdownSize` sizing logic queries
+            // intrinsic measurements of that popup content to match the
+            // anchor's width. Querying intrinsics through a SubcomposeLayout
+            // is exactly what Compose refuses to do, crashing the instant
+            // the popup opened — reproduced specifically on a full-screen
+            // host (Enroll Publisher/Congregation), not yet inside the
+            // dialog-hosted callers, but the same latent conflict. A plain
+            // `Column` (scrollable, still height-capped at 280dp so a
+            // several-hundred-row barangay list doesn't grow unbounded) has
+            // no SubcomposeLayout in its measurement path, so the same
+            // intrinsic query resolves normally. Every row is a lightweight
+            // `Text`-only `DropdownMenuItem`, so composing the full list
+            // up front (this menu's content only exists while it's open
+            // anyway) is not the LazyColumn's original virtualization was
+            // guarding against anything expensive per row.
+            Column(modifier = Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
                 when {
-                    state.isError -> item {
-                        DropdownMenuItem(
-                            text = { Text("Couldn't load the list. Tap to retry.") },
-                            onClick = onRetry,
-                        )
-                    }
-                    state.isLoading && options.isEmpty() -> item {
-                        DropdownMenuItem(text = { Text("Loading…") }, onClick = {}, enabled = false)
-                    }
-                    options.isEmpty() -> item {
-                        DropdownMenuItem(text = { Text(if (text.isBlank()) "Loading…" else "No matches") }, onClick = {}, enabled = false)
-                    }
+                    state.isError -> DropdownMenuItem(
+                        text = { Text("Couldn't load the list. Tap to retry.") },
+                        onClick = onRetry,
+                    )
+                    state.isLoading && options.isEmpty() -> DropdownMenuItem(text = { Text("Loading…") }, onClick = {}, enabled = false)
+                    options.isEmpty() -> DropdownMenuItem(text = { Text(if (text.isBlank()) "Loading…" else "No matches") }, onClick = {}, enabled = false)
                 }
-                items(options, key = { it.id }) { option ->
+                options.forEach { option ->
                     DropdownMenuItem(
                         text = { Text(option.name) },
                         onClick = {
