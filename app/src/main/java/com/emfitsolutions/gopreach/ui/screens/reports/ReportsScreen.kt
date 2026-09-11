@@ -56,8 +56,10 @@ import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
+import com.emfitsolutions.gopreach.ui.components.QuickDateRange
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -148,7 +150,16 @@ fun ReportsScreen(
     // elsewhere.
     val context = LocalContext.current
     val showToast = rememberActionToast()
-    val reportTable = remember(sections, dateRange) { reportsTableFor(sections, dateRange) }
+    // "Change the Header text of the Publishers Report" — the printed/
+    // exported report's own heading names the actual congregation being
+    // reported on, not a fixed "GoPreach" — "All Congregations" is the one
+    // case with no single name to use (Super-Admin viewing every
+    // congregation at once, [effectiveCongregationId] null).
+    val reportCongregationName = congregations.firstOrNull { it.id == effectiveCongregationId }?.name
+        ?: "All Congregations"
+    val reportTable = remember(sections, dateRange, reportCongregationName) {
+        reportsTableFor(sections, dateRange, reportCongregationName)
+    }
     // Bug fix ("I cannot see any PDF or Excel inside the Reports Summary"):
     // the Storage Access Framework picker just saves and closes — nothing
     // about that flow shows the result inside the app on its own. Now it
@@ -493,13 +504,48 @@ private fun DateRange.periodLabel(): String {
     return "${dateFormat.format(Date(startMillis))} - ${dateFormat.format(Date(endMillis))}"
 }
 
+/** "Sept," not "Sep" — the exact abbreviation asked for; every other month
+ * keeps the standard three-letter form. Used only by [reportHeaderFor]'s own
+ * date-range wording, never [periodLabel] above (the per-group "SUMMARY
+ * TOTAL FOR THE PERIOD OF ..." line inside the report body) — the header
+ * text is the only thing this request asked to change. */
+private val REPORT_HEADER_SHORT_MONTHS = arrayOf(
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec",
+)
+
+private fun reportHeaderDate(millis: Long): String {
+    val cal = Calendar.getInstance().apply { timeInMillis = millis }
+    return "${REPORT_HEADER_SHORT_MONTHS[cal.get(Calendar.MONTH)]} ${cal.get(Calendar.DAY_OF_MONTH)}, ${cal.get(Calendar.YEAR)}"
+}
+
+/** "GoPreach App — Change Publisher Report Header": the congregation-scoped
+ * heading for the printed/exported Publisher Report — "{Congregation}
+ * Publisher Report of {period}", where {period} depends on exactly how the
+ * period was picked, never a fixed "GoPreach Publisher Report(s) (...)" for
+ * every case the way this used to read:
+ * - [QuickDateRange.THIS_MONTH] -> "September 2026" (full month name + year)
+ * - [QuickDateRange.THIS_YEAR] -> "2026" (year alone)
+ * - anything else (Today/This Week/a custom Start-End pick) -> "Sept 1, 2026
+ *   to Sept 30, 2026" — "to" between the two dates, never parentheses or a
+ *   hyphen, per this request's own worked examples.
+ */
+private fun reportHeaderFor(congregationName: String, dateRange: DateRange): String {
+    val period = when (dateRange.option) {
+        QuickDateRange.THIS_MONTH -> SimpleDateFormat("MMMM yyyy", Locale.US).format(Date(dateRange.startMillis))
+        QuickDateRange.THIS_YEAR -> Calendar.getInstance().apply { timeInMillis = dateRange.startMillis }.get(Calendar.YEAR).toString()
+        QuickDateRange.TODAY, QuickDateRange.THIS_WEEK, QuickDateRange.CUSTOM ->
+            "${reportHeaderDate(dateRange.startMillis)} to ${reportHeaderDate(dateRange.endMillis)}"
+    }
+    return "$congregationName Publisher Report of $period"
+}
+
 /** Shared shape for both Print and CSV export — "put a heading" (the title
  * plus the period line) is baked in here, same as before, now walking every
  * [GroupReportSection] in turn: a group header pseudo-row, that group's
  * publisher rows, then its own "SUMMARY TOTAL" pseudo-rows, before moving to
  * the next group — matches the on-screen grouping exactly so the export
  * never shows a different shape than what's on screen. */
-private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateRange): ReportTable {
+private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateRange, congregationName: String): ReportTable {
     val periodLabel = dateRange.periodLabel()
     val columns = listOf("Status", "Publisher Name", "Hours", "Bible Studies", "Attended Preaching")
     val rows = mutableListOf<List<String>>()
@@ -539,7 +585,7 @@ private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateR
     val bibleStudiesByCategory = allRows.categoryBibleStudies()
     val hoursByCategory = allRows.categoryHours()
     return ReportTable(
-        title = "GoPreach Publisher Reports ($periodLabel)",
+        title = reportHeaderFor(congregationName, dateRange),
         columns = columns,
         rows = rows,
         totals = listOf(
