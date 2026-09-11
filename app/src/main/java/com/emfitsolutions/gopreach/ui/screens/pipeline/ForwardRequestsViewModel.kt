@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.ForwardRequest
 import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
+import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
@@ -53,6 +54,18 @@ class ForwardRequestsViewModel @Inject constructor(
             list.filter { it.status == ForwardRequestStatus.PENDING && (congregationIds == null || it.toCongregationId in congregationIds) }
                 .sortedByDescending { it.requestedAt }
         }
+
+    /** "Include the basic details of the forwarded record, not just the
+     * name" — a live lookup of the record itself, keyed off
+     * [ForwardRequest.interestedPersonId]. The request only ever snapshots
+     * the name (see [ForwardRequest]'s own doc comment on why: so the
+     * receiving screen still renders correctly even if the record changes
+     * later), so anything beyond the name — stage, address, gender — has to
+     * come from here instead, live from the record's current state. `null`
+     * while the record isn't loaded yet, or if it was deleted since the
+     * request was made. */
+    fun personFor(interestedPersonId: String): Flow<InterestedPerson?> =
+        interestedPersonRepository.observeAll().map { list -> list.firstOrNull { it.id == interestedPersonId } }
 
     /** Active, non-removed publishers of [congregationId] — the "ASSIGN TO"
      * dropdown's candidate list (spec: "Do not include (Removed) status"). */

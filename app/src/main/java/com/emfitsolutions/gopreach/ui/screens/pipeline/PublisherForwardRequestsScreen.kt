@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.model.InterestedPerson
+import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -70,9 +73,19 @@ fun PublisherForwardRequestsScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(requests, key = { it.id }) { request ->
+                    val personFlow = remember(request.interestedPersonId) { viewModel.personFor(request.interestedPersonId) }
+                    val person by personFlow.collectAsStateWithLifecycle(initialValue = null)
                     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                             Text(request.personNameSnapshot, style = MaterialTheme.typography.titleMedium)
+                            // "Include the basic details of the forwarded record,
+                            // not just the name" — stage + address, live off the
+                            // record itself (see PublisherForwardRequestsViewModel
+                            // .personFor's own doc comment).
+                            person?.let { p ->
+                                Text(stageLabel(p.pipelineStage), style = MaterialTheme.typography.bodySmall)
+                                addressLine(p)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            }
                             Text("From: ${request.fromPublisherNameSnapshot}", style = MaterialTheme.typography.bodySmall)
                             Text("Requested: ${formatRecordTimestamp(request.requestedAt)}", style = MaterialTheme.typography.bodySmall)
                             TextButton(onClick = { selected = request }) { Text("Review") }
@@ -83,7 +96,20 @@ fun PublisherForwardRequestsScreen(
         }
     }
 
+    // "If a forward request is cancelled, the accept/decline dialog open on
+    // the receiving side must close automatically" — [requests] is the live,
+    // reactively-filtered PENDING queue; the moment the open request's id
+    // drops out of it (the sender cancelled it, or it was actioned from
+    // elsewhere), this closes the dialog on its own — no manual refresh
+    // needed to discover the stale state.
+    LaunchedEffect(selected?.id, requests) {
+        val id = selected?.id
+        if (id != null && requests.none { it.id == id }) selected = null
+    }
+
     selected?.let { request ->
+        val personFlow = remember(request.interestedPersonId) { viewModel.personFor(request.interestedPersonId) }
+        val person by personFlow.collectAsStateWithLifecycle(initialValue = null)
         AlertDialog(
             properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = { selected = null },
@@ -94,6 +120,13 @@ fun PublisherForwardRequestsScreen(
                     Text("Publisher Name: ${request.fromPublisherNameSnapshot}")
                     Text("—".repeat(20), style = MaterialTheme.typography.bodySmall)
                     Text("Name: ${request.personNameSnapshot}")
+                    // "Include the basic details of the forwarded record, not
+                    // just the name" — same live lookup as the list card.
+                    person?.let { p ->
+                        Text("Status: ${stageLabel(p.pipelineStage)}")
+                        p.gender?.let { Text("Gender: ${it.name.lowercase().replaceFirstChar(Char::uppercase)}") }
+                        addressLine(p)?.let { Text("Address: $it") }
+                    }
                     Text(
                         "Accepting adds this record to your own Bible Study/Return Visit record and removes it from ${request.fromPublisherNameSnapshot}'s.",
                         style = MaterialTheme.typography.bodySmall,
@@ -123,4 +156,23 @@ fun PublisherForwardRequestsScreen(
             },
         )
     }
+}
+
+/** "Include the basic details of the forwarded record, not just the name" —
+ * a plain, human-readable stage name (matching the label this same stage
+ * shows as everywhere else in the pipeline UI — see PipelineScreen's own,
+ * screen-private equivalent). */
+private fun stageLabel(stage: PipelineStage): String = when (stage) {
+    PipelineStage.SEARCHING -> "Searching"
+    PipelineStage.RETURN_VISIT -> "Return Visit"
+    PipelineStage.BIBLE_STUDY -> "Bible Study"
+}
+
+/** Barangay/City-Municipality/Province, comma-joined, skipping whichever of
+ * the three weren't filled in — `null` (not an empty string) when none of
+ * them were, so callers can cleanly skip the line entirely instead of
+ * showing an empty one. */
+private fun addressLine(person: InterestedPerson): String? {
+    val parts = listOfNotNull(person.barangay, person.cityMunicipality, person.province).filter { it.isNotBlank() }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(", ")
 }

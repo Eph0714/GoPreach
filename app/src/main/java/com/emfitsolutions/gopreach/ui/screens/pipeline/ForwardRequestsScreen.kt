@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,7 +38,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.ForwardRequest
 import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
+import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
@@ -107,9 +110,20 @@ fun ForwardRequestsScreen(
                 if (requests.isNotEmpty()) {
                     item { Text("To Other Congregation/Group", style = MaterialTheme.typography.titleSmall) }
                     items(requests, key = { it.id }) { request ->
+                        val personFlow = remember(request.interestedPersonId) { viewModel.personFor(request.interestedPersonId) }
+                        val person by personFlow.collectAsStateWithLifecycle(initialValue = null)
                         Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                             Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                                 Text(request.personNameSnapshot, style = MaterialTheme.typography.titleMedium)
+                                // "Include the basic details of the forwarded
+                                // record, not just the name" — stage + address,
+                                // live off the record itself (see
+                                // ForwardRequestsViewModel.personFor's own doc
+                                // comment).
+                                person?.let { p ->
+                                    Text(stageLabel(p.pipelineStage), style = MaterialTheme.typography.bodySmall)
+                                    addressLine(p)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                                }
                                 Text("From: ${request.fromPublisherNameSnapshot} · ${request.fromCongregationNameSnapshot}", style = MaterialTheme.typography.bodySmall)
                                 Text("Requested: ${formatRecordTimestamp(request.requestedAt)}", style = MaterialTheme.typography.bodySmall)
                                 TextButton(onClick = { selected = request }) { Text(if (readOnly) "View" else "Review") }
@@ -127,6 +141,8 @@ fun ForwardRequestsScreen(
         }
       }
     }
+
+    AutoCloseOnNoLongerPending(selected?.id, requests.map { it.id }) { selected = null }
 
     selected?.let { request ->
         ReviewForwardRequestDialog(
@@ -176,6 +192,8 @@ private fun ReviewForwardRequestDialog(
 ) {
     val publishersFlow = remember(request.toCongregationId) { viewModel.assignablePublishers(request.toCongregationId) }
     val publishers by publishersFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val personFlow = remember(request.interestedPersonId) { viewModel.personFor(request.interestedPersonId) }
+    val person by personFlow.collectAsStateWithLifecycle(initialValue = null)
     var assigning by remember { mutableStateOf(false) }
     var selectedPublisher by remember { mutableStateOf<Person?>(null) }
     // "Prevent Double Submission" — this dialog predates FormDialog's own
@@ -196,6 +214,10 @@ private fun ReviewForwardRequestDialog(
                     Text("Congregation/Group: ${request.fromCongregationNameSnapshot}")
                     Text("—".repeat(20), style = MaterialTheme.typography.bodySmall)
                     Text("Name: ${request.personNameSnapshot}")
+                    person?.let { p ->
+                        Text("Record status: ${stageLabel(p.pipelineStage)}")
+                        addressLine(p)?.let { Text("Address: $it") }
+                    }
                     Text("Status: Pending", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
                 }
             },
@@ -215,6 +237,10 @@ private fun ReviewForwardRequestDialog(
                 Text("Congregation/Group: ${request.fromCongregationNameSnapshot}")
                 Text("—".repeat(20), style = MaterialTheme.typography.bodySmall)
                 Text("Name: ${request.personNameSnapshot}")
+                person?.let { p ->
+                    Text("Record status: ${stageLabel(p.pipelineStage)}")
+                    addressLine(p)?.let { Text("Address: $it") }
+                }
                 if (!assigning) {
                     Text("To assign this record to a publisher in your congregation, tap Accept.", style = MaterialTheme.typography.bodySmall)
                 } else {
@@ -270,4 +296,39 @@ private fun ReviewForwardRequestDialog(
             }
         },
     )
+}
+
+/** "If a forward request is cancelled, the accept/decline dialog open on the
+ * receiving side must close automatically" — [selected] holds a static
+ * snapshot of the request from when the dialog opened, so it never sees the
+ * sender's later cancel on its own; this watches the *live*, reactively
+ * filtered [requests] list instead and clears [selected] the moment the open
+ * request's id drops out of it (cancelled, accepted, or declined by this
+ * same screen, or the record's own PENDING status otherwise changing
+ * server-side) — a real, no-manual-refresh close, not just "next open will be
+ * stale-free". */
+@Composable
+private fun AutoCloseOnNoLongerPending(selectedId: String?, pendingIds: List<String>, onAutoClose: () -> Unit) {
+    LaunchedEffect(selectedId, pendingIds) {
+        if (selectedId != null && selectedId !in pendingIds) onAutoClose()
+    }
+}
+
+/** "Include the basic details of the forwarded record, not just the name" —
+ * a plain, human-readable stage name (matching the label this same stage
+ * shows as everywhere else in the pipeline UI — see PipelineScreen's own,
+ * screen-private equivalent). */
+private fun stageLabel(stage: PipelineStage): String = when (stage) {
+    PipelineStage.SEARCHING -> "Searching"
+    PipelineStage.RETURN_VISIT -> "Return Visit"
+    PipelineStage.BIBLE_STUDY -> "Bible Study"
+}
+
+/** Barangay/City-Municipality/Province, comma-joined, skipping whichever of
+ * the three weren't filled in — `null` (not an empty string) when none of
+ * them were, so callers can cleanly skip the line entirely instead of
+ * showing an empty one. */
+private fun addressLine(person: InterestedPerson): String? {
+    val parts = listOfNotNull(person.barangay, person.cityMunicipality, person.province).filter { it.isNotBlank() }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(", ")
 }

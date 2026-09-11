@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.ui.screens.pipeline
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
+import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.data.repository.AuditLogRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
@@ -35,6 +36,12 @@ class PublisherForwardRequestsViewModel @Inject constructor(
             list.filter { it.toPublisherPersonId == publisherPersonId && it.status == ForwardRequestStatus.PENDING }
                 .sortedByDescending { it.requestedAt }
         }
+
+    /** "Include the basic details of the forwarded record, not just the
+     * name" — same reasoning as [ForwardRequestsViewModel.personFor]: a live
+     * lookup, since the request itself only ever snapshots the name. */
+    fun personFor(interestedPersonId: String): Flow<InterestedPerson?> =
+        interestedPersonRepository.observeAll().map { list -> list.firstOrNull { it.id == interestedPersonId } }
 
     /** Every request [publisherPersonId] has ever sent — used by the sender's
      * own Home screen notifier to catch an Accept/Decline outcome. */
