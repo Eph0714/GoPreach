@@ -2,6 +2,7 @@ package com.emfitsolutions.gopreach.ui.screens.account
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -29,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -127,6 +129,15 @@ fun AccountSettingsScreen(
                 onValueChange = viewModel::onNewUsernameChange,
                 label = { Text("New Username") },
                 singleLine = true,
+                // Plain text, never masked — same "visible password" trick
+                // LoginScreen's Username field uses: KeyboardType.Password
+                // is the only reliable way to stop every IME's "auto-space
+                // after a period" behavior (autoCorrectEnabled = false alone
+                // doesn't cover it on several keyboards), so a dotted
+                // username like "user.test" can never silently become
+                // "user. test" while typing it here either.
+                visualTransformation = VisualTransformation.None,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                 modifier = Modifier.fillMaxWidth(),
             )
             PasswordField(

@@ -71,7 +71,15 @@ fun ForcedPasswordChangeScreen(
             label = { Text("New Username") },
             singleLine = true,
             visualTransformation = VisualTransformation.None,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+            // KeyboardType.Password (not .Text), despite showing plain text —
+            // same "visible password" fix as LoginScreen's Username field:
+            // autoCorrectEnabled alone isn't reliable across every IME for
+            // suppressing "auto-space after a period," and this screen in
+            // particular is where a brand-new account picks their own
+            // permanent dotted username for the first time — silently
+            // corrupting it here (e.g. "user.test" -> "user. test") would
+            // otherwise lock them out immediately.
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
             modifier = Modifier.fillMaxWidth(),
         )
 

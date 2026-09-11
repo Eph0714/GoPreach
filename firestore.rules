@@ -554,40 +554,36 @@ service cloud.firestore {
       // congregation — never a client-chosen one (spec §20: "Do not trust...
       // TerritoryCongregationID [when] supplied by the frontend").
       allow create: if inMyActiveCongregation(database, request.resource.data.get('congregationId', null));
-      // "Territory Map Return Visit Permissions" bug fix — this used to be
-      // just `inMyActiveCongregation`, meaning ANY Publisher active in the
-      // same congregation could edit or delete ANY OTHER Publisher's Return
-      // Visit/Bible Study/Searching record outright, entirely regardless of
-      // what the app's own UI showed or hid (the exact "must NOT rely only
-      // on hiding buttons" gap that feature's spec calls out). Now: the
-      // record's own owner, an admin-track role/Super-Admin (unchanged
-      // capability — see canManagePublisherReportsFor's own doc comment for
-      // the identical role set), or one of the two existing ownership-
-      // transfer flows below — nothing else.
-      allow update: if resource.data.get('publisherPersonId', null) == personIdFromToken() ||
-        canManagePublisherReportsFor(database, resource.data.get('congregationId', null)) ||
-        // "Forward to Other Congregation" accept — performed by an
-        // admin-track role active in the *receiving* congregation (see
-        // ForwardRequestsViewModel.accept; that screen is itself restricted
-        // to Super-Admin/Admin/Coordinator Elder/Service Overseer — see
-        // GoPreachNavGraph's own FORWARD_REQUESTS route), never the sending
-        // congregation's owner directly.
-        canManagePublisherReportsFor(database, request.resource.data.get('congregationId', null)) ||
-        // "Forward to Other Publisher" accept (same congregation, Publisher-
-        // to-Publisher, no admin step — PublisherForwardRequestsViewModel
-        // .accept) — legitimate specifically because setting
-        // `pendingPublisherForwardRequestId` in the first place already
-        // required being this record's *current* owner (this same `update`
-        // rule, before this clause even applies); the accepting Publisher
-        // may only ever set `publisherPersonId` to their own id here, never
-        // an arbitrary third party's (spec §13: "must not be able to
-        // manipulate... publisherPersonId... to gain edit/delete/add-history
-        // access" — this exception grants none of those, only the one
-        // specific reassignment a pending request already authorized).
-        (resource.data.get('pendingPublisherForwardRequestId', null) != null &&
-          request.resource.data.get('publisherPersonId', null) == personIdFromToken());
-      allow delete: if resource.data.get('publisherPersonId', null) == personIdFromToken() ||
-        canManagePublisherReportsFor(database, resource.data.get('congregationId', null));
+      // Rollback (2026-09-11): the stricter "record's own owner (or
+      // admin-track role) only" version of this rule — which required
+      // resource.data.publisherPersonId == personIdFromToken() — is the
+      // *intended* long-term design (closing a real "any same-congregation
+      // Publisher can edit/delete anyone else's record" gap) but had
+      // apparently never actually been deployed to production until today;
+      // deploying it surfaced real, previously-working saves failing with
+      // PERMISSION_DENIED for at least one Publisher (a same-congregation
+      // edit whose stored publisherPersonId didn't satisfy the strict
+      // check). Restoring the same "any signed-in member of this record's
+      // own active congregation" rule [create] already uses, to stop the
+      // active production regression first — re-tightening this back to
+      // owner-only needs to happen alongside an audit/backfill of existing
+      // publisherPersonId data, not as a same-day rules-only deploy.
+      //
+      // "Forward to Other Publisher" accept (same congregation, Publisher-
+      // to-Publisher, no admin step — PublisherForwardRequestsViewModel
+      // .accept, which reassigns publisherPersonId to the accepting
+      // Publisher) is automatically covered by the same-congregation check
+      // below — both the sender and the accepting Publisher are already in
+      // this record's own congregation — so the receiving Publisher's
+      // "Forwarded to Me" accept, and the notification/badge that already
+      // reads the resulting record, both keep working unchanged.
+      allow update: if inMyActiveCongregation(database, resource.data.get('congregationId', null)) ||
+        // "Forward to Other Congregation" accept — an admin-track role
+        // active in the *receiving* congregation (ForwardRequestsViewModel
+        // .accept) reassigns a record it doesn't yet share a congregation
+        // with, so the plain same-congregation check above can't cover it.
+        canManagePublisherReportsFor(database, request.resource.data.get('congregationId', null));
+      allow delete: if inMyActiveCongregation(database, resource.data.get('congregationId', null));
 
       match /visits/{visitId} {
         allow read: if isSignedIn();

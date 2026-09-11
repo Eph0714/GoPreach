@@ -182,14 +182,20 @@ fun LoginScreen(
                     leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null) },
                     // Plain text, never masked — per spec, only password fields mask input.
                     visualTransformation = VisualTransformation.None,
-                    // autoCorrect = false — without it, Gboard (and most
-                    // other IMEs) treats a "." as end-of-sentence punctuation
-                    // and auto-inserts a space after it once the next
-                    // character is typed, silently turning "user.test" into
-                    // "user. test" for any dotted username. Usernames are
-                    // never a "sentence" the keyboard should be
-                    // autocorrecting/auto-spacing in the first place.
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, autoCorrectEnabled = false),
+                    // KeyboardType.Password (not .Text) despite showing plain
+                    // text — this recurred even with autoCorrectEnabled =
+                    // false, because that flag alone doesn't reliably stop
+                    // every IME's "auto-space after a period" behavior; it's
+                    // a separate suggestion-engine flag several keyboards
+                    // (Samsung's default included) don't honor just from
+                    // autoCorrect being off. KeyboardType.Password is
+                    // Android's "visible password" field type — it genuinely
+                    // disables the whole prose/suggestion engine (autocorrect,
+                    // auto-caps, auto-space-after-punctuation) at the platform
+                    // level, the same way the Password field below already
+                    // relies on for its own input, so "user.test" can never
+                    // silently become "user. test" again regardless of IME.
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth(),
                 )
 

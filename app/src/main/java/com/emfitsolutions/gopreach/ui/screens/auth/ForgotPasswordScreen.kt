@@ -2,6 +2,7 @@ package com.emfitsolutions.gopreach.ui.screens.auth
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -73,11 +74,18 @@ fun ForgotPasswordScreen(
                     label = { Text("Username") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,
-                    // Same fix as LoginScreen's Username field — without
-                    // this, the keyboard auto-inserts a space after a "."
-                    // (treating it as end-of-sentence punctuation), silently
-                    // turning "user.test" into "user. test".
-                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                    // Same fix as LoginScreen's Username field — KeyboardType
+                    // .Password (not .Text), despite showing plain text: on
+                    // its own, autoCorrectEnabled = false doesn't reliably
+                    // stop every IME's "auto-space after a period" behavior
+                    // (treating "." as end-of-sentence punctuation and
+                    // silently turning "user.test" into "user. test");
+                    // several keyboards (Samsung's default included) don't
+                    // honor that flag alone. The Password keyboard type is
+                    // Android's "visible password" field — it genuinely
+                    // disables the whole prose/suggestion engine at the
+                    // platform level regardless of IME.
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Button(onClick = viewModel::submit, enabled = !uiState.isLoading, modifier = Modifier.fillMaxWidth()) {
