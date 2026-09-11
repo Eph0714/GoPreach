@@ -10,9 +10,12 @@ import android.os.Looper
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.merge
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -71,13 +74,12 @@ class ConnectivityObserver @Inject constructor(
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    /** Real-time updates for a UI badge or an automatic-sync trigger — a
-     * fresh registration per collector (see this class's own doc comment for
-     * why), explicitly delivered on the main thread's Looper so callback
-     * delivery never depends on which thread happened to start collecting
-     * (a `SyncScheduler`-style collector on an application-wide IO-dispatcher
-     * scope, and a ViewModel's own `viewModelScope`, both need to work). */
-    fun observe(): Flow<Boolean> = callbackFlow {
+    /** Push side of [observe] — a fresh [ConnectivityManager.NetworkCallback]
+     * registration per collector, explicitly delivered on the main thread's
+     * Looper. Verified working end-to-end against a real build on an
+     * emulator (Wi-Fi/data toggled via `adb`): the badge and the manual
+     * sync's rejection both updated within seconds, no restart needed. */
+    private fun callbackUpdates(): Flow<Boolean> = callbackFlow {
         val cm = connectivityManager()
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
@@ -103,5 +105,32 @@ class ConnectivityObserver @Inject constructor(
         cm.registerNetworkCallback(request, callback, Handler(Looper.getMainLooper()))
         trySend(isOnline())
         awaitClose { cm.unregisterNetworkCallback(callback) }
-    }.distinctUntilChanged()
+    }
+
+    /** Bug fix ("the indicator doesn't update in real time, I need to
+     * relogin for it to update") — confirmed correct on a stock emulator via
+     * [callbackUpdates] alone, but not real-time on the reporter's own
+     * device: [isOnline] itself was always right (a fresh login re-reads it
+     * and shows the true state), which means the *callback* just never
+     * reached this app in time — a well-known behavior on several Android
+     * OEM skins (aggressive battery/network-callback throttling for a
+     * backgrounded-ish or long-lived registration) that a stock emulator
+     * doesn't reproduce. Rather than chase that OEM-specific mechanism
+     * further, this adds a plain, impossible-to-silently-drop fallback: a
+     * fresh [isOnline] check every few seconds, merged alongside the
+     * callback. [isOnline] is a local `ConnectivityManager` query — no
+     * network request, negligible cost — so polling it this often is not
+     * the "repeated network attempts while Offline" this app's own sync
+     * layer deliberately avoids (see SyncWorker); the callback path still
+     * makes most real transitions feel instant, the poll is only the
+     * worst-case, guaranteed catch-up. */
+    fun observe(): Flow<Boolean> = merge(
+        callbackUpdates(),
+        flow {
+            while (true) {
+                emit(isOnline())
+                delay(3000)
+            }
+        },
+    ).distinctUntilChanged()
 }
