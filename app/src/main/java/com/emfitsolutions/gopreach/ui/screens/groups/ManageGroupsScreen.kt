@@ -41,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -271,21 +272,22 @@ private fun GroupDialog(
     var name by remember { mutableStateOf(existingGroup?.name ?: "") }
     val showToast = rememberActionToast()
     val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
-    // Pre-fill once the congregation list has loaded, same "wait for the
-    // candidate list, then pre-fill once" pattern as [preselected]/
-    // [membersPreselected] below — keying on the live `congregations` list
-    // itself (which gets a new List instance on every Firestore snapshot,
-    // even with unchanged data) would wipe out the user's own selection the
-    // next time that listener re-emits, before they get a chance to save.
-    var pickedCongregation by remember { mutableStateOf<Congregation?>(null) }
-    var congregationPreselected by remember { mutableStateOf(false) }
-    if (!congregationPreselected && congregations.isNotEmpty()) {
-        pickedCongregation = congregations.firstOrNull { it.id == existingGroup?.congregationId }
-        congregationPreselected = true
-    }
+    // Bug fix ("Congregation/Group is required" even after picking one):
+    // this used to hold the whole selected [Congregation] in a plain
+    // `remember`, keyed on the live `congregations` list — which both (a)
+    // got a new List instance on every Firestore snapshot re-emission, and
+    // (b) is plain `remember`, so it's wiped outright by any configuration
+    // change (rotation, a system dark/light switch that recreates the
+    // Activity, ...) that happens between picking a congregation and tapping
+    // Save. A `String?` id in `rememberSaveable` is immune to both: it isn't
+    // keyed on the list at all, and it survives a config change via the
+    // instance-state Bundle the same way a plain text field's typed-in value
+    // already does elsewhere in this app.
+    var pickedCongregationId by rememberSaveable { mutableStateOf(existingGroup?.congregationId) }
+    val pickedCongregation = congregations.firstOrNull { it.id == pickedCongregationId }
     // Scoped roles (Admin/Coordinator Elder) already have exactly one congregation;
     // only a Super-Admin needs to pick one here.
-    val congregationId = fixedCongregationId ?: pickedCongregation?.id ?: existingGroup?.congregationId
+    val congregationId = fixedCongregationId ?: pickedCongregationId ?: existingGroup?.congregationId
 
     var overseer by remember { mutableStateOf<Person?>(null) }
     var servant by remember { mutableStateOf<Person?>(null) }
@@ -408,7 +410,7 @@ private fun GroupDialog(
         errorMessage = errorMessage,
         maxContentHeight = 480.dp,
         hasUnsavedChanges = name != (existingGroup?.name ?: "") ||
-            pickedCongregation?.id != existingGroup?.congregationId ||
+            pickedCongregationId != existingGroup?.congregationId ||
             overseer?.id != initialOverseer?.id || servant?.id != initialServant?.id || assistant?.id != initialAssistant?.id ||
             checkedMemberIds != initialCheckedMemberIds,
     ) {
@@ -416,7 +418,7 @@ private fun GroupDialog(
                     CongregationPickerDropdown(
                         congregations = congregations,
                         selected = pickedCongregation,
-                        onSelected = { pickedCongregation = it },
+                        onSelected = { pickedCongregationId = it.id },
                     )
                 }
                 OutlinedTextField(
