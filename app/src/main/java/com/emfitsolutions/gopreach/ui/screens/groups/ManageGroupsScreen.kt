@@ -271,8 +271,17 @@ private fun GroupDialog(
     var name by remember { mutableStateOf(existingGroup?.name ?: "") }
     val showToast = rememberActionToast()
     val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
-    var pickedCongregation by remember(congregations) {
-        mutableStateOf(congregations.firstOrNull { it.id == existingGroup?.congregationId })
+    // Pre-fill once the congregation list has loaded, same "wait for the
+    // candidate list, then pre-fill once" pattern as [preselected]/
+    // [membersPreselected] below — keying on the live `congregations` list
+    // itself (which gets a new List instance on every Firestore snapshot,
+    // even with unchanged data) would wipe out the user's own selection the
+    // next time that listener re-emits, before they get a chance to save.
+    var pickedCongregation by remember { mutableStateOf<Congregation?>(null) }
+    var congregationPreselected by remember { mutableStateOf(false) }
+    if (!congregationPreselected && congregations.isNotEmpty()) {
+        pickedCongregation = congregations.firstOrNull { it.id == existingGroup?.congregationId }
+        congregationPreselected = true
     }
     // Scoped roles (Admin/Coordinator Elder) already have exactly one congregation;
     // only a Super-Admin needs to pick one here.
