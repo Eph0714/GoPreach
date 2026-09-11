@@ -31,6 +31,12 @@ class PublisherForwardRequestRepository @Inject constructor(
         return withId
     }
 
+    /** Same Super-Admin cleanup/correction tool as [ForwardRequestRepository
+     * .delete] — a hard delete, not a status change. */
+    suspend fun delete(id: String) {
+        offline.delete(COLLECTION, id)
+    }
+
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, PublisherForwardRequest::class.java) { it.id }
 }

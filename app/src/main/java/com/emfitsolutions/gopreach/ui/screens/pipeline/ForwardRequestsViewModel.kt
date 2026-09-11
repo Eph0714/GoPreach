@@ -122,4 +122,48 @@ class ForwardRequestsViewModel @Inject constructor(
             )
         }
     }
+
+    /** "Forward Request Module" (Super-Admin only) — every request regardless
+     * of status, unlike [pendingRequestsFor] which is the receiving Service
+     * Overseer's actionable queue (PENDING only). `congregationIds == null`
+     * means every congregation ("All Congregations"); this is the module's
+     * own filter, independent of [pendingRequestsFor]'s. */
+    fun allRequestsFor(congregationIds: Set<String>?): Flow<List<ForwardRequest>> =
+        forwardRequestRepository.observeAll().map { list ->
+            list.filter { congregationIds == null || it.toCongregationId in congregationIds }
+                .sortedByDescending { it.requestedAt }
+        }
+
+    /** "Forward Request Module" (Super-Admin only) — correcting a request's
+     * own snapshot fields directly (e.g. a stale/wrong name snapshot, or
+     * force-correcting its status) — an administrative fix, not a normal
+     * Accept/Decline/Cancel action, so it's logged as its own audit action. */
+    fun updateRequest(request: ForwardRequest, actorPersonId: String) {
+        viewModelScope.launch {
+            forwardRequestRepository.save(request)
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "EDIT_FORWARD_REQUEST",
+                targetType = "ForwardRequest",
+                targetId = request.id,
+                details = "${request.personNameSnapshot} -> ${request.toCongregationNameSnapshot} (${request.status})",
+            )
+        }
+    }
+
+    /** "Forward Request Module" (Super-Admin only) — a hard delete, for
+     * cleaning up stale/test/mistaken request records. Never touches the
+     * underlying [InterestedPerson] record itself. */
+    fun deleteRequest(request: ForwardRequest, actorPersonId: String) {
+        viewModelScope.launch {
+            forwardRequestRepository.delete(request.id)
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "DELETE_FORWARD_REQUEST",
+                targetType = "ForwardRequest",
+                targetId = request.id,
+                details = "${request.personNameSnapshot} -> ${request.toCongregationNameSnapshot}",
+            )
+        }
+    }
 }

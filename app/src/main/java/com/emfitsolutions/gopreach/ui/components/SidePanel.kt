@@ -199,6 +199,14 @@ fun GoPreachSidePanelContent(
             if (canViewForwardRequests) {
                 add(SideItem(stringResource(R.string.side_forward_requests), Icons.Rounded.SwapHoriz, Destinations.FORWARD_REQUESTS))
             }
+            // "Forward Request Module" — Super-Admin only: every forward
+            // request, both kinds, every status, all-congregations
+            // filterable, with edit/delete (see ForwardRequestModuleScreen's
+            // own doc comment) — distinct from the Service Overseer-facing
+            // Accept/Decline queue right above.
+            if (isSuperAdmin) {
+                add(SideItem(stringResource(R.string.side_forward_request_module), Icons.Rounded.SwapHoriz, Destinations.FORWARD_REQUEST_MODULE))
+            }
             if (canViewInterestedPeopleScope) add(SideItem(stringResource(R.string.side_interested_records_scoped), Icons.Rounded.Groups, Destinations.SCOPED_INTERESTED_RECORDS))
             // "The super admin can see all congregation Search[ing]/Bible
             // Study/Return Visit record[s]... Add, Edit, [and permanently]

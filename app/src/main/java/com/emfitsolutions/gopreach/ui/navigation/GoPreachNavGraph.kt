@@ -40,6 +40,7 @@ import com.emfitsolutions.gopreach.ui.screens.findlocation.FindLocationScreen
 import com.emfitsolutions.gopreach.ui.screens.groups.ManageGroupsScreen
 import com.emfitsolutions.gopreach.ui.screens.home.AdminHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
+import com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestModuleScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestsScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsScreen
@@ -759,6 +760,12 @@ fun GoPreachNavGraph(
             // scoped to themselves, not their congregation (see
             // PublisherForwardRequestsViewModel.incomingRequestsFor).
             PublisherForwardRequestsScreen(
+                currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.FORWARD_REQUEST_MODULE) {
+            ForwardRequestModuleScreen(
                 currentPersonId = currentPersonId,
                 onBack = { navController.popBackStack() },
             )

@@ -32,6 +32,15 @@ class ForwardRequestRepository @Inject constructor(
         return withId
     }
 
+    /** "Forward Request Module" — Super-Admin cleanup/correction tool (see
+     * [com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestModuleScreen]).
+     * A hard delete, not a status change — for permanently removing a
+     * request record (typically stale test data or a genuine mistake), not
+     * part of the normal Accept/Decline/Cancel lifecycle. */
+    suspend fun delete(id: String) {
+        offline.delete(COLLECTION, id)
+    }
+
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, ForwardRequest::class.java) { it.id }
 }

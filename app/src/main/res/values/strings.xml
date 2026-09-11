@@ -139,6 +139,7 @@
     <string name="side_field_service_group_report">Field Service Group Report</string>
     <string name="side_publisher_reports">Publisher Reports</string>
     <string name="side_forward_requests">Forward Requests</string>
+    <string name="side_forward_request_module">Forward Request Module</string>
     <string name="side_share_location_settings">Share Location Settings</string>
     <string name="side_user_logs">User Logs</string>
     <string name="side_contact_record">Contact Record</string>

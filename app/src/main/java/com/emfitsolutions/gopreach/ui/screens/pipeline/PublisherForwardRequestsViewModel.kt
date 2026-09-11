@@ -97,4 +97,36 @@ class PublisherForwardRequestsViewModel @Inject constructor(
             )
         }
     }
+
+    /** "Forward Request Module" (Super-Admin only) — same reasoning as
+     * [ForwardRequestsViewModel.updateRequest]: an administrative
+     * correction, not a normal Accept/Decline action. */
+    fun updateRequest(request: PublisherForwardRequest, actorPersonId: String) {
+        viewModelScope.launch {
+            publisherForwardRequestRepository.save(request)
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "EDIT_PUBLISHER_FORWARD_REQUEST",
+                targetType = "PublisherForwardRequest",
+                targetId = request.id,
+                details = "${request.personNameSnapshot} -> ${request.toPublisherNameSnapshot} (${request.status})",
+            )
+        }
+    }
+
+    /** "Forward Request Module" (Super-Admin only) — a hard delete for
+     * cleaning up stale/test/mistaken request records. Never touches the
+     * underlying InterestedPerson record itself. */
+    fun deleteRequest(request: PublisherForwardRequest, actorPersonId: String) {
+        viewModelScope.launch {
+            publisherForwardRequestRepository.delete(request.id)
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "DELETE_PUBLISHER_FORWARD_REQUEST",
+                targetType = "PublisherForwardRequest",
+                targetId = request.id,
+                details = "${request.personNameSnapshot} -> ${request.toPublisherNameSnapshot}",
+            )
+        }
+    }
 }

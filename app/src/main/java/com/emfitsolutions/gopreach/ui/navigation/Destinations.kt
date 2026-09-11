@@ -139,6 +139,10 @@ object Destinations {
     const val FORWARD_REQUESTS = "forward_requests"
     // A Publisher's own incoming "FORWARD TO OTHER PUBLISHER" review queue.
     const val PUBLISHER_FORWARD_REQUESTS = "publisher_forward_requests"
+    // "Forward Request Module" — Super-Admin-only, every forward request
+    // (both kinds, every status, all-congregations filterable), with
+    // edit/delete. See ForwardRequestModuleScreen's own doc comment.
+    const val FORWARD_REQUEST_MODULE = "forward_request_module"
 
     // Phase 6
     const val SHARE_LOCATION = "share_location"
