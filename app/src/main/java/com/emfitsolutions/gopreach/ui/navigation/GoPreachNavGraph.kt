@@ -43,6 +43,7 @@ import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestsScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsScreen
+import com.emfitsolutions.gopreach.ui.screens.pipeline.ElderInterestedRecordsScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.SuperAdminInterestedRecordsScreen
 import com.emfitsolutions.gopreach.ui.screens.bibletext.BibleTextRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.preachingtime.PreachingTimeRecordScreen
@@ -356,6 +357,19 @@ fun GoPreachNavGraph(
         composable(Destinations.ALL_INTERESTED_RECORDS) {
             SuperAdminInterestedRecordsScreen(
                 currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        // Spec §15 — read-only, scoped counterpart to [ALL_INTERESTED_RECORDS]
+        // above for Admin/Coordinator Elder/Service Overseer/Regular Elder.
+        // [ownGroupAssignment]'s congregationId falls back the same way every
+        // other `visibleCongregationId` call site in this file already does;
+        // [groupId] stays null for every scope wider than "own Group" (see
+        // [ElderInterestedRecordsScreen]'s own null-means-no-narrowing convention).
+        composable(Destinations.SCOPED_INTERESTED_RECORDS) {
+            ElderInterestedRecordsScreen(
+                congregationId = ownCongregationId ?: ownGroupAssignment?.congregationId,
+                groupId = ownGroupAssignment?.groupId,
                 onBack = { navController.popBackStack() },
             )
         }

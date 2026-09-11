@@ -204,6 +204,14 @@ fun AdminHomeScreen(
     // action for anyone (see TerritoryMapScreen).
     val canViewTerritoryMap = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION ||
         role == AdminRole.COORDINATOR_ELDER || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY || role == AdminRole.REGULAR_ELDER
+    // Spec §15 — "Elders should be able to see Interested Person information
+    // according to their existing Congregation/Group access scope." Own
+    // Congregation/Group only, read-only (see ElderInterestedRecordsScreen).
+    // Excludes Super-Admin, who already has the separate, full read/write
+    // ALL_INTERESTED_RECORDS drawer item instead — this scoped screen would
+    // be redundant (and congregationId-less) for that role.
+    val canViewInterestedPeopleScope = role == AdminRole.ADMIN_PER_CONGREGATION || role == AdminRole.COORDINATOR_ELDER ||
+        role == AdminRole.SERVICE_OVERSEER || role == AdminRole.REGULAR_ELDER
     // "Meeting Assignments" — "the Coordinator-elder, elder, service
     // overseer, admin can make an assignment for the meetings, the super
     // admin can do so [too]" — same role set as [canViewTerritoryMap] today,
@@ -431,6 +439,7 @@ fun AdminHomeScreen(
                 canViewUserLogs = canViewUserLogs,
                 canManageUsers = canManageUsers,
                 canViewContactRecord = canViewContactRecord,
+                canViewInterestedPeopleScope = canViewInterestedPeopleScope,
                 onSwitchToPublisher = onSwitchToPublisher?.let { switchAction ->
                     { coroutineScope.launch { drawerState.close() }; switchAction() }
                 },

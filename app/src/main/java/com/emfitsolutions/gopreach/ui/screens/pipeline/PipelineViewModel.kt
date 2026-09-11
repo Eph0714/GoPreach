@@ -109,6 +109,31 @@ class PipelineViewModel @Inject constructor(
     fun allPeopleFor(stage: PipelineStage): Flow<List<InterestedPerson>> =
         interestedPersonRepository.observeAll().map { list -> list.filter { it.pipelineStage == stage } }
 
+    /** Spec §15 — "Elders should be able to see Interested Person information
+     * according to their existing Congregation/Group access scope": every
+     * [InterestedPerson] at [stage] belonging to [congregationId] (null means
+     * every congregation, Super-Admin-style — not used by this screen today
+     * but kept consistent with every other `visibleCongregationId` convention
+     * in this app), narrowed further to [groupId]'s own members when a
+     * Regular Elder's scope is a single Group rather than the whole
+     * congregation. Group membership is resolved the same way [ReportsViewModel
+     * .buildRows] already does it — via each Publisher's own [RoleType.Publisher]
+     * `RoleAssignment.groupId] — since [InterestedPerson] itself carries no
+     * groupId of its own, only [InterestedPerson.congregationId]/
+     * [InterestedPerson.publisherPersonId]. Backs [ElderInterestedRecordsScreen]. */
+    fun peopleForScope(stage: PipelineStage, congregationId: String?, groupId: String?): Flow<List<InterestedPerson>> =
+        combine(interestedPersonRepository.observeAll(), roleAssignmentRepository.observeAll()) { people, assignments ->
+            val scopedPublisherIds = if (groupId == null) null else assignments
+                .asSequence()
+                .filter { it.resolvedRoleTypeOrNull() is RoleType.Publisher && it.groupId == groupId }
+                .map { it.personId }
+                .toSet()
+            people
+                .filter { it.pipelineStage == stage }
+                .filter { congregationId == null || it.congregationId == congregationId }
+                .filter { scopedPublisherIds == null || it.publisherPersonId in scopedPublisherIds }
+        }
+
     /** Every congregation, for the Super-Admin "All Congregations" screen's
      * congregation labels/picker — same convention [ContactRecordViewModel
      * .congregations] already uses. */

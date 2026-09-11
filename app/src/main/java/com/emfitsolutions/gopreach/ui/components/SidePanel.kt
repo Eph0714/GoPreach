@@ -104,6 +104,13 @@ fun GoPreachSidePanelContent(
     /** "Contact Record" module — Super-Admin, Coordinator Elder, and Regular
      * Elder only (not Admin, not Service Overseer/Ministerial Servant). */
     canViewContactRecord: Boolean,
+    /** Spec §15 — "Elders should be able to see Interested Person information
+     * according to their existing Congregation/Group access scope": Admin/
+     * Coordinator Elder/Service Overseer/Regular Elder, read-only, scoped to
+     * their own congregation (or own Group). Distinct from [isSuperAdmin]'s
+     * own [Destinations.ALL_INTERESTED_RECORDS] item below, which is full
+     * read/write across every congregation. */
+    canViewInterestedPeopleScope: Boolean,
     /** Always null since "Multiple Role Login Detection & Role Selection"
      * (spec §7/§11) retired the old mid-session Admin<->Publisher switch in
      * favor of choosing a role once at login — kept as a parameter (instead
@@ -182,6 +189,7 @@ fun GoPreachSidePanelContent(
             add(SideItem(stringResource(R.string.side_share_location_settings), Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
             if (canViewUserLogs) add(SideItem(stringResource(R.string.side_user_logs), Icons.Rounded.History, Destinations.USER_LOGS))
             if (canViewContactRecord) add(SideItem(stringResource(R.string.side_contact_record), Icons.Rounded.Contacts, Destinations.CONTACT_RECORD))
+            if (canViewInterestedPeopleScope) add(SideItem(stringResource(R.string.side_interested_records_scoped), Icons.Rounded.Groups, Destinations.SCOPED_INTERESTED_RECORDS))
             // "The super admin can see all congregation Search[ing]/Bible
             // Study/Return Visit record[s]... Add, Edit, [and permanently]
             // Delete the record" — Super-Admin only, unlike every other

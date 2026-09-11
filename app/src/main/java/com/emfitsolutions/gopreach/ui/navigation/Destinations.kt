@@ -169,4 +169,13 @@ object Destinations {
     // same "Super-Admin only, unreachable for anyone else" convention as
     // [ALL_INTERESTED_RECORDS] above.
     const val ALL_PREACHING_TIME_RECORDS = "all_preaching_time_records"
+
+    // Spec §15 — "Elders should be able to see Interested Person information
+    // according to their existing Congregation/Group access scope": a
+    // read-only browse (see ElderInterestedRecordsScreen) for Admin/
+    // Coordinator Elder/Service Overseer/Regular Elder, scoped to their own
+    // congregation (or own Group for a Regular Elder) — distinct from
+    // [ALL_INTERESTED_RECORDS], which is Super-Admin-only and full read/write
+    // across every congregation.
+    const val SCOPED_INTERESTED_RECORDS = "scoped_interested_records"
 }

@@ -121,6 +121,7 @@
     <string name="side_user_logs">User Logs</string>
     <string name="side_contact_record">Contact Record</string>
     <string name="side_interested_records_all_congregations">Interested Records (All Congregations)</string>
+    <string name="side_interested_records_scoped">Interested People</string>
     <string name="side_preaching_time_records_all_congregations">Preaching Time Records (All Congregations)</string>
     <string name="side_user_management">User Management</string>
     <string name="side_account_settings">Account Settings</string>
