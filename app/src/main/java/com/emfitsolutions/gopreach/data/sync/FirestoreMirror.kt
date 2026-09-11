@@ -3,13 +3,59 @@ package com.emfitsolutions.gopreach.data.sync
 import android.util.Log
 import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 
 private const val TAG = "FirestoreMirror"
+
+// Bug fix (2026-09-12, "PERMISSION_DENIED keeps firing over and over for the
+// same collection, dozens of times, always 'attempt 1', never settling —
+// reproduced live even with the debounce on RemoteSyncCoordinator's own
+// uid stream"): whatever is ultimately forcing a fresh subscription this
+// often (this app's own [RemoteSyncCoordinator.uidChanged] shows zero
+// matching Firebase Auth state-change events during the exact window this
+// happens, so the trigger is not fully understood yet), each fresh
+// `mirrorFirestoreCollection` call was registering a brand new
+// `addSnapshotListener` for the same collection *before* the previous one's
+// `awaitClose { registration.remove() }` was guaranteed to have actually run
+// (Flow cancellation across a `flatMapLatest` boundary is not synchronous),
+// so multiple real listeners for the very same collection piled up
+// concurrently — confirmed live by matching pairs/triples of the identical
+// log line at the same millisecond. Every one of those overlapping
+// registrations independently raced the same "token not attached yet"
+// startup window, and each had its own fresh `retryCount`, so the retry
+// backoff this file already has could never actually reach attempt 2+ before
+// getting superseded by the next pile-on. This registry makes at most one
+// live listener per collection path possible at any moment app-wide:
+// registering a new one now synchronously removes whatever registration
+// already existed for that same path first, so the pile-up itself — not
+// just one symptom of it — is now structurally impossible, regardless of
+// what's forcing the re-subscriptions.
+private val activeRegistrations = ConcurrentHashMap<String, ListenerRegistration>()
+
+// Bug fix ("Forwarded to Me never shows a request that genuinely exists" /
+// "the same collection works on one launch and not the next, with nothing
+// else different") — reproduced live on a real device: a snapshot listener
+// registered at cold start (already signed in from a previous session, not a
+// fresh sign-in) can hit a single transient PERMISSION_DENIED in the split
+// second before the SDK's cached ID token is fully attached to outgoing
+// requests. [RemoteSyncCoordinator] only ever re-subscribes on a genuine
+// Firebase Auth *state change* (a real sign-out/sign-in) — a cold launch
+// while already signed in never fires one, so that one collection's listener
+// was permanently dead for the rest of the session while every other
+// collection (registered a few milliseconds later, after the token
+// settled) kept working fine. A capped, short-backoff retry here recovers
+// automatically from that transient case; a *genuine* permission rejection
+// (a restricted user missing the right grant, say) just keeps failing after
+// the attempts run out, exactly as before this fix.
+private const val MAX_RETRY_ATTEMPTS = 5
+private const val RETRY_BASE_DELAY_MS = 2_000L
 
 /**
  * Attaches a live Firestore snapshot listener on [collectionPath] and mirrors every
@@ -26,46 +72,63 @@ fun <T : Any> mirrorFirestoreCollection(
     clazz: Class<T>,
     idOf: (T) -> String,
 ): Flow<Unit> = callbackFlow {
-    val registration = firestore.collection(collectionPath).addSnapshotListener { snapshot, error ->
-        if (error != null || snapshot == null) {
-            // A listener that errors (e.g. PERMISSION_DENIED because it was registered
-            // before sign-in) is dead for good — it will never emit again on its own.
-            // [RemoteSyncCoordinator] re-subscribes fresh on every auth-state change to
-            // recover from this; this log is so a future silent-sync bug shows up here
-            // instead of requiring a full manual repro session to find again.
-            if (error != null) Log.w(TAG, "Listener for '$collectionPath' failed: ${error.message}")
-            return@addSnapshotListener
-        }
-        appScope.launch {
-            for (change in snapshot.documentChanges) {
-                try {
-                    val model = change.document.toObject(clazz)
-                    when (change.type) {
-                        // Cache-only — never offline.save()/delete() here. Those enqueue a
-                        // pending *upload*, which is wrong for a document that just came
-                        // *from* the server: it was silently re-queuing every document a
-                        // listener had ever seen (including its entire initial snapshot)
-                        // as if the user had edited it, inflating "pending changes" by
-                        // hundreds for data nobody touched.
-                        DocumentChange.Type.REMOVED -> offline.deleteFromServer(collectionPath, idOf(model))
-                        else -> offline.cacheFromServer(collectionPath, idOf(model), model)
+    var retryCount = 0
+
+    fun attach() {
+        // Synchronously supersede any prior registration for this exact
+        // collection path — see this file's own top-of-file doc comment.
+        activeRegistrations.remove(collectionPath)?.remove()
+        val registration = firestore.collection(collectionPath).addSnapshotListener { snapshot, error ->
+            if (error != null || snapshot == null) {
+                if (error != null) {
+                    Log.w(TAG, "Listener for '$collectionPath' failed (attempt ${retryCount + 1}): ${error.message}")
+                    // See this file's own top-of-file doc comment for why a capped
+                    // retry (rather than treating every failure as permanent) is
+                    // correct here.
+                    if (retryCount < MAX_RETRY_ATTEMPTS) {
+                        retryCount++
+                        appScope.launch {
+                            delay(RETRY_BASE_DELAY_MS * retryCount)
+                            attach()
+                        }
                     }
-                } catch (e: Exception) {
-                    // Reproduced, confirmed root cause of "the app closes right after a
-                    // correct login, right when the Main Form should appear": this
-                    // `appScope.launch` had no try/catch, so a single malformed document
-                    // (e.g. a stale sharedLocations doc whose body contained a real
-                    // 'publisherPersonId' field colliding with that property's
-                    // @DocumentId annotation) threw here on an uncaught background
-                    // coroutine and killed the whole process — for every session, since
-                    // every collection is mirrored immediately after sign-in. One bad
-                    // document is now skipped instead, and every other document (and
-                    // every other collection) keeps syncing normally.
-                    Log.e(TAG, "Skipping malformed document ${change.document.id} in '$collectionPath'", e)
+                }
+                return@addSnapshotListener
+            }
+            retryCount = 0
+            appScope.launch {
+                for (change in snapshot.documentChanges) {
+                    try {
+                        val model = change.document.toObject(clazz)
+                        when (change.type) {
+                            // Cache-only — never offline.save()/delete() here. Those enqueue a
+                            // pending *upload*, which is wrong for a document that just came
+                            // *from* the server: it was silently re-queuing every document a
+                            // listener had ever seen (including its entire initial snapshot)
+                            // as if the user had edited it, inflating "pending changes" by
+                            // hundreds for data nobody touched.
+                            DocumentChange.Type.REMOVED -> offline.deleteFromServer(collectionPath, idOf(model))
+                            else -> offline.cacheFromServer(collectionPath, idOf(model), model)
+                        }
+                    } catch (e: Exception) {
+                        // Reproduced, confirmed root cause of "the app closes right after a
+                        // correct login, right when the Main Form should appear": this
+                        // `appScope.launch` had no try/catch, so a single malformed document
+                        // (e.g. a stale sharedLocations doc whose body contained a real
+                        // 'publisherPersonId' field colliding with that property's
+                        // @DocumentId annotation) threw here on an uncaught background
+                        // coroutine and killed the whole process — for every session, since
+                        // every collection is mirrored immediately after sign-in. One bad
+                        // document is now skipped instead, and every other document (and
+                        // every other collection) keeps syncing normally.
+                        Log.e(TAG, "Skipping malformed document ${change.document.id} in '$collectionPath'", e)
+                    }
                 }
             }
+            trySend(Unit)
         }
-        trySend(Unit)
+        activeRegistrations[collectionPath] = registration
     }
-    awaitClose { registration.remove() }
+    attach()
+    awaitClose { activeRegistrations.remove(collectionPath)?.remove() }
 }

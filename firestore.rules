@@ -697,11 +697,46 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && personIdFromToken() == personId;
     }
 
-    // Everything else (schedules, territories, shared locations, app
-    // settings, backups, audit log, ...): authenticated read/write,
-    // unchanged from before — none of these are named in the spec's
-    // permission list, and today's UI never routes a restricted user to them
-    // anyway.
+    // Bug fix (2026-09-12, "the exact same collections the 'document.matches()
+    // threw an error' bug used to hit are STILL denied for real on a real
+    // device, even after that fix, even after a full uninstall+reinstall+
+    // fresh sign-in ruled out every device/session-local explanation"):
+    // reproduced live, repeatedly — `interestedPeople` (an explicit,
+    // non-recursive `match /interestedPeople/{personId}` block) synced
+    // correctly the entire time on the same device/session where
+    // `forwardRequests`/`publisherForwardRequests`/`territories`/`schedules`/
+    // et al — every one of them reachable *only* via the recursive
+    // `{document=**}` wildcard below — kept failing every single listen
+    // attempt with PERMISSION_DENIED. Both rely on nothing more than
+    // `isSignedIn()`; the only structural difference is explicit match vs.
+    // recursive-wildcard-only match, and that's what tracked with which one
+    // actually worked. Whatever the precise cause (this project has no
+    // rules-testing setup against *production* Firestore itself, only the
+    // local emulator — see this file's own top-of-file note), giving each of
+    // these its own explicit block, exactly like `interestedPeople` already
+    // has, sidesteps it rather than continuing to guess at it. Same
+    // permission as before (`isSignedIn()`, nothing tighter or looser) —
+    // this is a structural fix, not a permission change.
+    match /forwardRequests/{requestId} { allow read, write: if isSignedIn(); }
+    match /publisherForwardRequests/{requestId} { allow read, write: if isSignedIn(); }
+    match /territories/{territoryId} { allow read, write: if isSignedIn(); }
+    match /schedules/{scheduleId} { allow read, write: if isSignedIn(); }
+    match /elderTitles/{titleId} { allow read, write: if isSignedIn(); }
+    match /appSettings/{settingId} { allow read, write: if isSignedIn(); }
+    match /auditLog/{logId} { allow read, write: if isSignedIn(); }
+    match /sharedLocations/{locationId} { allow read, write: if isSignedIn(); }
+    match /savedLocations/{locationId} { allow read, write: if isSignedIn(); }
+    match /cartAssignments/{assignmentId} { allow read, write: if isSignedIn(); }
+    match /locationSharingSettings/{settingId} { allow read, write: if isSignedIn(); }
+    match /midweekMeetingSchedules/{scheduleId} { allow read, write: if isSignedIn(); }
+    match /publicTalkSchedules/{scheduleId} { allow read, write: if isSignedIn(); }
+    match /announcements/{announcementId} { allow read, write: if isSignedIn(); }
+
+    // Everything else not given its own explicit block above (backups,
+    // anything future collections not yet named here, ...): authenticated
+    // read/write, unchanged from before — none of these are named in the
+    // spec's permission list, and today's UI never routes a restricted user
+    // to them anyway.
     //
     // CRITICAL: `{document=**}` is a *recursive* wildcard — it matches every
     // path in the database, including every one already handled by a
@@ -764,7 +799,10 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && !(document[0] in [
         'interestedPeople', 'passwordResetRequests', 'people', 'userAccessGrants', 'congregations',
         'groups', 'roleAssignments', 'monthlyReports', 'bibleTextCategories', 'bibleTextRecords',
-        'groupChats', 'preachingTimeRecords', 'presence', 'dashboardModuleLayouts'
+        'groupChats', 'preachingTimeRecords', 'presence', 'dashboardModuleLayouts',
+        'forwardRequests', 'publisherForwardRequests', 'territories', 'schedules', 'elderTitles',
+        'appSettings', 'auditLog', 'sharedLocations', 'savedLocations', 'cartAssignments',
+        'locationSharingSettings', 'midweekMeetingSchedules', 'publicTalkSchedules', 'announcements'
       ]);
     }
   }

@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
@@ -70,6 +71,7 @@ import javax.inject.Singleton
  * to start up front.)
  */
 @Singleton
+@OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class RemoteSyncCoordinator @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
     private val personRepository: PersonRepository,
@@ -116,11 +118,29 @@ class RemoteSyncCoordinator @Inject constructor(
      * already-running stream (one listener, started the moment this
      * singleton is created) that every `startTracked` call below now just
      * *observes*, instead of each spinning up its own. */
+    // Bug fix (2026-09-12, "PERMISSION_DENIED keeps firing over and over,
+    // escalating — dozens of duplicate 'attempt 1' failures for the same
+    // collection, never settling"): reproduced live on a real device with
+    // shaky connectivity — `FirebaseAuth.AuthStateListener` doesn't only
+    // fire on a genuine sign-in/sign-out; a token refresh that has to retry
+    // over a flaky connection can bounce `currentUser` through a transient
+    // null in between, and each bounce is a real, *distinct* uid transition
+    // that `distinctUntilChanged()` alone can't collapse. Every such bounce
+    // makes every `startTracked` call below cancel its collection's old
+    // Firestore listener and open a brand new one via `flatMapLatest` — and
+    // since that cancellation's own cleanup isn't guaranteed to finish
+    // before the replacement listener registers, listeners piled up faster
+    // than they tore down, so *every* new registration kept racing the same
+    // "token not attached yet" startup window this file's own retry logic
+    // (see [FirestoreMirror]) was built to recover from once, not
+    // indefinitely. `debounce` waits for the uid stream to actually settle
+    // before propagating a change, so a flapping connection collapses into
+    // one clean re-subscription instead of a runaway pile of them.
     private val uidChanged: StateFlow<String?> = callbackFlow {
         val listener = FirebaseAuth.AuthStateListener { auth -> trySend(auth.currentUser?.uid) }
         firebaseAuth.addAuthStateListener(listener)
         awaitClose { firebaseAuth.removeAuthStateListener(listener) }
-    }.distinctUntilChanged().stateIn(appScope, SharingStarted.Eagerly, firebaseAuth.currentUser?.uid)
+    }.debounce(1_500).distinctUntilChanged().stateIn(appScope, SharingStarted.Eagerly, firebaseAuth.currentUser?.uid)
 
     /** Wires one collection's listener into [appScope], re-subscribing fresh
      * on every auth-state change (see the class doc for why that matters). */
