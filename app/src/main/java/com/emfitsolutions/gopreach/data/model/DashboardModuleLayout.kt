@@ -51,6 +51,13 @@ enum class DashboardModuleId {
  * module not yet in a Publisher's saved layout always resolves through this
  * same function, so it appears somewhere sensible without silently
  * overwriting anything the Publisher already customized.
+ *
+ * [FORWARDED_TO_ME] is kept on the Main Form rather than the spec example's
+ * literal list — unlike every other Side-Panel default, it carries a live
+ * pending-count badge (an actionable inbox, not a settings-style module),
+ * and defaulting it out of sight read as "I cannot see the forwarded to me"
+ * the moment this feature shipped, for every Publisher who had never
+ * customized their layout yet.
  */
 fun DashboardModuleId.defaultLocation(): DashboardModuleLocation = when (this) {
     DashboardModuleId.MY_TOTAL_HOURS,
@@ -61,10 +68,10 @@ fun DashboardModuleId.defaultLocation(): DashboardModuleLocation = when (this) {
     DashboardModuleId.TERRITORY_MAP,
     DashboardModuleId.MY_BIBLE_TEXT_RECORD,
     DashboardModuleId.ANNOUNCEMENT,
+    DashboardModuleId.FORWARDED_TO_ME,
     -> DashboardModuleLocation.MAIN_FORM
 
     DashboardModuleId.MY_SUBMITTED_REPORTS,
-    DashboardModuleId.FORWARDED_TO_ME,
     DashboardModuleId.HOUSEHOLDER_VISIT_HISTORY,
     DashboardModuleId.MY_CALENDAR,
     DashboardModuleId.SHARE_MY_LOCATION,
