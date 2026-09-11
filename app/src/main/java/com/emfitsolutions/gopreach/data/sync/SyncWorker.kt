@@ -24,8 +24,8 @@ import kotlinx.coroutines.tasks.await
  * is the other half of spec §6.5's offline-first requirement: local writes always
  * succeed instantly; this worker is what eventually makes them durable server-side.
  *
- * Also drives the "SYNC TO SERVER" button's progress/summary UI ([SyncStatusButton]/
- * `SyncToServerButton`): [setProgress] is published as each record finishes, and the
+ * Also drives the "SYNC TO SERVER" button's progress/summary UI (`SyncToServerButton`):
+ * [setProgress] is published as each record finishes, and the
  * final uploaded/failed counts are returned in [Result]'s output data so a caller
  * observing this unique work's [androidx.work.WorkInfo] can show a real "Sync
  * Complete — N uploaded, N failed" summary instead of a bare success/failure flag.
@@ -39,6 +39,7 @@ class SyncWorker @AssistedInject constructor(
     private val firestore: FirebaseFirestore,
     private val gson: Gson,
     private val syncStatusCenter: SyncStatusCenter,
+    private val connectivityObserver: ConnectivityObserver,
 ) : CoroutineWorker(context, params) {
 
     companion object {
@@ -46,6 +47,14 @@ class SyncWorker @AssistedInject constructor(
         const val KEY_FAILED = "failed"
         const val KEY_TOTAL = "total"
         const val KEY_FINISHED = "finished"
+        /** Set whenever this run did nothing because [ConnectivityObserver]
+         * reported no usable internet — checked either before touching the
+         * queue at all, or mid-run if connectivity dropped partway through.
+         * The manual "Sync to Server" UI reads this to show its own
+         * "Sync Failed — no internet connection" state instead of a
+         * misleading "Sync Complete"/"0 failed" summary (see
+         * [com.emfitsolutions.gopreach.ui.components.ManualSyncViewModel]). */
+        const val KEY_SKIPPED_OFFLINE = "skippedOffline"
         /** "Do not show the system message if there are record[s]
          * automatically syncing" — set only by [SyncScheduler.requestSyncNow]
          * (the explicit "Sync to Server" button); every automatic trigger
@@ -57,6 +66,37 @@ class SyncWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         val isManual = inputData.getBoolean(KEY_MANUAL, false)
+
+        // Mandatory connectivity gate — the ONE check every path that can
+        // ever reach Firestore funnels through, since manual ("Sync to
+        // Server"), the automatic on-reconnect trigger, the periodic 15-
+        // minute floor, and triggerSyncIfOnline's "just wrote something"
+        // nudge all ultimately just enqueue this same worker (see
+        // SyncScheduler). WorkManager's own `NetworkType.CONNECTED`
+        // constraint on every one of those requests is a coarse, OS-level
+        // pre-filter only — "a network exists," not "the internet actually
+        // works" (Wi-Fi connected to a router with no upstream internet
+        // still satisfies it) — so it alone let this worker start and throw
+        // itself at Firestore on a genuinely dead connection. Every one of
+        // those calls then failed with a plain network exception, which
+        // [isPermanentFailure] correctly treats as retryable, so this
+        // worker kept returning Result.retry() and WorkManager kept
+        // re-arming its own backoff timer forever — that's the "keeps
+        // trying every few seconds while Offline" symptom. Checking the
+        // app's own single source of truth ([ConnectivityObserver], the
+        // same validated-internet state the UI badge reads) here, before
+        // touching anything, and bailing via Result.success() (never
+        // retry()) closes that loop for good: nothing is touched (every
+        // pending row stays exactly PENDING, nothing becomes FAILED for a
+        // reason that has nothing to do with that specific record), zero
+        // Firestore calls are made, and the next real attempt comes only
+        // from an actual online-transition trigger or the periodic floor's
+        // next natural tick — never from this worker rescheduling itself.
+        if (!connectivityObserver.isOnline()) {
+            setProgress(workDataOf(KEY_UPLOADED to 0, KEY_FAILED to 0, KEY_TOTAL to 0, KEY_FINISHED to true, KEY_SKIPPED_OFFLINE to true))
+            return Result.success()
+        }
+
         // Recovers on its own from an app/device crash mid-sync (spec's "Sync
         // Queue Recovery") without needing a separate SYNCING status to reset:
         // a row is never marked anything but PENDING until it's either
@@ -80,7 +120,18 @@ class SyncWorker @AssistedInject constructor(
         // what made "Sync Failed" look permanently stuck even once the
         // network — and every other pending change — was fine again.
         var permanentlyFailed = 0
+        // Set the instant connectivity drops mid-run (spec: "Disconnect
+        // Internet while syncing -> Sync stops safely") — the loop below
+        // bails out of the remaining batch immediately rather than letting
+        // every remaining operation individually time out against a now-dead
+        // connection; whatever already reached the server above stays
+        // synced, everything from here on stays exactly PENDING, untouched.
+        var lostConnectivityMidRun = false
         for ((index, op) in pending.withIndex()) {
+            if (!connectivityObserver.isOnline()) {
+                lostConnectivityMidRun = true
+                break
+            }
             setProgress(workDataOf("done" to index, KEY_TOTAL to pending.size))
             val ok = runCatching { applyOperation(op) }
             val error = ok.exceptionOrNull()
@@ -107,17 +158,30 @@ class SyncWorker @AssistedInject constructor(
         // when the worker's own Result is retry() below — WorkInfo.outputData is only
         // populated for a truly terminal SUCCEEDED/FAILED state, which a retrying
         // worker on a partial failure never reaches for this attempt.
-        setProgress(workDataOf(KEY_UPLOADED to uploaded, KEY_FAILED to failed, KEY_TOTAL to pending.size, KEY_FINISHED to true))
-        syncStatusCenter.onSyncFinished(uploaded, failed, isManual)
-        // Only a genuinely retryable failure asks WorkManager to retry later
-        // (unchanged background reliability behavior) — a permanent-only
-        // failure has nothing left that another attempt could fix, so
-        // retrying it forever would just be wasted battery/network for a
-        // result that will never change; the row stays queued (as
-        // isPermanentFailure) for investigation instead of being silently
-        // dropped. The manual UI already has its summary from the progress
-        // update above and doesn't need to wait for a retry to resolve.
-        return if (failed > 0) Result.retry() else Result.success()
+        setProgress(
+            workDataOf(
+                KEY_UPLOADED to uploaded, KEY_FAILED to failed, KEY_TOTAL to pending.size,
+                KEY_FINISHED to true, KEY_SKIPPED_OFFLINE to lostConnectivityMidRun,
+            ),
+        )
+        // Skip the usual toast/message when connectivity dropped mid-run —
+        // whatever this run actually managed isn't "Sync Complete" (spec:
+        // never claim "all changes synced" unless it genuinely finished),
+        // and the manual UI already gets its own explicit "no internet"
+        // state from KEY_SKIPPED_OFFLINE above instead.
+        if (!lostConnectivityMidRun) syncStatusCenter.onSyncFinished(uploaded, failed, isManual)
+        // Only a genuinely retryable failure while actually online asks
+        // WorkManager to retry later (unchanged background reliability
+        // behavior) — a permanent-only failure has nothing left that another
+        // attempt could fix, so retrying it forever would just be wasted
+        // battery/network for a result that will never change; the row stays
+        // queued (as isPermanentFailure) for investigation instead of being
+        // silently dropped. Losing connectivity mid-run never asks for a
+        // retry either — same reasoning as the top-of-function gate: that
+        // would just re-arm WorkManager's backoff for a reason another
+        // attempt can't fix until the device is actually back online, which
+        // the app's own reconnect trigger already handles.
+        return if (failed > 0 && !lostConnectivityMidRun) Result.retry() else Result.success()
     }
 
     /** Spec §9 — "classify errors": a temporary network/server problem should

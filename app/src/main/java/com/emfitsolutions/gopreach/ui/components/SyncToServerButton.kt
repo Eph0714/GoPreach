@@ -95,10 +95,19 @@ class ManualSyncViewModel @Inject constructor(
                 val progress = info.progress
                 val finished = progress.getBoolean(SyncWorker.KEY_FINISHED, false)
                 if (finished) {
-                    _uiState.value = ManualSyncState.Summary(
-                        uploaded = progress.getInt(SyncWorker.KEY_UPLOADED, 0),
-                        failed = progress.getInt(SyncWorker.KEY_FAILED, 0),
-                    )
+                    // SyncWorker's own mandatory connectivity gate skipped this run
+                    // (no internet at start, or connectivity dropped mid-run) --
+                    // show the same "no internet" state the pre-flight check above
+                    // would have, never a false "Sync Complete"/"0 failed" summary
+                    // for a run that never actually reached the server.
+                    _uiState.value = if (progress.getBoolean(SyncWorker.KEY_SKIPPED_OFFLINE, false)) {
+                        ManualSyncState.NoNetwork
+                    } else {
+                        ManualSyncState.Summary(
+                            uploaded = progress.getInt(SyncWorker.KEY_UPLOADED, 0),
+                            failed = progress.getInt(SyncWorker.KEY_FAILED, 0),
+                        )
+                    }
                     return@collect
                 }
                 when (info.state) {
