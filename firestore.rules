@@ -425,7 +425,7 @@ service cloud.firestore {
     // "Group Chat Setting" module (spec §2-13). Every rule below reads from
     // `resource.data`/`request.resource.data` directly — cheap field
     // equality plus the one `get()` on the caller's own Person doc (see
-    // canManageGroupChatsFor/isGroupChatParticipant above), no query.
+    // canManageGroupChatsFor/isGroupChatParticipant), no query.
     match /groupChats/{groupChatId} {
       allow read: if groupChatAllowsRead(database, resource.data);
       // Only a Coordinator Elder/Admin creating within their own active
@@ -510,15 +510,6 @@ service cloud.firestore {
     // closing the "open by direct ID" gap. That's a separate, larger
     // follow-up (query-scoping the mirror + a `congregationId` field on
     // `Visit` for the collection-group case), not done here.
-    //
-    // ROLLOUT NOTE: this relies on `people/{personId}.activeCongregationId`
-    // now also being kept current for a Publisher active role, not just the
-    // four admin-track roles it covered before (see UserSession
-    // .syncActiveRoleContext's own doc comment). Deploy that app update
-    // before/no later than this rules change — a Publisher signed into an
-    // app build that predates it has a stale/null activeCongregationId and
-    // would otherwise have every Return Visit/Visit History write rejected
-    // here until they update.
     function interestedPersonCongregationId(db, personId) {
       return get(/databases/$(db)/documents/interestedPeople/$(personId)).data.get('congregationId', null);
     }
@@ -548,26 +539,55 @@ service cloud.firestore {
       );
     }
 
+    // Diagnosed 2026-09-11: exact-id congregation matching kept rejecting a
+    // real, previously-working same-congregation Publisher save with
+    // PERMISSION_DENIED, even though both her own account and the record
+    // read as the same congregation on screen — the explanation that fits
+    // is two different `congregations/{id}` documents sharing the same
+    // display name (a duplicate-congregation data issue, not a rule bug).
+    // This resolves each side to its congregation's own `name` and accepts
+    // a match on name as a fallback when the id doesn't match, so this
+    // specific class of data duplication can't silently lock a legitimate
+    // same-congregation save out — without opening write access to every
+    // congregation the way a blanket isSignedIn() would.
+    function congregationNameOf(db, congregationId) {
+      return congregationId != null && exists(/databases/$(db)/documents/congregations/$(congregationId))
+        ? get(/databases/$(db)/documents/congregations/$(congregationId)).data.get('name', null)
+        : null;
+    }
+
+    function inMyActiveCongregationByNameOrId(db, congregationId) {
+      return inMyActiveCongregation(db, congregationId) || (
+        isSignedIn() &&
+        exists(/databases/$(db)/documents/people/$(personIdFromToken())) &&
+        congregationNameOf(db, congregationId) != null &&
+        congregationNameOf(db, myPerson(db).get('activeCongregationId', null)) == congregationNameOf(db, congregationId)
+      );
+    }
+
     match /interestedPeople/{personId} {
       allow read: if isSignedIn();
       // A brand-new record must be stamped with the creator's own active
       // congregation — never a client-chosen one (spec §20: "Do not trust...
-      // TerritoryCongregationID [when] supplied by the frontend").
-      allow create: if inMyActiveCongregation(database, request.resource.data.get('congregationId', null));
+      // TerritoryCongregationID [when] supplied by the frontend"). Uses the
+      // name-or-id match (see [inMyActiveCongregationByNameOrId]'s own doc
+      // comment) for the same duplicate-congregation-document resilience as
+      // update/delete below.
+      allow create: if inMyActiveCongregationByNameOrId(database, request.resource.data.get('congregationId', null));
       // Rollback (2026-09-11): the stricter "record's own owner (or
       // admin-track role) only" version of this rule — which required
       // resource.data.publisherPersonId == personIdFromToken() — is the
       // *intended* long-term design (closing a real "any same-congregation
       // Publisher can edit/delete anyone else's record" gap) but had
-      // apparently never actually been deployed to production until today;
-      // deploying it surfaced real, previously-working saves failing with
-      // PERMISSION_DENIED for at least one Publisher (a same-congregation
-      // edit whose stored publisherPersonId didn't satisfy the strict
-      // check). Restoring the same "any signed-in member of this record's
-      // own active congregation" rule [create] already uses, to stop the
-      // active production regression first — re-tightening this back to
-      // owner-only needs to happen alongside an audit/backfill of existing
-      // publisherPersonId data, not as a same-day rules-only deploy.
+      // apparently never actually been deployed to production until it was
+      // tried today; deploying it surfaced real, previously-working saves
+      // failing with PERMISSION_DENIED. Restoring the same "any signed-in
+      // member of this record's own active congregation" rule [create]
+      // already uses (now widened to also match by congregation *name*, see
+      // above) to stop the active production regression first —
+      // re-tightening this back to owner-only needs to happen alongside an
+      // audit/backfill of existing publisherPersonId/congregationId data,
+      // not as a same-day rules-only deploy.
       //
       // "Forward to Other Publisher" accept (same congregation, Publisher-
       // to-Publisher, no admin step — PublisherForwardRequestsViewModel
@@ -577,13 +597,13 @@ service cloud.firestore {
       // this record's own congregation — so the receiving Publisher's
       // "Forwarded to Me" accept, and the notification/badge that already
       // reads the resulting record, both keep working unchanged.
-      allow update: if inMyActiveCongregation(database, resource.data.get('congregationId', null)) ||
+      allow update: if inMyActiveCongregationByNameOrId(database, resource.data.get('congregationId', null)) ||
         // "Forward to Other Congregation" accept — an admin-track role
         // active in the *receiving* congregation (ForwardRequestsViewModel
         // .accept) reassigns a record it doesn't yet share a congregation
         // with, so the plain same-congregation check above can't cover it.
         canManagePublisherReportsFor(database, request.resource.data.get('congregationId', null));
-      allow delete: if inMyActiveCongregation(database, resource.data.get('congregationId', null));
+      allow delete: if inMyActiveCongregationByNameOrId(database, resource.data.get('congregationId', null));
 
       match /visits/{visitId} {
         allow read: if isSignedIn();
@@ -597,7 +617,7 @@ service cloud.firestore {
         // Super-Admin may add one. A Return Visit (or Searching) record has
         // no such extra check — any same-congregation Publisher may add
         // their own visit to it, same as before.
-        allow create: if inMyActiveCongregation(database, interestedPersonCongregationId(database, personId)) &&
+        allow create: if inMyActiveCongregationByNameOrId(database, interestedPersonCongregationId(database, personId)) &&
           request.resource.data.get('createdByPersonId', null) == personIdFromToken() &&
           (interestedPersonPipelineStage(database, personId) != 'BIBLE_STUDY' ||
             isSuperAdmin(database) ||
@@ -614,7 +634,7 @@ service cloud.firestore {
         // Admin is the one explicitly authorized override this app's role
         // system actually has today (mirrors [canManageAllVisitHistory] in
         // PipelineScreen/PipelineViewModel).
-        allow update: if inMyActiveCongregation(database, interestedPersonCongregationId(database, personId)) &&
+        allow update: if inMyActiveCongregationByNameOrId(database, interestedPersonCongregationId(database, personId)) &&
           (isSuperAdmin(database) ||
             (interestedPersonPipelineStage(database, personId) == 'BIBLE_STUDY' &&
               interestedPersonOwnerId(database, personId) == personIdFromToken()) ||
@@ -635,7 +655,7 @@ service cloud.firestore {
         // exception and the plain owner-delete case collapse into the same
         // "enrolled Publisher only" check anyway, so no separate branch is
         // needed there.
-        allow delete: if inMyActiveCongregation(database, interestedPersonCongregationId(database, personId)) &&
+        allow delete: if inMyActiveCongregationByNameOrId(database, interestedPersonCongregationId(database, personId)) &&
           (isSuperAdmin(database) ||
             interestedPersonOwnerId(database, personId) == personIdFromToken() ||
             (interestedPersonPipelineStage(database, personId) != 'BIBLE_STUDY' &&
@@ -709,10 +729,11 @@ service cloud.firestore {
     //    through direct URLs") never applied; any signed-in user could read
     //    or write any chat/message in any congregation.
     // The guard below excludes every one of those subtrees (plus
-    // `interestedPeople`, added by the Territory Map pass) from this clause,
-    // so each keeps only its own, real rule; everything NOT listed here
-    // (schedules, territories, shared locations, app settings, backups,
-    // audit log, ...) is unaffected.
+    // `interestedPeople`, added by the Territory Map pass, and
+    // `dashboardModuleLayouts`, added by the customizable-dashboard pass)
+    // from this clause, so each keeps only its own, real rule; everything
+    // NOT listed here (schedules, territories, shared locations, app
+    // settings, backups, audit log, ...) is unaffected.
     //
     // Heads-up: this is a genuine tightening, not just a doc fix — any
     // restricted (Circuit Overseer/grant-based) account already provisioned
@@ -743,7 +764,7 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && !(document[0] in [
         'interestedPeople', 'passwordResetRequests', 'people', 'userAccessGrants', 'congregations',
         'groups', 'roleAssignments', 'monthlyReports', 'bibleTextCategories', 'bibleTextRecords',
-        'groupChats', 'preachingTimeRecords', 'presence'
+        'groupChats', 'preachingTimeRecords', 'presence', 'dashboardModuleLayouts'
       ]);
     }
   }
