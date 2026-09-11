@@ -7,10 +7,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -21,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -57,6 +62,13 @@ import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
 private const val TAG = "OnlineUsersViewModel"
+
+/** Same green already used for a "regular pioneer"-style positive/active state
+ * elsewhere in the dashboard (see DashboardReportsScreen's own
+ * COLOR_REGULAR_PIONEER) — kept as one literal constant here since a plain
+ * red/green pair like this isn't meant to invert with the dark theme the way
+ * a theme color would. */
+private val OnlineUsersGreen = Color(0xFF2E7D32)
 
 /** One row the "Online Users" list actually shows — resolved by joining a live
  * `presence` row against the same locally-cached Person/RoleAssignment/
@@ -192,7 +204,15 @@ fun OnlineUsersIndicator(
         modifier = modifier.clickable { showList = true },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("🟢", modifier = Modifier.padding(end = 6.dp))
+        // "Change the online user icon to a man icon. Green if there is
+        // online, red if there is 0 online" — a person glyph instead of the
+        // plain colored dot, tinted by whether anyone is actually online.
+        Icon(
+            Icons.Rounded.Person,
+            contentDescription = null,
+            tint = if (onlineUsers.isNotEmpty()) OnlineUsersGreen else MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(end = 6.dp).size(18.dp),
+        )
         Text(
             "Online Users: ${onlineUsers.size}",
             style = MaterialTheme.typography.bodySmall,
