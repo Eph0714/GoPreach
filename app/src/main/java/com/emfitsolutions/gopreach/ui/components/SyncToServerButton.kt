@@ -145,7 +145,17 @@ class ManualSyncViewModel @Inject constructor(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SyncToServerButton(viewModel: ManualSyncViewModel = hiltViewModel()) {
+fun SyncToServerButton(
+    viewModel: ManualSyncViewModel = hiltViewModel(),
+    /** False when the caller places its own [SyncStatusIndicator] elsewhere
+     * (e.g. PublisherHomeScreen puts it at the very top of the "Keep Your
+     * Data Safe" card, above the title, so the Online/Offline + Online
+     * Users badges are the first thing visible there instead of sitting
+     * just above the button, lower in the card) — this button then renders
+     * only the actual "SYNC TO SERVER" control, never a second copy of the
+     * same indicator. */
+    showStatusIndicator: Boolean = true,
+) {
     val pendingCount by viewModel.pendingCount.collectAsStateWithLifecycle()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val syncing = state as? ManualSyncState.Syncing
@@ -154,7 +164,9 @@ fun SyncToServerButton(viewModel: ManualSyncViewModel = hiltViewModel()) {
         // Real-time 🟢/🔴/🟡/⚠️ status — reflects the sync system as a whole
         // (including automatic background syncs), not just this button's own
         // manually-triggered runs.
-        SyncStatusIndicator(modifier = Modifier.padding(bottom = 4.dp))
+        if (showStatusIndicator) {
+            SyncStatusIndicator(modifier = Modifier.padding(bottom = 4.dp))
+        }
 
         Button(
             onClick = viewModel::syncToServer,

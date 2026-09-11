@@ -247,6 +247,12 @@ fun PublisherHomeScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // "Move the icon for Online and Online User at the Top
+                        // of the Keep Your Data Safe Panel so that it will be
+                        // visible" — the very first thing in the card now,
+                        // above the title, instead of sitting just above the
+                        // button lower down where it was easy to miss.
+                        com.emfitsolutions.gopreach.ui.components.SyncStatusIndicator()
                         Text(
                             stringResource(R.string.home_sync_card_title),
                             style = MaterialTheme.typography.titleSmall,
@@ -258,7 +264,7 @@ fun PublisherHomeScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
-                        SyncToServerButton()
+                        SyncToServerButton(showStatusIndicator = false)
                     }
                 }
 
