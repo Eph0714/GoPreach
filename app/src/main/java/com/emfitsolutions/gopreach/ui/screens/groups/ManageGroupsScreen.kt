@@ -371,6 +371,17 @@ private fun GroupDialog(
     }.collectAsStateWithLifecycle(initialValue = emptySet())
 
     fun submit() {
+        // TEMPORARY diagnostic logging — remove once the "Congregation/Group
+        // is required" report is confirmed resolved on a real device. Prints
+        // every value the validation below actually reads, so a `adb logcat
+        // -s GroupDialog` capture from a failing Save tap shows exactly which
+        // one was unexpectedly null/empty rather than requiring more guessing.
+        android.util.Log.d(
+            "GroupDialog",
+            "submit(): fixedCongregationId=$fixedCongregationId pickedCongregationId=$pickedCongregationId " +
+                "existingGroup?.congregationId=${existingGroup?.congregationId} resolvedCongregationId=$congregationId " +
+                "congregations.size=${congregations.size} name='$name'",
+        )
         val message = requiredFieldsMessage(
             "Field Service Group Name" to name.isNotBlank(),
             "Congregation/Group" to (congregationId != null),
@@ -418,7 +429,11 @@ private fun GroupDialog(
                     CongregationPickerDropdown(
                         congregations = congregations,
                         selected = pickedCongregation,
-                        onSelected = { pickedCongregationId = it.id },
+                        onSelected = {
+                            // TEMPORARY diagnostic logging — see submit()'s own comment.
+                            android.util.Log.d("GroupDialog", "onSelected: picked id='${it.id}' name='${it.name}'")
+                            pickedCongregationId = it.id
+                        },
                     )
                 }
                 OutlinedTextField(
