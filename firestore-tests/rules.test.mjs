@@ -249,6 +249,62 @@ async function run() {
     record("Publisher still CANNOT self-grant via userAccessGrants (catch-all correctly excludes it)", true);
   })().catch((e) => record("Publisher still CANNOT self-grant via userAccessGrants (catch-all correctly excludes it)", false, e.message));
 
+  // ============ TEST 8: presence (Online Users Indicator) ============
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await setDoc(doc(db, "presence", "pubA"), { congregationId: "congA", lastSeen: Date.now() });
+    await setDoc(doc(db, "presence", "pubOtherCong"), { congregationId: "congB", lastSeen: Date.now() });
+  });
+
+  await (async () => {
+    const ref = doc(asPubA, "presence", "pubA");
+    await assertSucceeds(getDoc(ref));
+    record("Publisher CAN read their own congregation's presence doc", true);
+  })().catch((e) => record("Publisher CAN read their own congregation's presence doc", false, e.message));
+
+  await (async () => {
+    const ref = doc(asPubA, "presence", "pubOtherCong");
+    await assertFails(getDoc(ref));
+    record("Publisher CANNOT read another congregation's presence doc", true);
+  })().catch((e) => record("Publisher CANNOT read another congregation's presence doc", false, e.message));
+
+  await (async () => {
+    const ref = doc(asSuperAdmin, "presence", "pubOtherCong");
+    await assertSucceeds(getDoc(ref));
+    record("Super Admin CAN read any congregation's presence doc", true);
+  })().catch((e) => record("Super Admin CAN read any congregation's presence doc", false, e.message));
+
+  await (async () => {
+    // Publisher B tries to write PUBLISHER A's presence doc -- must fail
+    // (personIdFromToken() must equal the document id).
+    const ref = doc(asPubB, "presence", "pubA");
+    await assertFails(setDoc(ref, { congregationId: "congA", lastSeen: Date.now() }));
+    record("Publisher CANNOT write another session's presence document", true);
+  })().catch((e) => record("Publisher CANNOT write another session's presence document", false, e.message));
+
+  await (async () => {
+    // Publisher B tries to tag their OWN presence doc with a congregation
+    // they don't belong to, to appear "online" there -- must fail.
+    const ref = doc(asPubB, "presence", "pubB");
+    await assertFails(setDoc(ref, { congregationId: "congB", lastSeen: Date.now() }));
+    record("Publisher CANNOT spoof a different congregation on their own presence doc", true);
+  })().catch((e) => record("Publisher CANNOT spoof a different congregation on their own presence doc", false, e.message));
+
+  await (async () => {
+    // Publisher B writes their own presence doc with their REAL congregation
+    // (congA, per the seed data) -- must succeed.
+    const ref = doc(asPubB, "presence", "pubB");
+    await assertSucceeds(setDoc(ref, { congregationId: "congA", lastSeen: Date.now() }));
+    record("Publisher CAN write their own presence doc with their real congregation", true);
+  })().catch((e) => record("Publisher CAN write their own presence doc with their real congregation", false, e.message));
+
+  await (async () => {
+    // Publisher B deletes their own presence doc (sign-out cleanup) -- must succeed.
+    const ref = doc(asPubB, "presence", "pubB");
+    await assertSucceeds(deleteDoc(ref));
+    record("Publisher CAN delete their own presence doc (sign-out cleanup)", true);
+  })().catch((e) => record("Publisher CAN delete their own presence doc (sign-out cleanup)", false, e.message));
+
   await testEnv.cleanup();
 
   console.log("\n=== SUMMARY ===");

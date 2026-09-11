@@ -109,6 +109,10 @@ fun SyncStatusIndicator(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        // "Put the Online Users just next to Online Indicator" — same Row,
+        // right alongside the connectivity badge, rather than its own
+        // separate line elsewhere on the Main Form.
+        OnlineUsersIndicator(modifier = Modifier.padding(start = 16.dp))
         if (permanentFailureCount > 0) {
             Text(
                 "  ⚠️ Sync error — $permanentFailureCount need${if (permanentFailureCount == 1) "s" else ""} attention (tap for details)",

@@ -647,6 +647,30 @@ service cloud.firestore {
       }
     }
 
+    // "Add Online Users Indicator" — one `presence/{personId}` document per
+    // currently-signed-in session (see PresenceHeartbeat, the only thing
+    // that ever writes here), tagged with that session's own denormalized
+    // `activeCongregationId` (the same field Group Chat/Territory Map access
+    // already relies on — kept in sync by UserSession). Read access is the
+    // feature's own access rule, enforced here at the query level, not just
+    // by which query the client happens to send (spec §9): Super-Admin sees
+    // every congregation's presence; a congregation-based caller sees only
+    // presence rows tagged with their own current congregation —
+    // `inMyActiveCongregation` is the exact same helper Territory Map's
+    // Return Visit congregation restriction already uses.
+    match /presence/{personId} {
+      allow read: if isSuperAdmin(database) || inMyActiveCongregation(database, resource.data.get('congregationId', null));
+      // Only the session itself may ever write its own presence document —
+      // and only ever tagged with its own real activeCongregationId, never
+      // an arbitrary one a malicious client could pick to appear "online" in
+      // a congregation it doesn't actually belong to. `request.resource ==
+      // null` covers PresenceHeartbeat's own best-effort delete on sign-out,
+      // where there is no `request.resource` to check a congregationId on.
+      allow write: if isSignedIn() && personIdFromToken() == personId &&
+        (request.resource == null ||
+          request.resource.data.get('congregationId', null) == myPerson(database).get('activeCongregationId', null));
+    }
+
     // Everything else (schedules, territories, shared locations, app
     // settings, backups, audit log, ...): authenticated read/write,
     // unchanged from before — none of these are named in the spec's
@@ -713,7 +737,7 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && !(document[0] in [
         'interestedPeople', 'passwordResetRequests', 'people', 'userAccessGrants', 'congregations',
         'groups', 'roleAssignments', 'monthlyReports', 'bibleTextCategories', 'bibleTextRecords',
-        'groupChats', 'preachingTimeRecords'
+        'groupChats', 'preachingTimeRecords', 'presence'
       ]);
     }
   }

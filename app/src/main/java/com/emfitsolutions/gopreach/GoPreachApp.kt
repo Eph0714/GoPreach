@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.emfitsolutions.gopreach.data.sync.PresenceHeartbeat
 import com.emfitsolutions.gopreach.data.sync.ReminderScheduler
 import com.emfitsolutions.gopreach.data.sync.RemoteSyncCoordinator
 import com.emfitsolutions.gopreach.data.sync.SyncScheduler
@@ -41,6 +42,9 @@ class GoPreachApp : Application(), Configuration.Provider {
     @Inject
     lateinit var notificationSoundCoordinator: NotificationSoundCoordinator
 
+    @Inject
+    lateinit var presenceHeartbeat: PresenceHeartbeat
+
     override fun onCreate() {
         super.onCreate()
         remoteSyncCoordinator.startAll()
@@ -57,6 +61,10 @@ class GoPreachApp : Application(), Configuration.Provider {
         // .ensureAutomaticSyncStarted's own doc comment for the two triggers
         // this sets up (immediate on reconnect, periodic floor).
         syncScheduler.ensureAutomaticSyncStarted()
+        // "Add Online Users Indicator" — keeps this session's own `presence`
+        // document current for as long as it's signed in and online; see
+        // PresenceHeartbeat's own doc comment.
+        presenceHeartbeat.start()
     }
 
     override val workManagerConfiguration: Configuration
