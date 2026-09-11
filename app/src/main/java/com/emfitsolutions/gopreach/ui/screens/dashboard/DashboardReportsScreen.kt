@@ -87,6 +87,35 @@ private data class StatDetail(
     val breakdown: List<Pair<String, String>>,
 )
 
+private val ELDER_STATUSES = setOf("Coordinator Elder", "Regular Elder", "Service Overseer", "Secretary")
+
+/** Which of [StatMember.statuses] are actually relevant to the card whose
+ * dialog is currently showing them — a person often holds roles that span
+ * both an Elder title *and* a Publisher category at once (e.g. a Regular
+ * Elder who's also a Regular Pioneer), but "Total Elders"' own list should
+ * only ever show their elder title(s), not their unrelated publisher
+ * category, and vice versa. [StatDetail.label] is either an elder-track
+ * label ("Total Elders"/"Total Ministerial") or a publisher-track one
+ * (everything else this dialog is ever opened from) — never both — so a
+ * simple either/or split is enough here. */
+private fun relevantStatuses(detailLabel: String, member: StatMember): Set<String> =
+    if (detailLabel == "Total Elders" || detailLabel == "Total Ministerial") {
+        member.statuses.filter { it in ELDER_STATUSES || it == "Ministerial Servant" }.toSet()
+    } else {
+        member.statuses - ELDER_STATUSES - "Ministerial Servant"
+    }
+
+/** "add also status, example 'EVAROSE FERNANDEZ (REGULAR PIONEER)'" — shared
+ * between the on-screen dialog list and its PDF/Excel export so both always
+ * show the same thing. Multiple statuses (a person holding more than one
+ * Elder-title role at once) are joined with "/"; no parentheses at all when
+ * this dashboard has no specific status resolved for that role. */
+private fun memberDisplayName(detailLabel: String, member: StatMember): String {
+    val statuses = relevantStatuses(detailLabel, member)
+    if (statuses.isEmpty()) return member.fullName
+    return "${member.fullName} (${statuses.sorted().joinToString(" / ") { it.uppercase() }})"
+}
+
 /** Shared by [DashboardStatsContent] (the on-screen cards) and
  * [DashboardReportsScreen] (its PDF/Excel export) so the two can never list
  * a different set of figures — same source, one place this list is defined. */
@@ -309,8 +338,14 @@ fun DashboardStatsContent(
             val memberReportTable = remember(detail, matchingMembers) {
                 ReportTable(
                     title = detail.label,
-                    columns = listOf("#", "Name"),
-                    rows = matchingMembers.mapIndexed { index, member -> listOf((index + 1).toString(), member.fullName) },
+                    // "add also status" — its own column here (rather than
+                    // folded into Name, as the on-screen dialog shows it),
+                    // since a spreadsheet/PDF export reads better as
+                    // structured columns than a parenthesized suffix.
+                    columns = listOf("#", "Name", "Status"),
+                    rows = matchingMembers.mapIndexed { index, member ->
+                        listOf((index + 1).toString(), member.fullName, relevantStatuses(detail.label, member).sorted().joinToString(" / ") { it.uppercase() })
+                    },
                     totals = listOf(detail.label to detail.value),
                 )
             }
@@ -353,9 +388,16 @@ fun DashboardStatsContent(
                             // a plain member list where the name alone is
                             // what was asked for), with a divider line
                             // between each row rather than one divider above
-                            // the whole list.
+                            // the whole list. "add also status, example
+                            // 'EVAROSE FERNANDEZ (REGULAR PIONEER)'" — each
+                            // person's own specific role/category, not the
+                            // umbrella card label; joined with "/" on the
+                            // rare person holding more than one at once
+                            // (e.g. Coordinator Elder/Regular Elder), and
+                            // omitted entirely for a role with no specific
+                            // status resolved.
                             matchingMembers.forEachIndexed { index, member ->
-                                Text(member.fullName, style = MaterialTheme.typography.bodyMedium)
+                                Text(memberDisplayName(detail.label, member), style = MaterialTheme.typography.bodyMedium)
                                 if (index != matchingMembers.lastIndex) {
                                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                                 }

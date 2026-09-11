@@ -24,6 +24,18 @@ data class StatMember(
     val congregationId: String,
     val congregationName: String,
     val statLabels: Set<String>,
+    /** "add also status, example 'EVAROSE FERNANDEZ (REGULAR PIONEER)'" —
+     * this person's own specific role/category label(s) (e.g. "Regular
+     * Pioneer", "Coordinator Elder"), as opposed to [statLabels], which are
+     * the broader per-card *filter* keys ("Total Publishers", "Total
+     * Elders", ...) a name is matched against to decide which dialogs it
+     * belongs in. Usually one value; a person holding more than one
+     * Elder-title role at once (e.g. Coordinator Elder AND, via a Group
+     * Overseer slot, Regular Elder) keeps every one of them here, same
+     * "union labels rather than pick one" rule [statLabels] itself follows
+     * a few lines below. Empty only for a role this dashboard doesn't
+     * resolve a specific status for. */
+    val statuses: Set<String>,
 )
 
 /** Companion to [CongregationStats.compute] — same scoped/deduplicated
@@ -57,6 +69,11 @@ fun computeStatMembers(
 
     data class PersonCongregationKey(val personId: String, val congregationId: String)
     val labelsByPersonCongregation = mutableMapOf<PersonCongregationKey, MutableSet<String>>()
+    // "add also status, example 'EVAROSE FERNANDEZ (REGULAR PIONEER)'" —
+    // this person's own specific role/category, collected alongside (but
+    // kept separate from) the card-filter [labels] above; see [StatMember
+    // .statuses]'s own doc comment for why the two aren't the same thing.
+    val statusesByPersonCongregation = mutableMapOf<PersonCongregationKey, MutableSet<String>>()
 
     assignments
         .filter { it.status == RoleAssignmentStatus.ACTIVE && it.congregationId in congregationsById }
@@ -77,7 +94,8 @@ fun computeStatMembers(
             // congregation's data at once. [resolvedRoleTypeOrNull] never
             // throws; a row it can't parse is skipped (contributes no label)
             // instead of taking the whole dashboard down with it.
-            val labels: Set<String> = when (val role = assignment.resolvedRoleTypeOrNull()) {
+            val role = assignment.resolvedRoleTypeOrNull()
+            val labels: Set<String> = when (role) {
                 null -> emptySet()
                 is RoleType.Admin -> when (role.role) {
                     // "Total Elders" counts Coordinator Elder, Regular Elder,
@@ -108,8 +126,33 @@ fun computeStatMembers(
                 }
             }
             if (labels.isEmpty()) return@forEach
+            // The specific status shown next to the name — e.g. "Coordinator
+            // Elder" rather than the umbrella "Total Elders" [labels] above
+            // uses to decide *which* card this person belongs under.
+            val status: String? = when (role) {
+                is RoleType.Admin -> when (role.role) {
+                    AdminRole.COORDINATOR_ELDER -> "Coordinator Elder"
+                    AdminRole.REGULAR_ELDER -> "Regular Elder"
+                    AdminRole.SERVICE_OVERSEER -> "Service Overseer"
+                    AdminRole.SECRETARY -> "Secretary"
+                    AdminRole.MINISTERIAL_SERVANT -> "Ministerial Servant"
+                    else -> null
+                }
+                is RoleType.Publisher -> when (role.category) {
+                    PublisherCategory.REGULAR_PIONEER -> "Regular Pioneer"
+                    PublisherCategory.AUXILIARY_PIONEER -> "Auxiliary Pioneer"
+                    PublisherCategory.UNBAPTIZED_PUBLISHER -> "Unbaptized Publisher"
+                    PublisherCategory.IRREGULAR_PUBLISHER -> "Irregular Publisher"
+                    PublisherCategory.INACTIVE_PUBLISHER -> "Inactive Publisher"
+                    PublisherCategory.REPROOF_PUBLISHER -> "Reproof Publisher"
+                    PublisherCategory.REMOVED_PUBLISHER -> "Removed Publisher"
+                    PublisherCategory.REGULAR_PUBLISHER -> "Regular Publisher"
+                }
+                null -> null
+            }
             val key = PersonCongregationKey(assignment.personId, congregationId)
             labelsByPersonCongregation.getOrPut(key) { mutableSetOf() }.addAll(labels)
+            if (status != null) statusesByPersonCongregation.getOrPut(key) { mutableSetOf() }.add(status)
         }
 
     val members = labelsByPersonCongregation.mapNotNull { (key, labels) ->
@@ -135,6 +178,7 @@ fun computeStatMembers(
             congregationId = congregation.id,
             congregationName = congregation.name,
             statLabels = labels,
+            statuses = statusesByPersonCongregation[key].orEmpty(),
         )
     }
 
@@ -154,7 +198,7 @@ fun computeStatMembers(
     val (adminMembers, otherMembers) = members.partition { "Total Elders" in it.statLabels || "Total Ministerial" in it.statLabels }
     val dedupedAdmins = adminMembers
         .groupBy { it.congregationId to it.fullName.trim().uppercase().replace(Regex("\\s+"), " ") }
-        .map { (_, group) -> group.first().copy(statLabels = group.flatMap { it.statLabels }.toSet()) }
+        .map { (_, group) -> group.first().copy(statLabels = group.flatMap { it.statLabels }.toSet(), statuses = group.flatMap { it.statuses }.toSet()) }
     return otherMembers + dedupedAdmins
 }
 
