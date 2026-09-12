@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.AssignmentInd
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.HorizontalDivider
@@ -85,6 +86,7 @@ fun GoPreachSidePanelContent(
     canViewFieldServiceGroupReport: Boolean,
     canManagePublisherReports: Boolean,
     canViewForwardRequests: Boolean,
+    canManageHouseholderAssignment: Boolean,
     canEnrollRegularElderOrPublisher: Boolean,
     /** "CREATING PUBLISHER" spec — Service Overseer can also create/manage
      * Publishers under their own congregation, in addition to everyone
@@ -204,6 +206,12 @@ fun GoPreachSidePanelContent(
             // second, separate drawer item/screen.
             if (canViewForwardRequests) {
                 add(SideItem(stringResource(R.string.side_forward_requests), Icons.Rounded.SwapHoriz, Destinations.FORWARD_REQUESTS))
+            }
+            // "Add a New Module: House Holder Assignment" — Super-Admin/
+            // Admin/Service Overseer only (see AdminHomeScreen's own
+            // derivation of this flag for the exact access set).
+            if (canManageHouseholderAssignment) {
+                add(SideItem(stringResource(R.string.side_householder_assignment), Icons.Rounded.AssignmentInd, Destinations.HOUSEHOLDER_ASSIGNMENT))
             }
             if (canViewInterestedPeopleScope) add(SideItem(stringResource(R.string.side_interested_records_scoped), Icons.Rounded.Groups, Destinations.SCOPED_INTERESTED_RECORDS))
             // "The super admin can see all congregation Search[ing]/Bible

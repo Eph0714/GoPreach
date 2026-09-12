@@ -5,10 +5,13 @@ import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.ForwardRequest
 import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
+import com.emfitsolutions.gopreach.data.model.HouseholderAssignment
+import com.emfitsolutions.gopreach.data.model.HouseholderAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.GroupChatRepository
+import com.emfitsolutions.gopreach.data.repository.HouseholderAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.NotificationCategory
 import com.emfitsolutions.gopreach.data.repository.PublisherForwardRequestRepository
 import com.emfitsolutions.gopreach.di.ApplicationScope
@@ -103,6 +106,7 @@ class NotificationSoundCoordinator @Inject constructor(
     private val itemsProvider: NotificationItemsProvider,
     private val forwardRequestRepository: ForwardRequestRepository,
     private val publisherForwardRequestRepository: PublisherForwardRequestRepository,
+    private val householderAssignmentRepository: HouseholderAssignmentRepository,
     private val groupChatRepository: GroupChatRepository,
     private val congregationRepository: CongregationRepository,
     @ApplicationContext private val context: Context,
@@ -166,6 +170,18 @@ class NotificationSoundCoordinator @Inject constructor(
         // meaningful for an active Publisher role, same scope the original
         // per-screen notifiers had.
         scope.flatMapLatest { s -> if (s.isPublisher && s.personId != null) outgoingForwardStatusFor(s.personId) else flowOf(emptyMap()) }
+            .launchIn(appScope)
+
+        // "Notify the assigning Service Overseer/Admin/Super-Admin that the
+        // assignment was accepted/rejected" — same "status flip away from
+        // PENDING" diff [outgoingForwardStatusFor] already uses, but not
+        // Publisher-only: the assigner here is a Service Overseer/Admin/
+        // Super-Admin, never a Publisher (spec: "Publisher... does not have
+        // access to create assignments"), so this runs for *any* signed-in
+        // person, unlike the Publisher-only forward-request watcher above.
+        scope.map { it.personId }
+            .distinctUntilChanged()
+            .flatMapLatest { personId -> if (personId != null) outgoingHouseholderAssignmentStatusFor(personId) else flowOf(Unit) }
             .launchIn(appScope)
 
         // Group Chat messages — every signed-in person regardless of role
@@ -245,6 +261,36 @@ class NotificationSoundCoordinator @Inject constructor(
 
             emptyMap()
         }
+    }
+
+    /** [outgoingForwardStatusFor]'s exact same shape, for
+     * [HouseholderAssignment] — its own [HouseholderAssignmentStatus] isn't
+     * [ForwardRequestStatus] (spec's own distinct state names, see that
+     * enum's own doc comment), so this can't reuse [notifyResolvedForwards]
+     * directly. Cancelled excluded here too — the assigner already knows,
+     * they did it themselves (see [HouseholderAssignmentViewModel.cancel]). */
+    private fun outgoingHouseholderAssignmentStatusFor(assignedByPersonId: String): Flow<Unit> {
+        var lastStatuses: Map<String, HouseholderAssignmentStatus>? = null
+        return householderAssignmentRepository.observeAll()
+            .map { list -> list.filter { it.assignedByPersonId == assignedByPersonId } }
+            .map { assignments ->
+                val previous = lastStatuses
+                if (previous != null) {
+                    assignments.forEach { a ->
+                        val wasPending = previous[a.id] == HouseholderAssignmentStatus.PENDING
+                        if (wasPending && a.status != HouseholderAssignmentStatus.PENDING && a.status != HouseholderAssignmentStatus.CANCELLED) {
+                            NotificationHelper.notify(
+                                context,
+                                id = 9320 + a.id.hashCode(),
+                                title = "House Holder Assignment Update",
+                                text = "${a.personNameSnapshot} was ${a.status.name.lowercase()} by ${a.toPublisherNameSnapshot}.",
+                                category = NotificationCategory.TRANSFER_REQUEST,
+                            )
+                        }
+                    }
+                }
+                lastStatuses = assignments.associate { it.id to it.status }
+            }
     }
 
     private fun <T> notifyResolvedForwards(

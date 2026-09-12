@@ -40,6 +40,8 @@ import com.emfitsolutions.gopreach.ui.screens.findlocation.FindLocationScreen
 import com.emfitsolutions.gopreach.ui.screens.groups.ManageGroupsScreen
 import com.emfitsolutions.gopreach.ui.screens.home.AdminHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
+import com.emfitsolutions.gopreach.ui.screens.householderassignment.HouseholderAssignmentScreen
+import com.emfitsolutions.gopreach.ui.screens.householderassignment.IncomingHouseholderAssignmentsScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestsScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsScreen
@@ -778,6 +780,32 @@ fun GoPreachNavGraph(
             // PublisherForwardRequestsViewModel.incomingRequestsFor).
             PublisherForwardRequestsScreen(
                 currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.HOUSEHOLDER_ASSIGNMENT) {
+            // "House Holder Assignment" module — Super-Admin/Admin/Service
+            // Overseer (+Secretary, same access Service Overseer already
+            // gets everywhere in this app) only; a plain Publisher never
+            // reaches this route at all (spec: "Publisher... does not have
+            // access to create assignments"). Same congregation-scoping
+            // fallback chain as every other Service-Overseer-reachable
+            // module (see HOUSEHOLDER_VISIT_HISTORY's own comment on why
+            // this exact chain, not a shorter one).
+            HouseholderAssignmentScreen(
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId ?: ownPublisherAssignment?.congregationId),
+                currentPersonId = currentPersonId,
+                currentPersonName = session.person?.fullName ?: "—",
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.INCOMING_HOUSEHOLDER_ASSIGNMENTS) {
+            // A Publisher's own incoming House Holder Assignment queue —
+            // scoped to themselves, same convention PUBLISHER_FORWARD_REQUESTS
+            // already uses.
+            IncomingHouseholderAssignmentsScreen(
+                currentPersonId = currentPersonId,
+                currentPersonName = session.person?.fullName ?: "—",
                 onBack = { navController.popBackStack() },
             )
         }

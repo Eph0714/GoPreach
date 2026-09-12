@@ -140,6 +140,17 @@ data class InterestedPerson(
      * have a pending request of each kind at once, though the UI only offers
      * one action at a time per kind (see PipelineScreen). */
     val pendingPublisherForwardRequestId: String? = null,
+    /** "House Holder Assignment" module — points at the most recent
+     * [HouseholderAssignment] for this person while one is outstanding
+     * (`PENDING`), `null` once it's been accepted/rejected/cancelled and
+     * acknowledged. Lets a Service Overseer/Admin/Super-Admin's own search
+     * screen show "Assignment: Pending" against a record without a separate
+     * per-person lookup, same convention as [pendingForwardRequestId]/
+     * [pendingPublisherForwardRequestId] above. A record is only ever
+     * "eligible" for a new assignment (see [HouseholderAssignment]'s own doc
+     * comment on the ownership rule) when both this and [publisherPersonId]
+     * are blank/null — never while an assignment is already outstanding. */
+    val pendingHouseholderAssignmentId: String? = null,
 ) {
     val primarySupportingImage: SupportingImage? get() = supportingImages.firstOrNull()
     val hasGpsLocation: Boolean get() = gpsLat != null && gpsLng != null
@@ -263,4 +274,76 @@ data class PublisherForwardRequest(
     val status: ForwardRequestStatus = ForwardRequestStatus.PENDING,
     val requestedAt: Long = 0L,
     val respondedAt: Long? = null,
+)
+
+/** [HouseholderAssignment]'s own status track — deliberately not
+ * [ForwardRequestStatus] (different name for the "declined" state, plus a
+ * [COMPLETED] state neither forward flow has), matching the "House Holder
+ * Assignment" spec's own exact five states verbatim. */
+enum class HouseholderAssignmentStatus { PENDING, ACCEPTED, REJECTED, CANCELLED, COMPLETED }
+
+/**
+ * "House Holder Assignment" module — a Service Overseer/Admin/Super-Admin
+ * directly assigning an *eligible* Interested Person/Return Visit/Bible
+ * Study record (three labels for the one [InterestedPerson] entity at three
+ * different [PipelineStage]s — see that enum) to a specific Publisher, who
+ * must then Accept/Reject it before it actually becomes theirs. This is an
+ * assignment/notification workflow, not a record-editing tool (spec's own
+ * "Core Principle") — the underlying [InterestedPerson] stays the one
+ * shared entity; every assignment fact (who assigned it, to whom, when,
+ * accepted/rejected by whom and when, why rejected) lives here instead,
+ * exactly the same "assignment info stored separately from the core record"
+ * shape [ForwardRequest]/[PublisherForwardRequest] already use.
+ *
+ * "Important Record Ownership Rule" — the Service Overseer/Admin/Super-Admin
+ * must never move/edit/delete/reassign a record a Publisher already owns.
+ * Enforced structurally, not by a permission check on this model: a record
+ * only ever becomes "eligible" for a new [HouseholderAssignment] once its
+ * own [InterestedPerson.publisherPersonId] AND
+ * [InterestedPerson.pendingHouseholderAssignmentId] are both blank/null (see
+ * [com.emfitsolutions.gopreach.ui.screens.householderassignment
+ * .HouseholderAssignmentViewModel.eligibleRecordsFor]) — a Publisher-owned
+ * record never appears in that pool in the first place, so there is no
+ * write path that could touch it.
+ *
+ * Name/congregation/address/barangay/notes are all snapshotted at
+ * assignment time, same "the review screen must still render correctly even
+ * if the underlying record changes later" reasoning [ForwardRequest]'s own
+ * doc comment already gives; anything beyond the snapshot (current stage,
+ * GPS, etc.) is read live off [interestedPersonId] instead, same as every
+ * existing forward-request review screen already does.
+ *
+ * Firestore collection: `houseHolderAssignments/{assignmentId}`
+ */
+data class HouseholderAssignment(
+    @DocumentId val id: String = "",
+    val interestedPersonId: String = "",
+    val personNameSnapshot: String = "",
+    val recordType: PipelineStage = PipelineStage.SEARCHING,
+    val congregationId: String = "",
+    val congregationNameSnapshot: String = "",
+    val barangaySnapshot: String? = null,
+    val addressSnapshot: String? = null,
+    val notesSnapshot: String? = null,
+    /** The Service Overseer/Admin/Super-Admin who sent this assignment —
+     * never a Publisher (spec: "Publisher... does not have access to create
+     * assignments"). */
+    val assignedByPersonId: String = "",
+    val assignedByNameSnapshot: String = "",
+    val toPublisherPersonId: String = "",
+    val toPublisherNameSnapshot: String = "",
+    val status: HouseholderAssignmentStatus = HouseholderAssignmentStatus.PENDING,
+    val assignedAt: Long = 0L,
+    val respondedAt: Long? = null,
+    val respondedByPersonId: String? = null,
+    val respondedByNameSnapshot: String? = null,
+    /** Set only on [HouseholderAssignmentStatus.REJECTED] — spec's own
+     * optional-reason list ("Already handling this house holder," "Not
+     * available," ...) is presented by the UI as a picker; this stores
+     * whichever text (a preset label, or "Other" free text) the Publisher
+     * actually chose, `null` when they left it blank entirely (spec:
+     * "Allow the Publisher to *optionally* provide a reason"). */
+    val rejectionReason: String? = null,
+    val cancelledAt: Long? = null,
+    val cancelledByPersonId: String? = null,
 )

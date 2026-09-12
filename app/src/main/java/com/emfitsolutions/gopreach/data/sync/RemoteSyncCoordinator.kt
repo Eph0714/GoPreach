@@ -11,6 +11,7 @@ import com.emfitsolutions.gopreach.data.repository.DashboardModuleLayoutReposito
 import com.emfitsolutions.gopreach.data.repository.ElderTitleRepository
 import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
+import com.emfitsolutions.gopreach.data.repository.HouseholderAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.LocationSharingSettingsRepository
 import com.emfitsolutions.gopreach.data.repository.MidweekMeetingScheduleRepository
@@ -84,6 +85,7 @@ class RemoteSyncCoordinator @Inject constructor(
     private val interestedPersonRepository: InterestedPersonRepository,
     private val forwardRequestRepository: ForwardRequestRepository,
     private val publisherForwardRequestRepository: PublisherForwardRequestRepository,
+    private val householderAssignmentRepository: HouseholderAssignmentRepository,
     private val monthlyReportRepository: MonthlyReportRepository,
     private val auditLogRepository: AuditLogRepository,
     private val appSettingsRepository: AppSettingsRepository,
@@ -161,6 +163,7 @@ class RemoteSyncCoordinator @Inject constructor(
         interestedPersonRepository.startRemoteSync().startTracked(uidChanged)
         forwardRequestRepository.startRemoteSync().startTracked(uidChanged)
         publisherForwardRequestRepository.startRemoteSync().startTracked(uidChanged)
+        householderAssignmentRepository.startRemoteSync().startTracked(uidChanged)
         monthlyReportRepository.startRemoteSync().startTracked(uidChanged)
         auditLogRepository.startRemoteSync().startTracked(uidChanged)
         appSettingsRepository.startRemoteSync().startTracked(uidChanged)

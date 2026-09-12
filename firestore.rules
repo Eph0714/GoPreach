@@ -719,6 +719,7 @@ service cloud.firestore {
     // this is a structural fix, not a permission change.
     match /forwardRequests/{requestId} { allow read, write: if isSignedIn(); }
     match /publisherForwardRequests/{requestId} { allow read, write: if isSignedIn(); }
+    match /houseHolderAssignments/{assignmentId} { allow read, write: if isSignedIn(); }
     match /territories/{territoryId} { allow read, write: if isSignedIn(); }
     match /schedules/{scheduleId} { allow read, write: if isSignedIn(); }
     match /elderTitles/{titleId} { allow read, write: if isSignedIn(); }
@@ -800,7 +801,7 @@ service cloud.firestore {
         'interestedPeople', 'passwordResetRequests', 'people', 'userAccessGrants', 'congregations',
         'groups', 'roleAssignments', 'monthlyReports', 'bibleTextCategories', 'bibleTextRecords',
         'groupChats', 'preachingTimeRecords', 'presence', 'dashboardModuleLayouts',
-        'forwardRequests', 'publisherForwardRequests', 'territories', 'schedules', 'elderTitles',
+        'forwardRequests', 'publisherForwardRequests', 'houseHolderAssignments', 'territories', 'schedules', 'elderTitles',
         'appSettings', 'auditLog', 'sharedLocations', 'savedLocations', 'cartAssignments',
         'locationSharingSettings', 'midweekMeetingSchedules', 'publicTalkSchedules', 'announcements'
       ]);

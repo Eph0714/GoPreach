@@ -58,6 +58,8 @@
     <string name="home_tile_bible_study_subtitle">View &amp; Manage</string>
     <string name="home_tile_forwarded_to_me_title">Forwarded to Me</string>
     <string name="home_tile_forwarded_to_me_subtitle">Accept or Decline</string>
+    <string name="home_tile_incoming_assignments_title">Incoming Assignments</string>
+    <string name="home_tile_incoming_assignments_subtitle">Review, Accept or Reject</string>
     <string name="home_tile_householder_visit_history_title">House Holder Visit History</string>
     <string name="home_tile_householder_visit_history_subtitle">View past visits</string>
     <string name="home_tile_my_total_hours_title">My Total Hours</string>
@@ -139,6 +141,7 @@
     <string name="side_field_service_group_report">Field Service Group Report</string>
     <string name="side_publisher_reports">Publisher Reports</string>
     <string name="side_forward_requests">Forward Request</string>
+    <string name="side_householder_assignment">House Holder Assignment</string>
     <string name="side_share_location_settings">Share Location Settings</string>
     <string name="side_user_logs">User Logs</string>
     <string name="side_contact_record">Contact Record</string>

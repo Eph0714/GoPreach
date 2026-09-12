@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.rounded.Forward
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Assignment
+import androidx.compose.material.icons.rounded.AssignmentInd
 import androidx.compose.material.icons.rounded.Bookmarks
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Campaign
@@ -134,6 +135,7 @@ fun PublisherHomeScreen(
     dashboardViewModel: PublisherDashboardViewModel = hiltViewModel(),
     announcementsViewModel: ManageAnnouncementsViewModel = hiltViewModel(),
     publisherForwardViewModel: com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsViewModel = hiltViewModel(),
+    householderAssignmentViewModel: com.emfitsolutions.gopreach.ui.screens.householderassignment.HouseholderAssignmentViewModel = hiltViewModel(),
     notificationCenterViewModel: NotificationCenterViewModel = hiltViewModel(),
     groupChatViewModel: com.emfitsolutions.gopreach.ui.screens.groupchat.GroupChatViewModel = hiltViewModel(),
     // "Publishers App – Customizable Module Navigation Redesign".
@@ -201,6 +203,12 @@ fun PublisherHomeScreen(
     val incomingForwardsFlow = remember(currentPersonId) { publisherForwardViewModel.incomingRequestsFor(currentPersonId) }
     val incomingForwards by incomingForwardsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
+    // "House Holder Assignment" — this Publisher's own incoming queue count,
+    // for the "Incoming Assignments" tile's badge (same pattern as
+    // "Forwarded to Me"'s above).
+    val incomingAssignmentsFlow = remember(currentPersonId) { householderAssignmentViewModel.incomingAssignmentsFor(currentPersonId) }
+    val incomingAssignments by incomingAssignmentsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+
     // "Back Button and Page Navigation" spec §7 — this is the Main Form for the
     // Publisher context; there's nothing left in the nav stack to pop to here,
     // so Back needs its own "Exit GoPreach?" confirmation rather than silently
@@ -236,7 +244,7 @@ fun PublisherHomeScreen(
     // Pioneer-gating actually do; [moduleLayout] changing (a move, a reset,
     // or the initial load from another device) re-splits the same catalog
     // without re-fetching anything.
-    val allTiles = publisherModuleTiles(isPioneer, unseenAnnouncements, incomingForwards.size)
+    val allTiles = publisherModuleTiles(isPioneer, unseenAnnouncements, incomingForwards.size, incomingAssignments.size)
     val tilesById = remember(allTiles) { allTiles.associateBy { it.id } }
     val mainFormTiles = remember(moduleLayout, tilesById) { moduleLayout.mainFormModules().mapNotNull { tilesById[it] } }
     val sidePanelTiles = remember(moduleLayout, tilesById) { moduleLayout.sidePanelModules().mapNotNull { tilesById[it] } }
@@ -664,6 +672,7 @@ private fun publisherModuleTiles(
     isPioneer: Boolean,
     unseenAnnouncements: Int,
     pendingPublisherForwards: Int,
+    pendingHouseholderAssignments: Int,
 ): List<PublisherModuleTile> = buildList {
     add(PublisherModuleTile(DashboardModuleId.MONTHLY_REPORT, stringResource(R.string.home_tile_monthly_report_title), stringResource(R.string.home_tile_monthly_report_subtitle), Icons.Rounded.Assignment, Destinations.MONTHLY_REPORT))
     // "Allow the publisher to see all his submitted Report record" —
@@ -675,6 +684,9 @@ private fun publisherModuleTiles(
     add(PublisherModuleTile(DashboardModuleId.BIBLE_STUDY, stringResource(R.string.home_tile_bible_study_title), stringResource(R.string.home_tile_bible_study_subtitle), Icons.AutoMirrored.Rounded.MenuBook, Destinations.BIBLE_STUDY))
     // "FORWARD TO OTHER PUBLISHER" — this Publisher's own incoming queue.
     add(PublisherModuleTile(DashboardModuleId.FORWARDED_TO_ME, stringResource(R.string.home_tile_forwarded_to_me_title), stringResource(R.string.home_tile_forwarded_to_me_subtitle), Icons.AutoMirrored.Rounded.Forward, Destinations.PUBLISHER_FORWARD_REQUESTS, pendingPublisherForwards))
+    // "House Holder Assignment" — this Publisher's own incoming queue, same
+    // "actionable inbox with a live badge" shape as "Forwarded to Me" above.
+    add(PublisherModuleTile(DashboardModuleId.INCOMING_HOUSEHOLDER_ASSIGNMENTS, stringResource(R.string.home_tile_incoming_assignments_title), stringResource(R.string.home_tile_incoming_assignments_subtitle), Icons.Rounded.AssignmentInd, Destinations.INCOMING_HOUSEHOLDER_ASSIGNMENTS, pendingHouseholderAssignments))
     // "House Holder Visit History" — a read-only, consolidated view of
     // this Publisher's own congregation's Searching/Return Visit/Bible
     // Study records and their visit history (see

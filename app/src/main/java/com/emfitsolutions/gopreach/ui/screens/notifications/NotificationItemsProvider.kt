@@ -3,6 +3,8 @@ package com.emfitsolutions.gopreach.ui.screens.notifications
 import com.emfitsolutions.gopreach.data.model.Announcement
 import com.emfitsolutions.gopreach.data.model.ForwardRequest
 import com.emfitsolutions.gopreach.data.model.ForwardRequestStatus
+import com.emfitsolutions.gopreach.data.model.HouseholderAssignment
+import com.emfitsolutions.gopreach.data.model.HouseholderAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.MonthlyReport
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
@@ -11,12 +13,14 @@ import com.emfitsolutions.gopreach.data.model.Schedule
 import com.emfitsolutions.gopreach.data.model.ScheduleKind
 import com.emfitsolutions.gopreach.data.repository.AnnouncementRepository
 import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
+import com.emfitsolutions.gopreach.data.repository.HouseholderAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.NotificationCategory
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.PublisherForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.ScheduleRepository
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
+import com.emfitsolutions.gopreach.ui.screens.householderassignment.assignmentLabel
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -57,9 +61,19 @@ class NotificationItemsProvider @Inject constructor(
     private val announcementRepository: AnnouncementRepository,
     private val scheduleRepository: ScheduleRepository,
     private val personRepository: PersonRepository,
+    private val householderAssignmentRepository: HouseholderAssignmentRepository,
 ) {
     private val periodFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
 
+    // "House Holder Assignment" — deliberately not part of [itemsForAdmin]'s
+    // own bundle: a *sent* assignment has nothing for the sending Service
+    // Overseer/Admin/Super-Admin to act on (only the receiving Publisher
+    // does, via [itemsForPublisher] below) — the "assignment was accepted/
+    // rejected" notification back to the sender is its own separate,
+    // resolved-status-diff mechanism in
+    // [com.emfitsolutions.gopreach.notifications.NotificationSoundCoordinator]
+    // (same shape that class already uses for Forward Request outcomes),
+    // not a [NotificationItem] in this pending-items list.
     fun itemsForAdmin(congregationIds: Set<String>?, includeMonthlyReports: Boolean): Flow<List<NotificationItem>> =
         combine(
             combine(
@@ -158,9 +172,10 @@ class NotificationItemsProvider @Inject constructor(
     fun itemsForPublisher(currentPersonId: String, congregationId: String?): Flow<List<NotificationItem>> =
         combine(
             publisherForwardRequestRepository.observeAll(),
+            householderAssignmentRepository.observeAll(),
             announcementRepository.observeAll(),
             scheduleRepository.observeAll(),
-        ) { publisherForwards, announcements, schedules ->
+        ) { publisherForwards, assignments, announcements, schedules ->
             val items = mutableListOf<NotificationItem>()
 
             publisherForwards
@@ -173,6 +188,22 @@ class NotificationItemsProvider @Inject constructor(
                         subtitle = "From ${r.fromPublisherNameSnapshot}",
                         timestamp = r.requestedAt,
                         route = Destinations.PUBLISHER_FORWARD_REQUESTS,
+                    )
+                }
+
+            // "New House Holder Assignment... You have received a new
+            // assignment from [Assigned By]." (spec's own exact worked
+            // notification text).
+            assignments
+                .filter { it.toPublisherPersonId == currentPersonId && it.status == HouseholderAssignmentStatus.PENDING }
+                .forEach { a ->
+                    items += NotificationItem(
+                        id = a.id,
+                        category = NotificationCategory.TRANSFER_REQUEST,
+                        title = "New House Holder Assignment: ${a.personNameSnapshot}",
+                        subtitle = "From ${a.assignedByNameSnapshot} · ${a.recordType.assignmentLabel()}",
+                        timestamp = a.assignedAt,
+                        route = Destinations.INCOMING_HOUSEHOLDER_ASSIGNMENTS,
                     )
                 }
 

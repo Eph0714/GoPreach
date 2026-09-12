@@ -162,6 +162,14 @@ fun AdminHomeScreen(
     // computes that separately and is the actual enforcement (this flag only
     // decides whether the drawer/balloon offer the screen at all).
     val canViewForwardRequests = canViewConsolidatedReport || role == AdminRole.REGULAR_ELDER || role == AdminRole.MINISTERIAL_SERVANT
+    // "House Holder Assignment" module — spec's own exact access list:
+    // Super-Admin (all congregations), Admin/Service Overseer (own
+    // congregation only) — deliberately narrower than [canViewForwardRequests]
+    // above (no Coordinator Elder/Regular Elder/Ministerial Servant; the
+    // spec never names them). Secretary gets the same access Service
+    // Overseer already does everywhere else in this app.
+    val canManageHouseholderAssignment = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION ||
+        role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY
     // "Manage Publisher Report" module — Super-Admin (every congregation),
     // Admin/Coordinator Elder/Service Overseer (own congregation only); same
     // access set as the Consolidated Report. A Circuit Overseer with any of
@@ -428,6 +436,7 @@ fun AdminHomeScreen(
                 canViewFieldServiceGroupReport = canViewFieldServiceGroupReport,
                 canManagePublisherReports = canManagePublisherReports,
                 canViewForwardRequests = canViewForwardRequests,
+                canManageHouseholderAssignment = canManageHouseholderAssignment,
                 canEnrollRegularElderOrPublisher = canManageRegularEldersForDrawer,
                 canEnrollPublisher = canEnrollPublisher,
                 canManagePublishersAndGroups = canManagePublishersAndGroups,

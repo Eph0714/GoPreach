@@ -139,6 +139,11 @@ object Destinations {
     const val FORWARD_REQUESTS = "forward_requests"
     // A Publisher's own incoming "FORWARD TO OTHER PUBLISHER" review queue.
     const val PUBLISHER_FORWARD_REQUESTS = "publisher_forward_requests"
+    // "House Holder Assignment" module — the Service Overseer/Admin/Super-
+    // Admin's own search-and-assign screen.
+    const val HOUSEHOLDER_ASSIGNMENT = "householder_assignment"
+    // A Publisher's own incoming House Holder Assignment review queue.
+    const val INCOMING_HOUSEHOLDER_ASSIGNMENTS = "incoming_householder_assignments"
 
     // Phase 6
     const val SHARE_LOCATION = "share_location"
