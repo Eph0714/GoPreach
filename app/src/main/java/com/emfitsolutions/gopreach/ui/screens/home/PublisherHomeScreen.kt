@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.PeopleAlt
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PersonSearch
 import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Timer
@@ -736,6 +737,12 @@ private fun publisherModuleTiles(
     // tile is just a second, more discoverable entry point to the same
     // GROUP_CHAT_SETTING list.
     add(PublisherModuleTile(DashboardModuleId.GROUP_CHAT, stringResource(R.string.home_tile_group_chat_title), stringResource(R.string.home_tile_group_chat_subtitle), Icons.AutoMirrored.Rounded.Chat, Destinations.GROUP_CHAT_SETTING))
+    // "Make a module for publisher to see the available schedule of the
+    // other publishers" — same PublisherSchedulesScreen Account Settings'
+    // own "View Other Publishers' Schedules" link already opens, now also
+    // reachable as its own Main Form tile; congregation-scoped by the
+    // Destinations.PUBLISHER_SCHEDULES composable itself, not this tile.
+    add(PublisherModuleTile(DashboardModuleId.PUBLISHER_SCHEDULES, stringResource(R.string.home_tile_publisher_schedules_title), stringResource(R.string.home_tile_publisher_schedules_subtitle), Icons.Rounded.Schedule, Destinations.PUBLISHER_SCHEDULES))
 }
 
 /** The Main Form grid — [tiles] is already the resolved, ordered set for

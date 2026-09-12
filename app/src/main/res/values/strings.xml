@@ -82,6 +82,8 @@
     <string name="home_tile_announcement_subtitle">Latest Updates</string>
     <string name="home_tile_group_chat_title">Group Chat</string>
     <string name="home_tile_group_chat_subtitle">Congregation Chats</string>
+    <string name="home_tile_publisher_schedules_title">Publisher Schedules</string>
+    <string name="home_tile_publisher_schedules_subtitle">Preaching Availability</string>
 
     <!-- "Publishers App – Customizable Module Navigation Redesign" —
          long-press-to-move Main Form/Side Panel dialogs. -->

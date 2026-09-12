@@ -42,6 +42,11 @@ enum class DashboardModuleId {
     MY_ASSIGNMENTS,
     ANNOUNCEMENT,
     GROUP_CHAT,
+    // "Make a module for publisher to see the available schedule of the
+    // other publishers" — promotes the existing "View Other Publishers'
+    // Schedules" link (Account Settings) into a first-class module tile,
+    // same PublisherSchedulesScreen/Destinations.PUBLISHER_SCHEDULES route.
+    PUBLISHER_SCHEDULES,
 }
 
 /**
@@ -91,6 +96,7 @@ fun DashboardModuleId.defaultLocation(): DashboardModuleLocation = when (this) {
     DashboardModuleId.MEETING_CART_ASSIGNMENT,
     DashboardModuleId.MY_ASSIGNMENTS,
     DashboardModuleId.GROUP_CHAT,
+    DashboardModuleId.PUBLISHER_SCHEDULES,
     -> DashboardModuleLocation.MAIN_FORM
 
     DashboardModuleId.MY_CALENDAR,
