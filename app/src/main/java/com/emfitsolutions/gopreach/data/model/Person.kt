@@ -101,6 +101,34 @@ data class Person(
      */
     val activeCongregationId: String? = null,
     val activeAdminRole: String? = null,
+
+    /** "Preaching Availability" module — which days of the week this
+     * Publisher has said they're generally available to preach (spec's own
+     * checkbox list, Monday-Sunday), stored as plain [PreachingDay.name]
+     * strings rather than the enum itself — every enum field elsewhere in
+     * this codebase is a single value, never inside a `List`, so this
+     * deliberately doesn't become the first `List<Enum>` Firestore mapping
+     * this app relies on. Empty means never set (not "available every
+     * day") — a Service Overseer/Admin/Super-Admin choosing who to assign
+     * a House Holder Assignment to sees this as-is, blank included, never
+     * a guessed default. Lives directly on the shared [Person] record (not
+     * a private per-viewer setting), so it can be surfaced to another
+     * account that already reads this Person document (spec's own "This
+     * will be visible in other publisher account") — but only ever *within
+     * this Publisher's own congregation* (spec: "The publisher schedule
+     * will be visible only within their congregation"), never a cross-
+     * congregation directory. Every screen that actually shows this field
+     * today (see [com.emfitsolutions.gopreach.ui.screens.householderassignment
+     * .HouseholderAssignmentViewModel.assignablePublishers]) already narrows
+     * to one specific congregation first, so that scoping holds by
+     * construction — this field itself carries no congregation restriction
+     * of its own, so any *new* screen surfacing it must apply the same
+     * same-congregation filter rather than reading it off an unscoped
+     * Person list. */
+    val preachingAvailableDays: List<String> = emptyList(),
+    /** Free text — "preferred schedule, limitations, or other relevant
+     * notes" (spec's own wording). `null` means never set. */
+    val preachingAvailabilityRemarks: String? = null,
 ) {
     val fullName: String
         get() = listOfNotNull(firstName, middleInitial?.let { "$it." }, lastName, extensionName)

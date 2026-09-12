@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Visibility
@@ -66,6 +67,13 @@ fun ProfileMenuButton(
     modifier: Modifier = Modifier,
     tint: Color = Color.White,
     onOpenSettings: (() -> Unit)? = null,
+    // Non-null only for a Publisher's own top bar — the Publisher-track
+    // Main Form has no other path to AccountSettingsScreen (its bottom-nav
+    // "Profile" tab goes to the theme/notification Settings screen instead,
+    // and its side drawer omits the Account Settings row Admin-track drawers
+    // show) — without this, name/username/password changes and "Add Module:
+    // Preaching Availability" would be unreachable for a Publisher account.
+    onOpenAccountSettings: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     var showViewImage by remember { mutableStateOf(false) }
@@ -98,6 +106,13 @@ fun ProfileMenuButton(
                 leadingIcon = { Icon(Icons.Rounded.PhotoCamera, contentDescription = null) },
                 onClick = { expanded = false; pickImage.launch("image/*") },
             )
+            if (onOpenAccountSettings != null) {
+                DropdownMenuItem(
+                    text = { Text("Account Settings") },
+                    leadingIcon = { Icon(Icons.Rounded.Password, contentDescription = null) },
+                    onClick = { expanded = false; onOpenAccountSettings() },
+                )
+            }
             if (onOpenSettings != null) {
                 DropdownMenuItem(
                     text = { Text("Settings") },

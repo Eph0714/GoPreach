@@ -929,6 +929,11 @@ fun GoPreachNavGraph(
                 // A changed password signs the session out (spec §1); routing
                 // back to Login happens reactively above, same as everywhere else.
                 onSignedOutForPasswordChange = { },
+                // "Add a module to the Publisher Account/Profile" — only
+                // shown for a plain Publisher's own active role, same
+                // signal every other Publisher-only feature in this file
+                // already checks.
+                isPublisher = ownPublisherAssignment != null,
             )
         }
         composable(Destinations.MANAGE_USERS) {

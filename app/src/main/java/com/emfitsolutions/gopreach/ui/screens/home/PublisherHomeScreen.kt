@@ -298,6 +298,7 @@ fun PublisherHomeScreen(
                 onOpenGroupChat = { chatId -> onNavigate(Destinations.groupChatDetail(chatId)) },
                 onViewAllGroupChats = { onNavigate(Destinations.GROUP_CHAT_SETTING) },
                 onOpenSettings = { onNavigate(Destinations.SETTINGS) },
+                onOpenAccountSettings = { onNavigate(Destinations.ACCOUNT_SETTINGS) },
                 onOpenSidePanel = { drawerScope.launch { drawerState.open() } },
                 onImagePicked = { uri ->
                     viewModel.updateProfileImage(uri, onImageUploadFailed = {
@@ -482,6 +483,11 @@ private fun PublisherWelcomeHeader(
     onOpenSidePanel: () -> Unit,
     onImagePicked: (android.net.Uri) -> Unit,
     onSignOut: () -> Unit,
+    // "Add Module: Preaching Availability" — a Publisher's only path to
+    // AccountSettingsScreen (name/username/password, and now Preaching
+    // Availability); see ProfileMenuButton's own doc comment on why this
+    // was missing before.
+    onOpenAccountSettings: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -530,6 +536,7 @@ private fun PublisherWelcomeHeader(
                     profileImageUrl = profileImageUrl,
                     onImagePicked = onImagePicked,
                     onSignOut = onSignOut,
+                    onOpenAccountSettings = onOpenAccountSettings,
                 )
             }
 

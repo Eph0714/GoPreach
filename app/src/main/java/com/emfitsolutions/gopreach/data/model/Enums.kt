@@ -176,6 +176,22 @@ enum class RoleAssignmentStatus { ACTIVE, INACTIVE }
  */
 enum class RecordStatus { ACTIVE, INACTIVE }
 
+/** "Preaching Availability" module — a Publisher's own self-reported general
+ * availability, in [Person.preachingAvailableDays] as plain [name] strings
+ * (never this enum type directly — see that field's own doc comment on why),
+ * so it can be shown/used when a Service Overseer/Admin/Super-Admin is
+ * choosing who to assign a House Holder Assignment to, and on this
+ * Publisher's own profile for any other signed-in account to see. */
+enum class PreachingDay(val label: String, val shortLabel: String) {
+    MONDAY("Monday", "Mon"),
+    TUESDAY("Tuesday", "Tue"),
+    WEDNESDAY("Wednesday", "Wed"),
+    THURSDAY("Thursday", "Thu"),
+    FRIDAY("Friday", "Fri"),
+    SATURDAY("Saturday", "Sat"),
+    SUNDAY("Sunday", "Sun"),
+}
+
 /** A Regular Elder's structural role within their assigned Group — distinct from
  * [ElderTitleEntity] (a free-form, admin-editable "specific title" label): this is
  * a fixed 3-way split that drives Group-completeness validation and which of a

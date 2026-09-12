@@ -209,19 +209,23 @@ fun HouseholderAssignmentScreen(
     if (showAddNew && effectiveCongregationId != null) {
         AddEligibleRecordDialog(
             recordType = stage,
+            congregationProvince = congregations.firstOrNull { it.id == effectiveCongregationId }?.province,
+            viewModel = viewModel,
             onDismiss = { showAddNew = false },
-            onCreate = { name, address, barangay, notes ->
+            onCreate = { name, address, barangay, cityMunicipality, province, lat, lng, notes ->
                 scope.launch {
                     viewModel.createEligibleRecord(
                         name = name,
                         address = address,
-                        barangay = barangay.ifBlank { null },
-                        cityMunicipality = null,
-                        province = null,
+                        barangay = barangay,
+                        cityMunicipality = cityMunicipality,
+                        province = province,
                         notes = notes.ifBlank { null },
                         recordType = stage,
                         congregationId = effectiveCongregationId,
                         createdByPersonId = currentPersonId,
+                        gpsLat = lat,
+                        gpsLng = lng,
                     )
                     showToast("Record added — search for it above to assign.")
                 }
@@ -281,32 +285,165 @@ private fun CongregationDropdown(congregations: List<Congregation>, selectedId: 
     }
 }
 
+/** "lat, lng" (or "lat lng"/"lat;lng") — whatever a copy-paste from Google
+ * Maps or a plain manual entry looks like — parsed loosely rather than
+ * requiring one exact separator. `null` when it doesn't parse as two real
+ * numbers at all. */
+private fun parseCoordinates(text: String): Pair<Double, Double>? {
+    val parts = text.trim().split(Regex("[,;\\s]+")).filter { it.isNotBlank() }
+    if (parts.size != 2) return null
+    val lat = parts[0].toDoubleOrNull() ?: return null
+    val lng = parts[1].toDoubleOrNull() ?: return null
+    if (lat !in -90.0..90.0 || lng !in -180.0..180.0) return null
+    return lat to lng
+}
+
+/**
+ * "Manual Coordinates" — the Service Overseer enters a house holder's
+ * latitude/longitude directly (spec: "using manual latitude and longitude
+ * coordinates"), one plain line, rather than every field being typed by
+ * hand: Municipality/Barangay are then reverse-geocoded from that single
+ * coordinate pair (spec: "automatically retrieve and populate... from
+ * internet-based location data" — the on-device Geocoder, the same
+ * internet-backed mechanism every other GPS-capture flow in this app
+ * already uses via [com.emfitsolutions.gopreach.data.location.LocationTracker
+ * .reverseGeocodeAddress]), and Province is never asked for here at all —
+ * it's always [congregationProvince], the assigned Congregation's own
+ * (spec: "Province is automatically inherited from the assigned
+ * Congregation's province"). Every resolved field is shown back to the
+ * Service Overseer before Add, same "best-effort suggestion, never a
+ * silent authoritative fill" rule this app's other reverse-geocode call
+ * sites already follow — a failed/partial lookup still lets the record be
+ * added with whatever did resolve (or none of it), never blocks on it.
+ */
 @Composable
 private fun AddEligibleRecordDialog(
     recordType: PipelineStage,
+    congregationProvince: String?,
+    viewModel: HouseholderAssignmentViewModel,
     onDismiss: () -> Unit,
-    onCreate: (name: String, address: String, barangay: String, notes: String) -> Unit,
+    onCreate: (
+        name: String,
+        address: String,
+        barangay: String?,
+        cityMunicipality: String?,
+        province: String?,
+        lat: Double?,
+        lng: Double?,
+        notes: String,
+    ) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
     var address by remember { mutableStateOf("") }
-    var barangay by remember { mutableStateOf("") }
+    var coordinates by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
+    var resolvedBarangay by remember { mutableStateOf<String?>(null) }
+    var resolvedMunicipality by remember { mutableStateOf<String?>(null) }
+    var lookupState by remember { mutableStateOf<LookupState>(LookupState.Idle) }
+    val scope = rememberCoroutineScopeCompat()
+    val parsedCoordinates = remember(coordinates) { parseCoordinates(coordinates) }
+
+    fun lookUp() {
+        val (lat, lng) = parsedCoordinates ?: return
+        lookupState = LookupState.Loading
+        scope.launch {
+            val resolved = viewModel.reverseGeocode(lat, lng)
+            resolvedBarangay = resolved?.barangay
+            resolvedMunicipality = resolved?.cityMunicipality
+            lookupState = if (resolved?.barangay != null || resolved?.cityMunicipality != null) {
+                LookupState.Resolved
+            } else {
+                LookupState.NotFound
+            }
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New ${recordType.assignmentLabel()} Record") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("House Holder Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Address") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = barangay, onValueChange = { barangay = it }, label = { Text("Barangay") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    value = coordinates,
+                    onValueChange = { coordinates = it; lookupState = LookupState.Idle; resolvedBarangay = null; resolvedMunicipality = null },
+                    label = { Text("Manual Coordinates (Lat, Lng)") },
+                    placeholder = { Text("e.g. 16.4813, 121.1358") },
+                    singleLine = true,
+                    trailingIcon = {
+                        IconButton(onClick = ::lookUp, enabled = parsedCoordinates != null) {
+                            Icon(Icons.Rounded.Search, contentDescription = "Look up Municipality/Barangay")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                when (lookupState) {
+                    LookupState.Idle -> Unit
+                    LookupState.Loading -> Text("Looking up location…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    LookupState.Resolved -> Text(
+                        "Resolved: ${resolvedBarangay ?: "—"}, ${resolvedMunicipality ?: "—"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    LookupState.NotFound -> Text(
+                        "Could not resolve a Municipality/Barangay for these coordinates — you can still add the record.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                // Province is never a field here at all — always the
+                // assigned Congregation's own, shown read-only just so the
+                // Service Overseer can see what will actually be saved.
+                Text(
+                    "Province: ${congregationProvince ?: "—"} (from Congregation)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("Notes") }, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
-            TextButton(onClick = { onCreate(name.trim(), address.trim(), barangay.trim(), notes.trim()) }, enabled = name.isNotBlank()) { Text("Add") }
+            TextButton(
+                onClick = {
+                    onCreate(
+                        name.trim(),
+                        address.trim(),
+                        resolvedBarangay,
+                        resolvedMunicipality,
+                        congregationProvince,
+                        parsedCoordinates?.first,
+                        parsedCoordinates?.second,
+                        notes.trim(),
+                    )
+                },
+                enabled = name.isNotBlank(),
+            ) { Text("Add") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+private enum class LookupState { Idle, Loading, Resolved, NotFound }
+
+/** "Used when making House Holder Assignments and recommending Publishers
+ * for assignments" — a one-line summary of a Publisher's own self-reported
+ * [Person.preachingAvailableDays]/[Person.preachingAvailabilityRemarks],
+ * for the "Assign To" picker below. `null` fields mean the Publisher never
+ * filled in Preaching Availability at all — shown as "No availability set,"
+ * never silently blank, so a Service Overseer isn't left guessing whether
+ * that means "available every day" or "never asked." */
+private fun availabilitySummary(publisher: Person): String {
+    val days = publisher.preachingAvailableDays
+        .mapNotNull { runCatching { com.emfitsolutions.gopreach.data.model.PreachingDay.valueOf(it) }.getOrNull() }
+        .sortedBy { it.ordinal }
+    val daysText = if (days.isEmpty()) null else days.joinToString(", ") { it.shortLabel }
+    return when {
+        daysText == null && publisher.preachingAvailabilityRemarks.isNullOrBlank() -> "No availability set"
+        daysText == null -> publisher.preachingAvailabilityRemarks!!
+        publisher.preachingAvailabilityRemarks.isNullOrBlank() -> "Available: $daysText"
+        else -> "Available: $daysText — ${publisher.preachingAvailabilityRemarks}"
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -347,9 +484,23 @@ private fun AssignPublisherDialog(
                             DropdownMenuItem(text = { Text("No eligible publishers") }, onClick = {}, enabled = false)
                         }
                         publishers.forEach { p ->
-                            DropdownMenuItem(text = { Text(p.fullName) }, onClick = { selectedPublisher = p; expanded = false })
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(p.fullName)
+                                        Text(availabilitySummary(p), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
+                                onClick = { selectedPublisher = p; expanded = false },
+                            )
                         }
                     }
+                }
+                // "Recommending Publishers for assignment" — the full
+                // summary again, right under the picker, so it stays
+                // visible once the dropdown itself has closed.
+                selectedPublisher?.let { p ->
+                    Text("Availability: ${availabilitySummary(p)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         },

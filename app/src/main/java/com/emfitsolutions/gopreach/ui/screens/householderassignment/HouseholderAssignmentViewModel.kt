@@ -2,6 +2,8 @@ package com.emfitsolutions.gopreach.ui.screens.householderassignment
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.location.GeocodedAddress
+import com.emfitsolutions.gopreach.data.location.LocationTracker
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.HouseholderAssignment
 import com.emfitsolutions.gopreach.data.model.HouseholderAssignmentStatus
@@ -44,6 +46,7 @@ class HouseholderAssignmentViewModel @Inject constructor(
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val personRepository: PersonRepository,
     private val auditLogRepository: AuditLogRepository,
+    private val locationTracker: LocationTracker,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -73,13 +76,29 @@ class HouseholderAssignmentViewModel @Inject constructor(
                 .sortedBy { it.name }
         }
 
+    /** "Manual Coordinates" — reverse-geocodes [lat]/[lng] (the on-device
+     * Geocoder, backed by an internet lookup — same mechanism/reliability
+     * this app's own GPS-capture flows already use) into Municipality/
+     * Barangay text. `null` fields mean the geocoder couldn't resolve that
+     * level (or failed outright) — the caller (see [AddEligibleRecordDialog])
+     * treats this as a best-effort suggestion, same as every other
+     * reverse-geocode call in this app, never an authoritative fill the
+     * Service Overseer can't see/override. Province is deliberately *not*
+     * asked of the geocoder at all — it always comes from the assigned
+     * Congregation's own [Congregation.province] instead (spec: "Province
+     * will be automatically get from Congregation province"). */
+    suspend fun reverseGeocode(lat: Double, lng: Double): GeocodedAddress? = locationTracker.reverseGeocodeAddress(lat, lng)
+
     /** "→ Search Record" found no match — a brand-new eligible record,
      * unowned by any Publisher until a sent assignment is Accepted (spec:
      * "assign existing or *newly searched*... records"). Mirrors the same
-     * fields the Searching module's own enrollment form already collects,
-     * minus anything only a Publisher would capture in the field (GPS,
-     * supporting photo) — those stay available to whichever Publisher ends
-     * up owning it, added after acceptance the normal way. */
+     * fields the Searching module's own enrollment form already collects.
+     * [gpsLat]/[gpsLng] are the Service Overseer's own manually-entered
+     * coordinates (spec: "Manual Coordinates... for the Service Overseer to
+     * enter/send a request") — the one GPS-capture path this screen offers,
+     * distinct from a Publisher's own in-field capture, which still applies
+     * normally once whichever Publisher accepts this assignment owns the
+     * record afterward. */
     suspend fun createEligibleRecord(
         name: String,
         address: String,
@@ -90,6 +109,8 @@ class HouseholderAssignmentViewModel @Inject constructor(
         recordType: PipelineStage,
         congregationId: String,
         createdByPersonId: String,
+        gpsLat: Double? = null,
+        gpsLng: Double? = null,
     ): InterestedPerson {
         val now = System.currentTimeMillis()
         return interestedPersonRepository.save(
@@ -105,6 +126,11 @@ class HouseholderAssignmentViewModel @Inject constructor(
                 createdAt = now,
                 createdByPersonId = createdByPersonId,
                 stageEnteredAt = now,
+                gpsLat = gpsLat,
+                gpsLng = gpsLng,
+                gpsCapturedAt = if (gpsLat != null) now else null,
+                gpsCapturedBy = if (gpsLat != null) createdByPersonId else null,
+                gpsUpdatedAt = if (gpsLat != null) now else null,
             )
         )
     }

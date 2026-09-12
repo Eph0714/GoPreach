@@ -2,6 +2,7 @@ package com.emfitsolutions.gopreach.ui.screens.account
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.model.PreachingDay
 import com.emfitsolutions.gopreach.data.repository.AuthRepository
 import com.emfitsolutions.gopreach.data.repository.AuthResult
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
@@ -23,6 +24,16 @@ data class AccountSettingsUiState(
     val isSavingName: Boolean = false,
     val nameMessage: String? = null,
     val nameError: String? = null,
+
+    /** "Preaching Availability" module — only ever shown/editable for a
+     * Publisher (see [AccountSettingsScreen]'s own `isPublisher` gate), but
+     * kept here rather than a separate ViewModel since it's still the same
+     * one Person document. */
+    val availableDays: Set<PreachingDay> = emptySet(),
+    val availabilityRemarks: String = "",
+    val isSavingAvailability: Boolean = false,
+    val availabilityMessage: String? = null,
+    val availabilityError: String? = null,
 
     val currentPasswordForUsername: String = "",
     val newUsername: String = "",
@@ -56,13 +67,57 @@ class AccountSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val person = authRepository.currentPersonId?.let { personRepository.get(it) }
             if (person != null) {
-                _uiState.update { it.copy(firstName = person.firstName, lastName = person.lastName) }
+                _uiState.update {
+                    it.copy(
+                        firstName = person.firstName,
+                        lastName = person.lastName,
+                        availableDays = person.preachingAvailableDays.mapNotNull { day ->
+                            runCatching { PreachingDay.valueOf(day) }.getOrNull()
+                        }.toSet(),
+                        availabilityRemarks = person.preachingAvailabilityRemarks.orEmpty(),
+                    )
+                }
             }
         }
     }
 
     fun onFirstNameChange(value: String) = _uiState.update { it.copy(firstName = value.uppercase(), nameError = null, nameMessage = null) }
     fun onLastNameChange(value: String) = _uiState.update { it.copy(lastName = value.uppercase(), nameError = null, nameMessage = null) }
+
+    /** "Available Days for Preaching" checkboxes — toggles [day] in the
+     * current selection; nothing is saved until [saveAvailability]. */
+    fun toggleAvailableDay(day: PreachingDay) = _uiState.update { state ->
+        val updated = if (day in state.availableDays) state.availableDays - day else state.availableDays + day
+        state.copy(availableDays = updated, availabilityMessage = null, availabilityError = null)
+    }
+
+    fun onAvailabilityRemarksChange(value: String) = _uiState.update { it.copy(availabilityRemarks = value, availabilityMessage = null, availabilityError = null) }
+
+    /** "Save the selected days and remarks to the Publisher profile" —
+     * plain profile info, same no-current-password-check treatment
+     * [saveName] already gets (this isn't a login credential). */
+    fun saveAvailability() {
+        val state = _uiState.value
+        val personId = authRepository.currentPersonId ?: run {
+            _uiState.update { it.copy(availabilityError = "Session expired — please log in again.") }
+            return
+        }
+        _uiState.update { it.copy(isSavingAvailability = true, availabilityError = null, availabilityMessage = null) }
+        viewModelScope.launch {
+            val person = personRepository.get(personId)
+            if (person == null) {
+                _uiState.update { it.copy(isSavingAvailability = false, availabilityError = "Account record not found.") }
+                return@launch
+            }
+            personRepository.save(
+                person.copy(
+                    preachingAvailableDays = PreachingDay.entries.filter { it in state.availableDays }.map { it.name },
+                    preachingAvailabilityRemarks = state.availabilityRemarks.trim().ifBlank { null },
+                )
+            )
+            _uiState.update { it.copy(isSavingAvailability = false, availabilityMessage = "Preaching availability updated.") }
+        }
+    }
 
     fun saveName() {
         val state = _uiState.value

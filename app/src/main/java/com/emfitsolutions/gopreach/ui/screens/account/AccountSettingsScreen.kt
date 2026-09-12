@@ -2,6 +2,8 @@ package com.emfitsolutions.gopreach.ui.screens.account
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +17,7 @@ import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,6 +39,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.model.PreachingDay
 
 /** A password field with a show/hide toggle — without this, a typo the user
  * can't see is indistinguishable from a genuinely wrong password, which is
@@ -72,11 +76,15 @@ private fun PasswordField(
  * uniqueness + current-password checks) and change password (current/new/
  * confirm + requirement validation), both hashed/stored by Firebase Auth
  * itself, never in plaintext by this app. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AccountSettingsScreen(
     onBack: () -> Unit,
     onSignedOutForPasswordChange: () -> Unit,
+    // "Add a module to the Publisher Account/Profile" — only a Publisher
+    // sees the Preaching Availability section below; every other role
+    // reaches this exact same screen for name/username/password unchanged.
+    isPublisher: Boolean = false,
     viewModel: AccountSettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -119,6 +127,41 @@ fun AccountSettingsScreen(
             Button(onClick = viewModel::saveName, enabled = !uiState.isSavingName, modifier = Modifier.fillMaxWidth()) {
                 if (uiState.isSavingName) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
                 Text("Save Name")
+            }
+
+            // "Add Module: Preaching Availability" — Publisher-only. Saved
+            // straight onto this account's own shared Person record (see
+            // that field's own doc comment on why that already satisfies
+            // "This will be visible in other publisher account"), and read
+            // by AssignPublisherDialog when a Service Overseer/Admin/
+            // Super-Admin is choosing who to send a House Holder Assignment
+            // to.
+            if (isPublisher) {
+                HorizontalDivider()
+                Text("Preaching Availability", style = MaterialTheme.typography.titleMedium)
+                Text("Available Days for Preaching", style = MaterialTheme.typography.bodyMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PreachingDay.entries.forEach { day ->
+                        FilterChip(
+                            selected = day in uiState.availableDays,
+                            onClick = { viewModel.toggleAvailableDay(day) },
+                            label = { Text(day.label) },
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = uiState.availabilityRemarks,
+                    onValueChange = viewModel::onAvailabilityRemarksChange,
+                    label = { Text("Remarks") },
+                    placeholder = { Text("Preferred schedule, limitations, or other notes") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (uiState.availabilityError != null) Text(uiState.availabilityError!!, color = MaterialTheme.colorScheme.error)
+                if (uiState.availabilityMessage != null) Text(uiState.availabilityMessage!!, color = MaterialTheme.colorScheme.primary)
+                Button(onClick = viewModel::saveAvailability, enabled = !uiState.isSavingAvailability, modifier = Modifier.fillMaxWidth()) {
+                    if (uiState.isSavingAvailability) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
+                    Text("Save Availability")
+                }
             }
 
             HorizontalDivider()
