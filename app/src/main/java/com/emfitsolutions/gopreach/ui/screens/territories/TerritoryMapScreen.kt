@@ -1,11 +1,16 @@
 ﻿package com.emfitsolutions.gopreach.ui.screens.territories
 
 import android.Manifest
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Typeface
+import android.annotation.SuppressLint
 import android.util.Log
+import android.view.View
+import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.emfitsolutions.gopreach.BuildConfig
@@ -68,10 +73,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -80,30 +85,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.StreetViewPanoramaView
-import com.google.android.gms.maps.model.BitmapDescriptor
-import com.google.android.gms.maps.model.BitmapDescriptorFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLngBounds
-import com.google.android.gms.maps.model.LatLng as GmsLatLng
-import com.google.maps.android.compose.GoogleMap
-import com.google.maps.android.compose.MapProperties
-import com.google.maps.android.compose.MapType
-import com.google.maps.android.compose.MapUiSettings
-import com.google.maps.android.compose.Marker
-import com.google.maps.android.compose.MarkerState
-import com.google.maps.android.compose.rememberCameraPositionState
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -256,7 +245,6 @@ fun TerritoryMapScreen(
         selectedPersonForDetails = person
     }
     var advancedFilter by remember { mutableStateOf(TerritoryFilterState()) }
-    var showFilterSheet by remember { mutableStateOf(false) }
 
     // "Territory Map Congregation and Field Service Group Filters" spec §1/
     // §2/§17 — Congregation is the first filter for every role, but only
@@ -360,29 +348,10 @@ fun TerritoryMapScreen(
     var searchByField by remember { mutableStateOf(TerritorySearchByField.ALL) }
     var groupBy by remember { mutableStateOf(TerritoryGroupBy.MUNICIPALITY) }
     val personNames by viewModel.personNames.collectAsStateWithLifecycle()
-    // "Full-Screen Map View... the map occupies the entire available
-    // screen" — Map View is now the default landing mode; List View is
-    // still reachable (existing functionality preserved per spec §17.11)
-    // via the toggle in the top bar's own actions instead of a persistent
-    // segmented-button row that used to eat vertical space in both modes.
-    var viewMode by remember { mutableStateOf(TerritoryViewMode.MAP) }
-
-    // "GOOGLE MAP TYPES & MAP DETAILS" — hoisted up here (not local to
-    // TerritoryLiveMap) so a Map View <-> List View round trip never resets
-    // them, same reasoning every other Territory Map control already
-    // follows (see [advancedFilter]/[searchQuery] etc. — TerritoryLiveMap
-    // itself is fully torn down and rebuilt every time [viewMode] leaves and
-    // re-enters MAP, so anything that needs to survive that has to live
-    // above it, not inside it).
-    var mapType by remember { mutableStateOf(MapType.NORMAL) }
-    var trafficEnabled by remember { mutableStateOf(false) }
-    // "Raised Buildings / 3D Buildings" — the official Google Maps Android
-    // SDK feature this maps to 1:1 is `GoogleMap`'s own buildings layer
-    // (extruded 3D building footprints, automatic wherever Google has the
-    // data — there is no separate "2D vs 3D" toggle to speak of on Android,
-    // unlike the JS Maps API's distinct tilt/3D controls).
-    var buildingsEnabled by remember { mutableStateOf(false) }
-    var streetViewEnabled by remember { mutableStateOf(false) }
+    // "LIST VIEW MUST BE THE DEFAULT VIEW" — List View is now the initial
+    // landing mode (previously Map View); Map View is still reachable via
+    // the exact same top-bar toggle, unchanged.
+    var viewMode by remember { mutableStateOf(TerritoryViewMode.LIST) }
 
     // "TERRITORY MAP – PHILIPPINES LOCATION SEARCH" — Congregation → Province
     // → Municipality/City → Barangay, using the real, complete Philippine
@@ -488,6 +457,62 @@ fun TerritoryMapScreen(
             .sortedBy { it.person.name }
     }
 
+    // "RESPONSIVE MAP FILTERING BY MUNICIPALITY AND BARANGAY" spec §22/§23 —
+    // the Status filter (already applied to List View's own expanded rows,
+    // see [directoryStatus]) must narrow Map View's markers the exact same
+    // way, so both views can never disagree about what's currently shown.
+    // [TerritoryDirectoryStatus.PUBLISHER] has no pipeline row to match at
+    // all (see that enum's own doc comment) — an empty list here, same
+    // "nothing real to show" degradation List View's own expand already uses.
+    val mapRows = remember(filtered, directoryStatus) {
+        when (directoryStatus) {
+            TerritoryDirectoryStatus.ALL -> filtered
+            TerritoryDirectoryStatus.PUBLISHER -> emptyList()
+            else -> filtered.filter { it.person.pipelineStage == directoryStatus.stage }
+        }
+    }
+    val mapPublisherRows = remember(filteredPublisherRows, directoryStatus) {
+        if (directoryStatus == TerritoryDirectoryStatus.ALL || directoryStatus == TerritoryDirectoryStatus.PUBLISHER) filteredPublisherRows else emptyList()
+    }
+    // "If the selected Municipality/Barangay has no records, still show the
+    // [area]'s geographic area" (spec §19/§20) — a forward-geocode query
+    // string only when a specific area is actually selected ("All
+    // Municipalities"/"All Barangays" has no one area to center on instead
+    // of "every authorized record", which [mapRows] already shows in full).
+    // Barangay wins when both are set (it's the more specific area);
+    // zoom-in level is tighter for a Barangay than a whole Municipality
+    // (spec §24's own "zoom closer to the selected Barangay").
+    val selectedAreaQuery: Pair<String, Float>? = remember(effectiveProvince, advancedFilter.cityMunicipality, advancedFilter.barangay) {
+        val province = effectiveProvince
+        val muni = advancedFilter.cityMunicipality
+        val brgy = advancedFilter.barangay
+        when {
+            muni == null -> null
+            brgy != null -> "$brgy, $muni, ${province ?: ""}, Philippines" to 15f
+            else -> "$muni, ${province ?: ""}, Philippines" to 12.5f
+        }
+    }
+    // Raw (un-templated) Municipality/Barangay names for the real-boundary
+    // lookup ([TerritoryBoundaryRepository] keys by exact name, not a
+    // geocoder query string) — same "only when one specific area is
+    // selected" gating as [selectedAreaQuery] above, kept as a separate pair
+    // since the boundary repository needs the plain names, not the
+    // "X, Y, Philippines" string built for the Geocoder.
+    val selectedAreaNames: Pair<String, String?>? = remember(advancedFilter.cityMunicipality, advancedFilter.barangay) {
+        val muni = advancedFilter.cityMunicipality ?: return@remember null
+        muni to advancedFilter.barangay
+    }
+    // Spec's own exact wording — a generic "this Municipality"/"this
+    // Barangay", not the specific name (which the persistent filter bar's
+    // own Municipality/Barangay dropdowns already show).
+    val noRecordsAreaLabel = remember(advancedFilter.cityMunicipality, advancedFilter.barangay) {
+        when {
+            advancedFilter.barangay != null -> "Barangay"
+            advancedFilter.cityMunicipality != null -> "Municipality"
+            else -> null
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -498,18 +523,6 @@ fun TerritoryMapScreen(
                     }
                 },
                 actions = {
-                    // "Add a filter in Territory Map" — a badge dot marks
-                    // whenever any filter beyond the default "All" is active,
-                    // so it's obvious the map isn't showing everything.
-                    if (showAdvancedFilter) {
-                        androidx.compose.material3.BadgedBox(badge = {
-                            if (advancedFilter.isActive) androidx.compose.material3.Badge()
-                        }) {
-                            IconButton(onClick = { showFilterSheet = true }) {
-                                Icon(Icons.Rounded.Tune, contentDescription = "Filters")
-                            }
-                        }
-                    }
                     IconButton(onClick = { viewMode = if (viewMode == TerritoryViewMode.MAP) TerritoryViewMode.LIST else TerritoryViewMode.MAP }) {
                         Icon(
                             if (viewMode == TerritoryViewMode.MAP) Icons.Rounded.ViewList else Icons.Rounded.Map,
@@ -544,28 +557,55 @@ fun TerritoryMapScreen(
                 showGroupBy = viewMode == TerritoryViewMode.LIST,
             )
 
+            // "AREA INFORMATION PANEL — when a specific Municipality/Barangay
+            // is selected, display a summary of Return Visit/Bible Study/
+            // Interested Person counts for that area" (spec §10). [filtered]
+            // is already narrowed to the selected Municipality/Barangay (and
+            // to the caller's own congregation access — see [advancedFilteredRows]),
+            // so this is a pure read of state already computed above, not a
+            // second, separate query; shown above both Map View and List View
+            // (never just one) since the spec ties it to the *selection*, not
+            // to whichever view happens to be active.
+            if (advancedFilter.cityMunicipality != null) {
+                val areaLabel = advancedFilter.barangay?.let { "${it}, ${advancedFilter.cityMunicipality}" }
+                    ?: advancedFilter.cityMunicipality.orEmpty()
+                val bsCount = filtered.count { it.person.pipelineStage == PipelineStage.BIBLE_STUDY }
+                val rvCount = filtered.count { it.person.pipelineStage == PipelineStage.RETURN_VISIT }
+                val ipCount = filtered.count { it.person.pipelineStage == PipelineStage.SEARCHING }
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                        Text(areaLabel, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Bible Study: $bsCount   Return Visit: $rvCount   Interested Person: $ipCount",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+
             if (viewMode == TerritoryViewMode.MAP) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     TerritoryLiveMap(
-                        rows = filtered,
-                        publisherRows = filteredPublisherRows,
+                        rows = mapRows,
+                        publisherRows = mapPublisherRows,
                         canSeePublisherLocations = canSeePublisherLocations,
                         getCurrentLocation = viewModel::currentLocation,
                         hasLocationPermission = viewModel::hasLocationPermission,
+                        geocodeArea = viewModel::geocodeArea,
+                        boundaryGeometry = viewModel::boundaryGeometry,
+                        selectedAreaQuery = selectedAreaQuery,
+                        selectedAreaNames = selectedAreaNames,
+                        noRecordsAreaLabel = noRecordsAreaLabel,
                         focusLat = focusLat,
                         focusLng = focusLng,
                         focusName = focusName,
                         publisherNames = personNames,
-                        mapType = mapType,
-                        onMapTypeChange = { mapType = it },
-                        trafficEnabled = trafficEnabled,
-                        onTrafficEnabledChange = { trafficEnabled = it },
-                        buildingsEnabled = buildingsEnabled,
-                        onBuildingsEnabledChange = { buildingsEnabled = it },
-                        streetViewEnabled = streetViewEnabled,
-                        onStreetViewEnabledChange = { streetViewEnabled = it },
                         onRecordVisit = { personId ->
-                            filtered.firstOrNull { it.person.id == personId }?.let { tryOpenDetails(it.person) }
+                            mapRows.firstOrNull { it.person.id == personId }?.let { tryOpenDetails(it.person) }
                         },
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -602,6 +642,30 @@ fun TerritoryMapScreen(
                     }
                     (if (unassigned.isEmpty()) groups else groups + DirectoryGroup("—unassigned—", "Unassigned", unassigned))
                         .sortedBy { if (it.key == "—unassigned—") "￿" else it.label }
+                }
+
+                // "DEEP SEARCH ... must automatically expand the matching
+                // Municipality/Barangay and highlight the result" (spec §5/§6,
+                // e.g. searching "Rafael Guntang" must open Solano → Brgy.
+                // Quirino on its own). [filtered] (which every [DirectoryGroup]
+                // above is built from) is already the full-dataset search
+                // result — not merely whichever rows happened to be visible —
+                // since it is computed from [advancedFilteredRows] + [searchQuery]
+                // with no dependency on [expandedGroups]. This effect only adds
+                // to [expandedGroups]; it never removes a group the user opened
+                // by hand, and it does nothing once [searchQuery] is cleared
+                // rather than force-collapsing anything.
+                LaunchedEffect(directoryGroups, searchQuery) {
+                    val query = searchQuery.trim()
+                    if (query.isNotEmpty()) {
+                        val matchKeys = directoryGroups
+                            .filter { group -> group.rows.any { it.person.name.contains(query, ignoreCase = true) } }
+                            .map { it.key }
+                            .toSet()
+                        if (matchKeys.isNotEmpty()) {
+                            expandedGroups = expandedGroups + matchKeys
+                        }
+                    }
                 }
 
                 Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -703,7 +767,25 @@ fun TerritoryMapScreen(
                                                     }
                                                     val visits = visitsByPerson[row.person.id].orEmpty()
                                                     val lastVisit = visits.firstOrNull()
-                                                    Column(modifier = Modifier.fillMaxWidth().clickable { tryOpenDetails(row.person) }) {
+                                                    // "...and highlight the result" — the same [searchQuery] that
+                                                    // drove the auto-expand above also marks the matching row(s)
+                                                    // once the group is open, so the user isn't left to re-scan
+                                                    // an expanded group by eye to find what they searched for.
+                                                    val isSearchMatch = searchQuery.isNotBlank() &&
+                                                        row.person.name.contains(searchQuery.trim(), ignoreCase = true)
+                                                    Column(
+                                                        modifier = Modifier.fillMaxWidth()
+                                                            .then(
+                                                                if (isSearchMatch) {
+                                                                    Modifier.background(
+                                                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                                                        shape = MaterialTheme.shapes.small,
+                                                                    )
+                                                                } else Modifier
+                                                            )
+                                                            .clickable { tryOpenDetails(row.person) }
+                                                            .padding(if (isSearchMatch) 4.dp else 0.dp),
+                                                    ) {
                                                         // "The Householder Name must be clickable" — opens the exact
                                                         // same full detail + Visit History + Add Visit screen every
                                                         // other Territory Map entry point already reuses (see
@@ -737,25 +819,6 @@ fun TerritoryMapScreen(
         }
     }
 
-    if (showFilterSheet) {
-        TerritoryFilterSheet(
-            isSuperAdmin = isSuperAdmin,
-            fixedCongregationId = fixedCongregationId,
-            fixedCongregationName = fixedCongregationName,
-            // "The Field Service Group list must depend on the selected
-            // Congregation" — the *effective* one now (Super-Admin's current
-            // pick, `null` meaning every congregation for "All
-            // Congregations"), not a static "every congregation this role
-            // could ever pick," so switching Congregation always refreshes
-            // this to match.
-            congregationIds = if (isSuperAdmin) effectiveCongregationId?.let(::setOf) else setOfNotNull(fixedCongregationId),
-            filter = advancedFilter,
-            resultCount = advancedFilteredRows.size,
-            onFilterChange = { advancedFilter = it },
-            onDismiss = { showFilterSheet = false },
-            viewModel = viewModel,
-        )
-    }
 }
 
 /** "Add a persistent filter area" — Search + Search By, Group By (List View
@@ -794,12 +857,34 @@ private fun TerritoryPersistentFilterBar(
     Surface(shadowElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
                     label = { Text("Search") },
                     singleLine = true,
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                    // "The List View must contain: Search text box, Search
+                    // button, Clear button/icon" — filtering is already live
+                    // as the user types (every keystroke already re-runs the
+                    // exact same search this button would trigger), so
+                    // "Search" here is a real, always-present control that
+                    // simply confirms/dismisses the keyboard rather than a
+                    // second, redundant query path; "Clear" resets the box
+                    // (and, via [onSearchQueryChange], collapses the deep-
+                    // search auto-expand this same query drove — see
+                    // [TerritoryMapScreen]'s own `expandedGroups` effect).
+                    trailingIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { onSearchQueryChange("") }) {
+                                    Icon(Icons.Rounded.Close, contentDescription = "Clear search")
+                                }
+                            }
+                            IconButton(onClick = { focusManager.clearFocus() }) {
+                                Icon(Icons.Rounded.Search, contentDescription = "Search")
+                            }
+                        }
+                    },
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.weight(1f),
                 )
@@ -921,51 +1006,41 @@ private data class DirectoryGroup(val key: String, val label: String, val rows: 
 private fun formatVisitDate(epochMillis: Long): String =
     java.text.SimpleDateFormat("MMMM d, yyyy", java.util.Locale.US).format(java.util.Date(epochMillis))
 
-/** The Territory Map's own filter — "the dropdown must contain exactly
- * these options." A `null` [MapFilterOption] (nothing picked yet, or after
- * Refresh) is the default/original view: every pipeline record, no
- * publishers — not itself one of the seven, since the dropdown lists
- * exactly these seven and no more. */
-private enum class MapFilterOption(val label: String, val emoji: String) {
-    // "Add 'All' in the category" — every classification (including
-    // Publishers, when [canSeePublisherLocations] allows it) shown at once.
-    ALL("All", "🗂️"),
-    MY_LOCATION("My Location", "📍"),
-    BIBLE_STUDY("Bible Study", "📖"),
-    RETURN_VISIT("Return Visit", "🔄"),
-    // "Publisher – All/My Congregation" and "Nearest Publisher" are no
-    // longer offered in the dropdown (see the DropdownMenu below, which
-    // always skips both) — kept here only because [applySelection]'s
-    // Publisher-kind filtering logic and the "open in Territory Map from
-    // Share Location" focus effect still reuse it internally.
-    PUBLISHERS("Publisher – All Congregation/Group", "👤"),
-    NEAREST_PUBLISHER("Nearest Publisher", "👤"),
-    NEAREST_BIBLE_STUDY("Nearest Bible Study", "📖"),
-    NEAREST_RETURN_VISIT("Nearest Return Visit", "🔄"),
-}
-
 /**
- * "Map View" — a real, full-screen, pinch-zoomable embedded map. "Core
- * Requirement: Google Maps must be the actual map used by GoPreach Territory
- * Map" — this renders via [GoogleMap]/[Marker] (maps-compose), the real
- * Google Maps SDK, not a WebView/Leaflet/OpenStreetMap stand-in and not a
- * static image. Requires a real API key (see AndroidManifest.xml's
- * `com.google.android.geo.API_KEY`, sourced from local.properties'
- * `MAPS_API_KEY` — see that file's own comment for how to get one); a
- * machine without one configured gets a clear on-screen message instead of
- * Google Maps' own silent gray-tile failure (see [MapLoadState.NO_API_KEY]).
+ * "Map View" — a real, full-screen, pinch-zoomable embedded map. A `WebView`
+ * running Leaflet over OpenStreetMap tiles — switched back from Google Maps
+ * Compose per explicit instruction ("change the map to Leaflet.js"). Needs
+ * no API key/billing/Google Play Services at all (unlike the brief Google
+ * Maps period this app went through), which is also why it renders reliably
+ * on a device without genuine, licensed Google Play Services (a real,
+ * confirmed failure mode the Google Maps period hit live).
+ *
+ * "RESPONSIVE MAP FILTERING BY MUNICIPALITY AND BARANGAY" — [rows]/
+ * [publisherRows] are already fully narrowed by Municipality/Barangay/Status
+ * before they ever reach here (see [TerritoryMapScreen]'s own `mapRows`/
+ * `mapPublisherRows`), so this composable needs no separate filtering logic
+ * of its own — it only needs to know, when that narrowing leaves nothing to
+ * show, which real-world area to center on instead of leaving the camera
+ * wherever it was (spec §19/§20/§24's own "still show the ... geographic
+ * area"). [selectedAreaQuery] is that forward-geocode query plus the zoom
+ * level appropriate for how specific it is (Barangay tighter than
+ * Municipality); `null` means no one area is selected ("All Municipalities"/
+ * "All Barangays", where an empty [rows] genuinely means "no authorized
+ * records at all" instead).
  *
  * "Publishers, Bible Studies, and Return Visits are separate
  * classifications. A person having a GPS location does not automatically
  * make that person a Publisher." — enforced structurally: [MapPoint.kind]
  * is set once, at construction, from the record's *own* type ([pipelinePoints]
  * from [TerritoryMapRow.person]'s [PipelineStage], [publisherPoints] only
- * from an actively-sharing, [com.emfitsolutions.gopreach.data.model.PublisherCategory.REGULAR_PUBLISHER]
- * [TerritoryPublisherRow] — see [TerritoryMapViewModel.publisherRowsFor]'s
- * own doc comment for that filter). Nothing downstream (the dropdown, the
- * marker style, the bottom sheet) can blur that line — there is no path
- * from "has coordinates" to "counts as a Publisher."
+ * from an actively-sharing [TerritoryPublisherRow] — see
+ * [TerritoryMapViewModel.publisherRowsFor]'s own doc comment for that
+ * filter). "Do not use different marker icons for different statuses" (spec
+ * §26) — every one of those kinds still renders as the same official red pin
+ * on the map itself now; only the Legend and the tap-through detail sheet
+ * still distinguish them by color/emoji.
  */
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun TerritoryLiveMap(
     rows: List<TerritoryMapRow>,
@@ -973,6 +1048,17 @@ private fun TerritoryLiveMap(
     canSeePublisherLocations: Boolean,
     getCurrentLocation: suspend () -> LatLng?,
     hasLocationPermission: () -> Boolean,
+    geocodeArea: suspend (String) -> LatLng?,
+    // "Do not use an arbitrary circle. Use the actual geographic boundary
+    // available from the map/geographic data source" — real polygon lookup
+    // (municipality name, barangay name-or-null) -> GeoJSON geometry string,
+    // or null when this province isn't covered by the bundled boundary asset
+    // yet (see [TerritoryBoundaryRepository]'s own doc comment); that null
+    // case is the only time the circle below is still drawn.
+    boundaryGeometry: suspend (String, String?) -> String?,
+    selectedAreaQuery: Pair<String, Float>?,
+    selectedAreaNames: Pair<String, String?>?,
+    noRecordsAreaLabel: String?,
     focusLat: Double? = null,
     focusLng: Double? = null,
     focusName: String? = null,
@@ -987,16 +1073,6 @@ private fun TerritoryLiveMap(
     // reads (see [TerritoryMapViewModel.personNames]); passed in rather than
     // collected here so this composable stays a pure rendering layer.
     publisherNames: Map<String, String>,
-    // "GOOGLE MAP TYPES & MAP DETAILS" — hoisted to [TerritoryMapScreen]
-    // itself; see that state's own doc comment for why.
-    mapType: MapType,
-    onMapTypeChange: (MapType) -> Unit,
-    trafficEnabled: Boolean,
-    onTrafficEnabledChange: (Boolean) -> Unit,
-    buildingsEnabled: Boolean,
-    onBuildingsEnabledChange: (Boolean) -> Unit,
-    streetViewEnabled: Boolean,
-    onStreetViewEnabledChange: (Boolean) -> Unit,
     onRecordVisit: (personId: String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -1008,7 +1084,7 @@ private fun TerritoryLiveMap(
     // not null, numeric (guaranteed by the Double type itself, but NaN/
     // Infinite still slip through arithmetic and aren't valid geographic
     // points), and within real lat/lng range. A record that fails this
-    // never reaches the map at all — it's counted separately instead, so
+    // never reaches Leaflet at all — it's counted separately instead, so
     // one bad row can't take the whole map down.
     val pipelinePoints = remember(rows, publisherNames) {
         rows.mapNotNull { row ->
@@ -1021,7 +1097,7 @@ private fun TerritoryLiveMap(
                     // record's own current pipelineStage every time [rows]
                     // recomposes (a live Firestore listener), so a reverse/
                     // forward status move immediately swaps the marker's
-                    // icon rather than ever retaining a stale one.
+                    // label rather than ever retaining a stale one.
                     kind = row.person.pipelineStage.toMapPointKind(),
                     lat = lat,
                     lng = lng,
@@ -1045,9 +1121,7 @@ private fun TerritoryLiveMap(
     }
     // "Only Regular Publishers enrolled in the congregation and actively
     // sharing their location may appear" — [publisherRows] already enforces
-    // that upstream (see TerritoryMapViewModel.publisherRowsFor); hidden by
-    // default here too (opt-in via the dropdown's own "Publisher – All
-    // Congregation"/"Nearest Publisher" entries), never automatic.
+    // that upstream (see TerritoryMapViewModel.publisherRowsFor).
     val publisherPoints = remember(publisherRows) {
         publisherRows.mapNotNull { row ->
             val lat = row.lat
@@ -1075,30 +1149,20 @@ private fun TerritoryLiveMap(
     val invalidCount = rows.size - pipelinePoints.size
 
     // STEP 8 — diagnostics: same information a `debug` panel would show,
-    // just in Logcat rather than on-screen (this app's other diagnostic UI —
-    // SyncStatusButton, etc. — is text/user-facing, not a raw debug dump).
+    // just in Logcat rather than on-screen.
     LaunchedEffect(rows, publisherRows) {
         Log.d(TAG, "Records retrieved: ${rows.size}; valid GPS: ${pipelinePoints.size}; invalid/missing GPS: $invalidCount; publishers sharing: ${publisherPoints.size}")
     }
 
-    // "Add the user current location in the map view" — fetched on demand
-    // (the "My Location" filter, or automatically the first time a "Nearest…"
-    // filter needs it), not on every screen open, so this never surprises
-    // anyone with a permission prompt they didn't ask for.
+    // "Add the user current location in the map view" — fetched on demand,
+    // not on every screen open, so this never surprises anyone with a
+    // permission prompt they didn't ask for.
     var myLocation by remember { mutableStateOf<LatLng?>(null) }
-    var pendingPermissionFilter by remember { mutableStateOf<MapFilterOption?>(null) }
-    var selectedFilter by remember { mutableStateOf<MapFilterOption?>(null) }
-    // "Be collapsible/minimizable... not cover important map controls" —
-    // starts collapsed so it never obscures the map on first load; the
-    // "LEGEND" chip is always visible to expand it again.
-    var legendExpanded by remember { mutableStateOf(false) }
     var selectedPointId by remember { mutableStateOf<String?>(null) }
     // "Show details in all categories in territory map even 'My Location'" —
     // a synthetic point built from the live GPS fix, id "me", so tapping the
     // "you are here" dot opens the exact same bottom sheet every other
-    // marker already does, without making it a real member of [points]
-    // (which would risk it being counted by a dropdown filter/nearest search
-    // it was never meant to participate in).
+    // marker already does, without making it a real member of [points].
     val myLocationPoint = remember(myLocation) {
         myLocation?.let { fix ->
             MapPoint(
@@ -1120,11 +1184,24 @@ private fun TerritoryLiveMap(
         if (selectedPointId == "me") myLocationPoint else points.firstOrNull { it.id == selectedPointId }
     }
 
-    // Fetches a fresh GPS fix the first time any filter that needs one
-    // (My Location, or a Nearest-X search) is selected — shared so a fix
-    // obtained once during this screen's lifetime is never asked for twice.
-    // Surfaces the two specific failure states as Snackbars rather than
-    // silently doing nothing.
+    val html = remember(points) { buildTerritoryMapHtml(points) }
+    // Bumped on a manual "Retry" tap to force a reload of the same [html].
+    var reloadToken by remember { mutableIntStateOf(0) }
+    var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    // "Add debugging checks" — captured on-device (no adb/Logcat access
+    // needed to report back what actually happened) rather than only
+    // written to Logcat.
+    val consoleMessages = remember { mutableStateListOf<String>() }
+    var showDiagnostics by remember { mutableStateOf(false) }
+
+    // Fetches a fresh GPS fix the first time "My Location" is requested —
+    // shared so a fix obtained once during this screen's lifetime is never
+    // asked for twice. Surfaces the two specific failure states as
+    // Snackbars rather than silently doing nothing. Declared after
+    // [webViewRef] (a plain local function still reads the *current* value
+    // of a `by remember` var, since it isn't itself snapshotted — it only
+    // needs to be declared textually after so the name resolves).
     suspend fun ensureMyLocation(): LatLng? {
         myLocation?.let { return it }
         if (!hasLocationPermission()) {
@@ -1137,134 +1214,97 @@ private fun TerritoryLiveMap(
             return null
         }
         myLocation = fix
+        webViewRef?.evaluateJavascript("if (window.setMyLocation) { window.setMyLocation(${fix.lat}, ${fix.lng}); }", null)
         return fix
     }
 
-    // "The selected option determines what markers... are displayed on the
-    // map" — the single source of truth for which [MapPointKind]s are
-    // currently visible; every dropdown entry (and Refresh, and a fresh
-    // screen open) sets this, and [visiblePoints] below is the only place
-    // that actually reads it. `null` (the default/original state) means
-    // every pipeline stage, no publishers.
-    fun visibleKindsFor(option: MapFilterOption?): Set<MapPointKind> = when (option) {
-        // The old floating category dropdown (the only UI that used to set
-        // this to anything but its own default) is gone now that the
-        // persistent filter bar's Search/Search By/Group By/Municipality/
-        // Barangay already narrow [rows] before they ever reach this
-        // composable — so the default view always shows every pipeline
-        // record plus Publishers currently sharing (when authorized), with
-        // nothing left to separately "select" on the map itself.
-        null -> setOf(MapPointKind.SEARCHING, MapPointKind.RETURN_VISIT, MapPointKind.BIBLE_STUDY) + if (canSeePublisherLocations) setOf(MapPointKind.PUBLISHER) else emptySet()
-        MapFilterOption.ALL -> setOf(MapPointKind.SEARCHING, MapPointKind.RETURN_VISIT, MapPointKind.BIBLE_STUDY, MapPointKind.PUBLISHER)
-        MapFilterOption.MY_LOCATION -> emptySet()
-        MapFilterOption.BIBLE_STUDY -> setOf(MapPointKind.BIBLE_STUDY)
-        MapFilterOption.RETURN_VISIT -> setOf(MapPointKind.RETURN_VISIT)
-        MapFilterOption.PUBLISHERS -> setOf(MapPointKind.PUBLISHER)
-        MapFilterOption.NEAREST_PUBLISHER -> setOf(MapPointKind.PUBLISHER)
-        MapFilterOption.NEAREST_BIBLE_STUDY -> setOf(MapPointKind.BIBLE_STUDY)
-        MapFilterOption.NEAREST_RETURN_VISIT -> setOf(MapPointKind.RETURN_VISIT)
+    // Bug fix history (confirmed live, across multiple real devices, in an
+    // earlier pass at this exact WebView+Leaflet setup): loading used to
+    // happen directly inside AndroidView's `update` lambda, which Compose
+    // re-runs on every recomposition — writing `loadState` there (itself
+    // read by the loading/error overlay) triggered another recomposition,
+    // re-ran `update`, reloaded the page again, forever, indistinguishable
+    // from "nothing renders." A `LaunchedEffect` keyed on the content that
+    // should actually trigger a (re)load — not on every recomposition —
+    // fixes that; `containerReady` (the AndroidView's first real, non-zero
+    // Compose-measured size) gates the very first load so Chromium's first
+    // layout pass already sees the correct size, the same way a properly-
+    // sized browser window would (a second, deeper WebView-internal-
+    // viewport bug is worked around separately in `onPageFinished` below).
+    var containerReady by remember { mutableStateOf(false) }
+
+    LaunchedEffect(html, reloadToken, webViewRef, containerReady) {
+        val webView = webViewRef ?: return@LaunchedEffect
+        if (!containerReady) return@LaunchedEffect
+        loadState = MapLoadState.LOADING
+        webView.post {
+            // A stable https base URL (rather than null/about:blank) so the
+            // CDN script/tile requests aren't treated as mixed content.
+            webView.loadDataWithBaseURL("https://gopreach.app/", html, "text/html", "UTF-8", null)
+        }
     }
 
-    // "Performance... avoid duplicate markers; clear old markers before
-    // adding new filtered results" — declarative by construction here: each
-    // recomposition derives the exact, current marker set from [points] +
-    // [selectedFilter] fresh (no imperative add/remove calls to get wrong),
-    // and every `Marker` composable below is `key()`-ed by its own stable
-    // [MapPoint.id], so Compose only ever adds/removes the markers that
-    // actually entered/left the set instead of tearing down and rebuilding
-    // every marker on every recomposition.
-    val visiblePoints = remember(points, selectedFilter) {
-        val kinds = visibleKindsFor(selectedFilter)
-        points.filter { it.kind in kinds }
-    }
-
-    val cameraPositionState = rememberCameraPositionState()
-    var loadState by remember { mutableStateOf(if (hasGoogleMapsApiKey(context)) MapLoadState.LOADING else MapLoadState.NO_API_KEY) }
-    // Always available (not just on failure) — lets whoever's testing this
-    // confirm exactly what's happening (records/points counts, load state,
-    // whether a Maps API key is even configured).
-    var showDiagnostics by remember { mutableStateOf(false) }
-
-    // "The selected option determines what markers and information are
-    // displayed" + "§12 Automatic Map Behavior" — the one place every
-    // dropdown entry (and Refresh, and a fresh page load) routes through, so
-    // the camera/filter/empty-state logic for each option lives in exactly
-    // one spot. No JS bridge anymore — this drives native GoogleMap state
-    // directly (see [visiblePoints]/[cameraPositionState]).
-    suspend fun applySelection(option: MapFilterOption?) {
-        selectedFilter = option
-        selectedPointId = null
-        when (option) {
-            MapFilterOption.MY_LOCATION -> {
-                val fix = ensureMyLocation() ?: return
-                cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(GmsLatLng(fix.lat, fix.lng), 16f))
+    // "RESPONSIVE MAP FILTERING... AUTOMATIC MAP ZOOM" — once the (re)loaded
+    // page is actually ready for JS calls, push the live GPS fix back in
+    // (if any) and either fit the map to whatever's currently visible, or —
+    // when the current Municipality/Barangay + Status combination matches
+    // nothing at all — forward-geocode the selected area ([selectedAreaQuery],
+    // non-null only when a specific Municipality/Barangay is actually
+    // selected) and center there instead of leaving the camera on whatever
+    // was visible before the filter changed (spec §19/§20's own "still show
+    // the Municipality's/Barangay's geographic area").
+    LaunchedEffect(loadState, webViewRef, points, selectedAreaQuery, selectedAreaNames) {
+        if (loadState != MapLoadState.LOADED) return@LaunchedEffect
+        val webView = webViewRef ?: return@LaunchedEffect
+        myLocation?.let { fix -> webView.evaluateJavascript("if (window.setMyLocation) { window.setMyLocation(${fix.lat}, ${fix.lng}); }", null) }
+        // Real polygon geometry first (no network dependency at all — see
+        // [TerritoryBoundaryRepository]); only reach for the unreliable
+        // on-device Geocoder (already found flaky on this session's own
+        // non-genuine-GMS test device) when this province isn't covered by
+        // the bundled boundary asset yet.
+        val geometry = selectedAreaNames?.let { (muni, brgy) -> boundaryGeometry(muni, brgy) }
+        when {
+            selectedAreaQuery == null -> {
+                // Nothing (or "All Municipalities"/"All Barangays") selected —
+                // no one area to outline, same as [noRecordsAreaLabel]'s own
+                // null case; fall back to framing whatever's visible.
+                webView.evaluateJavascript("if (window.clearAreaBoundary) { window.clearAreaBoundary(); }", null)
+                if (points.isNotEmpty()) {
+                    webView.evaluateJavascript("if (window.fitToMarkers) { window.fitToMarkers(); }", null)
+                }
             }
-            MapFilterOption.NEAREST_PUBLISHER, MapFilterOption.NEAREST_BIBLE_STUDY, MapFilterOption.NEAREST_RETURN_VISIT -> {
-                val kind = when (option) {
-                    MapFilterOption.NEAREST_PUBLISHER -> MapPointKind.PUBLISHER
-                    MapFilterOption.NEAREST_BIBLE_STUDY -> MapPointKind.BIBLE_STUDY
-                    else -> MapPointKind.RETURN_VISIT
-                }
-                val fix = ensureMyLocation() ?: return
-                val candidates = points.filter { it.kind == kind }
-                if (candidates.isEmpty()) {
-                    snackbarHostState.showSnackbar("No locations found for the selected category.")
-                    return
-                }
-                val nearest = candidates.sortedBy { haversineMeters(fix.lat, fix.lng, it.lat, it.lng) }.take(3)
-                selectedPointId = nearest.first().id
-                val bounds = LatLngBounds.Builder().apply {
-                    include(GmsLatLng(fix.lat, fix.lng))
-                    nearest.forEach { include(GmsLatLng(it.lat, it.lng)) }
-                }.build()
-                cameraPositionState.animate(CameraUpdateFactory.newLatLngBounds(bounds, 120))
+            geometry != null -> {
+                // Draw the area boundary whenever a specific Municipality/
+                // Barangay is selected, regardless of whether it has any
+                // records — spec ties the boundary to the *selection*, not
+                // to an empty result. [setAreaBoundaryGeoJson] itself frames
+                // the camera to these exact bounds, taking priority over any
+                // marker elsewhere in the province (a Publisher's shared
+                // location, say) — see that JS function's own doc comment.
+                webView.evaluateJavascript(
+                    "if (window.setAreaBoundaryGeoJson) { window.setAreaBoundaryGeoJson($geometry); }",
+                    null,
+                )
             }
             else -> {
-                val kind = when (option) {
-                    MapFilterOption.BIBLE_STUDY -> MapPointKind.BIBLE_STUDY
-                    MapFilterOption.RETURN_VISIT -> MapPointKind.RETURN_VISIT
-                    MapFilterOption.PUBLISHERS -> MapPointKind.PUBLISHER
-                    else -> null
+                // This province isn't covered by the bundled boundary asset —
+                // best-effort circle fallback, forward-geocoded from the
+                // selected area's name.
+                val (query, zoom) = selectedAreaQuery
+                val fix = geocodeArea(query)
+                if (fix != null) {
+                    // Barangay's own zoom (15f) is tighter than a whole
+                    // Municipality's (12.5f) — mirror that into a smaller radius.
+                    val radiusMeters = if (zoom >= 15f) 1200.0 else 4000.0
+                    webView.evaluateJavascript(
+                        "if (window.setAreaBoundary) { window.setAreaBoundary(${fix.lat}, ${fix.lng}, $radiusMeters); }",
+                        null,
+                    )
+                    webView.evaluateJavascript("if (window.territoryMap) { window.territoryMap.setView([${fix.lat}, ${fix.lng}], $zoom); }", null)
+                } else if (points.isNotEmpty()) {
+                    webView.evaluateJavascript("if (window.fitToMarkers) { window.fitToMarkers(); }", null)
                 }
-                if (kind != null && points.none { it.kind == kind }) {
-                    snackbarHostState.showSnackbar("No locations found for the selected category.")
-                }
-                val visible = points.filter { it.kind in visibleKindsFor(option) }
-                fitCameraTo(cameraPositionState, visible)
             }
-        }
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val option = pendingPermissionFilter
-        pendingPermissionFilter = null
-        if (granted && option != null) {
-            scope.launch { applySelection(option) }
-        } else if (!granted) {
-            scope.launch { snackbarHostState.showSnackbar("Location permission is required to display your current position.") }
-        }
-    }
-
-    fun selectFilter(option: MapFilterOption?) {
-        val needsLocation = option == MapFilterOption.MY_LOCATION ||
-            option == MapFilterOption.NEAREST_PUBLISHER || option == MapFilterOption.NEAREST_BIBLE_STUDY || option == MapFilterOption.NEAREST_RETURN_VISIT
-        if (needsLocation && myLocation == null && !hasLocationPermission()) {
-            pendingPermissionFilter = option
-            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-        } else {
-            scope.launch { applySelection(option) }
-        }
-    }
-
-    // Fits the camera to whatever's currently visible the first time the map
-    // finishes loading, and again any time the underlying record set changes
-    // shape (new/updated records arriving live) while nothing more specific
-    // (a manual filter, a focus target) already claimed the camera — same
-    // "don't reload/refit the whole map for no reason" performance
-    // requirement the dropdown-driven [applySelection] path already follows.
-    LaunchedEffect(loadState, points) {
-        if (loadState == MapLoadState.LOADED && selectedFilter == null && myLocation == null) {
-            fitCameraTo(cameraPositionState, points.filter { it.kind in visibleKindsFor(null) })
         }
     }
 
@@ -1273,117 +1313,188 @@ private fun TerritoryLiveMap(
     // finishes loading with a focus target actually present (see
     // TerritoryMapScreen's own `focusLat`/`focusLng`, only ever non-null
     // when reached via Share Location's "open in Territory Map" action).
-    // Switches to the Publisher filter first, since the target would
-    // otherwise be hidden by the default pipeline-only view, then pans/
-    // zooms there — highlighting the closest matching marker when one's
-    // found within a realistic GPS-noise radius, or just centering the
-    // camera there otherwise.
     var hasAppliedFocus by remember { mutableStateOf(false) }
-    LaunchedEffect(loadState, focusLat, focusLng) {
+    LaunchedEffect(loadState, webViewRef, focusLat, focusLng) {
         if (loadState != MapLoadState.LOADED || hasAppliedFocus) return@LaunchedEffect
         val lat = focusLat
         val lng = focusLng
         if (lat == null || lng == null) return@LaunchedEffect
         hasAppliedFocus = true
-        selectedFilter = MapFilterOption.PUBLISHERS
         val nearest = points.filter { it.kind == MapPointKind.PUBLISHER }.minByOrNull { haversineMeters(lat, lng, it.lat, it.lng) }
         if (nearest != null && haversineMeters(lat, lng, nearest.lat, nearest.lng) < 100) {
             selectedPointId = nearest.id
-            cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(GmsLatLng(lat, lng), 17f))
-        } else {
-            cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(GmsLatLng(lat, lng), 17f))
+        }
+        webViewRef?.evaluateJavascript("if (window.territoryMap) { window.territoryMap.setView([$lat, $lng], 17); }", null)
+    }
+
+    // "Highlight the selected marker" — covers both a manual tap (which
+    // already highlights itself immediately in JS) and the focus-effect's
+    // own auto-selection above, plus clears the highlight the instant the
+    // bottom sheet is dismissed (selectedPointId -> null).
+    LaunchedEffect(selectedPointId, webViewRef, loadState) {
+        if (loadState == MapLoadState.LOADED) {
+            val idJs = selectedPointId?.let { "'${jsEscape(it)}'" } ?: "null"
+            webViewRef?.evaluateJavascript("if (window.setSelectedMarker) { window.setSelectedMarker($idJs); }", null)
         }
     }
 
     Box(modifier = modifier) {
-        if (loadState == MapLoadState.NO_API_KEY) {
-            // "Configure the Google Maps API key" — a real key is required
-            // for Google Maps to render anything at all; rather than a
-            // silent gray tile grid (Google's own default failure mode when
-            // a key is missing/invalid), this tells whoever's looking at it
-            // exactly what to do (see local.properties' own MAPS_API_KEY
-            // comment / app/build.gradle.kts' manifestPlaceholders wiring).
-            Column(
-                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(Icons.Rounded.Map, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                Text(
-                    "Google Maps API key is not configured.",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-                Text(
-                    "Set MAPS_API_KEY in local.properties (see that file's own comment for where to get one), then rebuild the app.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            GoogleMap(
-                modifier = Modifier.fillMaxSize(),
-                cameraPositionState = cameraPositionState,
-                // "GOOGLE MAP TYPES & MAP DETAILS" — every one of these is an
-                // official, native GoogleMap property (see the Map
-                // Type/Details control below); none of it is simulated.
-                // "Raised Buildings / 3D Buildings" maps 1:1 to [isBuildingEnabled]
-                // — Android's own equivalent of that JS-API-named feature (see
-                // that parameter's own doc comment). Public Transit/Bicycling
-                // have no native GoogleMap-for-Android equivalent at all (those
-                // are Maps JavaScript API-only layers) — spec §14's own
-                // "gracefully disable... rather than a non-functional control"
-                // clause is exactly why the Map Details menu below shows both,
-                // disabled, instead of either faking them or silently omitting
-                // them.
-                properties = MapProperties(mapType = mapType, isTrafficEnabled = trafficEnabled, isBuildingEnabled = buildingsEnabled),
-                uiSettings = MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false, mapToolbarEnabled = false),
-                onMapLoaded = { loadState = MapLoadState.LOADED },
-            ) {
-                visiblePoints.forEach { point ->
-                    key(point.id) {
-                        Marker(
-                            state = MarkerState(position = GmsLatLng(point.lat, point.lng)),
-                            title = point.name,
-                            snippet = point.status,
-                            icon = rememberMarkerIcon(point.kind, selectedPointId == point.id),
-                            onClick = {
-                                selectedPointId = point.id
-                                true
-                            },
-                        )
-                    }
+        AndroidView(
+            // Bug fix (confirmed live): Leaflet measures its container's
+            // pixel size exactly once, the moment `L.map(...)` runs, and
+            // never re-measures on its own — `onSizeChanged` fires with this
+            // View's *actual* settled pixel size every time Compose lays it
+            // out (including the first time), and telling Leaflet to
+            // `invalidateSize()` right then makes it re-measure and actually
+            // start requesting tiles.
+            modifier = Modifier.fillMaxSize().onSizeChanged { size ->
+                if (size.width > 0 && size.height > 0) {
+                    containerReady = true
+                    webViewRef?.evaluateJavascript("if (window.territoryMap) { window.territoryMap.invalidateSize(); }", null)
                 }
-                // "Show details in all categories in territory map even 'My
-                // Location'" — a distinct marker, outside [visiblePoints]
-                // entirely (always shown regardless of the selected filter),
-                // added once Android actually has a GPS fix.
-                myLocationPoint?.let { me ->
-                    key("me") {
-                        Marker(
-                            state = MarkerState(position = GmsLatLng(me.lat, me.lng)),
-                            title = me.name,
-                            snippet = me.status,
-                            icon = rememberMarkerIcon(MapPointKind.ME, selectedPointId == "me"),
-                            onClick = {
-                                selectedPointId = "me"
-                                true
-                            },
-                        )
+            },
+            factory = { ctx ->
+                if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
+                WebView(ctx).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    // Leaflet handles pinch/double-tap zoom itself via touch
+                    // events — the WebView's own native zoom would otherwise
+                    // fight Leaflet's for the same gesture.
+                    settings.setSupportZoom(false)
+                    settings.builtInZoomControls = false
+                    // A WebView embedded via Compose interop can render
+                    // solid black/blank on some devices under hardware-
+                    // accelerated layering. Software layering is slightly
+                    // slower to draw but reliably shows the actual page.
+                    setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                    // A marker tap calls back into Kotlin with just its id;
+                    // the native ModalBottomSheet below looks the rest up
+                    // from [points] itself, rather than round-tripping every
+                    // field back out through the bridge as strings.
+                    val self = this
+                    addJavascriptInterface(
+                        object {
+                            @JavascriptInterface
+                            fun showDetails(id: String) {
+                                self.post { selectedPointId = id }
+                            }
+                        },
+                        "AndroidBridge",
+                    )
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            loadState = MapLoadState.LOADED
+                            view?.evaluateJavascript("if (window.territoryMap) { window.territoryMap.invalidateSize(); }", null)
+                            // Belt-and-suspenders for a deeper WebView-internal-
+                            // viewport bug confirmed live on-device (Java-side
+                            // View bounds correct via accessibility dump, yet
+                            // Leaflet's own container still measured 0 height
+                            // even minutes later, even after invalidateSize()):
+                            // Chromium's out-of-process renderer never actually
+                            // received the real size at all. Forcing a real
+                            // (if momentary) size change is the documented fix
+                            // for exactly this symptom.
+                            view?.let { wv ->
+                                val realHeight = wv.height
+                                val lp = wv.layoutParams
+                                if (realHeight > 0 && lp != null) {
+                                    lp.height = realHeight - 1
+                                    wv.layoutParams = lp
+                                    wv.requestLayout()
+                                    wv.post {
+                                        lp.height = realHeight
+                                        wv.layoutParams = lp
+                                        wv.requestLayout()
+                                        wv.postDelayed({
+                                            wv.evaluateJavascript("if (window.territoryMap) { window.territoryMap.invalidateSize(); }", null)
+                                        }, 50)
+                                    }
+                                }
+                            }
+                        }
+                        override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                            // Only the top-level page failing counts as the
+                            // map itself failing — a single missed sub-
+                            // resource (one map tile timing out, say)
+                            // shouldn't flip the whole view into an error
+                            // state when the map is otherwise usable.
+                            if (request?.isForMainFrame == true) {
+                                loadState = MapLoadState.FAILED
+                                val detail = "Main frame load error: ${error?.errorCode} ${error?.description} (${request.url})"
+                                Log.e(TAG, detail)
+                                consoleMessages.add(detail)
+                            }
+                        }
                     }
-                }
-            }
-        }
+                    // Surfaces real browser-side JS errors (a CDN script that
+                    // 404'd, a Leaflet exception, anything) directly on-device.
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                            val line = "${consoleMessage.messageLevel()}: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})"
+                            Log.d(TAG, "WebView console: $line")
+                            consoleMessages.add(line)
+                            if (consoleMessages.size > 30) consoleMessages.removeAt(0)
+                            return true
+                        }
+                    }
+                }.also { webViewRef = it }
+            },
+            update = {},
+        )
 
         if (loadState == MapLoadState.LOADING) {
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
+        } else if (loadState == MapLoadState.FAILED) {
+            Column(
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    "Unable to load the map. Check your internet connection and try again.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                consoleMessages.lastOrNull()?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { reloadToken++ }) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text("Retry")
+                    }
+                    OutlinedButton(onClick = { showDiagnostics = true }) { Text("Details") }
+                }
+            }
+        }
+
+        // "If the selected Municipality/Barangay has no records, still show
+        // the [area]'s geographic area and display: 'No records found in
+        // this Municipality/Barangay.'" (spec §19/§20) — [noRecordsAreaLabel]
+        // is non-null only when a specific Municipality/Barangay is actually
+        // selected, so this never shows for the unfiltered "All"/"All" view
+        // even when a congregation genuinely has zero territory records yet.
+        if (loadState == MapLoadState.LOADED && points.isEmpty() && noRecordsAreaLabel != null) {
+            Card(
+                modifier = Modifier.align(Alignment.Center).padding(horizontal = 32.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
+            ) {
+                Text(
+                    "No records found in this $noRecordsAreaLabel.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.padding(20.dp),
+                )
+            }
         }
 
         if (loadState == MapLoadState.LOADED && invalidCount > 0) {
             Card(
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 76.dp).padding(horizontal = 16.dp),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp).padding(horizontal = 16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
             ) {
                 Text(
@@ -1395,90 +1506,14 @@ private fun TerritoryLiveMap(
             }
         }
 
-        // "Add controls for Map Type and Map Details/Layers" — a single
-        // floating "Layers" button (Google Maps' own convention for this
-        // exact kind of control), top-end so it never collides with the
-        // invalid-count card (top-center) or the Legend/Refresh/diagnostics
-        // trio already anchored elsewhere.
-        var layersMenuExpanded by remember { mutableStateOf(false) }
-        Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 16.dp)) {
-            Surface(
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 4.dp,
-            ) {
-                IconButton(onClick = { layersMenuExpanded = true }) {
-                    Icon(Icons.Rounded.Layers, contentDescription = "Map type and details", tint = MaterialTheme.colorScheme.primary)
-                }
-            }
-            DropdownMenu(expanded = layersMenuExpanded, onDismissRequest = { layersMenuExpanded = false }) {
-                Text(
-                    "MAP TYPE",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                // "The map type selection must not reset Search/Search By/
-                // Group By/Sort By/Municipality/Barangay/current map
-                // position/selected record" — trivially true here: this only
-                // ever writes [mapType] itself (hoisted above this whole
-                // composable, see its own doc comment), nothing else.
-                listOf(
-                    "Default" to MapType.NORMAL,
-                    "Satellite" to MapType.SATELLITE,
-                    "Terrain" to MapType.TERRAIN,
-                ).forEach { (label, value) ->
-                    DropdownMenuItem(
-                        text = { Text(label) },
-                        leadingIcon = {
-                            androidx.compose.material3.RadioButton(selected = mapType == value, onClick = null)
-                        },
-                        onClick = { onMapTypeChange(value) },
-                    )
-                }
-                androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                Text(
-                    "MAP DETAILS",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                // "Traffic... keep GoPreach record markers visible" /
-                // "Bicycling... keep the existing GoPreach markers visible" —
-                // true by construction: these only ever toggle GoogleMap's
-                // own [MapProperties] flags (see the GoogleMap call above);
-                // [visiblePoints]'s own Marker composables are a completely
-                // separate part of this composable's content and are never
-                // conditioned on any of these three booleans.
-                MapDetailToggleRow(label = "Traffic", checked = trafficEnabled, enabled = true, onCheckedChange = onTrafficEnabledChange)
-                MapDetailToggleRow(
-                    label = "Public Transit",
-                    checked = false,
-                    enabled = false,
-                    onCheckedChange = {},
-                    unavailableReason = "Not available on Android — Transit is a Google Maps JavaScript API–only layer.",
-                )
-                MapDetailToggleRow(
-                    label = "Bicycling",
-                    checked = false,
-                    enabled = false,
-                    onCheckedChange = {},
-                    unavailableReason = "Not available on Android — Bicycling is a Google Maps JavaScript API–only layer.",
-                )
-                MapDetailToggleRow(label = "Street View", checked = streetViewEnabled, enabled = true, onCheckedChange = onStreetViewEnabledChange)
-                MapDetailToggleRow(label = "Raised Buildings / 3D Buildings", checked = buildingsEnabled, enabled = true, onCheckedChange = onBuildingsEnabledChange)
-            }
-        }
-
-        // "Add a floating Refresh button" — resets the dropdown back to its
-        // unselected/original state and re-fetches location data.
+        // "Add a floating Refresh button" — re-centers on whatever's
+        // currently visible (or the selected area, if nothing matches) and
+        // re-fetches location data.
         SmallFloatingActionButton(
             onClick = {
                 myLocation = null
                 scope.launch {
-                    applySelection(null)
+                    reloadToken++
                     snackbarHostState.showSnackbar("Territory map updated successfully.")
                 }
             },
@@ -1487,52 +1522,27 @@ private fun TerritoryLiveMap(
             Icon(Icons.Rounded.Refresh, contentDescription = "Refresh map")
         }
 
+        // "Add the user current location in the map view" — a small
+        // floating action button rather than a dropdown entry now that the
+        // old category dropdown is gone; still opt-in, still asks for
+        // permission the first time.
+        SmallFloatingActionButton(
+            onClick = { scope.launch { ensureMyLocation() } },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 140.dp),
+        ) {
+            Icon(Icons.Rounded.Map, contentDescription = "Show my location")
+        }
+
         // Always available, not just on failure — lets whoever's testing
         // this confirm exactly what's happening (records/points counts,
-        // load state) without needing adb/Logcat access to report it back
-        // accurately.
+        // load state, any console error) even when the map *looks* like
+        // it's working but markers still aren't showing up right, without
+        // needing adb/Logcat access to report it back accurately.
         IconButton(
             onClick = { showDiagnostics = true },
             modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
         ) {
             Icon(Icons.Rounded.Info, contentDescription = "Map diagnostics", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        // "Add a compact Map Legend floating over the map" — bottom-start,
-        // clear of Google Maps' own zoom controls (top-left) and the
-        // dropdown (top-center) and Refresh/diagnostics (bottom-end), so
-        // nothing floating ever overlaps another control.
-        Surface(
-            modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 12.dp),
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 4.dp,
-        ) {
-            Column(modifier = Modifier.padding(10.dp).widthIn(max = 220.dp)) {
-                Row(
-                    modifier = Modifier.clickable { legendExpanded = !legendExpanded },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text("LEGEND", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                    Icon(
-                        if (legendExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                        contentDescription = if (legendExpanded) "Collapse legend" else "Expand legend",
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-                if (legendExpanded) {
-                    // Same icon+category-name pairing used by every marker,
-                    // the bottom sheet, and the dropdown — "use the same
-                    // marker icons shown on the map."
-                    listOf(MapPointKind.ME, MapPointKind.PUBLISHER, MapPointKind.BIBLE_STUDY, MapPointKind.RETURN_VISIT, MapPointKind.SEARCHING).forEach { kind ->
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                            Text(emojiFor(kind), style = MaterialTheme.typography.bodyMedium)
-                            Text(categoryLabelFor(kind), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp))
-                        }
-                    }
-                }
-            }
         }
 
         SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp))
@@ -1551,18 +1561,6 @@ private fun TerritoryLiveMap(
         )
     }
 
-    // "STREET VIEW... Street View must not change or delete the GoPreach
-    // record" — purely a viewer; centered on whichever record is currently
-    // selected (the same coordinates its own detail sheet just showed), or
-    // the map's current camera target if nothing's selected. Toggling it off
-    // (the Map Details checkbox, or this dialog's own Close button) is the
-    // only thing that ever changes [streetViewEnabled] — nothing here writes
-    // to any GoPreach record.
-    if (streetViewEnabled) {
-        val target = selectedPoint?.let { GmsLatLng(it.lat, it.lng) } ?: cameraPositionState.position.target
-        StreetViewDialog(location = target, onDismiss = { onStreetViewEnabledChange(false) })
-    }
-
     if (showDiagnostics) {
         AlertDialog(
             properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
@@ -1578,7 +1576,14 @@ private fun TerritoryLiveMap(
                     Text("Invalid/missing GPS: $invalidCount", style = MaterialTheme.typography.bodySmall)
                     Text("Publishers sharing location: ${publisherPoints.size}", style = MaterialTheme.typography.bodySmall)
                     Text("Map status: ${loadState.name}", style = MaterialTheme.typography.bodySmall)
-                    Text("Google Maps API key configured: ${if (hasGoogleMapsApiKey(context)) "Yes" else "No"}", style = MaterialTheme.typography.bodySmall)
+                    if (consoleMessages.isEmpty()) {
+                        Text("No console messages yet.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Text("Console log:", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+                        consoleMessages.forEach { line ->
+                            Text(line, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -1588,144 +1593,225 @@ private fun TerritoryLiveMap(
     }
 }
 
-/** Pans/zooms [cameraPositionState] to fit every point in [visible] — a
- * single point gets a comfortable street-level zoom (a 0-span "bounds"
- * around one coordinate would otherwise throw), more than one fits the
- * smallest bounds containing all of them with generous padding so no marker
- * lands clipped at the very edge of the screen. A no-op when [visible] is
- * empty (nothing to fit to) — the camera simply stays wherever it was. */
-private suspend fun fitCameraTo(cameraPositionState: com.google.maps.android.compose.CameraPositionState, visible: List<MapPoint>) {
-    when {
-        visible.isEmpty() -> return
-        visible.size == 1 -> cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(GmsLatLng(visible[0].lat, visible[0].lng), 16f))
-        else -> {
-            val bounds = LatLngBounds.Builder().apply { visible.forEach { include(GmsLatLng(it.lat, it.lng)) } }.build()
-            cameraPositionState.animate(CameraUpdateFactory.newLatLngBounds(bounds, 120))
-        }
+/** Builds the Leaflet+OpenStreetMap page — no API key, no billing, no Google
+ * Play Services dependency at all (this is exactly the point of switching
+ * back to Leaflet.js). [points] arrives already fully filtered by
+ * Municipality/Barangay/Status (see [TerritoryMapScreen]'s own `mapRows`),
+ * so unlike the pre-Google-Maps version of this function there is no
+ * `applyFilter`/category-dropdown/"Nearest X" JS machinery left to build —
+ * every point given here is simply plotted. */
+private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
+    val pointsJson = points.joinToString(",", prefix = "[", postfix = "]") { p ->
+        """{id:"${jsEscape(p.id)}",lat:${p.lat},lng:${p.lng},name:"${jsEscape(p.name)}",status:"${jsEscape(p.status)}"}"""
     }
-}
+    return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css">
+        <style>
+          /* height:100% cascading from html->body->#map depends on every
+             ancestor resolving to a *definite* pixel height; anchoring #map
+             with all four absolute offsets sizes it directly from the
+             viewport instead (see TerritoryLiveMap's own bug-fix history). */
+          html, body { height: 100%; margin: 0; padding: 0; }
+          #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+          .territory-label { background: rgba(255,255,255,0.92); border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.3); padding: 1px 6px; font-size: 12px; white-space: nowrap; }
+          .territory-marker { background: transparent; border: none; }
+        </style>
+        </head>
+        <body>
+        <div id="map"></div>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
+        <script>
+        try {
+          var points = $pointsJson;
+          var map = L.map('map', { zoomControl: true });
+          window.territoryMap = map;
+          var tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+          }).addTo(map);
+          var tileErrorCount = 0;
+          tiles.on('tileerror', function(e) { tileErrorCount++; console.error('Tile load failed (' + tileErrorCount + ')'); });
 
-/** Whether a real Google Maps API key is present — read from the exact same
- * manifest `<meta-data>` entry Google Maps' own SDK reads at runtime (see
- * AndroidManifest.xml's `com.google.android.geo.API_KEY`, sourced from
- * local.properties' `MAPS_API_KEY` via app/build.gradle.kts). A machine that
- * hasn't set one yet gets a clear on-screen message (see [TerritoryLiveMap])
- * instead of Google Maps' own silent gray-tile failure mode. */
-private fun hasGoogleMapsApiKey(context: android.content.Context): Boolean {
-    return runCatching {
-        val appInfo = context.packageManager.getApplicationInfo(context.packageName, android.content.pm.PackageManager.GET_META_DATA)
-        val key = appInfo.metaData?.getString("com.google.android.geo.API_KEY")
-        !key.isNullOrBlank()
-    }.getOrDefault(false)
-}
+          // "Continue using the ... official red 3D location pin icon for
+          // all statuses/categories ... Do not use different marker icons
+          // for different statuses" (spec §26) — one shape for every
+          // record; a selected one just grows and turns gold, the same
+          // "which one's highlighted" convention Google Maps' own default
+          // marker uses.
+          function buildPinIcon(selected) {
+            var w = selected ? 38 : 30, h = selected ? 53 : 42;
+            var fill = selected ? '#FFC107' : '#EA4335';
+            var html = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 30 42" xmlns="http://www.w3.org/2000/svg">' +
+              '<path d="M15 0C6.7 0 0 6.7 0 15c0 11 15 27 15 27s15-16 15-27C30 6.7 23.3 0 15 0z" fill="' + fill + '" stroke="#8a1c14" stroke-width="1"/>' +
+              '<circle cx="15" cy="15" r="6.5" fill="#ffffff"/></svg>';
+            return L.divIcon({ className: 'territory-marker', html: html, iconSize: [w, h], iconAnchor: [w / 2, h] });
+          }
+          // "My Location" isn't a record status at all, so it keeps its own
+          // distinct look (a plain blue dot) instead of looking like just
+          // another red pin.
+          function buildMeIcon(selected) {
+            var s = selected ? 26 : 20;
+            var html = '<div style="width:' + s + 'px;height:' + s + 'px;border-radius:50%;background:#1a73e8;border:3px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,.5);"></div>';
+            return L.divIcon({ className: 'territory-marker', html: html, iconSize: [s, s], iconAnchor: [s / 2, s / 2] });
+          }
 
-/** Builds (and caches, per kind + selected-state) the round, colored, emoji-
- * labeled marker bitmap every category already uses everywhere else (legend,
- * bottom sheet, dropdown) — see [markerColorFor]/[emojiFor], the same
- * functions those other spots call. Selected markers grow and gain a gold
- * ring ("Highlight the selected marker"), same visual language the prior
- * Leaflet markers used. */
-@Composable
-private fun rememberMarkerIcon(kind: MapPointKind, selected: Boolean): BitmapDescriptor {
-    return remember(kind, selected) {
-        val sizePx = if (selected) 130 else 100
-        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val radius = sizePx / 2f
-        val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = markerColorFor(kind).toArgb() }
-        canvas.drawCircle(radius, radius, radius - 6f, fillPaint)
-        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = if (selected) 10f else 6f
-            color = if (selected) 0xFFFFD600.toInt() else 0xFFFFFFFF.toInt()
-        }
-        canvas.drawCircle(radius, radius, radius - 6f, borderPaint)
-        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = sizePx * 0.42f
-            textAlign = Paint.Align.CENTER
-            typeface = Typeface.DEFAULT
-        }
-        val textY = radius - (textPaint.descent() + textPaint.ascent()) / 2
-        canvas.drawText(emojiFor(kind), radius, textY, textPaint)
-        BitmapDescriptorFactory.fromBitmap(bitmap)
-    }
-}
-
-/** "Use Google's actual Street View functionality... If Street View is
- * unavailable at a particular location, show an appropriate message instead
- * of displaying an empty/broken view" — [StreetViewPanoramaView] is the
- * official Google Maps Android SDK view for this (the same one a native,
- * non-Compose Street View screen would use; maps-compose itself doesn't wrap
- * it, so this is a plain [AndroidView] the same way every WebView-era screen
- * in this app already used that pattern). [StreetViewPanorama.setPosition]
- * searches near [location] for the nearest available panorama;
- * [StreetViewPanorama.OnStreetViewPanoramaChangeListener] fires with a
- * `null` location precisely when nothing was found nearby — that `null` is
- * the one and only signal this reads to show the "not available" message,
- * never a guess. */
-@Composable
-private fun StreetViewDialog(location: GmsLatLng, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    // `null` while the very first search is still in flight, then locked to
-    // whatever that first callback found — matches [location] itself never
-    // changing after this dialog opens (a fresh dialog instance is what
-    // handles a different selected record/camera target, not a live update
-    // to this one).
-    var available by remember { mutableStateOf<Boolean?>(null) }
-    val panoramaView = remember { StreetViewPanoramaView(context) }
-    DisposableEffect(panoramaView) {
-        panoramaView.onCreate(null)
-        panoramaView.onResume()
-        panoramaView.getStreetViewPanoramaAsync { panorama ->
-            panorama.setOnStreetViewPanoramaChangeListener { changedLocation -> available = changedLocation != null }
-            panorama.setPosition(location, 50)
-        }
-        onDispose {
-            panoramaView.onPause()
-            panoramaView.onDestroy()
-        }
-    }
-    // "Show an appropriate message instead of displaying an empty/broken
-    // view" — an indefinite spinner is itself exactly that broken view.
-    // [OnStreetViewPanoramaChangeListener] is Google's own official signal
-    // for "no panorama found," but it can also simply never fire at all on a
-    // slow/limited connection; a plain, generous timeout is what turns that
-    // silent hang into the same message a fast, confirmed "not found" result
-    // already shows, rather than leaving whoever's looking at this stuck
-    // forever with no explanation.
-    LaunchedEffect(location) {
-        kotlinx.coroutines.delay(12_000)
-        if (available == null) available = false
-    }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-            AndroidView(modifier = Modifier.fillMaxSize(), factory = { panoramaView })
-            when (available) {
-                null -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color.White)
-                }
-                false -> Box(
-                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        "Street View is not available at this location.",
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(24.dp),
-                    )
-                }
-                true -> {}
+          // "Highlight the selected marker" — tracks whichever marker (or
+          // 'me') was last tapped/auto-selected and swaps only that one's
+          // icon back and forth between its normal and selected style.
+          var selectedMarkerId = null;
+          window.setSelectedMarker = function(id) {
+            if (selectedMarkerId && selectedMarkerId !== id) {
+              var prev = selectedMarkerId === 'me' ? window.myLocationMarker : markersById[selectedMarkerId];
+              if (prev) prev.setIcon(prev._isMe ? buildMeIcon(false) : buildPinIcon(false));
             }
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier.align(Alignment.TopStart).padding(16.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)),
-            ) {
-                Icon(Icons.Rounded.Close, contentDescription = "Close Street View", tint = Color.White)
+            selectedMarkerId = id || null;
+            if (id) {
+              var current = id === 'me' ? window.myLocationMarker : markersById[id];
+              if (current) current.setIcon(current._isMe ? buildMeIcon(true) : buildPinIcon(true));
             }
+          };
+
+          // Clusters nearby markers into one numbered bubble that expands on
+          // tap/zoom — keeps a dense subdivision from turning into an
+          // unreadable pile of overlapping pins. "You are here" is a
+          // separate marker outside this cluster entirely.
+          var cluster = L.markerClusterGroup();
+          var markers = [];
+          var markersById = {};
+          points.forEach(function(p) {
+            var marker = L.marker([p.lat, p.lng], { icon: buildPinIcon(false) });
+            // "Every visible marker must display: Name (Status)" (spec §26).
+            marker.bindTooltip(p.name + ' (' + p.status + ')', { permanent: true, direction: 'right', offset: [10, 0], className: 'territory-label' });
+            marker.on('click', function() {
+              window.setSelectedMarker(p.id);
+              if (window.AndroidBridge) { AndroidBridge.showDetails(p.id); }
+            });
+            cluster.addLayer(marker);
+            markers.push(marker);
+            markersById[p.id] = marker;
+          });
+          map.addLayer(cluster);
+
+          // "RESPONSIVE MAP FILTERING... AUTOMATIC MAP ZOOM" — a single
+          // point gets a comfortable street-level zoom (a 0-span "bounds"
+          // around one coordinate would otherwise throw); more than one
+          // fits the smallest bounds containing all of them, padded so no
+          // marker lands clipped at the screen edge. Kotlin calls this
+          // (via window.fitToMarkers) every time the already-filtered
+          // [points] set actually changes shape.
+          window.fitToMarkers = function() {
+            if (markers.length === 1) {
+              map.setView(markers[0].getLatLng(), 16);
+            } else if (markers.length > 1) {
+              map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
+            }
+          };
+          if (markers.length > 0) {
+            window.fitToMarkers();
+          } else {
+            // Philippines-wide fallback until Kotlin's own geocode (for a
+            // selected-but-empty Municipality/Barangay) or a fresh filter
+            // (with real markers) repositions it.
+            map.setView([12.8797, 121.7740], 6);
+          }
+
+          // "Add the user current location in the map view" — a distinct
+          // dot, outside the cluster group (always visible), added once
+          // Android actually has a GPS fix.
+          window.setMyLocation = function(lat, lng) {
+            if (window.myLocationMarker) { map.removeLayer(window.myLocationMarker); }
+            window.myLocationMarker = L.marker([lat, lng], { icon: buildMeIcon(selectedMarkerId === 'me'), zIndexOffset: 1000 }).addTo(map);
+            window.myLocationMarker._isMe = true;
+            window.myLocationMarker.bindTooltip('My Location', { permanent: true, direction: 'right', offset: [10, 0], className: 'territory-label' });
+            window.myLocationMarker.on('click', function() {
+              window.setSelectedMarker('me');
+              if (window.AndroidBridge) { AndroidBridge.showDetails('me'); }
+            });
+          };
+
+          // "Draw a professional geographic boundary around the selected
+          // Municipality/Barangay" (spec §9). No real polygon/GeoJSON
+          // boundary dataset ships with this app (the bundled PSGC table is
+          // names/hierarchy only — see PsgcDao — with no shape data), so
+          // fabricating a precise outline is not honest; this draws a plain
+          // dashed circle around the area's geocoded center instead, sized
+          // to roughly the area's real footprint (Barangay vs. Municipality
+          // get different Kotlin-supplied radii — see [selectedAreaQuery]'s
+          // own zoom levels), which is disclosed to the user as an
+          // approximate area indicator, not a true administrative boundary.
+          window.areaBoundary = null;
+          window.setAreaBoundary = function(lat, lng, radiusMeters) {
+            window.clearAreaBoundary();
+            window.areaBoundary = L.circle([lat, lng], {
+              radius: radiusMeters,
+              color: '#1a73e8',
+              weight: 2,
+              dashArray: '6,6',
+              fill: true,
+              fillColor: '#1a73e8',
+              fillOpacity: 0.06,
+              interactive: false,
+            }).addTo(map);
+          };
+          // The real thing: an actual Municipality/Barangay polygon (from
+          // [TerritoryBoundaryRepository]'s bundled NAMRIA/PSA/OCHA boundary
+          // data), drawn the same dashed-blue style as the circle fallback
+          // above so a real boundary and an approximate one never look
+          // meaningfully different to the user in areas where real data
+          // exists vs. doesn't.
+          window.setAreaBoundaryGeoJson = function(geometry) {
+            window.clearAreaBoundary();
+            window.areaBoundary = L.geoJSON(geometry, {
+              style: { color: '#1a73e8', weight: 2, dashArray: '6,6', fill: true, fillColor: '#1a73e8', fillOpacity: 0.06 },
+              interactive: false,
+            }).addTo(map);
+            // Frame the real polygon directly from its own bounds — no
+            // dependency on the on-device Geocoder (already found unreliable
+            // on this session's own non-genuine-GMS test device) just to
+            // center the camera on it. Always wins over [window.fitToMarkers]
+            // here: selecting a specific Municipality/Barangay is a
+            // deliberate "focus on this area" action, and any of its own
+            // records are still inside these bounds regardless — a marker
+            // from some other, unrelated area (e.g. a Publisher sharing
+            // location elsewhere in the province) must never keep the camera
+            // away from the area the user actually selected.
+            map.fitBounds(window.areaBoundary.getBounds().pad(0.15));
+          };
+          window.clearAreaBoundary = function() {
+            if (window.areaBoundary) { map.removeLayer(window.areaBoundary); window.areaBoundary = null; }
+          };
+
+          // JS-side fallback for the exact same "container wasn't its final
+          // size yet when L.map() ran" issue the Android side's own hooks
+          // already cover.
+          window.addEventListener('resize', function() { map.invalidateSize(); });
+          setTimeout(function() {
+            map.invalidateSize();
+            var size = map.getSize();
+            var container = document.getElementById('map');
+            console.log('Diag: map size=' + size.x + 'x' + size.y + ', container clientWidth/Height=' + container.clientWidth + '/' + container.clientHeight + ', markers=' + markers.length);
+          }, 100);
+          setTimeout(function() { map.invalidateSize(); }, 500);
+          setTimeout(function() { map.invalidateSize(); }, 1500);
+        } catch (e) {
+          console.error('Territory map script threw: ' + e.message);
         }
-    }
+        </script>
+        </body>
+        </html>
+    """.trimIndent()
 }
+
+private fun jsEscape(text: String): String =
+    text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ")
 
 /** "Display a compact information card/bottom sheet" — the exact field set
  * and wording from the spec's own three worked examples, built from
@@ -1833,37 +1919,6 @@ private fun DetailRow(label: String, value: String) {
     }
 }
 
-/** One "Map Details" checkbox row. [unavailableReason] non-null means this
- * layer has no real Google Maps Android SDK equivalent at all — spec §14's
- * own "gracefully disable that option rather than displaying a non-
- * functional control": shown, checked-off, disabled, and explained, rather
- * than either silently missing or faked with a client-drawn overlay that
- * isn't actually Google's own data. */
-@Composable
-private fun MapDetailToggleRow(
-    label: String,
-    checked: Boolean,
-    enabled: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    unavailableReason: String? = null,
-) {
-    DropdownMenuItem(
-        text = {
-            Column {
-                Text(label, color = if (enabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant)
-                if (unavailableReason != null) {
-                    Text(unavailableReason, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        },
-        leadingIcon = {
-            androidx.compose.material3.Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
-        },
-        enabled = enabled,
-        onClick = { onCheckedChange(!checked) },
-    )
-}
-
 private fun markerColorFor(kind: MapPointKind): Color = when (kind) {
     MapPointKind.PUBLISHER -> Color(0xFF1A73E8)
     MapPointKind.BIBLE_STUDY -> Color(0xFF8E24AA)
@@ -1874,10 +1929,10 @@ private fun markerColorFor(kind: MapPointKind): Color = when (kind) {
 
 /** "The icon identifies the person's current classification; GPS location
  * does not determine classification" — the one place every one of the five
- * category emoji is defined, reused verbatim by the map markers (via
- * [rememberMarkerIcon]), the legend, the bottom sheet, the dropdown, and List
- * View's own rows, so it's structurally impossible for two screens to
- * disagree about which icon means what. */
+ * category emoji is defined; the Legend and the bottom sheet both reuse it
+ * verbatim (the map's own pins are all the same official red pin now — see
+ * [buildTerritoryMapHtml]'s own doc comment — so this no longer feeds the
+ * marker itself, only the reference key and the tap-through detail view). */
 private fun emojiFor(kind: MapPointKind): String = when (kind) {
     MapPointKind.PUBLISHER -> "👤"
     MapPointKind.BIBLE_STUDY -> "📖"
@@ -1918,11 +1973,10 @@ private fun formatRelativeTime(updatedAtMillis: Long): String {
     }
 }
 
-private enum class MapLoadState { LOADING, LOADED, NO_API_KEY }
+private enum class MapLoadState { LOADING, LOADED, FAILED }
 
-/** What kind of thing a [MapPoint] represents — drives both its marker style
- * ([rememberMarkerIcon]) and which dropdown entry controls its visibility.
- * "Publishers, Bible Studies, and Return Visits are separate
+/** What kind of thing a [MapPoint] represents. "Publishers, Bible Studies,
+ * and Return Visits are separate
  * classifications" — this is the one place that classification is decided,
  * at construction (see [TerritoryLiveMap]'s `pipelinePoints`/`publisherPoints`),
  * never inferred later from "has coordinates." */
@@ -1987,180 +2041,6 @@ private fun haversineMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Doub
     return earthRadiusMeters * c
 }
 
-/**
- * "Add a filter in Territory Map... make it simple, professional and
- * modern. check the spacing and design" — extended by "Territory Map
- * Congregation and Field Service Group Filters" (spec §18's exact required
- * order): **Congregation** first — Super-Admin picks any active congregation
- * (or "All Congregations"); every other role sees their own single
- * [fixedCongregationName]/[fixedCongregationId], shown but never editable
- * (spec §2/§9) — then **Record Type**, then **Field Service Group** (scoped
- * to whichever congregation is currently effective — see [congregationIds]),
- * then Publisher and Location as additional, still-freely-combinable
- * sub-filters (spec §7 preserves everything that already worked). Every
- * choice here applies immediately (there's nothing to "submit"); "Done" just
- * closes the sheet, and the header's own live count is the confirmation that
- * a change actually did something. Location (Province/Municipality/Barangay)
- * is no longer a section of this sheet at all — see the "TERRITORY MAP –
- * PHILIPPINES LOCATION SEARCH" spec: Province is fully automatic and
- * Municipality/Barangay live in [TerritoryMapScreen]'s own persistent filter
- * bar instead, driven by the real Philippine PSGC hierarchy rather than only
- * whichever names happen to already appear on a saved record.
- */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-private fun TerritoryFilterSheet(
-    isSuperAdmin: Boolean,
-    fixedCongregationId: String?,
-    fixedCongregationName: String?,
-    congregationIds: Set<String>?,
-    filter: TerritoryFilterState,
-    resultCount: Int,
-    onFilterChange: (TerritoryFilterState) -> Unit,
-    onDismiss: () -> Unit,
-    viewModel: TerritoryMapViewModel,
-) {
-    val sheetState = rememberModalBottomSheetState()
-    val congregations by remember(isSuperAdmin) { if (isSuperAdmin) viewModel.congregationsFor(null) else flowOf(emptyList()) }
-        .collectAsStateWithLifecycle(initialValue = emptyList())
-    // "The Field Service Group list must depend on the selected Congregation"
-    // — [congregationIds] is the *effective* one (Super-Admin's current
-    // selection, or the scoped role's fixed one — see [TerritoryMapScreen]'s
-    // own call site), never a static "every congregation this role could
-    // ever see" set, so switching Congregation here always refreshes this to
-    // match (spec §5/§14).
-    val groups by remember(congregationIds) { viewModel.groupsFor(congregationIds) }.collectAsStateWithLifecycle(initialValue = emptyList())
-    val publishers by remember(congregationIds) { viewModel.publishersFor(congregationIds) }.collectAsStateWithLifecycle(initialValue = emptyList())
-
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
-            modifier = Modifier.fillMaxWidth().heightIn(max = 680.dp).verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp).padding(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(28.dp),
-        ) {
-            // Header — title plus a live result count so every tap below has
-            // an immediate, legible confirmation it did something, and a
-            // Close action that needs no explanation (nothing here is
-            // deferred, so there's no separate "Cancel").
-            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Filters", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(
-                        if (resultCount == 1) "1 location matches" else "$resultCount locations match",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Close")
-                }
-            }
-
-            // Spec §1/§2/§18 — Congregation is always the *first* filter,
-            // for every role. Super-Admin gets a real dropdown ("All
-            // Congregations" plus every active congregation); every other
-            // role sees their own assigned congregation's name, read-only —
-            // there is no field on [TerritoryFilterState] a scoped role's
-            // client could even set to another congregation in the first
-            // place (see that state's own doc comment).
-            FilterSection(title = "Congregation") {
-                if (isSuperAdmin) {
-                    FilterDropdownField(
-                        label = "Congregation",
-                        options = congregations.map { it.id to it.name },
-                        selectedId = filter.congregationId,
-                        // Spec §14/§15 — changing Congregation always clears
-                        // Field Service Group; a group from the previous
-                        // congregation must never silently carry over.
-                        onSelected = { onFilterChange(filter.copy(congregationId = it, groupId = null)) },
-                    )
-                } else {
-                    ReadOnlyField("Congregation", fixedCongregationName ?: "—")
-                }
-            }
-
-            FilterSection(title = "Record Type") {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TerritoryInnerFilter.entries.forEach { option ->
-                        androidx.compose.material3.FilterChip(
-                            selected = filter.innerFilter == option,
-                            onClick = { onFilterChange(filter.copy(innerFilter = option)) },
-                            label = { Text(option.label()) },
-                        )
-                    }
-                }
-            }
-
-            // Spec §6/§18 — scoped to whichever congregation is currently
-            // effective (see [congregationIds]/[groups] above); labeled with
-            // its own congregation name only when Super-Admin is browsing
-            // "All Congregations" at once (spec §8: "if Field Service Groups
-            // have identical names in different congregations, identify them
-            // using their congregation").
-            FilterSection(title = "Field Service Group") {
-                FilterDropdownField(
-                    label = "Field Service Group",
-                    options = groups.map { group ->
-                        val congregationName = congregations.firstOrNull { it.id == group.congregationId }?.name
-                        group.id to (if (isSuperAdmin && filter.congregationId == null && congregationName != null) "${group.name} — $congregationName" else group.name)
-                    },
-                    selectedId = filter.groupId,
-                    onSelected = { onFilterChange(filter.copy(groupId = it)) },
-                )
-            }
-
-            FilterSection(title = "Publisher") {
-                FilterDropdownField(
-                    label = "Publisher",
-                    options = publishers.map { it.id to it.fullName },
-                    selectedId = filter.publisherPersonId,
-                    onSelected = { onFilterChange(filter.copy(publisherPersonId = it)) },
-                )
-            }
-
-            // "Do not display a separate Province dropdown in the Territory
-            // Map filter... Do not add the old Territory Map filters back" —
-            // the old Location section (Province/Municipality/Barangay) used
-            // to live here; Municipality/Barangay now live in the persistent
-            // filter bar instead (driven by the real Philippine PSGC
-            // hierarchy — see TerritoryMapScreen's own effects), and Province
-            // is never user-editable anywhere, including here for Super
-            // Admin — it's derived automatically from whichever Congregation
-            // is chosen just above.
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                    // Province is deliberately preserved on Reset (for every
-                    // role, not just a scoped one, now that Super Admin's own
-                    // Province is equally automatic) — it isn't one of this
-                    // sheet's own fields to begin with.
-                    onClick = { onFilterChange(TerritoryFilterState(province = filter.province)) },
-                    modifier = Modifier.weight(1f),
-                ) { Text("Reset") }
-                Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Done") }
-            }
-        }
-    }
-}
-
-/** One filter group — a plain, bold section label above its content, spaced
- * generously from its siblings ([TerritoryFilterSheet]'s own 28.dp rhythm)
- * rather than ruled off with dividers; a flat, uncluttered look reads more
- * modern than a sheet full of hairlines. */
-@Composable
-private fun FilterSection(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        content()
-    }
-}
-
-private fun TerritoryInnerFilter.label(): String = when (this) {
-    TerritoryInnerFilter.ALL -> "All"
-    TerritoryInnerFilter.BIBLE_STUDY -> "Bible Study"
-    TerritoryInnerFilter.RETURN_VISIT -> "Return Visit"
-    TerritoryInnerFilter.SEARCHED_INTERESTED -> "Searched Interested"
-}
 
 /** One Search By/Sub Filter dropdown — [options] is (id, displayName) pairs;
  * a leading "All" entry clears the selection back to null. Every one of

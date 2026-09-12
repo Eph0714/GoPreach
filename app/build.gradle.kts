@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -17,27 +15,11 @@ android {
         applicationId = "com.emfitsolutions.gopreach"
         minSdk = 24
         targetSdk = 35
-        versionCode = 154
-        versionName = "1.93.0"
+        versionCode = 155
+        versionName = "1.94.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
-
-        // "Core Requirement: Google Maps must be the actual map used by
-        // GoPreach Territory Map" — the real API key is never checked into
-        // source control; it's read from local.properties (git-ignored,
-        // exactly like every Android project's own local SDK path) into a
-        // manifest placeholder, which AndroidManifest.xml's own
-        // com.google.android.geo.API_KEY <meta-data> entry references. A
-        // machine with no key set yet gets an empty string here rather than
-        // a build failure — the map screen itself detects a blank/missing
-        // key and shows a clear on-screen message instead of silently
-        // crashing (see TerritoryMapScreen's own MapLoadState.NO_API_KEY).
-        val localProperties = Properties().apply {
-            val file = rootProject.file("local.properties")
-            if (file.exists()) file.inputStream().use { stream -> load(stream) }
-        }
-        manifestPlaceholders["MAPS_API_KEY"] = localProperties.getProperty("MAPS_API_KEY", "")
     }
 
     buildTypes {
@@ -136,11 +118,6 @@ dependencies {
 
     // Location / Maps (Share Location, GPS capture)
     implementation("com.google.android.gms:play-services-location:21.3.0")
-
-    // Google Maps (Territory Map — replaces the prior WebView+Leaflet
-    // renderer; see TerritoryMapScreen.kt's own doc comments).
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
-    implementation("com.google.maps.android:maps-compose:6.1.2")
 
     // Coil (logo / image loading)
     implementation("io.coil-kt:coil-compose:2.7.0")

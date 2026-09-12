@@ -22,6 +22,7 @@ import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.SharedLocationRepository
+import com.emfitsolutions.gopreach.data.repository.TerritoryBoundaryRepository
 import com.emfitsolutions.gopreach.data.repository.VisitRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
@@ -90,6 +91,7 @@ class TerritoryMapViewModel @Inject constructor(
     private val groupRepository: GroupRepository,
     private val philippineLocationRepository: PhilippineLocationRepository,
     private val visitRepository: VisitRepository,
+    private val territoryBoundaryRepository: TerritoryBoundaryRepository,
 ) : ViewModel() {
 
     init {
@@ -246,6 +248,27 @@ class TerritoryMapViewModel @Inject constructor(
     suspend fun currentLocation(): LatLng? = locationTracker.getCurrentLocation()
 
     fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
+
+    /** "RESPONSIVE MAP FILTERING — no matching records" — a selected
+     * Municipality/Barangay with zero matching records must still center the
+     * map on that area rather than leaving it wherever the camera happened
+     * to be (spec §19/§20/§24's own "keep the map centered on the selected
+     * geographic area instead"). Same on-device [Geocoder] every other
+     * location lookup in this app already uses (see
+     * [com.emfitsolutions.gopreach.data.location.LocationTracker.geocodeAddress]'s
+     * own doc comment) — no new API/dependency, `null` on any failure
+     * (offline, nothing found), which the caller treats as "just leave the
+     * camera where it is" rather than a hard error. */
+    suspend fun geocodeArea(query: String): LatLng? = locationTracker.geocodeAddress(query)
+
+    /** Real polygon boundary for the selected Municipality (or Barangay, when
+     * [barangay] is non-null) — see [TerritoryBoundaryRepository]'s own doc
+     * comment. Null means this province isn't covered by the bundled
+     * boundary asset yet, not an error — callers fall back to the
+     * best-effort circle in that case. */
+    suspend fun boundaryGeometry(municipality: String, barangay: String?): String? =
+        if (barangay != null) territoryBoundaryRepository.barangayGeometry(municipality, barangay)
+        else territoryBoundaryRepository.municipalityGeometry(municipality)
 
     // ---------------------------------------------------------------------
     // "Add a filter in Territory Map" / "Territory Map Congregation and

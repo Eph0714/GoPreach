@@ -35,6 +35,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
@@ -59,6 +60,44 @@ private fun PipelineStage.statusLabel(): String = when (this) {
     PipelineStage.SEARCHING -> "Found Interested"
     PipelineStage.RETURN_VISIT -> "Return Visit"
     PipelineStage.BIBLE_STUDY -> "Bible Study"
+}
+
+/** "STATUS VISUAL DISTINCTION" — spec's exact fixed colors, deliberately
+ * literal hex rather than a theme role (this is a specific recognition
+ * system the user asked for by name, not a generic "make it stand out"), the
+ * one exception being [PipelineStage.SEARCHING]'s "Black": a real black
+ * would be unreadable on this app's dark theme, so it resolves to
+ * [Color.Unspecified] instead — [androidx.compose.material3.Text] then
+ * falls back to its own current content color, which already renders as a
+ * near-black on a light background and a near-white on a dark one. That's
+ * the same "regular, undistinguished" result the spec's own "Found
+ * Interested = BLACK + REGULAR" row is asking for (no special color at
+ * all), just theme-safe. This is a *display-only* mapping — see this
+ * function's own callers, never anything that reads [PipelineStage] itself
+ * — so it can never be mistaken for changing what stage a record is at
+ * (spec §6). */
+private fun PipelineStage.statusColor(): Color = when (this) {
+    PipelineStage.BIBLE_STUDY -> Color(0xFF1565C0)
+    PipelineStage.RETURN_VISIT -> Color(0xFF2E7D32)
+    PipelineStage.SEARCHING -> Color.Unspecified
+}
+
+/** "Bible Study = ... BOLD; Return Visit/Found Interested = ... REGULAR" —
+ * applied to both the Householder Name and the Status text together (the
+ * spec's own Bible Study worked example bolds both lines, not just one). */
+private fun PipelineStage.statusFontWeight(): FontWeight =
+    if (this == PipelineStage.BIBLE_STUDY) FontWeight.Bold else FontWeight.Normal
+
+/** Same three colors as [statusColor], expressed as a CSS color for the
+ * print/PDF HTML output (spec §4's own "...Record details where the status
+ * is displayed" — the printed report is exactly that). `null` (Found
+ * Interested) means "don't override the print stylesheet's own text color"
+ * — the same theme-safety reasoning [statusColor] uses, just expressed the
+ * way an inline `style` attribute needs it. */
+private fun PipelineStage.statusCssColor(): String? = when (this) {
+    PipelineStage.BIBLE_STUDY -> "#1565C0"
+    PipelineStage.RETURN_VISIT -> "#2E7D32"
+    PipelineStage.SEARCHING -> null
 }
 
 private fun Visit.statusLabel(): String = outcome.name.replace('_', ' ')
@@ -287,10 +326,21 @@ private fun SearchByDropdown(selected: SearchByField, onSelected: (SearchByField
 
 @Composable
 private fun HouseholderCard(row: HouseholderRow, onClick: () -> Unit) {
+    // "STATUS VISUAL DISTINCTION" — Bible Study blue+bold, Return Visit
+    // green+regular, Found Interested black(-safe)+regular; applied to both
+    // the Householder Name and the Status line together, and recalculated
+    // fresh from [row.person.pipelineStage] on every recomposition, so a
+    // legitimate status change (spec §6/§7 — Add/Edit/status-move, then a
+    // live Firestore update flows back into this same [row]) repaints the
+    // color/weight automatically rather than needing any special refresh
+    // logic of its own.
+    val stage = row.person.pipelineStage
+    val statusColor = stage.statusColor()
+    val statusWeight = stage.statusFontWeight()
     Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(row.person.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(row.person.pipelineStage.statusLabel(), style = MaterialTheme.typography.bodyMedium)
+            Text(row.person.name, style = MaterialTheme.typography.titleMedium, fontWeight = statusWeight, color = statusColor)
+            Text(stage.statusLabel(), style = MaterialTheme.typography.bodyMedium, fontWeight = statusWeight, color = statusColor)
             Text(
                 "Assigned Publisher: ${row.publisherName ?: "Unassigned"}",
                 style = MaterialTheme.typography.bodySmall,
@@ -336,9 +386,18 @@ private fun buildHouseholderVisitHistoryPrintHtml(rows: List<HouseholderRow>, pe
         append("<h2>").append(esc("House Holder Visit History")).append("</h2>")
         rows.forEach { row ->
             val person = row.person
+            // "STATUS VISUAL DISTINCTION... Record details where the status
+            // is displayed" — the printed/PDF report is exactly that; same
+            // three colors [HouseholderCard] uses on-screen (see
+            // [PipelineStage.statusCssColor]'s own doc comment for why
+            // Found Interested has no color override here either).
+            val statusStyle = buildString {
+                person.pipelineStage.statusCssColor()?.let { append("color:$it;") }
+                if (person.pipelineStage == PipelineStage.BIBLE_STUDY) append("font-weight:bold;")
+            }
             append("<div class=\"household\">")
-            append("<p class=\"field\"><b>House holder:</b> ").append(esc(person.name)).append("</p>")
-            append("<p class=\"field\"><b>Status:</b> ").append(esc(person.pipelineStage.statusLabel())).append("</p>")
+            append("<p class=\"field\" style=\"$statusStyle\"><b>House holder:</b> ").append(esc(person.name)).append("</p>")
+            append("<p class=\"field\" style=\"$statusStyle\"><b>Status:</b> ").append(esc(person.pipelineStage.statusLabel())).append("</p>")
             append("<p class=\"field\"><b>Assigned to:</b> ").append(esc(row.publisherName ?: "Unassigned")).append("</p>")
             append("<p class=\"field\"><b>Coordinates:</b> ")
                 .append(esc(if (person.hasGpsLocation) formatGpsDecimal(person.gpsLat!!, person.gpsLng!!) else "Not available"))

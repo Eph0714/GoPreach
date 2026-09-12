@@ -47,16 +47,6 @@
         android:usesCleartextTraffic="false"
         android:supportsRtl="true">
 
-        <!-- "Google Maps must be the actual map used by GoPreach Territory
-             Map" — the real key is supplied at build time via
-             local.properties' MAPS_API_KEY -> app/build.gradle.kts'
-             manifestPlaceholders (never checked into source control); see
-             TerritoryMapScreen.kt for the on-screen message shown when this
-             resolves empty on a machine that hasn't set one yet. -->
-        <meta-data
-            android:name="com.google.android.geo.API_KEY"
-            android:value="${MAPS_API_KEY}" />
-
         <!-- On-demand WorkManager init: GoPreachApp supplies its own Configuration
              (HiltWorkerFactory), so the default androidx.startup initializer must be removed. -->
         <provider
