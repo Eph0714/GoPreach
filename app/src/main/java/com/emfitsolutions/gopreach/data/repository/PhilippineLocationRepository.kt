@@ -58,6 +58,11 @@ class PhilippineLocationRepository @Inject constructor(
     suspend fun searchBarangays(muncityId: Int, query: String): List<PsgcOption> =
         dao.searchBarangaysInMuncity(muncityId, normalize(query)).map { it.toOption() }
 
+    /** Territory Map's "Municipality: All Municipalities" case — every
+     * barangay across the whole province at once. */
+    suspend fun searchBarangaysInProvince(provinceId: Int, query: String): List<PsgcOption> =
+        dao.searchBarangaysInProvince(provinceId, normalize(query)).map { it.toOption() }
+
     /** Best-effort match of a Geocoder result onto real PSGC rows — returns
      * both the resolved [PhilippineAddressSelection] (names, for display/
      * saving) and the matched ids (so the picker can keep cascading from

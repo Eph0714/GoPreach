@@ -55,6 +55,16 @@ interface PsgcDao {
     @Query("SELECT * FROM barangay WHERE muncityId = :muncityId AND nameNormalized LIKE '%' || :query || '%' ORDER BY name")
     suspend fun searchBarangaysInMuncity(muncityId: Int, query: String): List<BarangayEntity>
 
+    /** Territory Map's "Municipality: All Municipalities" case — every
+     * barangay across every municipality/city in one province, joined
+     * through [MuncityEntity] since [BarangayEntity] itself only stores its
+     * own `muncityId`, not a province id. */
+    @Query(
+        "SELECT barangay.* FROM barangay INNER JOIN muncity ON barangay.muncityId = muncity.id " +
+            "WHERE muncity.provinceId = :provinceId AND barangay.nameNormalized LIKE '%' || :query || '%' ORDER BY barangay.name",
+    )
+    suspend fun searchBarangaysInProvince(provinceId: Int, query: String): List<BarangayEntity>
+
     @Query("SELECT * FROM barangay WHERE id = :id")
     suspend fun barangayById(id: Int): BarangayEntity?
 

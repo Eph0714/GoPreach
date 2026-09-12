@@ -378,8 +378,20 @@ fun GoPreachNavGraph(
         // per that module's own spec; the drawer/tile entries below are
         // gated the same way, but this is the actual scoping boundary.
         composable(Destinations.HOUSEHOLDER_VISIT_HISTORY) {
+            // Bug fix ("Admin and other authorized non-Super Admin users...
+            // must only be able to view House Holder Visit History records
+            // belonging to their assigned congregation"): this used to pass
+            // only `ownPublisherAssignment?.congregationId`, which is null
+            // for every Admin-track role and Regular Elder (none of them
+            // hold a Publisher assignment) — so Admin/Coordinator Elder/
+            // Service Overseer/Secretary/Ministerial Servant/Regular Elder
+            // all silently fell through to `null`, the exact same "every
+            // congregation" scope Super-Admin gets. Now mirrors the same
+            // `ownCongregationId ?: ownGroupAssignment?.congregationId ?:
+            // ownPublisherAssignment?.congregationId` resolution every other
+            // congregation-scoped screen in this nav graph already uses.
             com.emfitsolutions.gopreach.ui.screens.householdervisithistory.HouseholderVisitHistoryScreen(
-                congregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownPublisherAssignment?.congregationId,
+                congregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId ?: ownPublisherAssignment?.congregationId),
                 currentPersonId = currentPersonId,
                 onBack = { navController.popBackStack() },
             )

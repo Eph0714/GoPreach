@@ -83,6 +83,11 @@ data class HouseholderRow(
 data class HouseholderVisitHistoryUiState(
     val isLoading: Boolean = true,
     val congregations: List<Congregation> = emptyList(),
+    /** "Search By Congregation" (Super-Admin only) — `null` is "All
+     * Congregations". Always `null` for a scoped (non-Super-Admin) session,
+     * since [HouseholderVisitHistoryViewModel.setCongregationFilter] is a
+     * no-op for one. */
+    val congregationFilter: String? = null,
     val recordType: RecordTypeFilter = RecordTypeFilter.ALL,
     val searchByField: SearchByField = SearchByField.ALL,
     val searchQuery: String = "",
@@ -119,6 +124,16 @@ class HouseholderVisitHistoryViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val congregationId = MutableStateFlow<String?>(null)
+    // "Super Admin – Congregation Filter": "All Congregations" (null) or one
+    // specific congregation, on top of [congregationId] — deliberately a
+    // *separate* piece of state from the actual security scope, never merged
+    // into it. Only ever has an effect when [congregationId] is itself null
+    // (Super-Admin's unscoped session, see [restrictTo]'s own doc comment);
+    // [setCongregationFilter] below is a no-op for anyone else, so even a
+    // caller that bypassed the UI (which never shows this dropdown to a
+    // scoped session at all) can't use it to reach another congregation —
+    // the real boundary stays [congregationId] itself.
+    private val congregationFilter = MutableStateFlow<String?>(null)
     private val recordType = MutableStateFlow(RecordTypeFilter.ALL)
     private val searchByField = MutableStateFlow(SearchByField.ALL)
     private val searchQuery = MutableStateFlow("")
@@ -132,6 +147,14 @@ class HouseholderVisitHistoryViewModel @Inject constructor(
         if (restricted) return
         restricted = true
         congregationId.value = scopedCongregationId
+    }
+
+    /** "Search By Congregation: All Congregations / Specific Congregation" —
+     * Super-Admin only in effect (see [congregationFilter]'s own doc
+     * comment); `null` means "All Congregations". */
+    fun setCongregationFilter(value: String?) {
+        if (congregationId.value != null) return
+        congregationFilter.value = value
     }
 
     fun setRecordType(value: RecordTypeFilter) { recordType.value = value }
@@ -155,19 +178,28 @@ class HouseholderVisitHistoryViewModel @Inject constructor(
         .map { people -> people.associate { it.id to it.fullName } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    // The real security scope is [congregationId]; a Super-Admin's own
+    // "Specific Congregation" choice ([congregationFilter]) can only ever
+    // narrow *within* it, never widen past it — this `?:` order means a
+    // non-null [congregationId] (any scoped role) always wins regardless of
+    // [congregationFilter]'s value. Combined into one flow first so the
+    // 5-flow [combine] below stays within kotlinx.coroutines' typed
+    // (non-vararg) overloads.
+    private val effectiveCongregationIdFlow = combine(congregationId, congregationFilter) { scoped, filter -> scoped ?: filter }
+
     private val scopedRowsFlow = combine(
         interestedPersonRepository.observeAll(),
         visitRepository.observeAllVisits(),
         personRepository.observeAll(),
         congregationRepository.observeAll(),
-        congregationId,
-    ) { people, visits, persons, congregations, scopedCongregationId ->
+        effectiveCongregationIdFlow,
+    ) { people, visits, persons, congregations, effectiveCongregationId ->
         val personNameById = persons.associate { it.id to it.fullName }
         val congregationNameById = congregations.associate { it.id to it.name }
         val visitsByPerson = visits.groupBy { it.interestedPersonId }
         people
             .filter { it.status == RecordStatus.ACTIVE }
-            .filter { scopedCongregationId == null || it.congregationId == scopedCongregationId }
+            .filter { effectiveCongregationId == null || it.congregationId == effectiveCongregationId }
             .map { person ->
                 HouseholderRow(
                     person = person,
@@ -188,8 +220,8 @@ class HouseholderVisitHistoryViewModel @Inject constructor(
     private val filterState = combine(recordType, searchByField, searchQuery) { rt, field, q -> FilterState(rt, field, q) }
 
     val uiState: StateFlow<HouseholderVisitHistoryUiState> = combine(
-        scopedRowsFlow, congregations, filterState,
-    ) { scopedRows, congregations, filter ->
+        scopedRowsFlow, congregations, filterState, congregationFilter,
+    ) { scopedRows, congregations, filter, congregationFilterValue ->
         val filteredRows = scopedRows
             .filter { filter.recordType.matches(it.person.pipelineStage) }
             .filter { it.matchesSearch(filter.searchByField, filter.searchQuery) }
@@ -197,6 +229,7 @@ class HouseholderVisitHistoryViewModel @Inject constructor(
         HouseholderVisitHistoryUiState(
             isLoading = false,
             congregations = congregations,
+            congregationFilter = congregationFilterValue,
             recordType = filter.recordType,
             searchByField = filter.searchByField,
             searchQuery = filter.searchQuery,

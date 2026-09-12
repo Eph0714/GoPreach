@@ -47,6 +47,7 @@ import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.Visit
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
+import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelinePersonDetailScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineViewModel
@@ -180,8 +181,11 @@ fun HouseholderVisitHistoryScreen(
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
                 },
                 actions = {
-                    IconButton(onClick = { ReportPrinter.print(context, exportTable) }, enabled = uiState.rows.isNotEmpty()) {
-                        Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Export as PDF")
+                    IconButton(
+                        onClick = { ReportPrinter.printHtml(context, "House Holder Visit History", buildHouseholderVisitHistoryPrintHtml(uiState.rows, personNames)) },
+                        enabled = uiState.rows.isNotEmpty(),
+                    ) {
+                        Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Print / Export as PDF")
                     }
                     IconButton(onClick = { exportLauncher.launch(exportFileName) }, enabled = uiState.rows.isNotEmpty()) {
                         Icon(Icons.Rounded.TableChart, contentDescription = "Export as Excel")
@@ -192,6 +196,21 @@ fun HouseholderVisitHistoryScreen(
     ) { padding ->
         Column(modifier = Modifier.fillMaxWidth().padding(padding)) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // "Super Admin – Congregation Filter" — only ever shown for
+                // the actual unscoped (Super-Admin) session; [congregationId]
+                // being non-null here already means a real congregation
+                // boundary the UI never exposes a way around (see
+                // HouseholderVisitHistoryViewModel.setCongregationFilter's
+                // own doc comment for the matching ViewModel-side guard).
+                if (congregationId == null) {
+                    CongregationFilterDropdown(
+                        congregations = uiState.congregations,
+                        selectedCongregationId = uiState.congregationFilter,
+                        onSelected = viewModel::setCongregationFilter,
+                        label = "Search By Congregation",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 RecordTypeDropdown(selected = uiState.recordType, onSelected = viewModel::setRecordType)
                 SearchByDropdown(selected = uiState.searchByField, onSelected = viewModel::setSearchByField)
                 OutlinedTextField(
@@ -289,3 +308,65 @@ private fun HouseholderCard(row: HouseholderRow, onClick: () -> Unit) {
  * IDE navigation from this file's own doc comments; the type itself is only
  * ever referenced through [HouseholderRow.person] above. */
 private fun unusedTypeAnchor(person: InterestedPerson) = person
+
+/** "Printing / Print Report Format" — one grouped block per house holder
+ * (parent details, then every one of their own Visit History entries with
+ * its own real, existing fields — never a "Visit History 1/2/3" placeholder,
+ * never split across unrelated pages/sections), instead of the flat
+ * one-row-per-visit table [ReportTable] renders. [rows] is already exactly
+ * what's on screen — same congregation scope/filter, same Record Type/
+ * Search filters — so printing can never show more than the signed-in
+ * session is actually looking at (spec §9's "never allow the print function
+ * to bypass the user's congregation restriction"). No "Contact" field is
+ * printed: [InterestedPerson] has no such field today, and inventing one
+ * isn't this change's job (see this screen's own module doc comment on
+ * building nothing new). */
+private fun buildHouseholderVisitHistoryPrintHtml(rows: List<HouseholderRow>, personNames: Map<String, String>): String {
+    val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+    fun esc(text: String) = ReportPrinter.escapeHtml(text)
+    return buildString {
+        append("<html><head><meta charset=\"utf-8\"><style>")
+        append("body{font-family:sans-serif;font-size:12px;} h2{text-align:center;} ")
+        append("div.household{margin-top:18px;padding-top:10px;border-top:2px solid #333;} ")
+        append("div.household:first-of-type{border-top:none;} ")
+        append("p.field{margin:2px 0;} p.field b{display:inline-block;min-width:110px;} ")
+        append("div.visit{margin:6px 0 6px 24px;padding:6px 10px;border-left:3px solid #999;} ")
+        append("div.visit p{margin:1px 0;} p.visitTitle{font-weight:bold;margin:0;}")
+        append("</style></head><body>")
+        append("<h2>").append(esc("House Holder Visit History")).append("</h2>")
+        rows.forEach { row ->
+            val person = row.person
+            append("<div class=\"household\">")
+            append("<p class=\"field\"><b>House holder:</b> ").append(esc(person.name)).append("</p>")
+            append("<p class=\"field\"><b>Status:</b> ").append(esc(person.pipelineStage.statusLabel())).append("</p>")
+            append("<p class=\"field\"><b>Assigned to:</b> ").append(esc(row.publisherName ?: "Unassigned")).append("</p>")
+            append("<p class=\"field\"><b>Coordinates:</b> ")
+                .append(esc(if (person.hasGpsLocation) formatGpsDecimal(person.gpsLat!!, person.gpsLng!!) else "Not available"))
+                .append("</p>")
+            val address = listOfNotNull(
+                person.address.takeIf { it.isNotBlank() },
+                person.barangay, person.cityMunicipality, person.province,
+            ).joinToString(", ")
+            append("<p class=\"field\"><b>Address:</b> ").append(esc(address.ifBlank { "—" })).append("</p>")
+            if (row.visits.isEmpty()) {
+                append("<div class=\"visit\"><p>No visit history recorded.</p></div>")
+            } else {
+                row.visits.forEachIndexed { index, visit ->
+                    append("<div class=\"visit\">")
+                    append("<p class=\"visitTitle\">Visit History ").append(index + 1).append("</p>")
+                    append("<p><b>Date:</b> ").append(esc(dateFormat.format(Date(visit.visitDate)))).append("</p>")
+                    append("<p><b>Publisher:</b> ").append(esc(personNames[visit.publisherPersonId] ?: "—")).append("</p>")
+                    append("<p><b>Status:</b> ").append(esc(visit.statusLabel())).append("</p>")
+                    append("<p><b>Remarks:</b> ").append(esc(visit.topicDiscussed?.takeIf { it.isNotBlank() } ?: "—")).append("</p>")
+                    append("<p><b>Recorded by:</b> ").append(esc(personNames[visit.createdByPersonId] ?: "—")).append("</p>")
+                    append("<p><b>Visit Coordinates:</b> ")
+                        .append(esc(if (visit.hasVisitLocation) formatGpsDecimal(visit.visitLat!!, visit.visitLng!!) else "Not available"))
+                        .append("</p>")
+                    append("</div>")
+                }
+            }
+            append("</div>")
+        }
+        append("</body></html>")
+    }
+}

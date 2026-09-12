@@ -13,18 +13,24 @@ import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
+import com.emfitsolutions.gopreach.data.model.Visit
 import com.emfitsolutions.gopreach.data.model.isCurrentlyFresh
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
+import com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.SharedLocationRepository
+import com.emfitsolutions.gopreach.data.repository.VisitRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.Collections
@@ -82,7 +88,30 @@ class TerritoryMapViewModel @Inject constructor(
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val groupRepository: GroupRepository,
+    private val philippineLocationRepository: PhilippineLocationRepository,
+    private val visitRepository: VisitRepository,
 ) : ViewModel() {
+
+    init {
+        // Same broad, screen-lifetime collection-group listener the
+        // Consolidated Report / House Holder Visit History already start for
+        // "every Visit, every Interested Person" — reused rather than
+        // duplicated (needed for List View's own "Last Visit"/"Visited By"
+        // columns).
+        viewModelScope.launch { visitRepository.startRemoteSyncAllForCongregationView().collect {} }
+    }
+
+    /** id -> that person's own visits, newest first — "TERRITORY MAP – LIST
+     * VIEW REDESIGN" spec §5/§13's "Last Visit"/"Visited By" columns, same
+     * [interestedPersonId]-keyed grouping
+     * [com.emfitsolutions.gopreach.ui.screens.householdervisithistory.HouseholderVisitHistoryViewModel]
+     * already uses. */
+    val visitsByPerson: StateFlow<Map<String, List<Visit>>> = visitRepository.observeAllVisits()
+        .map { visits ->
+            visits.groupBy { it.interestedPersonId }
+                .mapValues { (_, v) -> v.sortedWith(compareByDescending<Visit> { it.visitDate }.thenByDescending { it.createdAt }) }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private val _resolvedAddresses = MutableStateFlow<Map<String, String>>(emptyMap())
 
@@ -113,6 +142,15 @@ class TerritoryMapViewModel @Inject constructor(
     private val requestedIds = Collections.synchronizedSet(mutableSetOf<String>())
 
     private fun resolveKey(personId: String, lat: Double, lng: Double) = "$personId:$lat:$lng"
+
+    /** id -> full name for every Person — backs the "Search By: Publisher
+     * Assigned" field and the "Publisher Assigned" column List View shows
+     * (spec's own Territory Map filter requirements), same convention
+     * [com.emfitsolutions.gopreach.ui.screens.householdervisithistory.HouseholderVisitHistoryViewModel.personNames]
+     * already uses. */
+    val personNames: StateFlow<Map<String, String>> = personRepository.observeAll()
+        .map { people -> people.associate { it.id to it.fullName } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     /** [congregationId] null means every congregation (Super-Admin). Only
      * [RecordStatus.ACTIVE] records with a saved location are shown — same
@@ -270,6 +308,36 @@ class TerritoryMapViewModel @Inject constructor(
                 .map { it.personId }
                 .toSet()
         }
+
+    // -------------------------------------------------------------------
+    // "TERRITORY MAP – PHILIPPINES LOCATION SEARCH" — Province is never a
+    // user choice (see [TerritoryMapScreen]'s own automatic-Province effect);
+    // once it's known, these load the *complete* real Philippine Municipality/
+    // Barangay lists for it from the bundled PSGC table ([PhilippineLocationRepository]
+    // already backs the same Address Picker every Interested Person/Person
+    // form uses), not just whichever names happen to already appear on a
+    // saved record — so a Municipality/Barangay with zero current records
+    // still shows up as a real, selectable choice.
+
+    /** `null` if [provinceName] doesn't match a real PSGC province (should
+     * never happen for a congregation's own stored [Congregation.province],
+     * but a blank/free-text province edge case degrades to "no PH options"
+     * rather than a crash). */
+    suspend fun resolveProvinceId(provinceName: String): Int? = philippineLocationRepository.findProvinceByName(provinceName)?.id
+
+    suspend fun municipalitiesInProvince(provinceId: Int): List<String> =
+        philippineLocationRepository.searchCitiesMunicipalities(provinceId, "").map { it.name }
+
+    /** "Barangay = Based on the selected Municipality/City" — [muncityName]
+     * `null` (spec's "All Municipalities") falls back to every barangay in
+     * [provinceId] instead ([barangaysInProvince]'s spec §3 fallback). */
+    suspend fun barangaysInMuncity(provinceId: Int, muncityName: String): List<String> {
+        val muncity = philippineLocationRepository.findMuncityByName(muncityName, provinceId) ?: return emptyList()
+        return philippineLocationRepository.searchBarangays(muncity.id, "").map { it.name }
+    }
+
+    suspend fun barangaysInProvince(provinceId: Int): List<String> =
+        philippineLocationRepository.searchBarangaysInProvince(provinceId, "").map { it.name }
 }
 
 /** "Inner Sub Filter: All, Bible Study, Return Visit, Searched Interested" —
