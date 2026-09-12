@@ -18,6 +18,7 @@ import com.emfitsolutions.gopreach.data.model.displayLabel
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.screens.about.AboutScreen
 import com.emfitsolutions.gopreach.ui.screens.account.AccountSettingsScreen
+import com.emfitsolutions.gopreach.ui.screens.account.PublisherSchedulesScreen
 import com.emfitsolutions.gopreach.ui.screens.auth.ForcedPasswordChangeScreen
 import com.emfitsolutions.gopreach.ui.screens.auth.ForgotPasswordScreen
 import com.emfitsolutions.gopreach.ui.screens.admins.ManageAdminsScreen
@@ -934,6 +935,19 @@ fun GoPreachNavGraph(
                 // signal every other Publisher-only feature in this file
                 // already checks.
                 isPublisher = ownPublisherAssignment != null,
+                onViewPublisherSchedules = if (ownPublisherAssignment != null) {
+                    { navController.navigate(Destinations.PUBLISHER_SCHEDULES) }
+                } else null,
+            )
+        }
+        composable(Destinations.PUBLISHER_SCHEDULES) {
+            // Same congregation-scoping source PREACHING_TIME_RECORD already
+            // uses for a Publisher-scoped screen — this route is Publisher-
+            // only (reached from Account Settings' own Publisher-gated link).
+            PublisherSchedulesScreen(
+                congregationId = ownPublisherAssignment?.congregationId,
+                currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
             )
         }
         composable(Destinations.MANAGE_USERS) {

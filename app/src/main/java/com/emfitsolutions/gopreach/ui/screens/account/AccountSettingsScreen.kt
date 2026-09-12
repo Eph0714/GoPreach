@@ -22,6 +22,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -85,6 +86,10 @@ fun AccountSettingsScreen(
     // sees the Preaching Availability section below; every other role
     // reaches this exact same screen for name/username/password unchanged.
     isPublisher: Boolean = false,
+    // "This will be visible in other publisher account" — opens
+    // PublisherSchedulesScreen; null (default) hides the link entirely,
+    // same pattern as isPublisher gating the section above it.
+    onViewPublisherSchedules: (() -> Unit)? = null,
     viewModel: AccountSettingsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -161,6 +166,11 @@ fun AccountSettingsScreen(
                 Button(onClick = viewModel::saveAvailability, enabled = !uiState.isSavingAvailability, modifier = Modifier.fillMaxWidth()) {
                     if (uiState.isSavingAvailability) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
                     Text("Save Availability")
+                }
+                if (onViewPublisherSchedules != null) {
+                    OutlinedButton(onClick = onViewPublisherSchedules, modifier = Modifier.fillMaxWidth()) {
+                        Text("View Other Publishers' Schedules")
+                    }
                 }
             }
 

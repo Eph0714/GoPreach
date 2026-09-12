@@ -156,6 +156,11 @@ object Destinations {
 
     // User Access Management (Super-Admin account editing + Circuit Overseer/custom users)
     const val ACCOUNT_SETTINGS = "account_settings"
+    // "Add Module: Preaching Availability" — spec's own "This will be
+    // visible in other publisher account" — a Publisher browsing fellow
+    // publishers' schedules within their own congregation, reached from
+    // Account Settings.
+    const val PUBLISHER_SCHEDULES = "publisher_schedules"
     const val MANAGE_USERS = "manage_users"
     const val ADD_USER = "add_user"
     const val EDIT_USER = "edit_user/{targetPersonId}"

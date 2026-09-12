@@ -433,7 +433,11 @@ private enum class LookupState { Idle, Loading, Resolved, NotFound }
  * filled in Preaching Availability at all — shown as "No availability set,"
  * never silently blank, so a Service Overseer isn't left guessing whether
  * that means "available every day" or "never asked." */
-private fun availabilitySummary(publisher: Person): String {
+// Not private — reused by PublisherSchedulesScreen (Account Settings' own
+// "View Other Publishers' Schedules" link) so a Publisher can see this same
+// summary for fellow publishers in their congregation, not just a Service
+// Overseer/Admin picking who to assign a record to.
+internal fun availabilitySummary(publisher: Person): String {
     val days = publisher.preachingAvailableDays
         .mapNotNull { runCatching { com.emfitsolutions.gopreach.data.model.PreachingDay.valueOf(it) }.getOrNull() }
         .sortedBy { it.ordinal }
