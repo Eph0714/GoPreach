@@ -98,7 +98,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import com.emfitsolutions.gopreach.data.location.LatLng
 import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
+import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
+import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.ui.components.isValidLatitude
 import com.emfitsolutions.gopreach.ui.components.isValidLongitude
@@ -163,6 +165,39 @@ private enum class TerritoryDirectoryStatus(val label: String, val stage: Pipeli
     BIBLE_STUDY("Bible Study", PipelineStage.BIBLE_STUDY),
     SEARCHING("Searching Interested Person", PipelineStage.SEARCHING),
     RETURN_VISIT("Return Visit", PipelineStage.RETURN_VISIT),
+}
+
+/** "The Territory Map → Map View search can be simplified into a single,
+ * consistent cascading search system" — Map View's own "Search by" category,
+ * entirely independent of List View's own Municipality/Barangay/Search-By/
+ * Group-By/Search-by-Status controls (which are unchanged; this spec is
+ * explicitly scoped to "Map View search" only). Each category drives what
+ * the second dropdown ([TerritoryMapScreen]'s own `mapSelectionOptions`)
+ * offers and what [PipelineStage] (if any) narrows the map's pipeline
+ * markers — see [MapSearchCategory.stage]. */
+/** Joins a (Municipality, Barangay) pair into one dropdown selection id —
+ * Barangay names alone collide across towns ("Poblacion" in nearly every
+ * one), so [MapSearchCategory.BARANGAY]'s selection can never be just the
+ * bare Barangay name. `||` never appears in a real PSGC name. */
+private const val BARANGAY_SELECTION_SEPARATOR = "||"
+
+private enum class MapSearchCategory(
+    val label: String,
+    val stage: PipelineStage?,
+    /** The second dropdown's own label — spec's exact worked examples
+     * ("Select Municipality", "Select Publisher", ...). */
+    val selectLabel: String,
+    /** "'All' should always be available... All Municipalities / All
+     * Barangays / All Interested Persons / All Return Visits / All Bible
+     * Studies / All Publishers" — spec's exact wording per category. */
+    val allLabel: String,
+) {
+    MUNICIPALITY("Municipalities", null, "Select Municipality", "All Municipalities"),
+    BARANGAY("Barangay", null, "Select Barangay", "All Barangays"),
+    INTERESTED_PERSON("Interested Person", PipelineStage.SEARCHING, "Select Interested Person", "All Interested Persons"),
+    RETURN_VISIT("Return Visit", PipelineStage.RETURN_VISIT, "Select Return Visit", "All Return Visits"),
+    BIBLE_STUDY("Bible Study", PipelineStage.BIBLE_STUDY, "Select Bible Study", "All Bible Studies"),
+    PUBLISHER_TERRITORY("Publisher Territory", null, "Select Publisher", "All Publishers"),
 }
 
 /**
@@ -245,6 +280,24 @@ fun TerritoryMapScreen(
         selectedPersonForDetails = person
     }
     var advancedFilter by remember { mutableStateOf(TerritoryFilterState()) }
+
+    // "Make the Super Admin... have the same territory map like the
+    // Publishers Territory Map, the same features and functions. Just
+    // observe the congregation restrictions" — every feature below (List
+    // View default, Deep Search, Area Information Panel, real boundary
+    // polygons, uniform markers) is already the exact same screen/state a
+    // scoped Publisher/Admin/Elder uses; the one piece Super-Admin alone
+    // needs — a way to actually choose "All Congregations" or one specific
+    // congregation — was lost when the old Tune-icon [TerritoryFilterSheet]
+    // was removed this session, even though [advancedFilter.congregationId]/
+    // [effectiveCongregationId]/[TerritoryMapViewModel.congregationsFor]
+    // were never touched and still fully wire up to it (see this screen's
+    // own doc comments a few lines up). Re-adding just the picker itself,
+    // in the same persistent filter bar every other role already sees,
+    // restores that without reviving the removed sheet or its Field
+    // Service Group/Publisher sub-filters (never part of this request).
+    val congregationOptions by (if (isSuperAdmin) viewModel.congregationsFor(null) else flowOf(emptyList()))
+        .collectAsStateWithLifecycle(initialValue = emptyList())
 
     // "Territory Map Congregation and Field Service Group Filters" spec §1/
     // §2/§17 — Congregation is the first filter for every role, but only
@@ -432,6 +485,160 @@ fun TerritoryMapScreen(
         }
     }
 
+    // ============================================================
+    // "TERRITORY MAP → MAP VIEW SEARCH SIMPLIFICATION" — a single,
+    // consistent cascading search: Search Category → Specific Record/All →
+    // Deeper Text Search → Map Scope. Entirely independent of List View's
+    // own Municipality/Barangay/Search-By/Group-By/Search-by-Status controls
+    // above (unchanged — this request is explicitly scoped to "Map View
+    // search" only, and the two views' underlying mental models — a
+    // geography-grouped directory vs. a category cascade — don't map onto
+    // each other cleanly enough to share one control). [rows] (fully
+    // congregation-scoped, nothing else) is Map View's own base dataset,
+    // never [filtered]/[advancedFilteredRows] (both List-View-search-scoped).
+    // ============================================================
+    var mapSearchCategory by remember { mutableStateOf(MapSearchCategory.MUNICIPALITY) }
+    // null means "All ..." for whichever category is active — the one
+    // required option "always available" for every category (spec's own
+    // "'All' should always be available" rule); its label is resolved
+    // per-category by [TerritoryMapSearchBar] itself (e.g. "All
+    // Municipalities" vs. "All Publishers"), never stored here.
+    var mapSelectionId by remember { mutableStateOf<String?>(null) }
+    var mapDeepSearchQuery by remember { mutableStateOf("") }
+    // "Whenever the scope changes: Clear/recalculate the previous map
+    // scope" — changing the category always resets both the specific-record
+    // selection and the deeper search text, so a stale selection from one
+    // category (e.g. a picked Barangay) never silently carries into another
+    // (e.g. Publisher Territory) where it would mean nothing.
+    fun onMapCategoryChange(category: MapSearchCategory) {
+        mapSearchCategory = category
+        mapSelectionId = null
+        mapDeepSearchQuery = ""
+    }
+    // Picking a new specific record/"All" also clears the deeper search —
+    // "Juan" found inside Publisher A's territory must never silently keep
+    // matching once the user switches to Publisher B.
+    fun onMapSelectionChange(id: String?) {
+        mapSelectionId = id
+        mapDeepSearchQuery = ""
+    }
+
+    // Second-dropdown option lists, one per category — only the currently
+    // active category's list is ever actually computed/collected.
+    // Municipalities: the exact same province-wide, real-PSGC-backed list
+    // List View's own Municipality dropdown already uses — a legitimate
+    // reuse, not a coincidence, since both are "every Municipality in the
+    // current congregation-scope's Province" with no further narrowing.
+    // Barangay: its own full (Municipality, Barangay) directory — kept
+    // separate from List View's own [barangayDirectory] above (which is
+    // additionally narrowed by List View's *own* selected Municipality) so
+    // switching between List View and Map View's Barangay category can
+    // never make one silently filter the other.
+    var mapBarangayDirectory by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    LaunchedEffect(mapSearchCategory, provinceId.value, municipalityOptions, rows) {
+        if (mapSearchCategory != MapSearchCategory.BARANGAY) return@LaunchedEffect
+        val id = provinceId.value
+        mapBarangayDirectory = if (id == null) {
+            rows.mapNotNull { row -> row.person.cityMunicipality?.let { m -> row.person.barangay?.let { b -> m to b } } }.distinct()
+        } else {
+            municipalityOptions.flatMap { muni -> viewModel.barangaysInMuncity(id, muni).map { muni to it } }
+        }
+    }
+    // Interested Person / Return Visit / Bible Study: every named record
+    // currently at that pipeline stage, in scope.
+    val mapStageOptions = remember(rows, mapSearchCategory) {
+        val stage = mapSearchCategory.stage ?: return@remember emptyList()
+        rows.filter { it.person.pipelineStage == stage }.map { it.person.id to it.person.name }.sortedBy { it.second }
+    }
+    // Publisher Territory: every active Publisher in the current
+    // congregation scope (not just whoever's currently live-sharing — a
+    // Publisher's assigned records exist whether or not they're actively
+    // sharing their location right now).
+    val mapPublisherPersons by (
+        if (mapSearchCategory == MapSearchCategory.PUBLISHER_TERRITORY) {
+            viewModel.publishersFor(effectiveCongregationId?.let { setOf(it) })
+        } else {
+            flowOf(emptyList())
+        }
+        ).collectAsStateWithLifecycle(initialValue = emptyList())
+
+    // "The map should show the complete territory scope associated with
+    // that publisher" — every pipeline record currently assigned to them
+    // (Searching/Return Visit/Bible Study all at once, spec's own list),
+    // plus (below) their own live-shared and/or recorded home location.
+    val mapScopedRows = remember(rows, mapSearchCategory, mapSelectionId) {
+        val selection = mapSelectionId
+        when (mapSearchCategory) {
+            MapSearchCategory.MUNICIPALITY ->
+                if (selection == null) rows else rows.filter { it.person.cityMunicipality == selection }
+            MapSearchCategory.BARANGAY ->
+                if (selection == null) rows else {
+                    val muni = selection.substringBefore(BARANGAY_SELECTION_SEPARATOR)
+                    val brgy = selection.substringAfter(BARANGAY_SELECTION_SEPARATOR)
+                    rows.filter { it.person.cityMunicipality == muni && it.person.barangay == brgy }
+                }
+            MapSearchCategory.INTERESTED_PERSON, MapSearchCategory.RETURN_VISIT, MapSearchCategory.BIBLE_STUDY -> {
+                val stage = mapSearchCategory.stage
+                rows.filter { it.person.pipelineStage == stage && (selection == null || it.person.id == selection) }
+            }
+            // "Selecting All means the map displays the complete scope for
+            // that category" — for Publisher Territory that's every record
+            // with *any* assigned Publisher, i.e. every row already in scope.
+            MapSearchCategory.PUBLISHER_TERRITORY ->
+                if (selection == null) rows else rows.filter { it.person.publisherPersonId == selection }
+        }
+    }
+    // "Search deeper... should perform a deeper search within the currently
+    // selected scope" — [mapScopedRows] above, never the full [rows].
+    val mapDeepSearchedRows = remember(mapScopedRows, mapDeepSearchQuery) {
+        val query = mapDeepSearchQuery.trim()
+        if (query.isEmpty()) mapScopedRows else mapScopedRows.filter { it.person.name.contains(query, ignoreCase = true) || it.person.address.contains(query, ignoreCase = true) }
+    }
+    // Publisher markers only ever appear under the Publisher Territory
+    // category — every other category's "line barrier" is a geography/
+    // pipeline-record scope, not a Publisher's, so showing an unrelated
+    // Publisher's live location pin while browsing e.g. Bible Studies would
+    // only contradict the category the user actually chose.
+    val mapScopedLivePublisherRows = remember(publisherRows, mapSearchCategory, mapSelectionId) {
+        when {
+            mapSearchCategory != MapSearchCategory.PUBLISHER_TERRITORY -> emptyList()
+            mapSelectionId == null -> publisherRows
+            else -> publisherRows.filter { it.person.id == mapSelectionId }
+        }
+    }
+    // "Publisher's address" — their own recorded home location (distinct
+    // from [mapScopedLivePublisherRows]' live "Share Location while
+    // Preaching" position above, which may not exist at all if they're not
+    // currently sharing); only meaningful once one specific Publisher is
+    // picked, and only when they actually have one on file.
+    val mapSelectedPublisherHome: Person? = remember(mapPublisherPersons, mapSearchCategory, mapSelectionId) {
+        if (mapSearchCategory != MapSearchCategory.PUBLISHER_TERRITORY || mapSelectionId == null) null
+        else mapPublisherPersons.firstOrNull { it.id == mapSelectionId }?.takeIf { it.gpsLat != null && it.gpsLng != null }
+    }
+    // "the map should show the complete territory scope associated with
+    // that publisher, including: Publisher's address / assigned area" — a
+    // second, distinct marker (not folded silently into the boundary math
+    // only) whenever their recorded home location isn't the exact same
+    // point as an already-shown live-sharing pin.
+    val mapScopedPublisherRows = remember(mapScopedLivePublisherRows, mapSelectedPublisherHome) {
+        val home = mapSelectedPublisherHome
+        if (home == null) {
+            mapScopedLivePublisherRows
+        } else if (mapScopedLivePublisherRows.any { it.lat == home.gpsLat && it.lng == home.gpsLng }) {
+            mapScopedLivePublisherRows
+        } else {
+            mapScopedLivePublisherRows + TerritoryPublisherRow(
+                person = home,
+                lat = home.gpsLat!!,
+                lng = home.gpsLng!!,
+                category = null,
+                congregationName = fixedCongregationName ?: "—",
+                updatedAt = 0L,
+                isCurrentlySharing = false,
+            )
+        }
+    }
+
     // "Search by Status" — List View's own directory-scoped status filter
     // (spec §1/§3/§7/§9), separate from the "Search By" field-picker above
     // (which chooses *what text field* the Search box matches, not which
@@ -457,60 +664,94 @@ fun TerritoryMapScreen(
             .sortedBy { it.person.name }
     }
 
-    // "RESPONSIVE MAP FILTERING BY MUNICIPALITY AND BARANGAY" spec §22/§23 —
-    // the Status filter (already applied to List View's own expanded rows,
-    // see [directoryStatus]) must narrow Map View's markers the exact same
-    // way, so both views can never disagree about what's currently shown.
-    // [TerritoryDirectoryStatus.PUBLISHER] has no pipeline row to match at
-    // all (see that enum's own doc comment) — an empty list here, same
-    // "nothing real to show" degradation List View's own expand already uses.
-    val mapRows = remember(filtered, directoryStatus) {
-        when (directoryStatus) {
-            TerritoryDirectoryStatus.ALL -> filtered
-            TerritoryDirectoryStatus.PUBLISHER -> emptyList()
-            else -> filtered.filter { it.person.pipelineStage == directoryStatus.stage }
+    // Map View's markers/publishers are now driven entirely by the cascading
+    // search above ([mapDeepSearchedRows]/[mapScopedPublisherRows]), never
+    // by List View's own [filtered]/[directoryStatus] — the two views'
+    // search models are independent (see that block's own doc comment).
+    val mapRows = mapDeepSearchedRows
+    val mapPublisherRows = mapScopedPublisherRows
+    // The human-readable label for whichever second-dropdown option is
+    // currently selected — used for both [noRecordsAreaLabel] below and
+    // [TerritoryMapSearchBar]'s own display, resolved once here so the two
+    // never disagree about what a given id actually means.
+    val mapSelectionLabel: String = remember(mapSearchCategory, mapSelectionId, mapBarangayDirectory, mapStageOptions, mapPublisherPersons) {
+        val selection = mapSelectionId
+        if (selection == null) {
+            mapSearchCategory.allLabel
+        } else {
+            when (mapSearchCategory) {
+                MapSearchCategory.MUNICIPALITY -> selection
+                MapSearchCategory.BARANGAY -> {
+                    val brgy = selection.substringAfter(BARANGAY_SELECTION_SEPARATOR)
+                    val muni = selection.substringBefore(BARANGAY_SELECTION_SEPARATOR)
+                    "$brgy, $muni"
+                }
+                MapSearchCategory.INTERESTED_PERSON, MapSearchCategory.RETURN_VISIT, MapSearchCategory.BIBLE_STUDY ->
+                    mapStageOptions.firstOrNull { it.first == selection }?.second ?: selection
+                MapSearchCategory.PUBLISHER_TERRITORY ->
+                    mapPublisherPersons.firstOrNull { it.id == selection }?.fullName ?: selection
+            }
         }
-    }
-    val mapPublisherRows = remember(filteredPublisherRows, directoryStatus) {
-        if (directoryStatus == TerritoryDirectoryStatus.ALL || directoryStatus == TerritoryDirectoryStatus.PUBLISHER) filteredPublisherRows else emptyList()
     }
     // "If the selected Municipality/Barangay has no records, still show the
     // [area]'s geographic area" (spec §19/§20) — a forward-geocode query
-    // string only when a specific area is actually selected ("All
-    // Municipalities"/"All Barangays" has no one area to center on instead
-    // of "every authorized record", which [mapRows] already shows in full).
-    // Barangay wins when both are set (it's the more specific area);
-    // zoom-in level is tighter for a Barangay than a whole Municipality
-    // (spec §24's own "zoom closer to the selected Barangay").
-    val selectedAreaQuery: Pair<String, Float>? = remember(effectiveProvince, advancedFilter.cityMunicipality, advancedFilter.barangay) {
-        val province = effectiveProvince
-        val muni = advancedFilter.cityMunicipality
-        val brgy = advancedFilter.barangay
+    // string only when a specific Municipality/Barangay is actually selected
+    // (the real-boundary lookup below needs plain names either way; a
+    // Geocoder fallback only makes sense for those two location categories
+    // in the first place — every other category's "scope" is a set of
+    // records, not a place name a Geocoder could ever resolve). Barangay's
+    // zoom is tighter than a whole Municipality's (spec's own "zoom closer
+    // to the selected Barangay").
+    val selectedAreaQuery: Pair<String, Float>? = remember(effectiveProvince, mapSearchCategory, mapSelectionId) {
+        val selection = mapSelectionId
         when {
-            muni == null -> null
-            brgy != null -> "$brgy, $muni, ${province ?: ""}, Philippines" to 15f
-            else -> "$muni, ${province ?: ""}, Philippines" to 12.5f
+            mapSearchCategory == MapSearchCategory.BARANGAY && selection != null -> {
+                val muni = selection.substringBefore(BARANGAY_SELECTION_SEPARATOR)
+                val brgy = selection.substringAfter(BARANGAY_SELECTION_SEPARATOR)
+                "$brgy, $muni, ${effectiveProvince ?: ""}, Philippines" to 15f
+            }
+            mapSearchCategory == MapSearchCategory.MUNICIPALITY && selection != null ->
+                "$selection, ${effectiveProvince ?: ""}, Philippines" to 12.5f
+            else -> null
         }
     }
     // Raw (un-templated) Municipality/Barangay names for the real-boundary
     // lookup ([TerritoryBoundaryRepository] keys by exact name, not a
-    // geocoder query string) — same "only when one specific area is
-    // selected" gating as [selectedAreaQuery] above, kept as a separate pair
-    // since the boundary repository needs the plain names, not the
-    // "X, Y, Philippines" string built for the Geocoder.
-    val selectedAreaNames: Pair<String, String?>? = remember(advancedFilter.cityMunicipality, advancedFilter.barangay) {
-        val muni = advancedFilter.cityMunicipality ?: return@remember null
-        muni to advancedFilter.barangay
-    }
-    // Spec's own exact wording — a generic "this Municipality"/"this
-    // Barangay", not the specific name (which the persistent filter bar's
-    // own Municipality/Barangay dropdowns already show).
-    val noRecordsAreaLabel = remember(advancedFilter.cityMunicipality, advancedFilter.barangay) {
+    // geocoder query string) — same gating as [selectedAreaQuery] above.
+    val selectedAreaNames: Pair<String, String?>? = remember(mapSearchCategory, mapSelectionId) {
+        val selection = mapSelectionId
         when {
-            advancedFilter.barangay != null -> "Barangay"
-            advancedFilter.cityMunicipality != null -> "Municipality"
+            mapSearchCategory == MapSearchCategory.MUNICIPALITY && selection != null -> selection to null
+            mapSearchCategory == MapSearchCategory.BARANGAY && selection != null ->
+                selection.substringBefore(BARANGAY_SELECTION_SEPARATOR) to selection.substringAfter(BARANGAY_SELECTION_SEPARATOR)
             else -> null
         }
+    }
+    // "The line barrier should always be displayed regardless of the search
+    // level" — Municipality/Barangay get the real administrative polygon
+    // when one specific place is selected and this app has bundled data for
+    // it (see [selectedAreaNames]/[TerritoryBoundaryRepository] above,
+    // unchanged); every other case — an "All ..." selection, a specific
+    // Interested Person/Return Visit/Bible Study/Publisher, or a place this
+    // app has no bundled boundary for — instead gets a best-effort "scope
+    // boundary" hugging whatever's actually visible right now (see
+    // [TerritoryLiveMap]'s own `window.setScopeBoundary`), rather than no
+    // boundary at all.
+    val scopeBoundaryPoints: List<LatLng> = remember(mapDeepSearchedRows, mapScopedPublisherRows) {
+        buildList {
+            mapDeepSearchedRows.forEach { row ->
+                val lat = row.person.gpsLat
+                val lng = row.person.gpsLng
+                if (lat != null && lng != null) add(LatLng(lat, lng, null))
+            }
+            mapScopedPublisherRows.forEach { add(LatLng(it.lat, it.lng, null)) }
+        }
+    }
+    // Only null at the screen's absolute default (Municipalities → All) —
+    // see this card's own render site for why.
+    val noRecordsAreaLabel: String? = remember(mapSearchCategory, mapSelectionId, mapSelectionLabel) {
+        if (mapSearchCategory == MapSearchCategory.MUNICIPALITY && mapSelectionId == null) null
+        else "${mapSearchCategory.label}: $mapSelectionLabel"
     }
 
     Scaffold(
@@ -534,55 +775,103 @@ fun TerritoryMapScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // "Add a persistent filter area" — the one search/filter row
-            // present above whichever view (Map or List) is currently
-            // showing, so switching the toggle never loses/resets a filter
-            // already in effect (spec's own "Map View/List View toggle
-            // preserving filters").
-            TerritoryPersistentFilterBar(
-                searchQuery = searchQuery,
-                onSearchQueryChange = { searchQuery = it },
-                searchByField = searchByField,
-                onSearchByFieldChange = { searchByField = it },
-                groupBy = groupBy,
-                onGroupByChange = { groupBy = it },
-                province = effectiveProvince,
-                municipality = advancedFilter.cityMunicipality,
-                municipalityOptions = municipalityOptions,
-                onMunicipalityChange = { advancedFilter = advancedFilter.copy(cityMunicipality = it, barangay = null) },
-                barangay = advancedFilter.barangay,
-                barangayOptions = barangayOptions,
-                onBarangayChange = { advancedFilter = advancedFilter.copy(barangay = it) },
-                resultCount = filtered.size,
-                showGroupBy = viewMode == TerritoryViewMode.LIST,
-            )
+            if (viewMode == TerritoryViewMode.MAP) {
+                // "TERRITORY MAP → MAP VIEW SEARCH SIMPLIFICATION" — Map
+                // View's own cascading Search Category → Specific Record/
+                // All → Deeper Text Search bar, replacing the shared
+                // persistent filter bar for this view only (List View keeps
+                // it, unchanged, in the else-branch below).
+                TerritoryMapSearchBar(
+                    category = mapSearchCategory,
+                    onCategoryChange = ::onMapCategoryChange,
+                    selectionId = mapSelectionId,
+                    onSelectionChange = ::onMapSelectionChange,
+                    selectionOptions = when (mapSearchCategory) {
+                        MapSearchCategory.MUNICIPALITY -> municipalityOptions.map { it to it }
+                        MapSearchCategory.BARANGAY -> mapBarangayDirectory.map { (muni, brgy) -> "$muni$BARANGAY_SELECTION_SEPARATOR$brgy" to "$brgy, $muni" }
+                        MapSearchCategory.INTERESTED_PERSON, MapSearchCategory.RETURN_VISIT, MapSearchCategory.BIBLE_STUDY -> mapStageOptions
+                        MapSearchCategory.PUBLISHER_TERRITORY -> mapPublisherPersons.map { it.id to it.fullName }
+                    },
+                    deepSearchQuery = mapDeepSearchQuery,
+                    onDeepSearchQueryChange = { mapDeepSearchQuery = it },
+                    resultCount = mapDeepSearchedRows.size,
+                )
 
-            // "AREA INFORMATION PANEL — when a specific Municipality/Barangay
-            // is selected, display a summary of Return Visit/Bible Study/
-            // Interested Person counts for that area" (spec §10). [filtered]
-            // is already narrowed to the selected Municipality/Barangay (and
-            // to the caller's own congregation access — see [advancedFilteredRows]),
-            // so this is a pure read of state already computed above, not a
-            // second, separate query; shown above both Map View and List View
-            // (never just one) since the spec ties it to the *selection*, not
-            // to whichever view happens to be active.
-            if (advancedFilter.cityMunicipality != null) {
-                val areaLabel = advancedFilter.barangay?.let { "${it}, ${advancedFilter.cityMunicipality}" }
-                    ?: advancedFilter.cityMunicipality.orEmpty()
-                val bsCount = filtered.count { it.person.pipelineStage == PipelineStage.BIBLE_STUDY }
-                val rvCount = filtered.count { it.person.pipelineStage == PipelineStage.RETURN_VISIT }
-                val ipCount = filtered.count { it.person.pipelineStage == PipelineStage.SEARCHING }
+                // "AREA/SCOPE INFORMATION PANEL" — Map View's own version,
+                // keyed by the cascading search above rather than List
+                // View's Municipality/Barangay selection; shown at every
+                // level (including "All ...") so it always summarizes
+                // exactly what the map is currently showing.
+                val bsCount = mapDeepSearchedRows.count { it.person.pipelineStage == PipelineStage.BIBLE_STUDY }
+                val rvCount = mapDeepSearchedRows.count { it.person.pipelineStage == PipelineStage.RETURN_VISIT }
+                val ipCount = mapDeepSearchedRows.count { it.person.pipelineStage == PipelineStage.SEARCHING }
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     shape = MaterialTheme.shapes.small,
                 ) {
                     Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                        Text(areaLabel, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text("${mapSearchCategory.label}: $mapSelectionLabel", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                         Text(
                             "Bible Study: $bsCount   Return Visit: $rvCount   Interested Person: $ipCount",
                             style = MaterialTheme.typography.bodySmall,
                         )
+                    }
+                }
+            } else {
+                // "Add a persistent filter area" — unchanged; List View's own
+                // Municipality/Barangay/Search-By/Group-By controls, entirely
+                // independent of Map View's cascading search above.
+                TerritoryPersistentFilterBar(
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = { searchQuery = it },
+                    searchByField = searchByField,
+                    onSearchByFieldChange = { searchByField = it },
+                    groupBy = groupBy,
+                    onGroupByChange = { groupBy = it },
+                    // "Congregation is the first filter for every role, but only
+                    // Super-Admin's own choice ever actually varies it" — every
+                    // other role has nothing to show here at all (their own
+                    // congregation is already implied, exactly like a Publisher's
+                    // Territory Map today), so the field is entirely absent for
+                    // them rather than shown, disabled, and stuck on one value.
+                    showCongregation = isSuperAdmin,
+                    congregationId = advancedFilter.congregationId,
+                    congregationOptions = congregationOptions,
+                    onCongregationChange = { advancedFilter = advancedFilter.copy(congregationId = it) },
+                    province = effectiveProvince,
+                    municipality = advancedFilter.cityMunicipality,
+                    municipalityOptions = municipalityOptions,
+                    onMunicipalityChange = { advancedFilter = advancedFilter.copy(cityMunicipality = it, barangay = null) },
+                    barangay = advancedFilter.barangay,
+                    barangayOptions = barangayOptions,
+                    onBarangayChange = { advancedFilter = advancedFilter.copy(barangay = it) },
+                    resultCount = filtered.size,
+                    showGroupBy = true,
+                )
+
+                // "AREA INFORMATION PANEL — when a specific Municipality/Barangay
+                // is selected, display a summary of Return Visit/Bible Study/
+                // Interested Person counts for that area" (spec §10) — List
+                // View's own version, unchanged.
+                if (advancedFilter.cityMunicipality != null) {
+                    val areaLabel = advancedFilter.barangay?.let { "${it}, ${advancedFilter.cityMunicipality}" }
+                        ?: advancedFilter.cityMunicipality.orEmpty()
+                    val bsCount = filtered.count { it.person.pipelineStage == PipelineStage.BIBLE_STUDY }
+                    val rvCount = filtered.count { it.person.pipelineStage == PipelineStage.RETURN_VISIT }
+                    val ipCount = filtered.count { it.person.pipelineStage == PipelineStage.SEARCHING }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                            Text(areaLabel, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Bible Study: $bsCount   Return Visit: $rvCount   Interested Person: $ipCount",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                 }
             }
@@ -599,6 +888,7 @@ fun TerritoryMapScreen(
                         boundaryGeometry = viewModel::boundaryGeometry,
                         selectedAreaQuery = selectedAreaQuery,
                         selectedAreaNames = selectedAreaNames,
+                        scopeBoundaryPoints = scopeBoundaryPoints,
                         noRecordsAreaLabel = noRecordsAreaLabel,
                         focusLat = focusLat,
                         focusLng = focusLng,
@@ -795,6 +1085,21 @@ fun TerritoryMapScreen(
                                                         if (groupBy == TerritoryGroupBy.MUNICIPALITY) {
                                                             Text("Brgy. ${row.person.barangay ?: "—"}", style = MaterialTheme.typography.bodySmall)
                                                         }
+                                                        // "Super Admin deep search must clearly label each
+                                                        // result's congregation" — every record in view is
+                                                        // already congregation-scoped for anyone else (a plain
+                                                        // Publisher's own congregation only), so this only ever
+                                                        // has more than one possible value — and is only worth
+                                                        // showing at all — when Super-Admin is viewing "All
+                                                        // Congregations" at once.
+                                                        if (isSuperAdmin && effectiveCongregationId == null) {
+                                                            Text(
+                                                                row.congregationName,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.tertiary,
+                                                                fontWeight = FontWeight.Medium,
+                                                            )
+                                                        }
                                                         Text(
                                                             "Last Visit: ${lastVisit?.let { formatVisitDate(it.visitDate) } ?: "—"}",
                                                             style = MaterialTheme.typography.labelSmall,
@@ -850,6 +1155,14 @@ private fun TerritoryPersistentFilterBar(
     barangay: String?,
     barangayOptions: List<String>,
     onBarangayChange: (String?) -> Unit,
+    // "Congregation is the first filter for every role, but only Super-
+    // Admin's own choice ever actually varies it" — absent entirely
+    // ([showCongregation] false) for every other role, exactly like a plain
+    // Publisher's Territory Map already looked before this field existed.
+    showCongregation: Boolean,
+    congregationId: String?,
+    congregationOptions: List<Congregation>,
+    onCongregationChange: (String?) -> Unit,
     resultCount: Int,
     showGroupBy: Boolean,
 ) {
@@ -901,6 +1214,17 @@ private fun TerritoryPersistentFilterBar(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(top = 8.dp),
                 ) {
+                    if (showCongregation) {
+                        Box(modifier = Modifier.widthIn(min = 160.dp)) {
+                            FilterDropdownField(
+                                label = "Congregation",
+                                options = congregationOptions.map { it.id to it.name },
+                                selectedId = congregationId,
+                                onSelected = onCongregationChange,
+                                allLabel = "All Congregations",
+                            )
+                        }
+                    }
                     Box(modifier = Modifier.widthIn(min = 160.dp)) {
                         var searchByExpanded by remember { mutableStateOf(false) }
                         androidx.compose.material3.ExposedDropdownMenuBox(expanded = searchByExpanded, onExpandedChange = { searchByExpanded = it }) {
@@ -991,6 +1315,84 @@ private fun PipelineStage.statusLabel(): String = when (this) {
     PipelineStage.BIBLE_STUDY -> "Bible Study"
 }
 
+/** "Territory Map → Map View search can be simplified into a single,
+ * consistent cascading search system" — Search Category → Specific Record/
+ * All → Deeper Text Search, spec's own exact worked layout. Replaces
+ * [TerritoryPersistentFilterBar] for Map View only; List View keeps that
+ * one, unchanged. Every field here is a thin UI layer over state
+ * [TerritoryMapScreen] already owns — no filtering logic lives in this
+ * composable itself, same convention [TerritoryPersistentFilterBar] uses. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TerritoryMapSearchBar(
+    category: MapSearchCategory,
+    onCategoryChange: (MapSearchCategory) -> Unit,
+    selectionId: String?,
+    onSelectionChange: (String?) -> Unit,
+    selectionOptions: List<Pair<String, String>>,
+    deepSearchQuery: String,
+    onDeepSearchQueryChange: (String) -> Unit,
+    resultCount: Int,
+) {
+    Surface(shadowElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            var categoryExpanded by remember { mutableStateOf(false) }
+            androidx.compose.material3.ExposedDropdownMenuBox(expanded = categoryExpanded, onExpandedChange = { categoryExpanded = it }) {
+                OutlinedTextField(
+                    value = category.label,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Search by") },
+                    trailingIcon = { androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                )
+                ExposedDropdownMenu(expanded = categoryExpanded, onDismissRequest = { categoryExpanded = false }) {
+                    MapSearchCategory.entries.forEach { option ->
+                        DropdownMenuItem(text = { Text(option.label) }, onClick = { onCategoryChange(option); categoryExpanded = false })
+                    }
+                }
+            }
+            // "After selecting the first option, display a second dropdown
+            // containing the applicable records" — [selectionOptions] is
+            // already whichever list applies to [category] (built by
+            // [TerritoryMapScreen] itself); "All" is always this dropdown's
+            // own leading option (see [FilterDropdownField]'s own doc
+            // comment), never a separate control.
+            FilterDropdownField(
+                label = category.selectLabel,
+                options = selectionOptions,
+                selectedId = selectionId,
+                onSelected = onSelectionChange,
+                allLabel = category.allLabel,
+            )
+            // "The third field (search textbox) should perform a deeper
+            // search within the currently selected scope" — restricted to
+            // [selectionOptions]' own current scope by [TerritoryMapScreen]'s
+            // own `mapDeepSearchedRows`, never the full dataset.
+            OutlinedTextField(
+                value = deepSearchQuery,
+                onValueChange = onDeepSearchQueryChange,
+                label = { Text("Search deeper") },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (deepSearchQuery.isNotEmpty()) {
+                        IconButton(onClick = { onDeepSearchQueryChange("") }) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "Showing $resultCount Record${if (resultCount == 1) "" else "s"}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 /** One row of the List View's Municipality/Barangay directory — [label] is
  * what's shown ("Solano" for a Municipality group, "Quirino, Solano" for a
  * Barangay one); [key] is what [TerritoryMapScreen]'s own `expandedGroups`
@@ -1058,6 +1460,14 @@ private fun TerritoryLiveMap(
     boundaryGeometry: suspend (String, String?) -> String?,
     selectedAreaQuery: Pair<String, Float>?,
     selectedAreaNames: Pair<String, String?>?,
+    // "The line barrier should always be displayed regardless of the search
+    // level" — every point currently visible on the map (pipeline records +
+    // Publisher markers), used to draw a best-effort "scope boundary" (see
+    // `window.setScopeBoundary`) whenever [selectedAreaNames] doesn't
+    // resolve to a real administrative polygon — an "All ..." selection, a
+    // specific Interested Person/Return Visit/Bible Study/Publisher, or a
+    // Municipality/Barangay this app has no bundled boundary for.
+    scopeBoundaryPoints: List<LatLng>,
     noRecordsAreaLabel: String?,
     focusLat: Double? = null,
     focusLng: Double? = null,
@@ -1253,26 +1663,17 @@ private fun TerritoryLiveMap(
     // selected) and center there instead of leaving the camera on whatever
     // was visible before the filter changed (spec §19/§20's own "still show
     // the Municipality's/Barangay's geographic area").
-    LaunchedEffect(loadState, webViewRef, points, selectedAreaQuery, selectedAreaNames) {
+    LaunchedEffect(loadState, webViewRef, points, selectedAreaQuery, selectedAreaNames, scopeBoundaryPoints) {
         if (loadState != MapLoadState.LOADED) return@LaunchedEffect
         val webView = webViewRef ?: return@LaunchedEffect
         myLocation?.let { fix -> webView.evaluateJavascript("if (window.setMyLocation) { window.setMyLocation(${fix.lat}, ${fix.lng}); }", null) }
         // Real polygon geometry first (no network dependency at all — see
         // [TerritoryBoundaryRepository]); only reach for the unreliable
         // on-device Geocoder (already found flaky on this session's own
-        // non-genuine-GMS test device) when this province isn't covered by
-        // the bundled boundary asset yet.
+        // non-genuine-GMS test device) as a last resort, once there isn't
+        // even a point on screen to build a scope boundary from.
         val geometry = selectedAreaNames?.let { (muni, brgy) -> boundaryGeometry(muni, brgy) }
         when {
-            selectedAreaQuery == null -> {
-                // Nothing (or "All Municipalities"/"All Barangays") selected —
-                // no one area to outline, same as [noRecordsAreaLabel]'s own
-                // null case; fall back to framing whatever's visible.
-                webView.evaluateJavascript("if (window.clearAreaBoundary) { window.clearAreaBoundary(); }", null)
-                if (points.isNotEmpty()) {
-                    webView.evaluateJavascript("if (window.fitToMarkers) { window.fitToMarkers(); }", null)
-                }
-            }
             geometry != null -> {
                 // Draw the area boundary whenever a specific Municipality/
                 // Barangay is selected, regardless of whether it has any
@@ -1286,10 +1687,23 @@ private fun TerritoryLiveMap(
                     null,
                 )
             }
-            else -> {
-                // This province isn't covered by the bundled boundary asset —
-                // best-effort circle fallback, forward-geocoded from the
-                // selected area's name.
+            scopeBoundaryPoints.isNotEmpty() -> {
+                // "The line barrier should always be displayed regardless of
+                // the search level" — no real administrative polygon applies
+                // here (an "All ..." selection, a specific Interested Person/
+                // Return Visit/Bible Study/Publisher, or a Municipality/
+                // Barangay this app has no bundled boundary for), so hug
+                // whatever's actually visible instead; [setScopeBoundary]
+                // itself frames the camera to these points, same priority
+                // [setAreaBoundaryGeoJson] already gives the real polygon.
+                val pointsJson = scopeBoundaryPoints.joinToString(prefix = "[", postfix = "]") { "[${it.lat},${it.lng}]" }
+                webView.evaluateJavascript("if (window.setScopeBoundary) { window.setScopeBoundary($pointsJson); }", null)
+            }
+            selectedAreaQuery != null -> {
+                // Nothing visible at all *and* no real polygon — best-effort
+                // circle fallback, forward-geocoded from the selected area's
+                // name, so an empty Municipality/Barangay still shows
+                // *something* real rather than a blank map.
                 val (query, zoom) = selectedAreaQuery
                 val fix = geocodeArea(query)
                 if (fix != null) {
@@ -1301,9 +1715,14 @@ private fun TerritoryLiveMap(
                         null,
                     )
                     webView.evaluateJavascript("if (window.territoryMap) { window.territoryMap.setView([${fix.lat}, ${fix.lng}], $zoom); }", null)
-                } else if (points.isNotEmpty()) {
-                    webView.evaluateJavascript("if (window.fitToMarkers) { window.fitToMarkers(); }", null)
+                } else {
+                    webView.evaluateJavascript("if (window.clearAreaBoundary) { window.clearAreaBoundary(); }", null)
                 }
+            }
+            else -> {
+                // Truly nothing selected and nothing visible — no one area/
+                // scope to outline at all.
+                webView.evaluateJavascript("if (window.clearAreaBoundary) { window.clearAreaBoundary(); }", null)
             }
         }
     }
@@ -1471,19 +1890,20 @@ private fun TerritoryLiveMap(
             }
         }
 
-        // "If the selected Municipality/Barangay has no records, still show
-        // the [area]'s geographic area and display: 'No records found in
-        // this Municipality/Barangay.'" (spec §19/§20) — [noRecordsAreaLabel]
-        // is non-null only when a specific Municipality/Barangay is actually
-        // selected, so this never shows for the unfiltered "All"/"All" view
-        // even when a congregation genuinely has zero territory records yet.
+        // "If the selected [scope] has no records, still show its geographic
+        // area and display: 'No records found for [scope].'" — generalized
+        // to every Map View search category (spec's own cascading-search
+        // request), not just Municipality/Barangay; [noRecordsAreaLabel] is
+        // null only at the screen's absolute default (Municipalities → All),
+        // so this never alarms a brand-new congregation with zero territory
+        // records yet before they've actually searched for anything.
         if (loadState == MapLoadState.LOADED && points.isEmpty() && noRecordsAreaLabel != null) {
             Card(
                 modifier = Modifier.align(Alignment.Center).padding(horizontal = 32.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
             ) {
                 Text(
-                    "No records found in this $noRecordsAreaLabel.",
+                    "No records found for $noRecordsAreaLabel.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -1633,9 +2053,19 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
           var points = $pointsJson;
           var map = L.map('map', { zoomControl: true });
           window.territoryMap = map;
+          // "Change the map to OpenFreeMap" was tried and reverted: its
+          // Liberty style only renders through MapLibre GL, which needs real
+          // WebGL — confirmed live, twice, that this same session's own
+          // Huawei/HMS-less test device's WebView reports a working WebGL
+          // context and even fires MapLibre's own "style loaded" event
+          // successfully, yet never actually paints a single pixel (a
+          // broken GPU pipeline lying about working, invisible to any
+          // JS-level check). Plain raster OpenStreetMap tiles have no WebGL
+          // dependency at all and are proven reliable on every device this
+          // app has been tested on all session — kept as the one tile source.
           var tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
-            attribution: '&copy; OpenStreetMap contributors'
+            attribution: '&copy; OpenStreetMap contributors',
           }).addTo(map);
           var tileErrorCount = 0;
           tiles.on('tileerror', function(e) { tileErrorCount++; console.error('Tile load failed (' + tileErrorCount + ')'); });
@@ -1789,6 +2219,77 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
             if (window.areaBoundary) { map.removeLayer(window.areaBoundary); window.areaBoundary = null; }
           };
 
+          // "The line barrier should always be displayed regardless of the
+          // search level" (Map View cascading-search spec) — a best-effort
+          // "scope boundary" hugging whatever points are actually visible
+          // right now, for every case with no real administrative polygon:
+          // an "All ..." selection, a specific Interested Person/Return
+          // Visit/Bible Study/Publisher, or a Municipality/Barangay this app
+          // has no bundled boundary for. A single point gets a small circle
+          // (a polygon needs at least 3); two or more get the convex hull —
+          // the tightest real polygon around every point, giving something
+          // closer to an actual "territory" shape than a rectangle would —
+          // via a plain monotone-chain implementation (no extra library).
+          // Same dashed-blue style as the two boundary kinds above so none
+          // of the three ever look meaningfully different to the user.
+          function convexHull(pts) {
+            var points = pts.slice().sort(function(a, b) { return a[0] - b[0] || a[1] - b[1]; });
+            function cross(o, a, b) { return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); }
+            var lower = [];
+            for (var i = 0; i < points.length; i++) {
+              while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], points[i]) <= 0) lower.pop();
+              lower.push(points[i]);
+            }
+            var upper = [];
+            for (var j = points.length - 1; j >= 0; j--) {
+              while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], points[j]) <= 0) upper.pop();
+              upper.push(points[j]);
+            }
+            lower.pop(); upper.pop();
+            return lower.concat(upper);
+          }
+          window.setScopeBoundary = function(points) {
+            window.clearAreaBoundary();
+            if (!points || points.length === 0) { return; }
+            if (points.length === 1) {
+              window.areaBoundary = L.circle(points[0], {
+                radius: 400,
+                color: '#1a73e8', weight: 2, dashArray: '6,6',
+                fill: true, fillColor: '#1a73e8', fillOpacity: 0.06,
+                interactive: false,
+              }).addTo(map);
+              map.setView(points[0], 16);
+              return;
+            }
+            var unique = [];
+            var seen = {};
+            points.forEach(function(p) {
+              var key = p[0] + ',' + p[1];
+              if (!seen[key]) { seen[key] = true; unique.push(p); }
+            });
+            var hull = unique.length >= 3 ? convexHull(unique) : unique;
+            if (hull.length < 3) {
+              // Every point collinear/identical after dedup — a polygon
+              // would be degenerate; fall back to a circle around the
+              // group's own bounds instead of drawing nothing.
+              var bounds = L.latLngBounds(unique);
+              window.areaBoundary = L.circle(bounds.getCenter(), {
+                radius: Math.max(300, bounds.getCenter().distanceTo(bounds.getNorthEast())),
+                color: '#1a73e8', weight: 2, dashArray: '6,6',
+                fill: true, fillColor: '#1a73e8', fillOpacity: 0.06,
+                interactive: false,
+              }).addTo(map);
+              map.fitBounds(bounds.pad(0.25));
+              return;
+            }
+            window.areaBoundary = L.polygon(hull, {
+              color: '#1a73e8', weight: 2, dashArray: '6,6',
+              fill: true, fillColor: '#1a73e8', fillOpacity: 0.06,
+              interactive: false,
+            }).addTo(map);
+            map.fitBounds(window.areaBoundary.getBounds().pad(0.2));
+          };
+
           // JS-side fallback for the exact same "container wasn't its final
           // size yet when L.map() ran" issue the Android side's own hooks
           // already cover.
@@ -1802,7 +2303,7 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
           setTimeout(function() { map.invalidateSize(); }, 500);
           setTimeout(function() { map.invalidateSize(); }, 1500);
         } catch (e) {
-          console.error('Territory map script threw: ' + e.message);
+          console.error('Territory map script threw: ' + (e && (e.stack || e.message)) + ' [' + (typeof e) + ']');
         }
         </script>
         </body>
