@@ -2324,37 +2324,66 @@ private fun buildTerritoryMapHtml(): String {
           // boundary dataset ships with this app (the bundled PSGC table is
           // names/hierarchy only — see PsgcDao — with no shape data), so
           // fabricating a precise outline is not honest; this draws a plain
-          // dashed circle around the area's geocoded center instead, sized
-          // to roughly the area's real footprint (Barangay vs. Municipality
-          // get different Kotlin-supplied radii — see [selectedAreaQuery]'s
-          // own zoom levels), which is disclosed to the user as an
-          // approximate area indicator, not a true administrative boundary.
+          // circle around the area's geocoded center instead, sized to
+          // roughly the area's real footprint (Barangay vs. Municipality get
+          // different Kotlin-supplied radii — see [selectedAreaQuery]'s own
+          // zoom levels), which is disclosed to the user as an approximate
+          // area indicator, not a true administrative boundary.
+          //
+          // "Enhance the line barrier design... professional red color...
+          // thicker and wider... clean, polished, professionally drawn
+          // appearance, similar to a high-quality GIS/map boundary... subtle
+          // visual definition, such as a slightly darker red edge" — every
+          // boundary kind below (circle, real polygon, convex-hull scope)
+          // now shares one cartographic "line casing" style: a wider, darker
+          // red stroke drawn first, with a narrower, brighter red stroke on
+          // top of it — the same technique styled maps use for a road's own
+          // outlined casing — giving the line real edge definition instead
+          // of a single flat stroke, while `weight` stays constant in screen
+          // pixels (Leaflet's own behavior) so it reads the same, undiminished,
+          // at every zoom level rather than thinning out when zoomed out.
+          // `L.featureGroup` (not a plain `L.layerGroup`) so `.getBounds()`
+          // still works for camera-fitting exactly like the single-layer
+          // version this replaces. `lineJoin`/`lineCap: 'round'` avoids sharp,
+          // jagged corners at the polygon's own vertices; SVG rendering
+          // (Leaflet's default, unchanged) keeps every edge crisp at any
+          // zoom rather than a rasterized/pixelated line.
+          var BOUNDARY_CASING_COLOR = '#7A0E0E';
+          var BOUNDARY_MAIN_COLOR = '#E53935';
+          var BOUNDARY_CASING_WEIGHT = 9;
+          var BOUNDARY_MAIN_WEIGHT = 4.5;
+          var BOUNDARY_FILL_OPACITY = 0.10;
+          function boundaryCasingStyle() {
+            return { color: BOUNDARY_CASING_COLOR, weight: BOUNDARY_CASING_WEIGHT, opacity: 0.9, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
+          }
+          function boundaryMainStyle() {
+            return { color: BOUNDARY_MAIN_COLOR, weight: BOUNDARY_MAIN_WEIGHT, opacity: 1, fill: true, fillColor: BOUNDARY_MAIN_COLOR, fillOpacity: BOUNDARY_FILL_OPACITY, lineJoin: 'round', lineCap: 'round', interactive: false };
+          }
           window.areaBoundary = null;
           window.setAreaBoundary = function(lat, lng, radiusMeters) {
             window.clearAreaBoundary();
-            window.areaBoundary = L.circle([lat, lng], {
-              radius: radiusMeters,
-              color: '#1a73e8',
-              weight: 2,
-              dashArray: '6,6',
-              fill: true,
-              fillColor: '#1a73e8',
-              fillOpacity: 0.06,
-              interactive: false,
-            }).addTo(map);
+            var center = [lat, lng];
+            window.areaBoundary = L.featureGroup([
+              L.circle(center, Object.assign({ radius: radiusMeters }, boundaryCasingStyle())),
+              L.circle(center, Object.assign({ radius: radiusMeters }, boundaryMainStyle())),
+            ]).addTo(map);
           };
           // The real thing: an actual Municipality/Barangay polygon (from
           // [TerritoryBoundaryRepository]'s bundled NAMRIA/PSA/OCHA boundary
-          // data), drawn the same dashed-blue style as the circle fallback
-          // above so a real boundary and an approximate one never look
-          // meaningfully different to the user in areas where real data
-          // exists vs. doesn't.
+          // data), drawn the same casing+main red style as the circle
+          // fallback above so a real boundary and an approximate one never
+          // look meaningfully different to the user.
           window.setAreaBoundaryGeoJson = function(geometry) {
             window.clearAreaBoundary();
-            window.areaBoundary = L.geoJSON(geometry, {
-              style: { color: '#1a73e8', weight: 2, dashArray: '6,6', fill: true, fillColor: '#1a73e8', fillOpacity: 0.06 },
-              interactive: false,
-            }).addTo(map);
+            // "interactive" is a GeoJSON-layer-level constructor option, not
+            // a Path style property — it has to sit alongside `style`, not
+            // inside it, or Leaflet silently ignores it and the boundary
+            // would wrongly intercept taps meant for a marker underneath it.
+            var main = L.geoJSON(geometry, { style: boundaryMainStyle(), interactive: false });
+            window.areaBoundary = L.featureGroup([
+              L.geoJSON(geometry, { style: boundaryCasingStyle(), interactive: false }),
+              main,
+            ]).addTo(map);
             // Frame the real polygon directly from its own bounds — no
             // dependency on the on-device Geocoder (already found unreliable
             // on this session's own non-genuine-GMS test device) just to
@@ -2365,7 +2394,7 @@ private fun buildTerritoryMapHtml(): String {
             // from some other, unrelated area (e.g. a Publisher sharing
             // location elsewhere in the province) must never keep the camera
             // away from the area the user actually selected.
-            map.fitBounds(window.areaBoundary.getBounds().pad(0.15));
+            map.fitBounds(main.getBounds().pad(0.15));
           };
           window.clearAreaBoundary = function() {
             if (window.areaBoundary) { map.removeLayer(window.areaBoundary); window.areaBoundary = null; }
@@ -2382,8 +2411,8 @@ private fun buildTerritoryMapHtml(): String {
           // the tightest real polygon around every point, giving something
           // closer to an actual "territory" shape than a rectangle would —
           // via a plain monotone-chain implementation (no extra library).
-          // Same dashed-blue style as the two boundary kinds above so none
-          // of the three ever look meaningfully different to the user.
+          // Same casing+main red style as the two boundary kinds above so
+          // none of the three ever look meaningfully different to the user.
           function convexHull(pts) {
             var points = pts.slice().sort(function(a, b) { return a[0] - b[0] || a[1] - b[1]; });
             function cross(o, a, b) { return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); }
@@ -2404,12 +2433,10 @@ private fun buildTerritoryMapHtml(): String {
             window.clearAreaBoundary();
             if (!points || points.length === 0) { return; }
             if (points.length === 1) {
-              window.areaBoundary = L.circle(points[0], {
-                radius: 400,
-                color: '#1a73e8', weight: 2, dashArray: '6,6',
-                fill: true, fillColor: '#1a73e8', fillOpacity: 0.06,
-                interactive: false,
-              }).addTo(map);
+              window.areaBoundary = L.featureGroup([
+                L.circle(points[0], Object.assign({ radius: 400 }, boundaryCasingStyle())),
+                L.circle(points[0], Object.assign({ radius: 400 }, boundaryMainStyle())),
+              ]).addTo(map);
               map.setView(points[0], 16);
               return;
             }
@@ -2425,20 +2452,18 @@ private fun buildTerritoryMapHtml(): String {
               // would be degenerate; fall back to a circle around the
               // group's own bounds instead of drawing nothing.
               var bounds = L.latLngBounds(unique);
-              window.areaBoundary = L.circle(bounds.getCenter(), {
-                radius: Math.max(300, bounds.getCenter().distanceTo(bounds.getNorthEast())),
-                color: '#1a73e8', weight: 2, dashArray: '6,6',
-                fill: true, fillColor: '#1a73e8', fillOpacity: 0.06,
-                interactive: false,
-              }).addTo(map);
+              var radius = Math.max(300, bounds.getCenter().distanceTo(bounds.getNorthEast()));
+              window.areaBoundary = L.featureGroup([
+                L.circle(bounds.getCenter(), Object.assign({ radius: radius }, boundaryCasingStyle())),
+                L.circle(bounds.getCenter(), Object.assign({ radius: radius }, boundaryMainStyle())),
+              ]).addTo(map);
               map.fitBounds(bounds.pad(0.25));
               return;
             }
-            window.areaBoundary = L.polygon(hull, {
-              color: '#1a73e8', weight: 2, dashArray: '6,6',
-              fill: true, fillColor: '#1a73e8', fillOpacity: 0.06,
-              interactive: false,
-            }).addTo(map);
+            window.areaBoundary = L.featureGroup([
+              L.polygon(hull, boundaryCasingStyle()),
+              L.polygon(hull, boundaryMainStyle()),
+            ]).addTo(map);
             map.fitBounds(window.areaBoundary.getBounds().pad(0.2));
           };
 
