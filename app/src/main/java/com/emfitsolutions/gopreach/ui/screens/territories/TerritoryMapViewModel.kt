@@ -332,6 +332,28 @@ class TerritoryMapViewModel @Inject constructor(
                 .toSet()
         }
 
+    /** "Congregation Group Filter... color coding" (Map View) — the forward
+     * lookup [groupMemberPublisherIds] above doesn't give: every active
+     * Publisher's own personId -> the one Group they're currently assigned
+     * to, congregation-scoped the same way [publishersFor]/[groupsFor]
+     * already are. A record's own Group is always resolved *through* its
+     * assigned Publisher this way (an [InterestedPerson] has no Group field
+     * of its own — same reason [applyTerritoryFilter]'s Field Service Group
+     * filter needs [groupMemberPublisherIds] in the first place); a
+     * Publisher with no Group assigned simply has no entry here, which
+     * every caller treats as "Unassigned" rather than a missing-key crash. */
+    fun publisherGroupIds(congregationIds: Set<String>?): Flow<Map<String, String>> =
+        roleAssignmentRepository.observeAll().map { assignments ->
+            assignments
+                .filter { assignment ->
+                    assignment.status == RoleAssignmentStatus.ACTIVE &&
+                        assignment.groupId != null &&
+                        (congregationIds == null || assignment.congregationId in congregationIds) &&
+                        assignment.resolvedRoleTypeOrNull() is RoleType.Publisher
+                }
+                .associate { it.personId to it.groupId!! }
+        }
+
     // -------------------------------------------------------------------
     // "TERRITORY MAP – PHILIPPINES LOCATION SEARCH" — Province is never a
     // user choice (see [TerritoryMapScreen]'s own automatic-Province effect);

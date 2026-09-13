@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -99,6 +100,7 @@ import kotlinx.coroutines.launch
 import com.emfitsolutions.gopreach.data.location.LatLng
 import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
 import com.emfitsolutions.gopreach.data.model.Congregation
+import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PipelineStage
@@ -582,6 +584,38 @@ fun TerritoryMapScreen(
         }
         ).collectAsStateWithLifecycle(initialValue = emptyList())
 
+    // ============================================================
+    // "Congregation Group Filter, color-coding, territory barrier, and
+    // reporting system" — Map View only, orthogonal to [mapSearchCategory]
+    // above (works "together with all existing search types", spec §1);
+    // always collected regardless of category, since the Group filter,
+    // color-coding, and Group Report all need it active at every level, not
+    // just under Publisher Territory. [mapGroups] is the dynamic, "however
+    // many there are" list itself; [publisherGroupIds] is the only way to
+    // resolve *which* Group a given household record belongs to (through
+    // its assigned Publisher's own RoleAssignment — an InterestedPerson has
+    // no Group field of its own, same reason List View's own Field Service
+    // Group filter needs the mirror-image [groupMemberPublisherIds]).
+    // ============================================================
+    val mapGroups by viewModel.groupsFor(effectiveCongregationId?.let { setOf(it) })
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val publisherGroupIds by viewModel.publisherGroupIds(effectiveCongregationId?.let { setOf(it) })
+        .collectAsStateWithLifecycle(initialValue = emptyMap())
+    // null means "All Groups" — same convention every other Map View
+    // dropdown's own null-selection already uses.
+    var mapGroupFilterId by remember { mutableStateOf<String?>(null) }
+    // "Keep each group's assigned color consistent... do not unnecessarily
+    // change an existing group's color when another group is added or
+    // removed" — [colorForGroupId] derives every color purely from the
+    // Group's own stable id (see its own doc comment), so this map is just a
+    // cache, never the source of the color itself; recomputing it whenever
+    // [mapGroups] changes shape never reassigns any existing group's color.
+    val groupColorById: Map<String, String> = remember(mapGroups) {
+        mapGroups.associate { it.id to colorForGroupId(it.id) }
+    }
+    fun TerritoryMapRow.resolvedGroupId(): String? = person.publisherPersonId?.let { publisherGroupIds[it] }
+    fun TerritoryMapRow.resolvedGroupColor(): String = resolvedGroupId()?.let { groupColorById[it] } ?: UNASSIGNED_GROUP_COLOR
+
     // "The map should show the complete territory scope associated with
     // that publisher" — every pipeline record currently assigned to them
     // (Searching/Return Visit/Bible Study all at once, spec's own list),
@@ -662,6 +696,16 @@ fun TerritoryMapScreen(
             else -> mapScopedRows.filter { it.person.name.contains(query, ignoreCase = true) || it.person.address.contains(query, ignoreCase = true) }
         }
     }
+    // "The [Congregation Group] filter must work together with all existing
+    // search types" — applied as its own, independent narrowing step after
+    // category + deep search, exactly the same way [mapSearchCategory] and
+    // [mapDeepSearchQuery] already stack; `null` means "All Groups" (every
+    // record in [mapDeepSearchedRows], unassigned ones included) same as
+    // every other Map View selection's own null-means-All convention.
+    val mapGroupFilteredRows = remember(mapDeepSearchedRows, mapGroupFilterId, publisherGroupIds) {
+        val groupId = mapGroupFilterId
+        if (groupId == null) mapDeepSearchedRows else mapDeepSearchedRows.filter { it.resolvedGroupId() == groupId }
+    }
     // "Under Publisher's Territory, do not include the last known location
     // of that Publisher — only the record of his Searched [Interested
     // Person], Return Visit, and Bible Study [records], based on the
@@ -700,12 +744,13 @@ fun TerritoryMapScreen(
     }
 
     // Map View's markers are now driven entirely by the cascading search
-    // above ([mapDeepSearchedRows]), never by List View's own
-    // [filtered]/[directoryStatus] — the two views' search models are
-    // independent (see that block's own doc comment). [mapPublisherRows]
-    // (declared above) stays empty for every category, Publisher Territory
-    // included — see its own doc comment for why.
-    val mapRows = mapDeepSearchedRows
+    // above plus the Congregation Group filter ([mapGroupFilteredRows]),
+    // never by List View's own [filtered]/[directoryStatus] — the two
+    // views' search models are independent (see that block's own doc
+    // comment). [mapPublisherRows] (declared above) stays empty for every
+    // category, Publisher Territory included — see its own doc comment for
+    // why.
+    val mapRows = mapGroupFilteredRows
     // The human-readable label for whichever second-dropdown option is
     // currently selected — used for both [noRecordsAreaLabel] below and
     // [TerritoryMapSearchBar]'s own display, resolved once here so the two
@@ -771,23 +816,33 @@ fun TerritoryMapScreen(
     // level" — Municipality/Barangay get the real administrative polygon
     // when one specific place is selected and this app has bundled data for
     // it (see [selectedAreaNames]/[TerritoryBoundaryRepository] above,
-    // unchanged); every other case — an "All ..." selection, a specific
-    // Interested Person/Return Visit/Bible Study/Publisher, or a place this
-    // app has no bundled boundary for — instead gets a best-effort "scope
-    // boundary" hugging whatever's actually visible right now (see
-    // [TerritoryLiveMap]'s own `window.setScopeBoundary`), rather than no
-    // boundary at all. Built purely from [mapDeepSearchedRows] — a
-    // Publisher's own last-known/live location is never a point this hull is
-    // drawn around (see [mapPublisherRows]'s own doc comment), so Publisher
-    // Territory's own barrier accurately hugs only their actually-assigned
-    // Searching/Return Visit/Bible Study records, never skewed toward some
-    // unrelated point the Publisher merely happens to be standing at.
-    val scopeBoundaryPoints: List<LatLng> = remember(mapDeepSearchedRows) {
-        mapDeepSearchedRows.mapNotNull { row ->
-            val lat = row.person.gpsLat
-            val lng = row.person.gpsLng
-            if (lat != null && lng != null) LatLng(lat, lng, null) else null
-        }
+    // unchanged, drawn as its own separate overlay); every case — including
+    // that one — additionally gets a best-effort "scope boundary" per
+    // Congregation Group, hugging whatever's actually visible for that Group
+    // right now (see [TerritoryLiveMap]'s own `window.setGroupScopeBoundaries`).
+    // "Create a separate barrier line for every Congregation Group... do not
+    // merge different groups into one barrier" — grouped by
+    // [TerritoryMapRow.resolvedGroupId] (an "Unassigned" bucket for a record
+    // whose Publisher has no Group, keyed `null`, same as every other
+    // grouping in this file), never a single flat point list the way this
+    // used to work before Congregation Groups existed. Built from
+    // [mapGroupFilteredRows] (post Congregation-Group-filter, so picking one
+    // specific Group here also means only *that* Group's barrier is drawn —
+    // spec §1's own "show only... records belonging to that group") — never
+    // [mapPublisherRows] (see that val's own doc comment for why a
+    // Publisher's own last-known/live location must never skew any barrier).
+    val mapGroupBoundaries: List<MapGroupBoundary> = remember(mapGroupFilteredRows, groupColorById) {
+        mapGroupFilteredRows
+            .mapNotNull { row ->
+                val lat = row.person.gpsLat
+                val lng = row.person.gpsLng
+                if (lat == null || lng == null) return@mapNotNull null
+                Triple(row.resolvedGroupId(), row.resolvedGroupColor(), LatLng(lat, lng, null))
+            }
+            .groupBy({ it.first }, { it.second to it.third })
+            .map { (groupId, entries) ->
+                MapGroupBoundary(id = groupId ?: UNASSIGNED_GROUP_ID, color = entries.first().first, points = entries.map { it.second })
+            }
     }
     // Only null at the screen's absolute default (now "All", per spec —
     // previously Municipalities → All) — see this card's own render site
@@ -795,6 +850,47 @@ fun TerritoryMapScreen(
     val noRecordsAreaLabel: String? = remember(mapSearchCategory, mapSelectionId, mapSelectionLabel) {
         if (mapSearchCategory == MapSearchCategory.ALL) null
         else "${mapSearchCategory.label}: $mapSelectionLabel"
+    }
+
+    // "Group Report... automatically summarize the records according to the
+    // current search/filter criteria... update automatically whenever the
+    // user changes Search type/Municipality/Barangay/Congregation
+    // Group/Publisher/Search Deeper... When All Groups is selected, display
+    // a row for every group. When a specific group is selected, display the
+    // report for that group." — deliberately built from [mapDeepSearchedRows]
+    // (category + deep search applied, *before* the Congregation Group
+    // filter itself), not [mapGroupFilteredRows`, so a full per-Group
+    // breakdown is always available to slice by [mapGroupFilterId] here —
+    // exactly the same underlying dataset the map's own markers/barriers use
+    // (spec §9's own "map and report must use the same filtered dataset"),
+    // just grouped differently. An "Unassigned" row (a record whose own
+    // assigned Publisher has no Congregation Group) is appended only when
+    // "All Groups" is selected and at least one such record actually exists
+    // in scope — every displayed marker must be accounted for somewhere
+    // (spec §9), but a real Group's own report should never need to care
+    // about the possibility once one specific Group is what was asked for.
+    val groupReportRows: List<GroupReportRow> = remember(mapDeepSearchedRows, mapGroups, publisherGroupIds, mapGroupFilterId, groupColorById) {
+        fun rowsFor(groupId: String?) = mapDeepSearchedRows.filter { it.resolvedGroupId() == groupId }
+        fun reportRow(id: String, name: String, color: String, rowsInGroup: List<TerritoryMapRow>) = GroupReportRow(
+            groupId = id,
+            groupName = name,
+            color = color,
+            publishers = rowsInGroup.mapNotNull { it.person.publisherPersonId.takeIf { pid -> pid.isNotBlank() } }.distinct().size,
+            interestedPersons = rowsInGroup.count { it.person.pipelineStage == PipelineStage.SEARCHING },
+            returnVisits = rowsInGroup.count { it.person.pipelineStage == PipelineStage.RETURN_VISIT },
+            bibleStudies = rowsInGroup.count { it.person.pipelineStage == PipelineStage.BIBLE_STUDY },
+        )
+        val filterId = mapGroupFilterId
+        if (filterId != null) {
+            val group = mapGroups.firstOrNull { it.id == filterId }
+            if (group == null) emptyList()
+            else listOf(reportRow(group.id, group.name, groupColorById[group.id] ?: UNASSIGNED_GROUP_COLOR, rowsFor(group.id)))
+        } else {
+            val groupRows = mapGroups.map { group -> reportRow(group.id, group.name, groupColorById[group.id] ?: UNASSIGNED_GROUP_COLOR, rowsFor(group.id)) }
+            val unassigned = rowsFor(null)
+            if (unassigned.isEmpty()) groupRows
+            else groupRows + reportRow(UNASSIGNED_GROUP_ID, "Unassigned", UNASSIGNED_GROUP_COLOR, unassigned)
+        }
     }
 
     // "Switching between List View and Map View must preserve the current
@@ -937,7 +1033,9 @@ fun TerritoryMapScreen(
                         boundaryGeometry = viewModel::boundaryGeometry,
                         selectedAreaQuery = selectedAreaQuery,
                         selectedAreaNames = selectedAreaNames,
-                        scopeBoundaryPoints = scopeBoundaryPoints,
+                        groupBoundaries = mapGroupBoundaries,
+                        groupColorFor = { it.resolvedGroupColor() },
+                        groupNameFor = { row -> row.resolvedGroupId()?.let { id -> mapGroups.firstOrNull { g -> g.id == id }?.name } },
                         noRecordsAreaLabel = noRecordsAreaLabel,
                         focusLat = focusLat,
                         focusLng = focusLng,
@@ -980,9 +1078,13 @@ fun TerritoryMapScreen(
                                             MapSearchCategory.INTERESTED_PERSON, MapSearchCategory.RETURN_VISIT, MapSearchCategory.BIBLE_STUDY -> mapStageOptions
                                             MapSearchCategory.PUBLISHER_TERRITORY -> mapPublisherPersons.map { it.id to it.fullName }
                                         },
+                                        groups = mapGroups,
+                                        groupFilterId = mapGroupFilterId,
+                                        onGroupFilterChange = { mapGroupFilterId = it },
+                                        groupColorFor = { id -> groupColorById[id] ?: UNASSIGNED_GROUP_COLOR },
                                         deepSearchQuery = mapDeepSearchQuery,
                                         onDeepSearchQueryChange = { mapDeepSearchQuery = it },
-                                        resultCount = mapDeepSearchedRows.size,
+                                        resultCount = mapGroupFilteredRows.size,
                                     )
                                 }
                             } else {
@@ -1023,9 +1125,9 @@ fun TerritoryMapScreen(
                         // strip never covers more of the map than a single
                         // search row's worth.
                         if (mapControlsExpanded) {
-                            val bsCount = mapDeepSearchedRows.count { it.person.pipelineStage == PipelineStage.BIBLE_STUDY }
-                            val rvCount = mapDeepSearchedRows.count { it.person.pipelineStage == PipelineStage.RETURN_VISIT }
-                            val ipCount = mapDeepSearchedRows.count { it.person.pipelineStage == PipelineStage.SEARCHING }
+                            val bsCount = mapGroupFilteredRows.count { it.person.pipelineStage == PipelineStage.BIBLE_STUDY }
+                            val rvCount = mapGroupFilteredRows.count { it.person.pipelineStage == PipelineStage.RETURN_VISIT }
+                            val ipCount = mapGroupFilteredRows.count { it.person.pipelineStage == PipelineStage.SEARCHING }
                             Surface(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                                 color = MaterialTheme.colorScheme.secondaryContainer,
@@ -1038,6 +1140,13 @@ fun TerritoryMapScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                     )
                                 }
+                            }
+                            // "Group Report" — hidden entirely for a
+                            // congregation with no Congregation Groups at
+                            // all yet, same convention the Group filter
+                            // dropdown above already follows.
+                            if (mapGroups.isNotEmpty()) {
+                                GroupReportTable(rows = groupReportRows)
                             }
                         }
                     }
@@ -1498,6 +1607,18 @@ private fun TerritoryMapSearchBar(
     selectionId: String?,
     onSelectionChange: (String?) -> Unit,
     selectionOptions: List<Pair<String, String>>,
+    // "Congregation Group Filter... must work together with all existing
+    // search types" — a fourth, independent control, always shown
+    // regardless of [category] (unlike [selectionOptions], which only
+    // applies to some categories); [groups] is however many Congregation
+    // Groups actually exist (spec §1's own "dynamic... may be fewer or more
+    // than five"), [groupColorFor] resolves each one's own dot color for the
+    // dropdown (see [colorForGroupId]'s own doc comment on why that color is
+    // stable per Group id, never a shifting index-based one).
+    groups: List<Group>,
+    groupFilterId: String?,
+    onGroupFilterChange: (String?) -> Unit,
+    groupColorFor: (String) -> String,
     deepSearchQuery: String,
     onDeepSearchQueryChange: (String) -> Unit,
     resultCount: Int,
@@ -1517,6 +1638,49 @@ private fun TerritoryMapSearchBar(
                 ExposedDropdownMenu(expanded = categoryExpanded, onDismissRequest = { categoryExpanded = false }) {
                     MapSearchCategory.entries.forEach { option ->
                         DropdownMenuItem(text = { Text(option.label) }, onClick = { onCategoryChange(option); categoryExpanded = false })
+                    }
+                }
+            }
+            // "Add a 'Congregation Group' filter... include an 'All Groups'
+            // option" — hidden entirely when a congregation has no Groups at
+            // all yet, same "nothing to show" convention every other Map
+            // View control already follows rather than a dropdown with only
+            // one, meaningless "All Groups" entry.
+            if (groups.isNotEmpty()) {
+                var groupExpanded by remember { mutableStateOf(false) }
+                val selectedGroup = groups.firstOrNull { it.id == groupFilterId }
+                androidx.compose.material3.ExposedDropdownMenuBox(expanded = groupExpanded, onExpandedChange = { groupExpanded = it }) {
+                    OutlinedTextField(
+                        value = selectedGroup?.name ?: "All Groups",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Congregation Group") },
+                        leadingIcon = {
+                            Box(
+                                modifier = Modifier.padding(start = 4.dp).size(14.dp)
+                                    .clip(CircleShape)
+                                    .background(selectedGroup?.let { parseHexColor(groupColorFor(it.id)) } ?: Color(0xFFBDBDBD)),
+                            )
+                        },
+                        trailingIcon = { androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(expanded = groupExpanded) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    )
+                    ExposedDropdownMenu(expanded = groupExpanded, onDismissRequest = { groupExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("All Groups") },
+                            onClick = { onGroupFilterChange(null); groupExpanded = false },
+                        )
+                        groups.forEach { group ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(parseHexColor(groupColorFor(group.id))))
+                                        Text(group.name)
+                                    }
+                                },
+                                onClick = { onGroupFilterChange(group.id); groupExpanded = false },
+                            )
+                        }
                     }
                 }
             }
@@ -1575,6 +1739,55 @@ private fun TerritoryMapSearchBar(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/** "Group Report" — a simple, compact summary table: one row per
+ * Congregation Group (or just the one selected — see [TerritoryMapScreen]'s
+ * own `groupReportRows` doc comment), Publishers/Interested Persons/Return
+ * Visits/Bible Studies counted within the current search scope, spec's own
+ * exact worked column layout. Each row's own leading color dot/name text
+ * uses that Group's own assigned color (spec §8's own "use each group's
+ * assigned color for its group name, indicator, or report row") — the exact
+ * same color its markers/barrier already use, so the report and the map
+ * visually agree about which color means which Group. Scrolls horizontally
+ * on a narrow phone screen rather than clipping a column, same
+ * responsive-table convention this app's other data tables already use. */
+@Composable
+private fun GroupReportTable(rows: List<GroupReportRow>) {
+    if (rows.isEmpty()) return
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Group Report", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                Column {
+                    // Header row.
+                    Row(modifier = Modifier.padding(vertical = 4.dp)) {
+                        Text("Congregation Group", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.widthIn(min = 160.dp))
+                        Text("Publishers", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.widthIn(min = 90.dp))
+                        Text("Interested", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.widthIn(min = 90.dp))
+                        Text("Return Visits", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.widthIn(min = 100.dp))
+                        Text("Bible Studies", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, modifier = Modifier.widthIn(min = 100.dp))
+                    }
+                    rows.forEach { row ->
+                        Row(modifier = Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.widthIn(min = 160.dp)) {
+                                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(parseHexColor(row.color)))
+                                Text(row.groupName, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 6.dp))
+                            }
+                            Text("${row.publishers}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.widthIn(min = 90.dp))
+                            Text("${row.interestedPersons}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.widthIn(min = 90.dp))
+                            Text("${row.returnVisits}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.widthIn(min = 100.dp))
+                            Text("${row.bibleStudies}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.widthIn(min = 100.dp))
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1646,14 +1859,22 @@ private fun TerritoryLiveMap(
     boundaryGeometry: suspend (String, String?) -> String?,
     selectedAreaQuery: Pair<String, Float>?,
     selectedAreaNames: Pair<String, String?>?,
-    // "The line barrier should always be displayed regardless of the search
-    // level" — every point currently visible on the map (pipeline records +
-    // Publisher markers), used to draw a best-effort "scope boundary" (see
-    // `window.setScopeBoundary`) whenever [selectedAreaNames] doesn't
-    // resolve to a real administrative polygon — an "All ..." selection, a
-    // specific Interested Person/Return Visit/Bible Study/Publisher, or a
-    // Municipality/Barangay this app has no bundled boundary for.
-    scopeBoundaryPoints: List<LatLng>,
+    // "Create a separate barrier line for every Congregation Group... do not
+    // merge different groups into one barrier" — one entry per Group
+    // currently represented among [rows] (plus an "Unassigned" entry when
+    // applicable), each with its own color and its own point set; drawn via
+    // `window.setGroupScopeBoundaries` alongside — never instead of — the
+    // real Municipality/Barangay administrative polygon [selectedAreaNames]
+    // resolves, when it does.
+    groupBoundaries: List<MapGroupBoundary>,
+    // "Every record displayed on the map must use the color assigned to its
+    // Congregation Group" — resolved per-row by the caller (which already
+    // owns [publisherGroupIds]/the color-by-id cache), keeping this
+    // composable a pure rendering layer with no Group-membership lookup
+    // logic of its own, same convention [boundaryGeometry]/[geocodeArea]
+    // already use for their own caller-owned lookups.
+    groupColorFor: (TerritoryMapRow) -> String,
+    groupNameFor: (TerritoryMapRow) -> String?,
     noRecordsAreaLabel: String?,
     focusLat: Double? = null,
     focusLng: Double? = null,
@@ -1682,7 +1903,7 @@ private fun TerritoryLiveMap(
     // points), and within real lat/lng range. A record that fails this
     // never reaches Leaflet at all — it's counted separately instead, so
     // one bad row can't take the whole map down.
-    val pipelinePoints = remember(rows, publisherNames) {
+    val pipelinePoints = remember(rows, publisherNames, groupColorFor, groupNameFor) {
         rows.mapNotNull { row ->
             val lat = row.person.gpsLat
             val lng = row.person.gpsLng
@@ -1709,6 +1930,8 @@ private fun TerritoryLiveMap(
                     cityMunicipality = row.person.cityMunicipality,
                     barangay = row.person.barangay,
                     publisherName = row.person.publisherPersonId.takeIf { it.isNotBlank() }?.let { publisherNames[it] },
+                    groupColor = groupColorFor(row),
+                    groupName = groupNameFor(row),
                 )
             } else {
                 null
@@ -1857,7 +2080,7 @@ private fun TerritoryLiveMap(
     // selected) and center there instead of leaving the camera on whatever
     // was visible before the filter changed (spec §19/§20's own "still show
     // the Municipality's/Barangay's geographic area").
-    LaunchedEffect(loadState, webViewRef, points, selectedAreaQuery, selectedAreaNames, scopeBoundaryPoints) {
+    LaunchedEffect(loadState, webViewRef, points, selectedAreaQuery, selectedAreaNames, groupBoundaries) {
         if (loadState != MapLoadState.LOADED) return@LaunchedEffect
         val webView = webViewRef ?: return@LaunchedEffect
         // "Update only the required markers, search results, and line
@@ -1893,19 +2116,7 @@ private fun TerritoryLiveMap(
                     null,
                 )
             }
-            scopeBoundaryPoints.isNotEmpty() -> {
-                // "The line barrier should always be displayed regardless of
-                // the search level" — no real administrative polygon applies
-                // here (an "All ..." selection, a specific Interested Person/
-                // Return Visit/Bible Study/Publisher, or a Municipality/
-                // Barangay this app has no bundled boundary for), so hug
-                // whatever's actually visible instead; [setScopeBoundary]
-                // itself frames the camera to these points, same priority
-                // [setAreaBoundaryGeoJson] already gives the real polygon.
-                val pointsJson = scopeBoundaryPoints.joinToString(prefix = "[", postfix = "]") { "[${it.lat},${it.lng}]" }
-                webView.evaluateJavascript("if (window.setScopeBoundary) { window.setScopeBoundary($pointsJson); }", null)
-            }
-            selectedAreaQuery != null -> {
+            selectedAreaQuery != null && groupBoundaries.isEmpty() -> {
                 // Nothing visible at all *and* no real polygon — best-effort
                 // circle fallback, forward-geocoded from the selected area's
                 // name, so an empty Municipality/Barangay still shows
@@ -1926,11 +2137,25 @@ private fun TerritoryLiveMap(
                 }
             }
             else -> {
-                // Truly nothing selected and nothing visible — no one area/
-                // scope to outline at all.
+                // No real administrative polygon this update — the
+                // per-Congregation-Group barriers below are the only
+                // boundary drawn (or nothing selected/visible at all).
                 webView.evaluateJavascript("if (window.clearAreaBoundary) { window.clearAreaBoundary(); }", null)
             }
         }
+        // "Create a separate barrier line for every Congregation Group" —
+        // always pushed, independently of whichever case the `when` above
+        // took, so a real Municipality/Barangay outline and each Group's own
+        // color-coded barrier can both be visible together. Camera-fitting
+        // is suppressed here only when a real administrative polygon already
+        // took that responsibility this same update (see this function's own
+        // `fitCamera` doc comment) — every other case (including the empty-
+        // area geocode fallback above, which has no records/Group boundaries
+        // to fit to anyway) still lets this frame the camera.
+        webView.evaluateJavascript(
+            "if (window.setGroupScopeBoundaries) { window.setGroupScopeBoundaries(${mapGroupBoundariesToJs(groupBoundaries)}, ${geometry == null}); }",
+            null,
+        )
     }
 
     // "Clicking coordinates should open the Territory Map centered on the
@@ -2228,7 +2453,13 @@ private fun TerritoryLiveMap(
  * every point given here is simply plotted. */
 private fun mapPointsToJs(points: List<MapPoint>): String =
     points.joinToString(",", prefix = "[", postfix = "]") { p ->
-        """{id:"${jsEscape(p.id)}",lat:${p.lat},lng:${p.lng},name:"${jsEscape(p.name)}",status:"${jsEscape(p.status)}"}"""
+        """{id:"${jsEscape(p.id)}",lat:${p.lat},lng:${p.lng},name:"${jsEscape(p.name)}",status:"${jsEscape(p.status)}",color:"${jsEscape(p.groupColor)}"}"""
+    }
+
+private fun mapGroupBoundariesToJs(boundaries: List<MapGroupBoundary>): String =
+    boundaries.joinToString(",", prefix = "[", postfix = "]") { b ->
+        val pointsJson = b.points.joinToString(",", prefix = "[", postfix = "]") { "[${it.lat},${it.lng}]" }
+        """{id:"${jsEscape(b.id)}",color:"${jsEscape(b.color)}",points:$pointsJson}"""
     }
 
 /** Built once, with no markers baked in — [TerritoryLiveMap]'s own
@@ -2283,15 +2514,19 @@ private fun buildTerritoryMapHtml(): String {
           var tileErrorCount = 0;
           tiles.on('tileerror', function(e) { tileErrorCount++; console.error('Tile load failed (' + tileErrorCount + ')'); });
 
-          // "Continue using the ... official red 3D location pin icon for
-          // all statuses/categories ... Do not use different marker icons
-          // for different statuses" (spec §26) — one shape for every
-          // record; a selected one just grows and turns gold, the same
-          // "which one's highlighted" convention Google Maps' own default
-          // marker uses.
-          function buildPinIcon(selected) {
+          // "Continue using the... official [pin] icon for all
+          // statuses/categories... Do not use different marker icons for
+          // different statuses" (spec §26) — one shape for every record,
+          // unchanged; "every record displayed on the map must use the color
+          // assigned to its Congregation Group" (Congregation Group color-
+          // coding spec §3) is a *fill color* change only, never a different
+          // shape. A selected marker still grows and turns gold regardless
+          // of its own Group color, the same "which one's highlighted"
+          // convention Google Maps' own default marker uses — `color` is
+          // simply ignored while `selected` is true.
+          function buildPinIcon(selected, color) {
             var w = selected ? 38 : 30, h = selected ? 53 : 42;
-            var fill = selected ? '#FFC107' : '#EA4335';
+            var fill = selected ? '#FFC107' : (color || '#EA4335');
             var html = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 30 42" xmlns="http://www.w3.org/2000/svg">' +
               '<path d="M15 0C6.7 0 0 6.7 0 15c0 11 15 27 15 27s15-16 15-27C30 6.7 23.3 0 15 0z" fill="' + fill + '" stroke="#8a1c14" stroke-width="1"/>' +
               '<circle cx="15" cy="15" r="6.5" fill="#ffffff"/></svg>';
@@ -2313,12 +2548,16 @@ private fun buildTerritoryMapHtml(): String {
           window.setSelectedMarker = function(id) {
             if (selectedMarkerId && selectedMarkerId !== id) {
               var prev = selectedMarkerId === 'me' ? window.myLocationMarker : markersById[selectedMarkerId];
-              if (prev) prev.setIcon(prev._isMe ? buildMeIcon(false) : buildPinIcon(false));
+              // Reverts to that marker's own Group color (stashed on it at
+              // creation — see `window.setPoints`), never a shared default,
+              // so deselecting one Group's marker can never make it look
+              // like it belongs to a different Group.
+              if (prev) prev.setIcon(prev._isMe ? buildMeIcon(false) : buildPinIcon(false, prev._color));
             }
             selectedMarkerId = id || null;
             if (id) {
               var current = id === 'me' ? window.myLocationMarker : markersById[id];
-              if (current) current.setIcon(current._isMe ? buildMeIcon(true) : buildPinIcon(true));
+              if (current) current.setIcon(current._isMe ? buildMeIcon(true) : buildPinIcon(true, current._color));
             }
           };
 
@@ -2360,7 +2599,10 @@ private fun buildTerritoryMapHtml(): String {
             markers = [];
             markersById = {};
             newPoints.forEach(function(p) {
-              var marker = L.marker([p.lat, p.lng], { icon: buildPinIcon(false) });
+              var marker = L.marker([p.lat, p.lng], { icon: buildPinIcon(false, p.color) });
+              // Stashed so `window.setSelectedMarker` can revert to this
+              // exact color later without needing to look `p` back up.
+              marker._color = p.color;
               // "Every visible marker must display: Name (Status)" (spec §26).
               marker.bindTooltip(p.name + ' (' + p.status + ')', { permanent: true, direction: 'right', offset: [10, 0], className: 'territory-label' });
               marker.on('click', function() {
@@ -2505,42 +2747,101 @@ private fun buildTerritoryMapHtml(): String {
             lower.pop(); upper.pop();
             return lower.concat(upper);
           }
-          window.setScopeBoundary = function(points) {
-            window.clearAreaBoundary();
-            if (!points || points.length === 0) { return; }
-            if (points.length === 1) {
-              window.areaBoundary = L.featureGroup([
-                L.circle(points[0], Object.assign({ radius: 400 }, boundaryCasingStyle())),
-                L.circle(points[0], Object.assign({ radius: 400 }, boundaryMainStyle())),
-              ]).addTo(map);
-              map.setView(points[0], 16);
-              return;
-            }
+          // Darkens (negative percent) or lightens (positive) a "#RRGGBB"
+          // string by blending each channel toward black/white — used to
+          // derive a Group's own casing shade directly from its *own*
+          // dynamically-generated color (see Kotlin's own `colorForGroupId`),
+          // rather than a single hardcoded casing color that would only ever
+          // suit one specific hue.
+          function shadeColor(hex, percent) {
+            var num = parseInt(hex.replace('#', ''), 16);
+            var r = Math.max(0, Math.min(255, (num >> 16) + Math.round(255 * percent)));
+            var g = Math.max(0, Math.min(255, ((num >> 8) & 0x00FF) + Math.round(255 * percent)));
+            var b = Math.max(0, Math.min(255, (num & 0x0000FF) + Math.round(255 * percent)));
+            return '#' + (0x1000000 + r * 0x10000 + g * 0x100 + b).toString(16).slice(1);
+          }
+          function dedupePoints(pts) {
             var unique = [];
             var seen = {};
-            points.forEach(function(p) {
+            pts.forEach(function(p) {
               var key = p[0] + ',' + p[1];
               if (!seen[key]) { seen[key] = true; unique.push(p); }
             });
+            return unique;
+          }
+          // Builds one Group's own casing+main hull/circle layer, styled in
+          // *that Group's own* color (never the fixed red the single
+          // Municipality/Barangay administrative boundary above uses) —
+          // same monotone-chain convex hull as before, just parameterized.
+          function buildGroupBoundaryLayer(points, color) {
+            var casingStyle = { color: shadeColor(color, -0.35), weight: BOUNDARY_CASING_WEIGHT, opacity: 0.9, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
+            var mainStyle = { color: color, weight: BOUNDARY_MAIN_WEIGHT, opacity: 1, fill: true, fillColor: color, fillOpacity: BOUNDARY_FILL_OPACITY, lineJoin: 'round', lineCap: 'round', interactive: false };
+            if (points.length === 1) {
+              return L.featureGroup([
+                L.circle(points[0], Object.assign({ radius: 400 }, casingStyle)),
+                L.circle(points[0], Object.assign({ radius: 400 }, mainStyle)),
+              ]);
+            }
+            var unique = dedupePoints(points);
             var hull = unique.length >= 3 ? convexHull(unique) : unique;
             if (hull.length < 3) {
               // Every point collinear/identical after dedup — a polygon
-              // would be degenerate; fall back to a circle around the
-              // group's own bounds instead of drawing nothing.
+              // would be degenerate; fall back to a circle around this
+              // Group's own bounds instead of drawing nothing.
               var bounds = L.latLngBounds(unique);
               var radius = Math.max(300, bounds.getCenter().distanceTo(bounds.getNorthEast()));
-              window.areaBoundary = L.featureGroup([
-                L.circle(bounds.getCenter(), Object.assign({ radius: radius }, boundaryCasingStyle())),
-                L.circle(bounds.getCenter(), Object.assign({ radius: radius }, boundaryMainStyle())),
-              ]).addTo(map);
-              map.fitBounds(bounds.pad(0.25));
-              return;
+              return L.featureGroup([
+                L.circle(bounds.getCenter(), Object.assign({ radius: radius }, casingStyle)),
+                L.circle(bounds.getCenter(), Object.assign({ radius: radius }, mainStyle)),
+              ]);
             }
-            window.areaBoundary = L.featureGroup([
-              L.polygon(hull, boundaryCasingStyle()),
-              L.polygon(hull, boundaryMainStyle()),
-            ]).addTo(map);
-            map.fitBounds(window.areaBoundary.getBounds().pad(0.2));
+            return L.featureGroup([
+              L.polygon(hull, casingStyle),
+              L.polygon(hull, mainStyle),
+            ]);
+          }
+          // "Create a separate barrier line for every Congregation Group...
+          // do not merge different groups into one barrier... Neighboring or
+          // overlapping territories must remain visually distinguishable" —
+          // one independent, color-coded layer per Group (keyed by
+          // `entry.id`, dynamically however many entries Kotlin sends — 2,
+          // 5, 10+, no fixed limit), living entirely apart from
+          // `window.areaBoundary` above (the single, always-red real
+          // Municipality/Barangay administrative outline), so both can be
+          // visible together without either one clobbering the other.
+          // `fitCamera` is false whenever `window.areaBoundary` already
+          // framed the camera to a real administrative polygon this same
+          // update (see [TerritoryLiveMap]'s own points-update effect) — a
+          // deliberate "focus on this exact area" action must never be
+          // immediately overridden by fitting to every Group's combined
+          // bounds instead.
+          window.groupBoundaryLayers = {};
+          window.setGroupScopeBoundaries = function(entries, fitCamera) {
+            var keepIds = {};
+            (entries || []).forEach(function(entry) { keepIds[entry.id] = true; });
+            Object.keys(window.groupBoundaryLayers).forEach(function(id) {
+              if (!keepIds[id]) {
+                map.removeLayer(window.groupBoundaryLayers[id]);
+                delete window.groupBoundaryLayers[id];
+              }
+            });
+            var allPoints = [];
+            (entries || []).forEach(function(entry) {
+              if (window.groupBoundaryLayers[entry.id]) {
+                map.removeLayer(window.groupBoundaryLayers[entry.id]);
+                delete window.groupBoundaryLayers[entry.id];
+              }
+              if (!entry.points || entry.points.length === 0) { return; }
+              entry.points.forEach(function(p) { allPoints.push(p); });
+              window.groupBoundaryLayers[entry.id] = buildGroupBoundaryLayer(entry.points, entry.color).addTo(map);
+            });
+            if (fitCamera && allPoints.length > 0) {
+              map.fitBounds(L.latLngBounds(allPoints).pad(0.2));
+            }
+          };
+          window.clearGroupScopeBoundaries = function() {
+            Object.keys(window.groupBoundaryLayers).forEach(function(id) { map.removeLayer(window.groupBoundaryLayers[id]); });
+            window.groupBoundaryLayers = {};
           };
 
           // JS-side fallback for the exact same "container wasn't its final
@@ -2640,6 +2941,11 @@ private fun MapPointDetailsSheet(
                     // Delete ownership rules) already lives, rather than a
                     // second, parallel summary of it here.
                     point.publisherName?.let { DetailRow(label = "Assigned Publisher", value = it) }
+                    // "Clearly show which records... belong to which
+                    // [Congregation Group]" — the marker's own fill color
+                    // already does this at a glance; named here too for
+                    // anyone who can't rely on color alone.
+                    point.groupName?.let { DetailRow(label = "Congregation Group", value = it) }
                     point.province?.let { DetailRow(label = "Province", value = it) }
                     point.cityMunicipality?.let { DetailRow(label = "Municipality", value = it) }
                     point.barangay?.let { DetailRow(label = "Barangay", value = it) }
@@ -2679,6 +2985,76 @@ private fun markerColorFor(kind: MapPointKind): Color = when (kind) {
     MapPointKind.RETURN_VISIT -> Color(0xFFFB8C00)
     MapPointKind.SEARCHING -> Color(0xFF616161)
     MapPointKind.ME -> Color(0xFF34A853)
+}
+
+/** Neutral gray for a record whose assigned Publisher has no Congregation
+ * Group at all — deliberately never a "real" group's own generated color
+ * (see [colorForGroupId]), so an unassigned record can never be mistaken
+ * for belonging to one. */
+private const val UNASSIGNED_GROUP_COLOR = "#78909C"
+
+/** "Automatic Group Color Coding... a distinct, professional, high-contrast
+ * color [per Congregation Group]... do not limit the system to five
+ * colors/groups... keep each group's assigned color consistent across the
+ * entire application... do not unnecessarily change an existing group's
+ * color when another group is added or removed."
+ *
+ * Every one of those constraints together rules out an index-based palette
+ * (`colors[groups.indexOf(group)]`) — adding/removing a group elsewhere in
+ * the (alphabetically sorted) list would shift every later group's index,
+ * and therefore its color, even though that group itself never changed.
+ * Deriving the color purely from the Group's own stable [Group.id] instead
+ * makes it permanent for that Group's entire lifetime, and trivially
+ * supports any number of groups (2, 5, 10, 50 — there's no fixed palette to
+ * run out of). Golden-ratio-conjugate hue stepping, seeded by the id's own
+ * hash, is a standard trick for spreading arbitrary-but-deterministic values
+ * well around the color wheel — not a perfect guarantee against two
+ * unrelated ids landing on similar hues (true graph-coloring of
+ * *geographically adjacent* territories would need the territories'
+ * geometry, which this app doesn't have), but a solid, dependency-free
+ * approximation of "avoid similar colors whenever possible". Fixed, fairly
+ * high saturation/value keeps every generated color equally professional
+ * and high-contrast against the map's own muted OSM tiles.
+ */
+private fun colorForGroupId(groupId: String): String {
+    val goldenRatioConjugate = 0.6180339887498949
+    val hash = groupId.hashCode().toLong() and 0xFFFFFFFFL
+    val hue = ((hash * goldenRatioConjugate) % 1.0 * 360.0).toFloat()
+    return hsvToHex(hue, saturation = 0.68f, value = 0.80f)
+}
+
+/** Plain HSV -> "#RRGGBB" conversion with no Compose/Android dependency, so
+ * the exact same color can be embedded straight into the map's own JS
+ * (markers, group boundary lines/fills) and parsed back into a Compose
+ * [Color] for the Congregation Group dropdown/legend/report — one formula,
+ * never two color systems that could drift apart. */
+private fun hsvToHex(hueDegrees: Float, saturation: Float, value: Float): String {
+    val c = value * saturation
+    val x = c * (1 - kotlin.math.abs((hueDegrees / 60f) % 2 - 1))
+    val m = value - c
+    val (r1, g1, b1) = when {
+        hueDegrees < 60f -> Triple(c, x, 0f)
+        hueDegrees < 120f -> Triple(x, c, 0f)
+        hueDegrees < 180f -> Triple(0f, c, x)
+        hueDegrees < 240f -> Triple(0f, x, c)
+        hueDegrees < 300f -> Triple(x, 0f, c)
+        else -> Triple(c, 0f, x)
+    }
+    fun channel(v: Float) = ((v + m) * 255f).roundToInt().coerceIn(0, 255)
+    return "#%02X%02X%02X".format(channel(r1), channel(g1), channel(b1))
+}
+
+/** Parses a "#RRGGBB" string (as produced by [colorForGroupId]/
+ * [UNASSIGNED_GROUP_COLOR]) into a Compose [Color] for the dropdown/legend/
+ * report swatches — `android.graphics.Color.parseColor` would also work, but
+ * pulling in the platform's own class for a format this file already
+ * generates itself is one dependency this doesn't need. */
+private fun parseHexColor(hex: String): Color {
+    val clean = hex.removePrefix("#")
+    val r = clean.substring(0, 2).toInt(16)
+    val g = clean.substring(2, 4).toInt(16)
+    val b = clean.substring(4, 6).toInt(16)
+    return Color(r, g, b)
 }
 
 /** "The icon identifies the person's current classification; GPS location
@@ -2781,6 +3157,39 @@ private data class MapPoint(
     val cityMunicipality: String? = null,
     val barangay: String? = null,
     val publisherName: String? = null,
+    // "Every record displayed on the map must use the color assigned to its
+    // Congregation Group" — a "#RRGGBB" string (see [colorForGroupId]),
+    // ready to hand straight to the JS marker-icon builder; [UNASSIGNED_GROUP_COLOR]
+    // for PUBLISHER/ME (no Congregation Group applies to either) and for a
+    // pipeline record whose own assigned Publisher has no Group.
+    val groupColor: String = UNASSIGNED_GROUP_COLOR,
+    // Shown in the detail bottom sheet only — "clearly show which records...
+    // belong to which group;" null for PUBLISHER/ME/an unassigned record.
+    val groupName: String? = null,
+)
+
+/** One Congregation Group's own barrier — see [TerritoryMapScreen]'s
+ * `mapGroupBoundaries` for how this is built and [TerritoryLiveMap]'s own
+ * `window.setGroupScopeBoundaries` for how it's actually drawn (color-coded,
+ * never merged with another Group's). [id] is [UNASSIGNED_GROUP_ID] for the
+ * one pseudo-group covering a record whose assigned Publisher has no real
+ * Congregation Group. */
+private data class MapGroupBoundary(val id: String, val color: String, val points: List<LatLng>)
+
+private const val UNASSIGNED_GROUP_ID = "—unassigned-group—"
+
+/** One row of the "Group Report" — see [TerritoryMapScreen]'s own
+ * `groupReportRows` for how this is built (always from the same dataset the
+ * map's own markers/barriers use, spec §9) and [GroupReportTable] for how
+ * it's actually rendered. */
+private data class GroupReportRow(
+    val groupId: String,
+    val groupName: String,
+    val color: String,
+    val publishers: Int,
+    val interestedPersons: Int,
+    val returnVisits: Int,
+    val bibleStudies: Int,
 )
 
 /** Great-circle distance in meters — plenty accurate for "which of these
