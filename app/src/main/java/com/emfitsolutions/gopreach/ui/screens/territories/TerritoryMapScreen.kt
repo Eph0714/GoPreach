@@ -2473,7 +2473,7 @@ private fun TerritoryLiveMap(
  * every point given here is simply plotted. */
 private fun mapPointsToJs(points: List<MapPoint>): String =
     points.joinToString(",", prefix = "[", postfix = "]") { p ->
-        """{id:"${jsEscape(p.id)}",lat:${p.lat},lng:${p.lng},name:"${jsEscape(p.name)}",status:"${jsEscape(p.status)}",color:"${jsEscape(p.groupColor)}"}"""
+        """{id:"${jsEscape(p.id)}",lat:${p.lat},lng:${p.lng},name:"${jsEscape(p.name)}",status:"${jsEscape(p.status)}",color:"${jsEscape(p.groupColor)}",kind:"${p.kind.name}"}"""
     }
 
 private fun mapGroupBoundariesToJs(boundaries: List<MapGroupBoundary>): String =
@@ -2496,8 +2496,6 @@ private fun buildTerritoryMapHtml(): String {
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css">
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css">
         <style>
           /* height:100% cascading from html->body->#map depends on every
              ancestor resolving to a *definite* pixel height; anchoring #map
@@ -2512,7 +2510,6 @@ private fun buildTerritoryMapHtml(): String {
         <body>
         <div id="map"></div>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
         <script>
         try {
           var map = L.map('map', { zoomControl: true });
@@ -2534,22 +2531,41 @@ private fun buildTerritoryMapHtml(): String {
           var tileErrorCount = 0;
           tiles.on('tileerror', function(e) { tileErrorCount++; console.error('Tile load failed (' + tileErrorCount + ')'); });
 
-          // "Continue using the... official [pin] icon for all
-          // statuses/categories... Do not use different marker icons for
-          // different statuses" (spec §26) — one shape for every record,
-          // unchanged; "every record displayed on the map must use the color
-          // assigned to its Congregation Group" (Congregation Group color-
-          // coding spec §3) is a *fill color* change only, never a different
-          // shape. A selected marker still grows and turns gold regardless
-          // of its own Group color, the same "which one's highlighted"
-          // convention Google Maps' own default marker uses — `color` is
-          // simply ignored while `selected` is true.
-          function buildPinIcon(selected, color) {
+          // "Interested Person, Return Visit, and Bible Study must each have
+          // unique, recognizable icons... do not use the same icon" —
+          // supersedes the earlier "one shape for every record" rule: the
+          // pin *silhouette* stays the same recognizable map-marker shape
+          // (still colored by Congregation Group — spec's own "Record
+          // Color + Icon" combination), but the small glyph inside it now
+          // differs by record type instead of always being a plain white
+          // dot, via [iconGlyphFor]. A selected marker still grows and turns
+          // gold regardless of its own Group color, the same "which one's
+          // highlighted" convention Google Maps' own default marker uses —
+          // `color` is simply ignored while `selected` is true; the glyph
+          // itself is unaffected by selection.
+          function iconGlyphFor(kind) {
+            switch (kind) {
+              // Return Visit — a "revisit/follow-up" circular-arrow glyph.
+              case 'RETURN_VISIT':
+                return '<path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 13c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 8.74A7.93 7.93 0 0 0 4 13c0 4.42 3.58 8 8 8v4l5-5-5-5v4z"/>';
+              // Bible Study — an open-book glyph.
+              case 'BIBLE_STUDY':
+                return '<path d="M12 4.5C10.4 3.4 8 2.5 6 2.5c-1.5 0-3.1.4-4.5 1.1v14.9c1.4-.6 3-1 4.5-1 2 0 4.4.9 6 2 1.6-1.1 4-2 6-2 1.5 0 3.1.4 4.5 1V3.6c-1.4-.7-3-1.1-4.5-1.1-2 0-4.4.9-6 2zm0 13.9c-1.5-.9-3.6-1.6-5.5-1.6-.9 0-1.7.1-2.5.4V5.1c.8-.3 1.6-.4 2.5-.4 1.9 0 4 .7 5.5 1.6v12.1z"/>';
+              // Interested Person ("Searching") — a plain person/user glyph,
+              // same recognizable silhouette as every "person" record kind
+              // (Publisher/"Me" keep their own distinct looks below).
+              case 'SEARCHING':
+              default:
+                return '<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>';
+            }
+          }
+          function buildPinIcon(selected, color, kind) {
             var w = selected ? 38 : 30, h = selected ? 53 : 42;
             var fill = selected ? '#FFC107' : (color || '#EA4335');
+            var glyph = iconGlyphFor(kind);
             var html = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 30 42" xmlns="http://www.w3.org/2000/svg">' +
               '<path d="M15 0C6.7 0 0 6.7 0 15c0 11 15 27 15 27s15-16 15-27C30 6.7 23.3 0 15 0z" fill="' + fill + '" stroke="#8a1c14" stroke-width="1"/>' +
-              '<circle cx="15" cy="15" r="6.5" fill="#ffffff"/></svg>';
+              '<g transform="translate(8.5,8.5) scale(0.54)" fill="#ffffff">' + glyph + '</g></svg>';
             return L.divIcon({ className: 'territory-marker', html: html, iconSize: [w, h], iconAnchor: [w / 2, h] });
           }
           // "My Location" isn't a record status at all, so it keeps its own
@@ -2568,24 +2584,30 @@ private fun buildTerritoryMapHtml(): String {
           window.setSelectedMarker = function(id) {
             if (selectedMarkerId && selectedMarkerId !== id) {
               var prev = selectedMarkerId === 'me' ? window.myLocationMarker : markersById[selectedMarkerId];
-              // Reverts to that marker's own Group color (stashed on it at
-              // creation — see `window.setPoints`), never a shared default,
-              // so deselecting one Group's marker can never make it look
-              // like it belongs to a different Group.
-              if (prev) prev.setIcon(prev._isMe ? buildMeIcon(false) : buildPinIcon(false, prev._color));
+              // Reverts to that marker's own Group color and record-type
+              // glyph (both stashed on it at creation — see
+              // `window.setPoints`), never a shared default, so deselecting
+              // one Group's marker can never make it look like it belongs
+              // to a different Group or a different record type.
+              if (prev) prev.setIcon(prev._isMe ? buildMeIcon(false) : buildPinIcon(false, prev._color, prev._kind));
             }
             selectedMarkerId = id || null;
             if (id) {
               var current = id === 'me' ? window.myLocationMarker : markersById[id];
-              if (current) current.setIcon(current._isMe ? buildMeIcon(true) : buildPinIcon(true, current._color));
+              if (current) current.setIcon(current._isMe ? buildMeIcon(true) : buildPinIcon(true, current._color, current._kind));
             }
           };
 
-          // Clusters nearby markers into one numbered bubble that expands on
-          // tap/zoom — keeps a dense subdivision from turning into an
-          // unreadable pile of overlapping pins. "You are here" is a
-          // separate marker outside this cluster entirely.
-          var cluster = L.markerClusterGroup();
+          // "Do NOT automatically cluster, combine, shrink, or compact
+          // Interested Person, Return Visit, or Bible Study icons when the
+          // user zooms out... each record should continue to display its
+          // designated icon" — a plain, non-clustering layer group (every
+          // marker always rendered individually, at every zoom level); this
+          // used to be `L.markerClusterGroup()`, which is exactly the
+          // "combine multiple records into one number" behavior this spec
+          // now explicitly forbids. "You are here" stays a separate marker
+          // outside this group entirely, unchanged.
+          var cluster = L.layerGroup();
           var markers = [];
           var markersById = {};
           map.addLayer(cluster);
@@ -2619,10 +2641,11 @@ private fun buildTerritoryMapHtml(): String {
             markers = [];
             markersById = {};
             newPoints.forEach(function(p) {
-              var marker = L.marker([p.lat, p.lng], { icon: buildPinIcon(false, p.color) });
+              var marker = L.marker([p.lat, p.lng], { icon: buildPinIcon(false, p.color, p.kind) });
               // Stashed so `window.setSelectedMarker` can revert to this
-              // exact color later without needing to look `p` back up.
+              // exact color/glyph later without needing to look `p` back up.
               marker._color = p.color;
+              marker._kind = p.kind;
               // "Every visible marker must display: Name (Status)" (spec §26).
               marker.bindTooltip(p.name + ' (' + p.status + ')', { permanent: true, direction: 'right', offset: [10, 0], className: 'territory-label' });
               marker.on('click', function() {
@@ -2691,23 +2714,12 @@ private fun buildTerritoryMapHtml(): String {
           var BOUNDARY_CASING_WEIGHT = 9;
           var BOUNDARY_MAIN_WEIGHT = 4.5;
           var BOUNDARY_FILL_OPACITY = 0.10;
-          // "Do not use a large rounded/circular barrier for very small
-          // Field Service Group territories... the barrier must be
-          // proportional to the actual territory" — half-width (meters) of
-          // the small, fixed, compact square a lone point (or a tight
-          // 2-point cluster) gets instead of an oversized circle; see
-          // [buildGroupBoundaryLayer]'s own doc comment for where this is used.
+          // "Never use a generic square, rectangle, circle, or rounded
+          // shape to represent an actual geographic territory" — the
+          // minimum real-world radius (meters) a lone point (or a tight
+          // 2-point cluster) gets, via [smallTerritoryPolygon]'s own
+          // deliberately-irregular shape, never a geometric primitive.
           var SMALL_TERRITORY_HALF_WIDTH_METERS = 150;
-          // Converts a real-world half-width (meters) around a center point
-          // into a small lat/lng bounding box — `Math.cos` correction so a
-          // "square" reads as roughly square on the ground even far from the
-          // equator, not visibly stretched east-west.
-          function squareBoundsAround(lat, lng, halfWidthMeters) {
-            var dLat = halfWidthMeters / 111320;
-            var cos = Math.cos(lat * Math.PI / 180);
-            var dLng = halfWidthMeters / (111320 * (Math.abs(cos) > 0.01 ? cos : 0.01));
-            return L.latLngBounds([lat - dLat, lng - dLng], [lat + dLat, lng + dLng]);
-          }
           function boundaryCasingStyle() {
             return { color: BOUNDARY_CASING_COLOR, weight: BOUNDARY_CASING_WEIGHT, opacity: 0.9, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
           }
@@ -2806,115 +2818,103 @@ private fun buildTerritoryMapHtml(): String {
             });
             return unique;
           }
-          // "Fill the territory inside each Field Service Group barrier with
-          // a subtle professional gradient... the boundary line should be
-          // more visible/stronger than the interior gradient fill" —
-          // Leaflet has no built-in gradient-fill style property, so this
-          // defines a real SVG <radialGradient> (bright-ish near the
-          // center, fading down to almost nothing right at the edge, where
-          // the boundary line itself takes over) and points that one Group's
-          // filled path element's own `fill` attribute at it directly, in
-          // the same SVG root Leaflet's own vector layers already render
-          // into. One gradient def per Group id, reused across every
-          // search/redraw rather than recreated each time.
-          function ensureGroupGradient(groupId, color) {
-            var svg = document.querySelector('#map svg');
-            if (!svg) return null;
-            var defs = svg.querySelector('defs');
-            if (!defs) {
-              defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-              svg.insertBefore(defs, svg.firstChild);
+          // "Remove the previous gradient-fill system. Use a solid unique
+          // color for each Field Service Group" — one flat, moderately
+          // opaque fill per Group (never a gradient/fade), still low enough
+          // that roads/labels/markers/neighboring territories underneath
+          // stay visible — kept as its own constant, separate from
+          // [BOUNDARY_FILL_OPACITY] (the real Municipality/Barangay
+          // administrative outline's own, unchanged, fill), since the two
+          // are conceptually different layers with no reason to share one
+          // tuning knob.
+          var GROUP_FILL_OPACITY = 0.25;
+          // A deliberately irregular (never square/rectangular/circular)
+          // small polygon around a point or tiny cluster with no real
+          // polygon of its own to draw (see [buildGroupBoundaryLayer]'s own
+          // doc comment for why this case exists at all) — vertices at
+          // uneven radii/angles, deterministic per exact coordinate (so the
+          // same location always draws the same shape across reloads,
+          // "keep color/shape assignments consistent... whenever possible"),
+          // rather than a perfect geometric primitive standing in for a
+          // location this app has no real surveyed boundary for.
+          function smallIrregularPolygon(centerLat, centerLng, radiusMeters) {
+            var vertices = [];
+            var sides = 7;
+            var cosLat = Math.cos(centerLat * Math.PI / 180);
+            var cosLatSafe = Math.abs(cosLat) > 0.01 ? cosLat : 0.01;
+            for (var i = 0; i < sides; i++) {
+              var angle = (i / sides) * Math.PI * 2;
+              var jitter = 0.65 + 0.35 * Math.abs(Math.sin(i * 12.9898 + centerLat * 78.233 + centerLng * 37.719));
+              var r = radiusMeters * jitter;
+              var dLat = (r * Math.cos(angle)) / 111320;
+              var dLng = (r * Math.sin(angle)) / (111320 * cosLatSafe);
+              vertices.push([centerLat + dLat, centerLng + dLng]);
             }
-            var gradId = 'group-gradient-' + String(groupId).replace(/[^a-zA-Z0-9_-]/g, '_');
-            if (!defs.querySelector('#' + gradId)) {
-              var grad = document.createElementNS('http://www.w3.org/2000/svg', 'radialGradient');
-              grad.setAttribute('id', gradId);
-              grad.setAttribute('gradientUnits', 'objectBoundingBox');
-              grad.setAttribute('cx', '50%');
-              grad.setAttribute('cy', '50%');
-              grad.setAttribute('r', '65%');
-              var stopCenter = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
-              stopCenter.setAttribute('offset', '0%');
-              stopCenter.setAttribute('stop-color', color);
-              stopCenter.setAttribute('stop-opacity', '0.22');
-              var stopEdge = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
-              stopEdge.setAttribute('offset', '100%');
-              stopEdge.setAttribute('stop-color', color);
-              stopEdge.setAttribute('stop-opacity', '0.03');
-              grad.appendChild(stopCenter);
-              grad.appendChild(stopEdge);
-              defs.appendChild(grad);
-            }
-            return gradId;
+            return vertices;
           }
-          // Overrides one already-added filled layer's own path element to
-          // use its Group's gradient instead of Leaflet's own flat
-          // `fillColor` — `fill-opacity` is reset to 1 here too, so the
-          // gradient's own per-stop opacity is what actually controls how
-          // faint it looks, not that multiplied a second time by Leaflet's
-          // own (separate) `fillOpacity` style property.
-          function applyGroupGradient(layer, groupId, color) {
-            var gradId = ensureGroupGradient(groupId, color);
-            if (!gradId || !layer.getElement) return;
-            var el = layer.getElement();
-            if (!el) return;
-            el.setAttribute('fill', 'url(#' + gradId + ')');
-            el.setAttribute('fill-opacity', '1');
+          // Same idea, sized to actually cover every one of [points] (never
+          // smaller than [SMALL_TERRITORY_HALF_WIDTH_METERS], so it stays a
+          // real, visible area rather than shrinking to nothing for two
+          // near-identical coordinates).
+          function smallTerritoryPolygon(points) {
+            var lats = points.map(function(p) { return p[0]; });
+            var lngs = points.map(function(p) { return p[1]; });
+            var centerLat = (Math.min.apply(null, lats) + Math.max.apply(null, lats)) / 2;
+            var centerLng = (Math.min.apply(null, lngs) + Math.max.apply(null, lngs)) / 2;
+            var center = L.latLng(centerLat, centerLng);
+            var maxDist = 0;
+            points.forEach(function(p) { maxDist = Math.max(maxDist, center.distanceTo(L.latLng(p[0], p[1]))); });
+            var radius = Math.max(SMALL_TERRITORY_HALF_WIDTH_METERS, maxDist * 1.3);
+            return smallIrregularPolygon(centerLat, centerLng, radius);
           }
-          // Builds one Group's own casing+main hull/rectangle layer, styled
-          // in *that Group's own* color (never the fixed red the single
+          // Builds one Group's own casing+main hull layer, styled in *that
+          // Group's own* solid color (never the fixed red the single
           // Municipality/Barangay administrative boundary above uses).
           //
-          // "Do not create artificial large, rounded, or circular barriers
-          // for small... locations. The barrier must be proportional to the
-          // actual territory... prefer a compact square, rectangular, or
-          // tightly fitted polygon" — 3+ non-collinear points still get the
-          // real, natural, irregular convex-hull shape (already proportional
-          // to the actual spread, nothing artificial about it); a lone point,
-          // or 2 points/collinear points with no real polygon to draw, now
-          // get a small, tightly-fitted *rectangle* (`squareBoundsAround`)
-          // instead of the fixed-or-computed circle this used to draw —
-          // never an oversized rounded shape standing in for one or two
-          // actual locations.
+          // "Never use a generic square, rectangle, circle, or rounded
+          // shape to represent an actual geographic territory" — 3+
+          // non-collinear points get the real, natural, irregular
+          // convex-hull shape (the tightest real polygon around every one
+          // of this Group's own points — proportional to their actual
+          // spread, nothing artificial about it, and the closest thing to
+          // "the actual territory" derivable from real data when no
+          // surveyed Field Service Group boundary dataset exists — see this
+          // file's own doc comment on [TerritoryBoundaryRepository] for the
+          // one geographic level that *does* have real boundary data). A
+          // lone point, or 2 points/collinear points with no real polygon
+          // to draw at all, gets [smallTerritoryPolygon] instead — still an
+          // approximation (there is no "real shape" of a single address
+          // either), but a deliberately irregular one, never a square,
+          // rectangle, or circle.
           function buildGroupBoundaryLayer(points, color, groupId) {
             var casingStyle = { color: shadeColor(color, -0.35), weight: BOUNDARY_CASING_WEIGHT, opacity: 0.9, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
-            // `fillOpacity` here is only the *fallback* look, in case the
-            // gradient override above can't apply for any reason — kept low
-            // and subtle on its own too, per spec's own "do not use a
-            // solid, highly opaque fill".
-            var mainStyle = { color: color, weight: BOUNDARY_MAIN_WEIGHT, opacity: 1, fill: true, fillColor: color, fillOpacity: BOUNDARY_FILL_OPACITY, lineJoin: 'round', lineCap: 'round', interactive: false };
+            var mainStyle = { color: color, weight: BOUNDARY_MAIN_WEIGHT, opacity: 1, fill: true, fillColor: color, fillOpacity: GROUP_FILL_OPACITY, lineJoin: 'round', lineCap: 'round', interactive: false };
             var casingLayer, mainLayer;
             if (points.length === 1) {
-              var soloBounds = squareBoundsAround(points[0][0], points[0][1], SMALL_TERRITORY_HALF_WIDTH_METERS);
-              casingLayer = L.rectangle(soloBounds, casingStyle);
-              mainLayer = L.rectangle(soloBounds, mainStyle);
+              var soloHull = smallTerritoryPolygon(points);
+              casingLayer = L.polygon(soloHull, casingStyle);
+              mainLayer = L.polygon(soloHull, mainStyle);
             } else {
               var unique = dedupePoints(points);
               var hull = unique.length >= 3 ? convexHull(unique) : unique;
               if (hull.length < 3) {
                 // 2 distinct points (or every point collinear/identical
-                // after dedup) — no real polygon to draw; a compact
-                // rectangle hugging the actual points (with a small floor
-                // size so two near-identical points still read as a real
-                // area, never an arbitrary large circle) is the honest
-                // small-area shape here.
-                var bounds = L.latLngBounds(unique).pad(0.3);
-                var center = bounds.getCenter();
-                bounds.extend(squareBoundsAround(center.lat, center.lng, SMALL_TERRITORY_HALF_WIDTH_METERS));
-                casingLayer = L.rectangle(bounds, casingStyle);
-                mainLayer = L.rectangle(bounds, mainStyle);
+                // after dedup) — no real polygon to draw; the same
+                // deliberately-irregular small shape as the single-point
+                // case, sized to actually cover both points.
+                var smallHull = smallTerritoryPolygon(unique);
+                casingLayer = L.polygon(smallHull, casingStyle);
+                mainLayer = L.polygon(smallHull, mainStyle);
               } else {
                 // 3+ non-collinear points — the real, natural, irregular
                 // territory shape: the tightest real polygon around every
                 // one of this Group's own points, proportional to their
-                // actual spread, never an artificially enlarged circle.
+                // actual spread.
                 casingLayer = L.polygon(hull, casingStyle);
                 mainLayer = L.polygon(hull, mainStyle);
               }
             }
-            var group = L.featureGroup([casingLayer, mainLayer]);
-            group.on('add', function() { applyGroupGradient(mainLayer, groupId, color); });
-            return group;
+            return L.featureGroup([casingLayer, mainLayer]);
           }
           // Rough "how big is this Group's own footprint" heuristic (a
           // plain bounding-box area, not a true geodesic one — only ever
@@ -3205,9 +3205,10 @@ private fun parseHexColor(hex: String): Color {
 /** "The icon identifies the person's current classification; GPS location
  * does not determine classification" — the one place every one of the five
  * category emoji is defined; the Legend and the bottom sheet both reuse it
- * verbatim (the map's own pins are all the same official red pin now — see
- * [buildTerritoryMapHtml]'s own doc comment — so this no longer feeds the
- * marker itself, only the reference key and the tap-through detail view). */
+ * verbatim. The map's own pins now carry their own distinct SVG glyph per
+ * kind too (see [buildTerritoryMapHtml]'s own `iconGlyphFor`) — this emoji
+ * set is unrelated to that, purely for the Legend/detail-sheet's own
+ * Compose-side reference key. */
 private fun emojiFor(kind: MapPointKind): String = when (kind) {
     MapPointKind.PUBLISHER -> "👤"
     MapPointKind.BIBLE_STUDY -> "📖"
