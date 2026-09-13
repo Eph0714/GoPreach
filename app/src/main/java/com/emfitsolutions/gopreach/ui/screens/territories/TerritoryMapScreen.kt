@@ -2102,6 +2102,24 @@ private fun TerritoryLiveMap(
         // non-genuine-GMS test device) as a last resort, once there isn't
         // even a point on screen to build a scope boundary from.
         val geometry = selectedAreaNames?.let { (muni, brgy) -> boundaryGeometry(muni, brgy) }
+        // "Do not remove or replace the existing municipality line
+        // barriers... the municipality boundary must remain visible at all
+        // times [while Field Service Group barriers are also shown]" — bug
+        // fix: this used to skip the circle-fallback outer boundary
+        // entirely whenever any Group barrier also existed
+        // (`groupBoundaries.isEmpty()`), leaving a selected Municipality
+        // with real records but no bundled real polygon showing *only* the
+        // inner Group territories and no outer Municipality boundary at
+        // all. The outer boundary (real polygon, or this circle
+        // approximation when there's no bundled polygon) is a completely
+        // separate concept from the Group barriers now drawn alongside it
+        // (see `setGroupScopeBoundaries` below) — one is the container, the
+        // other is what's inside it — so its own presence must never depend
+        // on whether the inner Group barriers happen to have anything to
+        // draw. [cameraAlreadyFit] tracks whether this block already
+        // positioned the camera, so the Group-boundary push below only
+        // takes over centering when nothing here already did.
+        var cameraAlreadyFit = false
         when {
             geometry != null -> {
                 // Draw the area boundary whenever a specific Municipality/
@@ -2115,12 +2133,15 @@ private fun TerritoryLiveMap(
                     "if (window.setAreaBoundaryGeoJson) { window.setAreaBoundaryGeoJson($geometry); }",
                     null,
                 )
+                cameraAlreadyFit = true
             }
-            selectedAreaQuery != null && groupBoundaries.isEmpty() -> {
-                // Nothing visible at all *and* no real polygon — best-effort
-                // circle fallback, forward-geocoded from the selected area's
-                // name, so an empty Municipality/Barangay still shows
-                // *something* real rather than a blank map.
+            selectedAreaQuery != null -> {
+                // No bundled real polygon for this Municipality/Barangay —
+                // best-effort circle fallback, forward-geocoded from the
+                // selected area's own name, so it still shows *something*
+                // real as the outer boundary, exactly like the real-polygon
+                // case above, regardless of whether it has any records (and
+                // therefore any Group barriers) inside it or not.
                 val (query, zoom) = selectedAreaQuery
                 val fix = geocodeArea(query)
                 if (fix != null) {
@@ -2132,6 +2153,7 @@ private fun TerritoryLiveMap(
                         null,
                     )
                     webView.evaluateJavascript("if (window.territoryMap) { window.territoryMap.setView([${fix.lat}, ${fix.lng}], $zoom); }", null)
+                    cameraAlreadyFit = true
                 } else {
                     webView.evaluateJavascript("if (window.clearAreaBoundary) { window.clearAreaBoundary(); }", null)
                 }
@@ -2145,15 +2167,13 @@ private fun TerritoryLiveMap(
         }
         // "Create a separate barrier line for every Congregation Group" —
         // always pushed, independently of whichever case the `when` above
-        // took, so a real Municipality/Barangay outline and each Group's own
-        // color-coded barrier can both be visible together. Camera-fitting
-        // is suppressed here only when a real administrative polygon already
-        // took that responsibility this same update (see this function's own
-        // `fitCamera` doc comment) — every other case (including the empty-
-        // area geocode fallback above, which has no records/Group boundaries
-        // to fit to anyway) still lets this frame the camera.
+        // took, so a real (or approximated) Municipality/Barangay outline
+        // and each Group's own color-coded barrier are always visible
+        // together — the outer container and its inner territories, never
+        // one replacing the other. Camera-fitting is suppressed here only
+        // when the block above already positioned it this same update.
         webView.evaluateJavascript(
-            "if (window.setGroupScopeBoundaries) { window.setGroupScopeBoundaries(${mapGroupBoundariesToJs(groupBoundaries)}, ${geometry == null}); }",
+            "if (window.setGroupScopeBoundaries) { window.setGroupScopeBoundaries(${mapGroupBoundariesToJs(groupBoundaries)}, ${!cameraAlreadyFit}); }",
             null,
         )
     }
@@ -2671,6 +2691,23 @@ private fun buildTerritoryMapHtml(): String {
           var BOUNDARY_CASING_WEIGHT = 9;
           var BOUNDARY_MAIN_WEIGHT = 4.5;
           var BOUNDARY_FILL_OPACITY = 0.10;
+          // "Do not use a large rounded/circular barrier for very small
+          // Field Service Group territories... the barrier must be
+          // proportional to the actual territory" — half-width (meters) of
+          // the small, fixed, compact square a lone point (or a tight
+          // 2-point cluster) gets instead of an oversized circle; see
+          // [buildGroupBoundaryLayer]'s own doc comment for where this is used.
+          var SMALL_TERRITORY_HALF_WIDTH_METERS = 150;
+          // Converts a real-world half-width (meters) around a center point
+          // into a small lat/lng bounding box — `Math.cos` correction so a
+          // "square" reads as roughly square on the ground even far from the
+          // equator, not visibly stretched east-west.
+          function squareBoundsAround(lat, lng, halfWidthMeters) {
+            var dLat = halfWidthMeters / 111320;
+            var cos = Math.cos(lat * Math.PI / 180);
+            var dLng = halfWidthMeters / (111320 * (Math.abs(cos) > 0.01 ? cos : 0.01));
+            return L.latLngBounds([lat - dLat, lng - dLng], [lat + dLat, lng + dLng]);
+          }
           function boundaryCasingStyle() {
             return { color: BOUNDARY_CASING_COLOR, weight: BOUNDARY_CASING_WEIGHT, opacity: 0.9, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
           }
@@ -2769,36 +2806,136 @@ private fun buildTerritoryMapHtml(): String {
             });
             return unique;
           }
-          // Builds one Group's own casing+main hull/circle layer, styled in
-          // *that Group's own* color (never the fixed red the single
-          // Municipality/Barangay administrative boundary above uses) —
-          // same monotone-chain convex hull as before, just parameterized.
-          function buildGroupBoundaryLayer(points, color) {
+          // "Fill the territory inside each Field Service Group barrier with
+          // a subtle professional gradient... the boundary line should be
+          // more visible/stronger than the interior gradient fill" —
+          // Leaflet has no built-in gradient-fill style property, so this
+          // defines a real SVG <radialGradient> (bright-ish near the
+          // center, fading down to almost nothing right at the edge, where
+          // the boundary line itself takes over) and points that one Group's
+          // filled path element's own `fill` attribute at it directly, in
+          // the same SVG root Leaflet's own vector layers already render
+          // into. One gradient def per Group id, reused across every
+          // search/redraw rather than recreated each time.
+          function ensureGroupGradient(groupId, color) {
+            var svg = document.querySelector('#map svg');
+            if (!svg) return null;
+            var defs = svg.querySelector('defs');
+            if (!defs) {
+              defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+              svg.insertBefore(defs, svg.firstChild);
+            }
+            var gradId = 'group-gradient-' + String(groupId).replace(/[^a-zA-Z0-9_-]/g, '_');
+            if (!defs.querySelector('#' + gradId)) {
+              var grad = document.createElementNS('http://www.w3.org/2000/svg', 'radialGradient');
+              grad.setAttribute('id', gradId);
+              grad.setAttribute('gradientUnits', 'objectBoundingBox');
+              grad.setAttribute('cx', '50%');
+              grad.setAttribute('cy', '50%');
+              grad.setAttribute('r', '65%');
+              var stopCenter = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+              stopCenter.setAttribute('offset', '0%');
+              stopCenter.setAttribute('stop-color', color);
+              stopCenter.setAttribute('stop-opacity', '0.22');
+              var stopEdge = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+              stopEdge.setAttribute('offset', '100%');
+              stopEdge.setAttribute('stop-color', color);
+              stopEdge.setAttribute('stop-opacity', '0.03');
+              grad.appendChild(stopCenter);
+              grad.appendChild(stopEdge);
+              defs.appendChild(grad);
+            }
+            return gradId;
+          }
+          // Overrides one already-added filled layer's own path element to
+          // use its Group's gradient instead of Leaflet's own flat
+          // `fillColor` — `fill-opacity` is reset to 1 here too, so the
+          // gradient's own per-stop opacity is what actually controls how
+          // faint it looks, not that multiplied a second time by Leaflet's
+          // own (separate) `fillOpacity` style property.
+          function applyGroupGradient(layer, groupId, color) {
+            var gradId = ensureGroupGradient(groupId, color);
+            if (!gradId || !layer.getElement) return;
+            var el = layer.getElement();
+            if (!el) return;
+            el.setAttribute('fill', 'url(#' + gradId + ')');
+            el.setAttribute('fill-opacity', '1');
+          }
+          // Builds one Group's own casing+main hull/rectangle layer, styled
+          // in *that Group's own* color (never the fixed red the single
+          // Municipality/Barangay administrative boundary above uses).
+          //
+          // "Do not create artificial large, rounded, or circular barriers
+          // for small... locations. The barrier must be proportional to the
+          // actual territory... prefer a compact square, rectangular, or
+          // tightly fitted polygon" — 3+ non-collinear points still get the
+          // real, natural, irregular convex-hull shape (already proportional
+          // to the actual spread, nothing artificial about it); a lone point,
+          // or 2 points/collinear points with no real polygon to draw, now
+          // get a small, tightly-fitted *rectangle* (`squareBoundsAround`)
+          // instead of the fixed-or-computed circle this used to draw —
+          // never an oversized rounded shape standing in for one or two
+          // actual locations.
+          function buildGroupBoundaryLayer(points, color, groupId) {
             var casingStyle = { color: shadeColor(color, -0.35), weight: BOUNDARY_CASING_WEIGHT, opacity: 0.9, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
+            // `fillOpacity` here is only the *fallback* look, in case the
+            // gradient override above can't apply for any reason — kept low
+            // and subtle on its own too, per spec's own "do not use a
+            // solid, highly opaque fill".
             var mainStyle = { color: color, weight: BOUNDARY_MAIN_WEIGHT, opacity: 1, fill: true, fillColor: color, fillOpacity: BOUNDARY_FILL_OPACITY, lineJoin: 'round', lineCap: 'round', interactive: false };
+            var casingLayer, mainLayer;
             if (points.length === 1) {
-              return L.featureGroup([
-                L.circle(points[0], Object.assign({ radius: 400 }, casingStyle)),
-                L.circle(points[0], Object.assign({ radius: 400 }, mainStyle)),
-              ]);
+              var soloBounds = squareBoundsAround(points[0][0], points[0][1], SMALL_TERRITORY_HALF_WIDTH_METERS);
+              casingLayer = L.rectangle(soloBounds, casingStyle);
+              mainLayer = L.rectangle(soloBounds, mainStyle);
+            } else {
+              var unique = dedupePoints(points);
+              var hull = unique.length >= 3 ? convexHull(unique) : unique;
+              if (hull.length < 3) {
+                // 2 distinct points (or every point collinear/identical
+                // after dedup) — no real polygon to draw; a compact
+                // rectangle hugging the actual points (with a small floor
+                // size so two near-identical points still read as a real
+                // area, never an arbitrary large circle) is the honest
+                // small-area shape here.
+                var bounds = L.latLngBounds(unique).pad(0.3);
+                var center = bounds.getCenter();
+                bounds.extend(squareBoundsAround(center.lat, center.lng, SMALL_TERRITORY_HALF_WIDTH_METERS));
+                casingLayer = L.rectangle(bounds, casingStyle);
+                mainLayer = L.rectangle(bounds, mainStyle);
+              } else {
+                // 3+ non-collinear points — the real, natural, irregular
+                // territory shape: the tightest real polygon around every
+                // one of this Group's own points, proportional to their
+                // actual spread, never an artificially enlarged circle.
+                casingLayer = L.polygon(hull, casingStyle);
+                mainLayer = L.polygon(hull, mainStyle);
+              }
             }
-            var unique = dedupePoints(points);
-            var hull = unique.length >= 3 ? convexHull(unique) : unique;
-            if (hull.length < 3) {
-              // Every point collinear/identical after dedup — a polygon
-              // would be degenerate; fall back to a circle around this
-              // Group's own bounds instead of drawing nothing.
-              var bounds = L.latLngBounds(unique);
-              var radius = Math.max(300, bounds.getCenter().distanceTo(bounds.getNorthEast()));
-              return L.featureGroup([
-                L.circle(bounds.getCenter(), Object.assign({ radius: radius }, casingStyle)),
-                L.circle(bounds.getCenter(), Object.assign({ radius: radius }, mainStyle)),
-              ]);
+            var group = L.featureGroup([casingLayer, mainLayer]);
+            group.on('add', function() { applyGroupGradient(mainLayer, groupId, color); });
+            return group;
+          }
+          // Rough "how big is this Group's own footprint" heuristic (a
+          // plain bounding-box area, not a true geodesic one — only ever
+          // used to *order* Groups relative to each other, so the
+          // approximation only needs to be consistent, not precise) —
+          // "the parent group's territory must remain clearly visible
+          // around [a nested/smaller territory]... never hide one group's
+          // barrier behind another" (spec §4/§8): drawing larger Groups
+          // first and smaller ones last means a small/nested Group's own
+          // barrier and fill always land on top of a larger Group's, in
+          // the same SVG stacking order Leaflet already draws layers in —
+          // never buried underneath it regardless of which Group happened
+          // to be selected/loaded first.
+          function boundsFootprintArea(points) {
+            if (!points || points.length === 0) return 0;
+            var minLat = points[0][0], maxLat = points[0][0], minLng = points[0][1], maxLng = points[0][1];
+            for (var i = 1; i < points.length; i++) {
+              minLat = Math.min(minLat, points[i][0]); maxLat = Math.max(maxLat, points[i][0]);
+              minLng = Math.min(minLng, points[i][1]); maxLng = Math.max(maxLng, points[i][1]);
             }
-            return L.featureGroup([
-              L.polygon(hull, casingStyle),
-              L.polygon(hull, mainStyle),
-            ]);
+            return (maxLat - minLat) * (maxLng - minLng);
           }
           // "Create a separate barrier line for every Congregation Group...
           // do not merge different groups into one barrier... Neighboring or
@@ -2826,14 +2963,22 @@ private fun buildTerritoryMapHtml(): String {
               }
             });
             var allPoints = [];
-            (entries || []).forEach(function(entry) {
+            // Largest footprint first, smallest/nested last — see
+            // [boundsFootprintArea]'s own doc comment for why draw order
+            // (not just opacity) is what actually keeps a small/nested
+            // Group's own barrier from ever landing underneath a larger
+            // one's.
+            var ordered = (entries || []).slice().sort(function(a, b) {
+              return boundsFootprintArea(b.points) - boundsFootprintArea(a.points);
+            });
+            ordered.forEach(function(entry) {
               if (window.groupBoundaryLayers[entry.id]) {
                 map.removeLayer(window.groupBoundaryLayers[entry.id]);
                 delete window.groupBoundaryLayers[entry.id];
               }
               if (!entry.points || entry.points.length === 0) { return; }
               entry.points.forEach(function(p) { allPoints.push(p); });
-              window.groupBoundaryLayers[entry.id] = buildGroupBoundaryLayer(entry.points, entry.color).addTo(map);
+              window.groupBoundaryLayers[entry.id] = buildGroupBoundaryLayer(entry.points, entry.color, entry.id).addTo(map);
             });
             if (fitCamera && allPoints.length > 0) {
               map.fitBounds(L.latLngBounds(allPoints).pad(0.2));
