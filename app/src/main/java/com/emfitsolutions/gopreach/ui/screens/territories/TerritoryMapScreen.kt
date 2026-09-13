@@ -844,6 +844,29 @@ fun TerritoryMapScreen(
                 MapGroupBoundary(id = groupId ?: UNASSIGNED_GROUP_ID, color = entries.first().first, points = entries.map { it.second })
             }
     }
+    // "Each Field Service Group is assigned specific whole Barangays; the
+    // group's territory is the union of those Barangays' real boundaries"
+    // (reference design) — this app has no explicit Barangay-to-Group
+    // assignment of its own, so the best available stand-in, derived
+    // entirely from data that already exists, is: whichever (Municipality,
+    // Barangay) pairs the Group's own *actual current records* happen to
+    // fall in. [TerritoryLiveMap] resolves each pair to its real bundled
+    // polygon (same [TerritoryBoundaryRepository] data Municipality search
+    // already uses) and unions whichever ones exist for that Group — a real
+    // geographic shape, not a point-cluster approximation, whenever the
+    // Group's own records happen to fall inside covered Barangays; a Group
+    // with no covered Barangay yet falls back to [mapGroupBoundaries]'s own
+    // point-hull shape (unchanged) for that one Group only.
+    val mapGroupBarangaySets: Map<String, Set<Pair<String, String>>> = remember(mapGroupFilteredRows) {
+        mapGroupFilteredRows
+            .mapNotNull { row ->
+                val muni = row.person.cityMunicipality
+                val brgy = row.person.barangay
+                if (muni != null && brgy != null) Triple(row.resolvedGroupId() ?: UNASSIGNED_GROUP_ID, muni, brgy) else null
+            }
+            .groupBy({ it.first }) { it.second to it.third }
+            .mapValues { it.value.toSet() }
+    }
     // Only null at the screen's absolute default (now "All", per spec —
     // previously Municipalities → All) — see this card's own render site
     // for why.
@@ -1034,6 +1057,7 @@ fun TerritoryMapScreen(
                         selectedAreaQuery = selectedAreaQuery,
                         selectedAreaNames = selectedAreaNames,
                         groupBoundaries = mapGroupBoundaries,
+                        groupBarangaySets = mapGroupBarangaySets,
                         groupColorFor = { it.resolvedGroupColor() },
                         groupNameFor = { row -> row.resolvedGroupId()?.let { id -> mapGroups.firstOrNull { g -> g.id == id }?.name } },
                         noRecordsAreaLabel = noRecordsAreaLabel,
@@ -1867,6 +1891,18 @@ private fun TerritoryLiveMap(
     // real Municipality/Barangay administrative polygon [selectedAreaNames]
     // resolves, when it does.
     groupBoundaries: List<MapGroupBoundary>,
+    // "Each Field Service Group is assigned specific whole Barangays; the
+    // group's territory is the union of those Barangays' real boundaries"
+    // — the (Municipality, Barangay) pairs each Group's own *current
+    // records* happen to fall in (see [TerritoryMapScreen]'s own
+    // `mapGroupBarangaySets` doc comment for why this, not an explicit
+    // assignment, is the best available stand-in). Resolved to real
+    // bundled polygons here (via [boundaryGeometry], already a suspend
+    // lookup this composable calls for the single-area case) and unioned
+    // into that Group's own territory shape whenever at least one of its
+    // Barangays is covered; falls back to [groupBoundaries]'s own
+    // point-hull shape, per Group, otherwise.
+    groupBarangaySets: Map<String, Set<Pair<String, String>>>,
     // "Every record displayed on the map must use the color assigned to its
     // Congregation Group" — resolved per-row by the caller (which already
     // owns [publisherGroupIds]/the color-by-id cache), keeping this
@@ -2165,6 +2201,36 @@ private fun TerritoryLiveMap(
                 webView.evaluateJavascript("if (window.clearAreaBoundary) { window.clearAreaBoundary(); }", null)
             }
         }
+        // "Each Field Service Group is assigned specific whole Barangays;
+        // the group's territory is the union of those Barangays' real
+        // boundaries" — for every Group, resolve every (Municipality,
+        // Barangay) pair its own current records fall in (see
+        // [groupBarangaySets]'s own doc comment) to its real bundled
+        // polygon, same [boundaryGeometry] lookup the Municipality/Barangay
+        // case above already uses. A Group with at least one covered
+        // Barangay gets the real union of those polygons as its territory;
+        // one with none yet (outside the bundled province, or simply no
+        // Barangay recorded on its records) falls back to
+        // [MapGroupBoundary.points]' own point-hull shape instead — real
+        // data wins whenever it's actually available, never silently
+        // dropped in favor of the approximation.
+        // A plain `for` loop, not `joinToString { }` — `joinToString`'s own
+        // transform lambda isn't inline, so [boundaryGeometry] (a suspend
+        // function) can't be called from inside one.
+        val groupEntryJsons = mutableListOf<String>()
+        for (entry in groupBoundaries) {
+            val barangayPairs = groupBarangaySets[entry.id].orEmpty()
+            val resolvedGeometries = mutableListOf<String>()
+            for ((muni, brgy) in barangayPairs) {
+                boundaryGeometry(muni, brgy)?.let { resolvedGeometries.add(it) }
+            }
+            val geometryField = if (resolvedGeometries.isEmpty()) "" else {
+                ",geometry:${resolvedGeometries.joinToString(",", prefix = "[", postfix = "]")}"
+            }
+            val pointsJson = entry.points.joinToString(",", prefix = "[", postfix = "]") { "[${it.lat},${it.lng}]" }
+            groupEntryJsons.add("""{id:"${jsEscape(entry.id)}",color:"${jsEscape(entry.color)}",points:$pointsJson$geometryField}""")
+        }
+        val groupEntriesJson = groupEntryJsons.joinToString(",", prefix = "[", postfix = "]")
         // "Create a separate barrier line for every Congregation Group" —
         // always pushed, independently of whichever case the `when` above
         // took, so a real (or approximated) Municipality/Barangay outline
@@ -2173,7 +2239,7 @@ private fun TerritoryLiveMap(
         // one replacing the other. Camera-fitting is suppressed here only
         // when the block above already positioned it this same update.
         webView.evaluateJavascript(
-            "if (window.setGroupScopeBoundaries) { window.setGroupScopeBoundaries(${mapGroupBoundariesToJs(groupBoundaries)}, ${!cameraAlreadyFit}); }",
+            "if (window.setGroupScopeBoundaries) { window.setGroupScopeBoundaries($groupEntriesJson, ${!cameraAlreadyFit}); }",
             null,
         )
     }
@@ -2474,12 +2540,6 @@ private fun TerritoryLiveMap(
 private fun mapPointsToJs(points: List<MapPoint>): String =
     points.joinToString(",", prefix = "[", postfix = "]") { p ->
         """{id:"${jsEscape(p.id)}",lat:${p.lat},lng:${p.lng},name:"${jsEscape(p.name)}",status:"${jsEscape(p.status)}",color:"${jsEscape(p.groupColor)}",kind:"${p.kind.name}"}"""
-    }
-
-private fun mapGroupBoundariesToJs(boundaries: List<MapGroupBoundary>): String =
-    boundaries.joinToString(",", prefix = "[", postfix = "]") { b ->
-        val pointsJson = b.points.joinToString(",", prefix = "[", postfix = "]") { "[${it.lat},${it.lng}]" }
-        """{id:"${jsEscape(b.id)}",color:"${jsEscape(b.color)}",points:$pointsJson}"""
     }
 
 /** Built once, with no markers baked in — [TerritoryLiveMap]'s own
@@ -2867,9 +2927,30 @@ private fun buildTerritoryMapHtml(): String {
             var radius = Math.max(SMALL_TERRITORY_HALF_WIDTH_METERS, maxDist * 1.3);
             return smallIrregularPolygon(centerLat, centerLng, radius);
           }
+          // "Each Field Service Group is assigned specific whole Barangays;
+          // the group's territory is the union of those Barangays' real
+          // boundaries" — `geometries` is an array of real bundled Barangay
+          // polygon objects (from [TerritoryBoundaryRepository], the exact
+          // same source the Municipality/Barangay search boundary already
+          // uses); `L.geoJSON` accepts an array of geometries directly and
+          // draws every one of them as part of the same layer, so this is
+          // one real, non-fabricated shape per Group whenever its own
+          // records happen to fall inside covered Barangays — not an
+          // approximation.
+          function buildRealGroupTerritoryLayer(geometries, color) {
+            var casingStyle = { color: shadeColor(color, -0.35), weight: BOUNDARY_CASING_WEIGHT, opacity: 0.9, fill: false, lineJoin: 'round', lineCap: 'round' };
+            var mainStyle = { color: color, weight: BOUNDARY_MAIN_WEIGHT, opacity: 1, fill: true, fillColor: color, fillOpacity: GROUP_FILL_OPACITY, lineJoin: 'round', lineCap: 'round' };
+            return L.featureGroup([
+              L.geoJSON(geometries, { style: casingStyle, interactive: false }),
+              L.geoJSON(geometries, { style: mainStyle, interactive: false }),
+            ]);
+          }
           // Builds one Group's own casing+main hull layer, styled in *that
           // Group's own* solid color (never the fixed red the single
-          // Municipality/Barangay administrative boundary above uses).
+          // Municipality/Barangay administrative boundary above uses) — the
+          // fallback for a Group with no covered Barangay yet (see
+          // `window.setGroupScopeBoundaries`'s own doc comment for when
+          // this, versus [buildRealGroupTerritoryLayer], actually gets used).
           //
           // "Never use a generic square, rectangle, circle, or rounded
           // shape to represent an actual geographic territory" — 3+
@@ -2976,9 +3057,20 @@ private fun buildTerritoryMapHtml(): String {
                 map.removeLayer(window.groupBoundaryLayers[entry.id]);
                 delete window.groupBoundaryLayers[entry.id];
               }
-              if (!entry.points || entry.points.length === 0) { return; }
-              entry.points.forEach(function(p) { allPoints.push(p); });
-              window.groupBoundaryLayers[entry.id] = buildGroupBoundaryLayer(entry.points, entry.color, entry.id).addTo(map);
+              if (entry.points) { entry.points.forEach(function(p) { allPoints.push(p); }); }
+              // "The group's territory is the union of [its assigned
+              // Barangays'] real boundaries" — `entry.geometry` (an array of
+              // real bundled Barangay polygons, present only when at least
+              // one of this Group's own Barangays resolved — see
+              // [TerritoryLiveMap]'s own points-update effect) always wins
+              // over the point-hull approximation when it's actually
+              // available; only a Group with no covered Barangay yet falls
+              // back to [buildGroupBoundaryLayer]'s own shape.
+              var layer = entry.geometry
+                ? buildRealGroupTerritoryLayer(entry.geometry, entry.color)
+                : (entry.points && entry.points.length > 0 ? buildGroupBoundaryLayer(entry.points, entry.color, entry.id) : null);
+              if (!layer) { return; }
+              window.groupBoundaryLayers[entry.id] = layer.addTo(map);
             });
             if (fitCamera && allPoints.length > 0) {
               map.fitBounds(L.latLngBounds(allPoints).pad(0.2));
