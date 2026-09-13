@@ -754,6 +754,46 @@ fun TerritoryMapScreen(
         else "${mapSearchCategory.label}: $mapSelectionLabel"
     }
 
+    // "Switching between List View and Map View must preserve the current
+    // search/filter criteria. Search results must be consistent between
+    // List View and Map View" — the two views keep their own independent
+    // search controls (a geography-grouped directory vs. a category cascade
+    // don't map onto each other cleanly enough to share one control — see
+    // [MapSearchCategory]'s own doc comment), but switching now translates
+    // whatever's currently active into the other view's own terms, both
+    // directions, rather than silently dropping it.
+    fun toggleViewMode() {
+        if (viewMode == TerritoryViewMode.LIST) {
+            if (searchQuery.isNotBlank()) mapDeepSearchQuery = searchQuery
+            when {
+                advancedFilter.cityMunicipality != null && advancedFilter.barangay != null -> {
+                    mapSearchCategory = MapSearchCategory.BARANGAY
+                    mapSelectionId = "${advancedFilter.cityMunicipality}$BARANGAY_SELECTION_SEPARATOR${advancedFilter.barangay}"
+                }
+                advancedFilter.cityMunicipality != null -> {
+                    mapSearchCategory = MapSearchCategory.MUNICIPALITY
+                    mapSelectionId = advancedFilter.cityMunicipality
+                }
+            }
+            viewMode = TerritoryViewMode.MAP
+        } else {
+            if (mapDeepSearchQuery.isNotBlank()) searchQuery = mapDeepSearchQuery
+            when (mapSearchCategory) {
+                MapSearchCategory.MUNICIPALITY -> mapSelectionId?.let {
+                    advancedFilter = advancedFilter.copy(cityMunicipality = it, barangay = null)
+                }
+                MapSearchCategory.BARANGAY -> mapSelectionId?.let { selection ->
+                    advancedFilter = advancedFilter.copy(
+                        cityMunicipality = selection.substringBefore(BARANGAY_SELECTION_SEPARATOR),
+                        barangay = selection.substringAfter(BARANGAY_SELECTION_SEPARATOR),
+                    )
+                }
+                else -> {}
+            }
+            viewMode = TerritoryViewMode.LIST
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -764,7 +804,7 @@ fun TerritoryMapScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewMode = if (viewMode == TerritoryViewMode.MAP) TerritoryViewMode.LIST else TerritoryViewMode.MAP }) {
+                    IconButton(onClick = ::toggleViewMode) {
                         Icon(
                             if (viewMode == TerritoryViewMode.MAP) Icons.Rounded.ViewList else Icons.Rounded.Map,
                             contentDescription = if (viewMode == TerritoryViewMode.MAP) "Switch to List View" else "Switch to Map View",
@@ -1369,12 +1409,25 @@ private fun TerritoryMapSearchBar(
             // search within the currently selected scope" — restricted to
             // [selectionOptions]' own current scope by [TerritoryMapScreen]'s
             // own `mapDeepSearchedRows`, never the full dataset.
+            val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
             OutlinedTextField(
                 value = deepSearchQuery,
                 onValueChange = onDeepSearchQueryChange,
                 label = { Text("Search deeper") },
                 singleLine = true,
-                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                // "Include a proper Search button so the user can explicitly
+                // execute the search" — search is already live as the user
+                // types (every keystroke re-runs the same full-dataset
+                // search this button would trigger — see [TerritoryMapScreen]'s
+                // own `mapDeepSearchedRows`), so this is a real, always-
+                // present control that confirms/dismisses the keyboard,
+                // exactly the same "Search" convention [TerritoryPersistentFilterBar]'s
+                // own List View search box already uses.
+                leadingIcon = {
+                    IconButton(onClick = { focusManager.clearFocus() }) {
+                        Icon(Icons.Rounded.Search, contentDescription = "Search")
+                    }
+                },
                 trailingIcon = {
                     if (deepSearchQuery.isNotEmpty()) {
                         IconButton(onClick = { onDeepSearchQueryChange("") }) {
@@ -1594,7 +1647,11 @@ private fun TerritoryLiveMap(
         if (selectedPointId == "me") myLocationPoint else points.firstOrNull { it.id == selectedPointId }
     }
 
-    val html = remember(points) { buildTerritoryMapHtml(points) }
+    // Built once — no [points] dependency at all now (see [buildTerritoryMapHtml]'s
+    // own doc comment); reloading the whole page on every search would
+    // violate spec's own "do not reload the entire map unnecessarily after
+    // every search."
+    val html = remember { buildTerritoryMapHtml() }
     // Bumped on a manual "Retry" tap to force a reload of the same [html].
     var reloadToken by remember { mutableIntStateOf(0) }
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
@@ -1643,7 +1700,11 @@ private fun TerritoryLiveMap(
     // viewport bug is worked around separately in `onPageFinished` below).
     var containerReady by remember { mutableStateOf(false) }
 
-    LaunchedEffect(html, reloadToken, webViewRef, containerReady) {
+    // Only reloads the page itself on first mount and on a manual "Retry"
+    // tap — never on a search/filter change (see [html]'s own doc comment);
+    // [points] reaches the already-loaded page via `window.setPoints`
+    // instead (see the effect below).
+    LaunchedEffect(reloadToken, webViewRef, containerReady) {
         val webView = webViewRef ?: return@LaunchedEffect
         if (!containerReady) return@LaunchedEffect
         loadState = MapLoadState.LOADING
@@ -1666,6 +1727,18 @@ private fun TerritoryLiveMap(
     LaunchedEffect(loadState, webViewRef, points, selectedAreaQuery, selectedAreaNames, scopeBoundaryPoints) {
         if (loadState != MapLoadState.LOADED) return@LaunchedEffect
         val webView = webViewRef ?: return@LaunchedEffect
+        // "Update only the required markers, search results, and line
+        // barrier" — pushes the latest already-filtered [points] straight
+        // into the already-loaded page (see `window.setPoints`'s own doc
+        // comment) instead of Kotlin reloading the whole WebView; runs on
+        // every search/filter change, same as the boundary logic below it,
+        // never only once at load.
+        webView.evaluateJavascript("if (window.setPoints) { window.setPoints(${mapPointsToJs(points)}); }", null)
+        // `setPoints` above rebuilds every marker from scratch, so whichever
+        // one was highlighted needs to be re-applied right after — it no
+        // longer refers to a marker object that still exists otherwise.
+        val selectedIdJs = selectedPointId?.let { "'${jsEscape(it)}'" } ?: "null"
+        webView.evaluateJavascript("if (window.setSelectedMarker) { window.setSelectedMarker($selectedIdJs); }", null)
         myLocation?.let { fix -> webView.evaluateJavascript("if (window.setMyLocation) { window.setMyLocation(${fix.lat}, ${fix.lng}); }", null) }
         // Real polygon geometry first (no network dependency at all — see
         // [TerritoryBoundaryRepository]); only reach for the unreliable
@@ -2020,10 +2093,18 @@ private fun TerritoryLiveMap(
  * so unlike the pre-Google-Maps version of this function there is no
  * `applyFilter`/category-dropdown/"Nearest X" JS machinery left to build —
  * every point given here is simply plotted. */
-private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
-    val pointsJson = points.joinToString(",", prefix = "[", postfix = "]") { p ->
+private fun mapPointsToJs(points: List<MapPoint>): String =
+    points.joinToString(",", prefix = "[", postfix = "]") { p ->
         """{id:"${jsEscape(p.id)}",lat:${p.lat},lng:${p.lng},name:"${jsEscape(p.name)}",status:"${jsEscape(p.status)}"}"""
     }
+
+/** Built once, with no markers baked in — [TerritoryLiveMap]'s own
+ * points-update effect populates the map via `window.setPoints` right after
+ * the page finishes loading, and again on every later search/filter change,
+ * without ever reloading this page (see that function's own doc comment on
+ * why: spec's own "do not reload the entire map unnecessarily after every
+ * search"). */
+private fun buildTerritoryMapHtml(): String {
     return """
         <!DOCTYPE html>
         <html>
@@ -2050,7 +2131,6 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
         <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
         <script>
         try {
-          var points = $pointsJson;
           var map = L.map('map', { zoomControl: true });
           window.territoryMap = map;
           // "Change the map to OpenFreeMap" was tried and reverted: its
@@ -2116,42 +2196,57 @@ private fun buildTerritoryMapHtml(points: List<MapPoint>): String {
           var cluster = L.markerClusterGroup();
           var markers = [];
           var markersById = {};
-          points.forEach(function(p) {
-            var marker = L.marker([p.lat, p.lng], { icon: buildPinIcon(false) });
-            // "Every visible marker must display: Name (Status)" (spec §26).
-            marker.bindTooltip(p.name + ' (' + p.status + ')', { permanent: true, direction: 'right', offset: [10, 0], className: 'territory-label' });
-            marker.on('click', function() {
-              window.setSelectedMarker(p.id);
-              if (window.AndroidBridge) { AndroidBridge.showDetails(p.id); }
-            });
-            cluster.addLayer(marker);
-            markers.push(marker);
-            markersById[p.id] = marker;
-          });
           map.addLayer(cluster);
 
           // "RESPONSIVE MAP FILTERING... AUTOMATIC MAP ZOOM" — a single
           // point gets a comfortable street-level zoom (a 0-span "bounds"
           // around one coordinate would otherwise throw); more than one
           // fits the smallest bounds containing all of them, padded so no
-          // marker lands clipped at the screen edge. Kotlin calls this
-          // (via window.fitToMarkers) every time the already-filtered
-          // [points] set actually changes shape.
+          // marker lands clipped at the screen edge; zero falls back to a
+          // Philippines-wide view until a fresh search (with real markers)
+          // or a selected-but-empty area's own geocode repositions it.
           window.fitToMarkers = function() {
             if (markers.length === 1) {
               map.setView(markers[0].getLatLng(), 16);
             } else if (markers.length > 1) {
               map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
+            } else {
+              map.setView([12.8797, 121.7740], 6);
             }
           };
-          if (markers.length > 0) {
+
+          // "Do not reload the entire map unnecessarily after every search.
+          // Update only the required markers, search results, and line
+          // barrier" — every search/filter change calls this instead of
+          // Kotlin reloading the whole WebView page (see [TerritoryLiveMap]'s
+          // own points-update effect); it clears only the marker layer
+          // (never the tile layer/map instance itself) and rebuilds it from
+          // the latest already-permission-filtered point set.
+          window.setPoints = function(newPoints) {
+            cluster.clearLayers();
+            markers = [];
+            markersById = {};
+            newPoints.forEach(function(p) {
+              var marker = L.marker([p.lat, p.lng], { icon: buildPinIcon(false) });
+              // "Every visible marker must display: Name (Status)" (spec §26).
+              marker.bindTooltip(p.name + ' (' + p.status + ')', { permanent: true, direction: 'right', offset: [10, 0], className: 'territory-label' });
+              marker.on('click', function() {
+                window.setSelectedMarker(p.id);
+                if (window.AndroidBridge) { AndroidBridge.showDetails(p.id); }
+              });
+              cluster.addLayer(marker);
+              markers.push(marker);
+              markersById[p.id] = marker;
+            });
+            // The previously-selected marker's own JS object no longer
+            // exists once it's been rebuilt above; Kotlin re-applies the
+            // highlight right after this call (see [TerritoryLiveMap]'s own
+            // `setSelectedMarker` follow-up), so this never leaves a stale
+            // reference behind in the meantime.
+            selectedMarkerId = null;
             window.fitToMarkers();
-          } else {
-            // Philippines-wide fallback until Kotlin's own geocode (for a
-            // selected-but-empty Municipality/Barangay) or a fresh filter
-            // (with real markers) repositions it.
-            map.setView([12.8797, 121.7740], 6);
-          }
+          };
+          window.setPoints([]);
 
           // "Add the user current location in the map view" — a distinct
           // dot, outside the cluster group (always visible), added once
