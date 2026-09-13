@@ -604,14 +604,26 @@ fun TerritoryMapScreen(
     // null means "All Groups" — same convention every other Map View
     // dropdown's own null-selection already uses.
     var mapGroupFilterId by remember { mutableStateOf<String?>(null) }
-    // "Keep each group's assigned color consistent... do not unnecessarily
-    // change an existing group's color when another group is added or
-    // removed" — [colorForGroupId] derives every color purely from the
-    // Group's own stable id (see its own doc comment), so this map is just a
-    // cache, never the source of the color itself; recomputing it whenever
-    // [mapGroups] changes shape never reassigns any existing group's color.
+    // Bug fix (confirmed live: the Group Report showing three different
+    // Groups all with the same green dot) — the previous hash-based
+    // continuous-hue formula was a *statistical* approximation with no
+    // actual guarantee two unrelated Group ids wouldn't land on
+    // similar-looking hues, and with as few as 5 Groups that collision was
+    // easy to hit in practice. [CURATED_GROUP_PALETTE] instead hand-picks
+    // colors that are guaranteed visually distinct from one another (never
+    // a formula that *might* produce two greens), assigned by each Group's
+    // own creation order — stable and permanent for that Group's lifetime
+    // (a newly created Group always appends at the end, so an *existing*
+    // Group's own color never moves just because another one was added;
+    // deleting a Group can only ever shift the colors of Groups created
+    // *after* it, not before — a far smaller, rarer disruption than the
+    // guaranteed-collision-prone alternative). [colorForGroupId]'s own
+    // hash-based generator is kept only as the overflow fallback once a
+    // congregation has more Groups than the curated palette has colors for.
     val groupColorById: Map<String, String> = remember(mapGroups) {
-        mapGroups.associate { it.id to colorForGroupId(it.id) }
+        mapGroups.sortedBy { it.createdAt }.mapIndexed { index, group ->
+            group.id to (CURATED_GROUP_PALETTE.getOrNull(index) ?: colorForGroupId(group.id))
+        }.toMap()
     }
     fun TerritoryMapRow.resolvedGroupId(): String? = person.publisherPersonId?.let { publisherGroupIds[it] }
     fun TerritoryMapRow.resolvedGroupColor(): String = resolvedGroupId()?.let { groupColorById[it] } ?: UNASSIGNED_GROUP_COLOR
@@ -2242,6 +2254,19 @@ private fun TerritoryLiveMap(
             "if (window.setGroupScopeBoundaries) { window.setGroupScopeBoundaries($groupEntriesJson, ${!cameraAlreadyFit}); }",
             null,
         )
+        // "Do not hide the Municipality map [boundary]" — Group territories
+        // are drawn *after* the Municipality/Barangay outline above, so a
+        // now-solid Group fill would otherwise land on top of it in the
+        // SVG stack and visually bury its line/fill underneath a Group's
+        // own color, especially once a Group's real Barangay-union
+        // territory covers roughly the same area as the Municipality
+        // itself. Explicitly raising the Municipality boundary back above
+        // every Group layer, every update, guarantees it stays visible
+        // regardless of how solid/opaque Group fills are.
+        webView.evaluateJavascript(
+            "if (window.areaBoundary && window.areaBoundary.bringToFront) { window.areaBoundary.bringToFront(); }",
+            null,
+        )
     }
 
     // "Clicking coordinates should open the Territory Map centered on the
@@ -2878,16 +2903,18 @@ private fun buildTerritoryMapHtml(): String {
             });
             return unique;
           }
-          // "Remove the previous gradient-fill system. Use a solid unique
-          // color for each Field Service Group" — one flat, moderately
-          // opaque fill per Group (never a gradient/fade), still low enough
-          // that roads/labels/markers/neighboring territories underneath
-          // stay visible — kept as its own constant, separate from
-          // [BOUNDARY_FILL_OPACITY] (the real Municipality/Barangay
-          // administrative outline's own, unchanged, fill), since the two
-          // are conceptually different layers with no reason to share one
-          // tuning knob.
-          var GROUP_FILL_OPACITY = 0.25;
+          // "Make the color solid" — a genuinely strong, clearly-colored
+          // fill (not the faint, barely-there wash a low opacity like 0.25
+          // reads as), matching the reference design's own solid-looking
+          // territory blocks; still short of fully opaque 1.0 so roads/
+          // markers underneath aren't completely blotted out. Kept as its
+          // own constant, separate from [BOUNDARY_FILL_OPACITY] (the real
+          // Municipality/Barangay administrative outline's own, unchanged,
+          // fill), since the two are conceptually different layers with no
+          // reason to share one tuning knob. See `window.areaBoundary`'s own
+          // `bringToFront()` call below for why a stronger fill here still
+          // never buries the Municipality's own boundary line underneath it.
+          var GROUP_FILL_OPACITY = 0.55;
           // A deliberately irregular (never square/rectangular/circular)
           // small polygon around a point or tiny cluster with no real
           // polygon of its own to draw (see [buildGroupBoundaryLayer]'s own
@@ -3230,28 +3257,42 @@ private fun markerColorFor(kind: MapPointKind): Color = when (kind) {
  * for belonging to one. */
 private const val UNASSIGNED_GROUP_COLOR = "#78909C"
 
-/** "Automatic Group Color Coding... a distinct, professional, high-contrast
- * color [per Congregation Group]... do not limit the system to five
- * colors/groups... keep each group's assigned color consistent across the
- * entire application... do not unnecessarily change an existing group's
- * color when another group is added or removed."
- *
- * Every one of those constraints together rules out an index-based palette
- * (`colors[groups.indexOf(group)]`) — adding/removing a group elsewhere in
- * the (alphabetically sorted) list would shift every later group's index,
- * and therefore its color, even though that group itself never changed.
- * Deriving the color purely from the Group's own stable [Group.id] instead
- * makes it permanent for that Group's entire lifetime, and trivially
- * supports any number of groups (2, 5, 10, 50 — there's no fixed palette to
- * run out of). Golden-ratio-conjugate hue stepping, seeded by the id's own
- * hash, is a standard trick for spreading arbitrary-but-deterministic values
- * well around the color wheel — not a perfect guarantee against two
- * unrelated ids landing on similar hues (true graph-coloring of
- * *geographically adjacent* territories would need the territories'
- * geometry, which this app doesn't have), but a solid, dependency-free
- * approximation of "avoid similar colors whenever possible". Fixed, fairly
- * high saturation/value keeps every generated color equally professional
- * and high-contrast against the map's own muted OSM tiles.
+/** "Group 1 → Yellow, Group 2 → Orange, Group 3 → Blue, Group 4 → Green,
+ * Group 5 → Violet" — spec's own exact worked example, extended to 12
+ * hand-picked, mutually-distinct, professional colors (never a formula that
+ * *might* produce two similar-looking ones — see [colorForGroupId]'s own
+ * doc comment for why a purely computed palette isn't good enough on its
+ * own for a small handful of Groups). [TerritoryMapScreen]'s own
+ * `groupColorById` assigns these by creation order; a 13th+ Group falls
+ * through to [colorForGroupId]'s generated color instead. */
+private val CURATED_GROUP_PALETTE = listOf(
+    "#FBC02D", // Yellow
+    "#FB8C00", // Orange
+    "#1E88E5", // Blue
+    "#43A047", // Green
+    "#8E24AA", // Violet
+    "#E53935", // Red
+    "#00ACC1", // Cyan
+    "#D81B60", // Pink
+    "#6D4C41", // Brown
+    "#3949AB", // Indigo
+    "#00897B", // Teal
+    "#F4511E", // Deep Orange
+)
+
+/** Overflow generator, used only once a congregation has more Groups than
+ * [CURATED_GROUP_PALETTE] has colors for (spec's own "do not limit the
+ * system to five colors/groups... automatically generate/assign additional
+ * visually distinct colors"). Golden-ratio-conjugate hue stepping, seeded by
+ * the Group's own stable [Group.id] hash, is a standard trick for spreading
+ * arbitrary-but-deterministic values well around the color wheel — not a
+ * perfect guarantee against two unrelated ids landing on similar hues (true
+ * graph-coloring of *geographically adjacent* territories would need the
+ * territories' geometry, which this app doesn't have), but a reasonable,
+ * dependency-free approximation for the rare case a congregation actually
+ * runs past 12 Groups. Deriving the color purely from the Group's own
+ * stable id (never its position in a list) keeps it permanent for that
+ * Group's entire lifetime regardless of other Groups being added/removed.
  */
 private fun colorForGroupId(groupId: String): String {
     val goldenRatioConjugate = 0.6180339887498949
