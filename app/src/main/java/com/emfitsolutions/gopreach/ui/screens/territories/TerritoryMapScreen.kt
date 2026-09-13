@@ -405,6 +405,13 @@ fun TerritoryMapScreen(
     // landing mode (previously Map View); Map View is still reachable via
     // the exact same top-bar toggle, unchanged.
     var viewMode by remember { mutableStateOf(TerritoryViewMode.LIST) }
+    // "Make the Map Full Screen... Make the search expand and shrink to view
+    // full screen. Make shrink as default" — Map View's own search/filter
+    // controls now float on top of the map (see the Map View render block
+    // below) instead of pushing it down the screen; shrunk (collapsed) by
+    // default so the map itself always starts genuinely full-screen, with
+    // only a slim always-usable search strip on top of it.
+    var mapControlsExpanded by remember { mutableStateOf(false) }
 
     // "TERRITORY MAP – PHILIPPINES LOCATION SEARCH" — Congregation → Province
     // → Municipality/City → Barangay, using the real, complete Philippine
@@ -815,50 +822,7 @@ fun TerritoryMapScreen(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            if (viewMode == TerritoryViewMode.MAP) {
-                // "TERRITORY MAP → MAP VIEW SEARCH SIMPLIFICATION" — Map
-                // View's own cascading Search Category → Specific Record/
-                // All → Deeper Text Search bar, replacing the shared
-                // persistent filter bar for this view only (List View keeps
-                // it, unchanged, in the else-branch below).
-                TerritoryMapSearchBar(
-                    category = mapSearchCategory,
-                    onCategoryChange = ::onMapCategoryChange,
-                    selectionId = mapSelectionId,
-                    onSelectionChange = ::onMapSelectionChange,
-                    selectionOptions = when (mapSearchCategory) {
-                        MapSearchCategory.MUNICIPALITY -> municipalityOptions.map { it to it }
-                        MapSearchCategory.BARANGAY -> mapBarangayDirectory.map { (muni, brgy) -> "$muni$BARANGAY_SELECTION_SEPARATOR$brgy" to "$brgy, $muni" }
-                        MapSearchCategory.INTERESTED_PERSON, MapSearchCategory.RETURN_VISIT, MapSearchCategory.BIBLE_STUDY -> mapStageOptions
-                        MapSearchCategory.PUBLISHER_TERRITORY -> mapPublisherPersons.map { it.id to it.fullName }
-                    },
-                    deepSearchQuery = mapDeepSearchQuery,
-                    onDeepSearchQueryChange = { mapDeepSearchQuery = it },
-                    resultCount = mapDeepSearchedRows.size,
-                )
-
-                // "AREA/SCOPE INFORMATION PANEL" — Map View's own version,
-                // keyed by the cascading search above rather than List
-                // View's Municipality/Barangay selection; shown at every
-                // level (including "All ...") so it always summarizes
-                // exactly what the map is currently showing.
-                val bsCount = mapDeepSearchedRows.count { it.person.pipelineStage == PipelineStage.BIBLE_STUDY }
-                val rvCount = mapDeepSearchedRows.count { it.person.pipelineStage == PipelineStage.RETURN_VISIT }
-                val ipCount = mapDeepSearchedRows.count { it.person.pipelineStage == PipelineStage.SEARCHING }
-                Surface(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = MaterialTheme.shapes.small,
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                        Text("${mapSearchCategory.label}: $mapSelectionLabel", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text(
-                            "Bible Study: $bsCount   Return Visit: $rvCount   Interested Person: $ipCount",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-            } else {
+            if (viewMode != TerritoryViewMode.MAP) {
                 // "Add a persistent filter area" — unchanged; List View's own
                 // Municipality/Barangay/Search-By/Group-By controls, entirely
                 // independent of Map View's cascading search above.
@@ -917,6 +881,15 @@ fun TerritoryMapScreen(
             }
 
             if (viewMode == TerritoryViewMode.MAP) {
+                // "Make the Map Full Screen... Remove unnecessary margins,
+                // empty spaces, or panels that reduce the map viewing area"
+                // — the map itself now fills this entire Box (same as the
+                // TopAppBar-only budget every other full-screen map in this
+                // app gets), with the search/filter controls floating on top
+                // of it instead of pushing it down; collapsed by default
+                // (see [mapControlsExpanded]'s own doc comment) so the map
+                // starts genuinely full-screen with only a slim strip
+                // covering it.
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     TerritoryLiveMap(
                         rows = mapRows,
@@ -939,6 +912,97 @@ fun TerritoryMapScreen(
                         },
                         modifier = Modifier.fillMaxSize(),
                     )
+
+                    Column(modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
+                        Surface(shadowElevation = 4.dp, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f)) {
+                            if (mapControlsExpanded) {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.End,
+                                    ) {
+                                        IconButton(onClick = { mapControlsExpanded = false }) {
+                                            Icon(Icons.Rounded.ExpandLess, contentDescription = "Shrink search")
+                                        }
+                                    }
+                                    // "TERRITORY MAP → MAP VIEW SEARCH SIMPLIFICATION" —
+                                    // Map View's own cascading Search Category →
+                                    // Specific Record/All → Deeper Text Search bar,
+                                    // unchanged (see its own doc comment); only
+                                    // *where* it renders (floating over the map,
+                                    // collapsible) changed here.
+                                    TerritoryMapSearchBar(
+                                        category = mapSearchCategory,
+                                        onCategoryChange = ::onMapCategoryChange,
+                                        selectionId = mapSelectionId,
+                                        onSelectionChange = ::onMapSelectionChange,
+                                        selectionOptions = when (mapSearchCategory) {
+                                            MapSearchCategory.MUNICIPALITY -> municipalityOptions.map { it to it }
+                                            MapSearchCategory.BARANGAY -> mapBarangayDirectory.map { (muni, brgy) -> "$muni$BARANGAY_SELECTION_SEPARATOR$brgy" to "$brgy, $muni" }
+                                            MapSearchCategory.INTERESTED_PERSON, MapSearchCategory.RETURN_VISIT, MapSearchCategory.BIBLE_STUDY -> mapStageOptions
+                                            MapSearchCategory.PUBLISHER_TERRITORY -> mapPublisherPersons.map { it.id to it.fullName }
+                                        },
+                                        deepSearchQuery = mapDeepSearchQuery,
+                                        onDeepSearchQueryChange = { mapDeepSearchQuery = it },
+                                        resultCount = mapDeepSearchedRows.size,
+                                    )
+                                }
+                            } else {
+                                // Shrunk (default) — a slim, always-usable strip:
+                                // the same deep-search text field (spec's own
+                                // "keep the essential search... controls
+                                // accessible without covering important map
+                                // information") plus a chevron to expand back to
+                                // the full category/selection cascade.
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    OutlinedTextField(
+                                        value = mapDeepSearchQuery,
+                                        onValueChange = { mapDeepSearchQuery = it },
+                                        singleLine = true,
+                                        placeholder = { Text("Search ${mapSearchCategory.label}…") },
+                                        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = "Search") },
+                                        trailingIcon = {
+                                            if (mapDeepSearchQuery.isNotEmpty()) {
+                                                IconButton(onClick = { mapDeepSearchQuery = "" }) {
+                                                    Icon(Icons.Rounded.Close, contentDescription = "Clear search")
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    IconButton(onClick = { mapControlsExpanded = true }) {
+                                        Icon(Icons.Rounded.ExpandMore, contentDescription = "Expand search")
+                                    }
+                                }
+                            }
+                        }
+
+                        // "AREA/SCOPE INFORMATION PANEL" — only shown expanded,
+                        // same as the full search cascade above, so the shrunk
+                        // strip never covers more of the map than a single
+                        // search row's worth.
+                        if (mapControlsExpanded) {
+                            val bsCount = mapDeepSearchedRows.count { it.person.pipelineStage == PipelineStage.BIBLE_STUDY }
+                            val rvCount = mapDeepSearchedRows.count { it.person.pipelineStage == PipelineStage.RETURN_VISIT }
+                            val ipCount = mapDeepSearchedRows.count { it.person.pipelineStage == PipelineStage.SEARCHING }
+                            Surface(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = MaterialTheme.shapes.small,
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                                    Text("${mapSearchCategory.label}: $mapSelectionLabel", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "Bible Study: $bsCount   Return Visit: $rvCount   Interested Person: $ipCount",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             } else {
                 // "TERRITORY MAP – LIST VIEW REDESIGN AND GROUPING" — a
@@ -970,7 +1034,33 @@ fun TerritoryMapScreen(
                         TerritoryGroupBy.MUNICIPALITY -> filtered.filter { it.person.cityMunicipality == null }
                         TerritoryGroupBy.BARANGAY -> filtered.filter { it.person.barangay == null }
                     }
-                    (if (unassigned.isEmpty()) groups else groups + DirectoryGroup("—unassigned—", "Unassigned", unassigned))
+                    // Bug fix (confirmed live: an Admin/Elder session's List
+                    // View showing far fewer records than a Publisher's own,
+                    // for the exact same congregation): a record whose own
+                    // Municipality/Barangay IS set, but doesn't exactly match
+                    // any entry in [municipalityOptions]/[barangayDirectory]
+                    // (a Province-resolution mismatch for that particular
+                    // session, a saved name that doesn't line up with the
+                    // bundled PSGC table, ...) used to fall through *both*
+                    // [groups] (no matching entry) and [unassigned] (it isn't
+                    // actually missing a Municipality/Barangay) — vanishing
+                    // from the directory entirely despite still being fully
+                    // permitted, congregation-scoped data. Grouped here under
+                    // its own real, saved location name instead, so a record
+                    // is never hidden just because the master PSGC list
+                    // didn't happen to resolve for this session.
+                    val coveredKeys = groups.mapTo(mutableSetOf()) { it.key }
+                    val orphaned = when (groupBy) {
+                        TerritoryGroupBy.MUNICIPALITY -> filtered
+                            .filter { it.person.cityMunicipality != null && it.person.cityMunicipality !in coveredKeys }
+                            .groupBy { it.person.cityMunicipality!! }
+                            .map { (muni, rows) -> DirectoryGroup(key = muni, label = muni, rows = rows) }
+                        TerritoryGroupBy.BARANGAY -> filtered
+                            .filter { it.person.cityMunicipality != null && it.person.barangay != null && "${it.person.cityMunicipality}|${it.person.barangay}" !in coveredKeys }
+                            .groupBy { "${it.person.cityMunicipality}|${it.person.barangay}" }
+                            .map { (key, rows) -> DirectoryGroup(key = key, label = "${rows.first().person.barangay}, ${rows.first().person.cityMunicipality}", rows = rows) }
+                    }
+                    (groups + orphaned + (if (unassigned.isEmpty()) emptyList() else listOf(DirectoryGroup("—unassigned—", "Unassigned", unassigned))))
                         .sortedBy { if (it.key == "—unassigned—") "￿" else it.label }
                 }
 
