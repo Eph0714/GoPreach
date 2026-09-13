@@ -185,13 +185,26 @@ private enum class MapSearchCategory(
     val label: String,
     val stage: PipelineStage?,
     /** The second dropdown's own label — spec's exact worked examples
-     * ("Select Municipality", "Select Publisher", ...). */
+     * ("Select Municipality", "Select Publisher", ...); blank for [ALL],
+     * which has no second dropdown at all (see [TerritoryMapSearchBar]'s own
+     * gating) — there's nothing narrower than "every category" to pick. */
     val selectLabel: String,
     /** "'All' should always be available... All Municipalities / All
      * Barangays / All Interested Persons / All Return Visits / All Bible
      * Studies / All Publishers" — spec's exact wording per category. */
     val allLabel: String,
 ) {
+    /** "Add a new 'All' option [to the Search by dropdown]... set it as the
+     * default... search across all available territory-related categories"
+     * — the one category with no [stage] narrowing and no second dropdown;
+     * [mapScopedRows] passes every congregation-scoped row straight through
+     * unfiltered for it, same as every other category's own "All ..."
+     * second-dropdown option already does for *its* narrower scope. Declared
+     * first so it's also the first, and default, entry in the dropdown list
+     * itself (see [TerritoryMapScreen]'s own `mapSearchCategory` initial
+     * state and [MapSearchCategory.entries]'s iteration order below).
+     */
+    ALL("All", null, "", "All Records"),
     MUNICIPALITY("Municipalities", null, "Select Municipality", "All Municipalities"),
     BARANGAY("Barangay", null, "Select Barangay", "All Barangays"),
     INTERESTED_PERSON("Interested Person", PipelineStage.SEARCHING, "Select Interested Person", "All Interested Persons"),
@@ -501,7 +514,10 @@ fun TerritoryMapScreen(
     // congregation-scoped, nothing else) is Map View's own base dataset,
     // never [filtered]/[advancedFilteredRows] (both List-View-search-scoped).
     // ============================================================
-    var mapSearchCategory by remember { mutableStateOf(MapSearchCategory.MUNICIPALITY) }
+    // "Set 'All' as the default selected option whenever the Map View is
+    // opened or initialized" — [MapSearchCategory.ALL] itself, not just its
+    // label; see that entry's own doc comment for what it actually shows.
+    var mapSearchCategory by remember { mutableStateOf(MapSearchCategory.ALL) }
     // null means "All ..." for whichever category is active — the one
     // required option "always available" for every category (spec's own
     // "'All' should always be available" rule); its label is resolved
@@ -573,6 +589,12 @@ fun TerritoryMapScreen(
     val mapScopedRows = remember(rows, mapSearchCategory, mapSelectionId) {
         val selection = mapSelectionId
         when (mapSearchCategory) {
+            // "When 'All' is selected, the search should search across all
+            // available territory-related categories" — every congregation-
+            // scoped Interested Person/Return Visit/Bible Study record,
+            // completely unfiltered by place or Publisher; [mapDeepSearchQuery]
+            // below is what actually narrows this down as the user types.
+            MapSearchCategory.ALL -> rows
             MapSearchCategory.MUNICIPALITY ->
                 if (selection == null) rows else rows.filter { it.person.cityMunicipality == selection }
             MapSearchCategory.BARANGAY ->
@@ -593,10 +615,52 @@ fun TerritoryMapScreen(
         }
     }
     // "Search deeper... should perform a deeper search within the currently
-    // selected scope" — [mapScopedRows] above, never the full [rows].
-    val mapDeepSearchedRows = remember(mapScopedRows, mapDeepSearchQuery) {
+    // selected scope" — [mapScopedRows] above, never the full [rows]. Under
+    // [MapSearchCategory.ALL] specifically, "search across all available
+    // territory-related categories" means matching every field a record
+    // could plausibly be found by — name, address, Municipality, Barangay,
+    // status, and assigned Publisher — not just name/address.
+    //
+    // "Searches for a specific publisher using Search Deeper [under
+    // Publisher's Territory]... identify the selected publisher and load all
+    // [Bible Study/Interested Person/Return Visit] records associated with
+    // that publisher" — [MapSearchCategory.PUBLISHER_TERRITORY]'s own
+    // second dropdown already lets a Publisher be picked by hand, but typing
+    // their name into "Search Deeper" (with no dropdown selection made) used
+    // to search the *household records'* own name/address, never the
+    // assigned Publisher's — matching nothing, since a Publisher's name
+    // never appears in either field. Matching the assigned Publisher's own
+    // name here as well is what actually makes this work: every one of that
+    // matched Publisher's own Bible Study/Interested Person/Return Visit
+    // records surfaces (regardless of pipeline stage), and — since
+    // [scopeBoundaryPoints] below is built straight from this same result —
+    // the barrier automatically hugs exactly that territory and nothing else.
+    //
+    // Every other category already narrows [mapScopedRows] to its own kind
+    // of record, so plain name/address matching stays exactly as it was.
+    val mapDeepSearchedRows = remember(mapScopedRows, mapDeepSearchQuery, mapSearchCategory, personNames) {
         val query = mapDeepSearchQuery.trim()
-        if (query.isEmpty()) mapScopedRows else mapScopedRows.filter { it.person.name.contains(query, ignoreCase = true) || it.person.address.contains(query, ignoreCase = true) }
+        when {
+            query.isEmpty() -> mapScopedRows
+            mapSearchCategory == MapSearchCategory.ALL -> mapScopedRows.filter { row ->
+                row.person.name.contains(query, ignoreCase = true) ||
+                    row.person.address.contains(query, ignoreCase = true) ||
+                    row.person.cityMunicipality?.contains(query, ignoreCase = true) == true ||
+                    row.person.barangay?.contains(query, ignoreCase = true) == true ||
+                    row.person.pipelineStage.statusLabel().contains(query, ignoreCase = true) ||
+                    row.person.publisherPersonId?.let { personNames[it] }?.contains(query, ignoreCase = true) == true
+            }
+            // Matches the assigned Publisher's own name only, deliberately
+            // never the household record's — "do not display unrelated...
+            // records... outside the publisher's assigned scope" means a
+            // query that happens to also match some unrelated household's
+            // own name must never let that household leak into a result
+            // that's supposed to be scoped to one specific Publisher.
+            mapSearchCategory == MapSearchCategory.PUBLISHER_TERRITORY -> mapScopedRows.filter { row ->
+                row.person.publisherPersonId?.let { personNames[it] }?.contains(query, ignoreCase = true) == true
+            }
+            else -> mapScopedRows.filter { it.person.name.contains(query, ignoreCase = true) || it.person.address.contains(query, ignoreCase = true) }
+        }
     }
     // "Under Publisher's Territory, do not include the last known location
     // of that Publisher — only the record of his Searched [Interested
@@ -652,6 +716,10 @@ fun TerritoryMapScreen(
             mapSearchCategory.allLabel
         } else {
             when (mapSearchCategory) {
+                // Unreachable in practice — [ALL] has no second dropdown, so
+                // [mapSelectionId] never leaves null for it (see the `if`
+                // above); kept only so this `when` stays exhaustive.
+                MapSearchCategory.ALL -> mapSearchCategory.allLabel
                 MapSearchCategory.MUNICIPALITY -> selection
                 MapSearchCategory.BARANGAY -> {
                     val brgy = selection.substringAfter(BARANGAY_SELECTION_SEPARATOR)
@@ -721,10 +789,11 @@ fun TerritoryMapScreen(
             if (lat != null && lng != null) LatLng(lat, lng, null) else null
         }
     }
-    // Only null at the screen's absolute default (Municipalities → All) —
-    // see this card's own render site for why.
+    // Only null at the screen's absolute default (now "All", per spec —
+    // previously Municipalities → All) — see this card's own render site
+    // for why.
     val noRecordsAreaLabel: String? = remember(mapSearchCategory, mapSelectionId, mapSelectionLabel) {
-        if (mapSearchCategory == MapSearchCategory.MUNICIPALITY && mapSelectionId == null) null
+        if (mapSearchCategory == MapSearchCategory.ALL) null
         else "${mapSearchCategory.label}: $mapSelectionLabel"
     }
 
@@ -904,6 +973,8 @@ fun TerritoryMapScreen(
                                         selectionId = mapSelectionId,
                                         onSelectionChange = ::onMapSelectionChange,
                                         selectionOptions = when (mapSearchCategory) {
+                                            // No second dropdown for [ALL] (see its own doc comment) — [TerritoryMapSearchBar] skips rendering it entirely when this is empty and `selectLabel` is blank.
+                                            MapSearchCategory.ALL -> emptyList()
                                             MapSearchCategory.MUNICIPALITY -> municipalityOptions.map { it to it }
                                             MapSearchCategory.BARANGAY -> mapBarangayDirectory.map { (muni, brgy) -> "$muni$BARANGAY_SELECTION_SEPARATOR$brgy" to "$brgy, $muni" }
                                             MapSearchCategory.INTERESTED_PERSON, MapSearchCategory.RETURN_VISIT, MapSearchCategory.BIBLE_STUDY -> mapStageOptions
@@ -1454,14 +1525,19 @@ private fun TerritoryMapSearchBar(
             // already whichever list applies to [category] (built by
             // [TerritoryMapScreen] itself); "All" is always this dropdown's
             // own leading option (see [FilterDropdownField]'s own doc
-            // comment), never a separate control.
-            FilterDropdownField(
-                label = category.selectLabel,
-                options = selectionOptions,
-                selectedId = selectionId,
-                onSelected = onSelectionChange,
-                allLabel = category.allLabel,
-            )
+            // comment), never a separate control. [MapSearchCategory.ALL]
+            // itself is the one exception — a blank [selectLabel] means
+            // there's nothing narrower than "every category" to pick, so the
+            // second dropdown is skipped entirely rather than shown empty.
+            if (category.selectLabel.isNotBlank()) {
+                FilterDropdownField(
+                    label = category.selectLabel,
+                    options = selectionOptions,
+                    selectedId = selectionId,
+                    onSelected = onSelectionChange,
+                    allLabel = category.allLabel,
+                )
+            }
             // "The third field (search textbox) should perform a deeper
             // search within the currently selected scope" — restricted to
             // [selectionOptions]' own current scope by [TerritoryMapScreen]'s
@@ -2024,9 +2100,9 @@ private fun TerritoryLiveMap(
         // area and display: 'No records found for [scope].'" — generalized
         // to every Map View search category (spec's own cascading-search
         // request), not just Municipality/Barangay; [noRecordsAreaLabel] is
-        // null only at the screen's absolute default (Municipalities → All),
-        // so this never alarms a brand-new congregation with zero territory
-        // records yet before they've actually searched for anything.
+        // null only at the screen's absolute default ("All"), so this never
+        // alarms a brand-new congregation with zero territory records yet
+        // before they've actually searched for anything.
         if (loadState == MapLoadState.LOADED && points.isEmpty() && noRecordsAreaLabel != null) {
             Card(
                 modifier = Modifier.align(Alignment.Center).padding(horizontal = 32.dp),
