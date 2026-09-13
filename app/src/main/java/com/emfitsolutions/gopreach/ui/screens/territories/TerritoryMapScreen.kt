@@ -311,9 +311,6 @@ fun TerritoryMapScreen(
     // has no control that could produce a different value in the first
     // place, on top of [rowsFor]'s own filtering below.
     val effectiveCongregationId = if (isSuperAdmin) advancedFilter.congregationId else fixedCongregationId
-    val fixedCongregationName by remember(fixedCongregationId) {
-        if (fixedCongregationId != null) viewModel.congregationById(fixedCongregationId).map { it?.name } else flowOf(null)
-    }.collectAsStateWithLifecycle(initialValue = null)
 
     val groupMemberIdsFlow = remember(advancedFilter.groupId) {
         advancedFilter.groupId?.let { viewModel.groupMemberPublisherIds(it) } ?: flowOf(emptySet())
@@ -601,50 +598,17 @@ fun TerritoryMapScreen(
         val query = mapDeepSearchQuery.trim()
         if (query.isEmpty()) mapScopedRows else mapScopedRows.filter { it.person.name.contains(query, ignoreCase = true) || it.person.address.contains(query, ignoreCase = true) }
     }
-    // Publisher markers only ever appear under the Publisher Territory
-    // category — every other category's "line barrier" is a geography/
-    // pipeline-record scope, not a Publisher's, so showing an unrelated
-    // Publisher's live location pin while browsing e.g. Bible Studies would
-    // only contradict the category the user actually chose.
-    val mapScopedLivePublisherRows = remember(publisherRows, mapSearchCategory, mapSelectionId) {
-        when {
-            mapSearchCategory != MapSearchCategory.PUBLISHER_TERRITORY -> emptyList()
-            mapSelectionId == null -> publisherRows
-            else -> publisherRows.filter { it.person.id == mapSelectionId }
-        }
-    }
-    // "Publisher's address" — their own recorded home location (distinct
-    // from [mapScopedLivePublisherRows]' live "Share Location while
-    // Preaching" position above, which may not exist at all if they're not
-    // currently sharing); only meaningful once one specific Publisher is
-    // picked, and only when they actually have one on file.
-    val mapSelectedPublisherHome: Person? = remember(mapPublisherPersons, mapSearchCategory, mapSelectionId) {
-        if (mapSearchCategory != MapSearchCategory.PUBLISHER_TERRITORY || mapSelectionId == null) null
-        else mapPublisherPersons.firstOrNull { it.id == mapSelectionId }?.takeIf { it.gpsLat != null && it.gpsLng != null }
-    }
-    // "the map should show the complete territory scope associated with
-    // that publisher, including: Publisher's address / assigned area" — a
-    // second, distinct marker (not folded silently into the boundary math
-    // only) whenever their recorded home location isn't the exact same
-    // point as an already-shown live-sharing pin.
-    val mapScopedPublisherRows = remember(mapScopedLivePublisherRows, mapSelectedPublisherHome) {
-        val home = mapSelectedPublisherHome
-        if (home == null) {
-            mapScopedLivePublisherRows
-        } else if (mapScopedLivePublisherRows.any { it.lat == home.gpsLat && it.lng == home.gpsLng }) {
-            mapScopedLivePublisherRows
-        } else {
-            mapScopedLivePublisherRows + TerritoryPublisherRow(
-                person = home,
-                lat = home.gpsLat!!,
-                lng = home.gpsLng!!,
-                category = null,
-                congregationName = fixedCongregationName ?: "—",
-                updatedAt = 0L,
-                isCurrentlySharing = false,
-            )
-        }
-    }
+    // "Under Publisher's Territory, do not include the last known location
+    // of that Publisher — only the record of his Searched [Interested
+    // Person], Return Visit, and Bible Study [records], based on the
+    // filters provided." — Publisher Territory's own marker set used to
+    // additionally plot the Publisher's live "Share Location while
+    // Preaching" position and/or their own recorded home address; both
+    // removed. [mapScopedRows]'s own `PUBLISHER_TERRITORY` branch already
+    // filters purely by `publisherPersonId` — every pipeline record actually
+    // assigned to them, regardless of stage — which is exactly, and only,
+    // what should ever show up here.
+    val mapPublisherRows: List<TerritoryPublisherRow> = emptyList()
 
     // "Search by Status" — List View's own directory-scoped status filter
     // (spec §1/§3/§7/§9), separate from the "Search By" field-picker above
@@ -671,12 +635,13 @@ fun TerritoryMapScreen(
             .sortedBy { it.person.name }
     }
 
-    // Map View's markers/publishers are now driven entirely by the cascading
-    // search above ([mapDeepSearchedRows]/[mapScopedPublisherRows]), never
-    // by List View's own [filtered]/[directoryStatus] — the two views'
-    // search models are independent (see that block's own doc comment).
+    // Map View's markers are now driven entirely by the cascading search
+    // above ([mapDeepSearchedRows]), never by List View's own
+    // [filtered]/[directoryStatus] — the two views' search models are
+    // independent (see that block's own doc comment). [mapPublisherRows]
+    // (declared above) stays empty for every category, Publisher Territory
+    // included — see its own doc comment for why.
     val mapRows = mapDeepSearchedRows
-    val mapPublisherRows = mapScopedPublisherRows
     // The human-readable label for whichever second-dropdown option is
     // currently selected — used for both [noRecordsAreaLabel] below and
     // [TerritoryMapSearchBar]'s own display, resolved once here so the two
@@ -743,15 +708,17 @@ fun TerritoryMapScreen(
     // app has no bundled boundary for — instead gets a best-effort "scope
     // boundary" hugging whatever's actually visible right now (see
     // [TerritoryLiveMap]'s own `window.setScopeBoundary`), rather than no
-    // boundary at all.
-    val scopeBoundaryPoints: List<LatLng> = remember(mapDeepSearchedRows, mapScopedPublisherRows) {
-        buildList {
-            mapDeepSearchedRows.forEach { row ->
-                val lat = row.person.gpsLat
-                val lng = row.person.gpsLng
-                if (lat != null && lng != null) add(LatLng(lat, lng, null))
-            }
-            mapScopedPublisherRows.forEach { add(LatLng(it.lat, it.lng, null)) }
+    // boundary at all. Built purely from [mapDeepSearchedRows] — a
+    // Publisher's own last-known/live location is never a point this hull is
+    // drawn around (see [mapPublisherRows]'s own doc comment), so Publisher
+    // Territory's own barrier accurately hugs only their actually-assigned
+    // Searching/Return Visit/Bible Study records, never skewed toward some
+    // unrelated point the Publisher merely happens to be standing at.
+    val scopeBoundaryPoints: List<LatLng> = remember(mapDeepSearchedRows) {
+        mapDeepSearchedRows.mapNotNull { row ->
+            val lat = row.person.gpsLat
+            val lng = row.person.gpsLng
+            if (lat != null && lng != null) LatLng(lat, lng, null) else null
         }
     }
     // Only null at the screen's absolute default (Municipalities → All) —
