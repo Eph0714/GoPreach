@@ -2,7 +2,6 @@
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.graphics.Color as AndroidColor
 import android.util.Log
 import android.view.View
 import android.webkit.ConsoleMessage
@@ -15,7 +14,6 @@ import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.emfitsolutions.gopreach.BuildConfig
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,7 +51,6 @@ import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Layers
-import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Person
@@ -101,9 +98,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -2603,6 +2598,28 @@ private fun TerritoryLiveMap(
         if (loadState != MapLoadState.LOADED) return@LaunchedEffect
         webViewRef?.evaluateJavascript("if (window.setShowPipelineLabels) { window.setShowPipelineLabels($showPipelineDetails); }", null)
     }
+    // "MAP LEGEND MUST REFLECT CURRENTLY VISIBLE LAYERS" — pushes
+    // visibility + the exact same layer-selection state the FAB/toggles
+    // above already drive into the WebView's own `window.setLegendState`
+    // (see that function's own doc comment for why the legend's content
+    // itself lives there, not in Compose).
+    LaunchedEffect(
+        loadState, webViewRef, showLegend, goPreachLayerStates,
+        selectedGroupId, showPublisherTerritories, selectedAreaNames,
+    ) {
+        if (loadState != MapLoadState.LOADED) return@LaunchedEffect
+        val webView = webViewRef ?: return@LaunchedEffect
+        webView.evaluateJavascript("if (window.setLegendVisible) { window.setLegendVisible($showLegend); }", null)
+        val stateJs = """{
+            selectedAreaActive: ${selectedAreaNames != null},
+            municipalitiesVisible: ${goPreachLayerStates["municipalities"] != false},
+            groupsVisible: ${goPreachLayerStates["groups"] != false},
+            groupSelected: ${selectedGroupId != null},
+            publisherTerritoryShown: $showPublisherTerritories,
+            householdersVisible: ${goPreachLayerStates["householders"] != false}
+        }"""
+        webView.evaluateJavascript("if (window.setLegendState) { window.setLegendState($stateJs); }", null)
+    }
 
     var streetPointsByGroupId by remember { mutableStateOf<Map<String, List<Pair<Double, Double>>>>(emptyMap()) }
     LaunchedEffect(groupBoundaries) {
@@ -3187,26 +3204,21 @@ private fun TerritoryLiveMap(
             Icon(if (isFullScreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen, contentDescription = if (isFullScreen) "Exit full screen" else "Full screen")
         }
 
-        // "MAP LEGEND" — toggles the small dynamic legend card (see
-        // [TerritoryMapLegend] below); its own FAB, same convention as
-        // "Map Layers" right above it.
+        // "MAP LEGEND AND MAP ICONS MUST USE THE EXACT SAME ICONS" — the
+        // legend panel itself now lives *inside* the WebView (see
+        // `#map-legend-panel`/`window.setLegendState` in the JS below)
+        // rather than as a separate Compose composable, specifically so it
+        // can be built from the exact same icon-building functions/CSS
+        // classes the real map markers use — a native Compose panel could
+        // only ever approximate those (different rendering engine
+        // entirely), never literally share the one definition the way two
+        // pieces of the same page's own HTML/JS can. This FAB only toggles
+        // visibility; the effect below keeps its actual content in sync.
         SmallFloatingActionButton(
             onClick = { showLegend = !showLegend },
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 396.dp),
         ) {
             Icon(Icons.AutoMirrored.Rounded.List, contentDescription = if (showLegend) "Hide map legend" else "Show map legend")
-        }
-
-        if (showLegend) {
-            TerritoryMapLegend(
-                municipalitiesVisible = goPreachLayerStates["municipalities"] != false,
-                groupsVisible = goPreachLayerStates["groups"] != false,
-                householdersVisible = goPreachLayerStates["householders"] != false,
-                selectedAreaActive = selectedAreaNames != null,
-                groupSelected = selectedGroupId != null,
-                publisherTerritoryShown = showPublisherTerritories,
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 16.dp),
-            )
         }
 
         // Always available, not just on failure — lets whoever's testing
@@ -3411,10 +3423,31 @@ private fun buildTerritoryMapHtml(): String {
           .publisher-badge { width: 12px; height: 12px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 2px rgba(0,0,0,0.45); border: 1.5px solid #ffffff; flex: 0 0 auto; }
           .publisher-label-wrap { display: flex; align-items: center; gap: 4px; }
           .publisher-name-label { font-weight: 700; white-space: nowrap; }
+          /* "MAP LEGEND AND MAP ICONS MUST USE THE EXACT SAME ICONS" — this
+             panel is a plain fixed-position UI overlay (never positioned by
+             geographic coordinates, unlike every marker/label above it),
+             but every icon inside it is built by the exact same JS
+             functions/constants the real map markers use (see
+             [window.setLegendState]'s own doc comment) — never a
+             separately-drawn substitute. Hidden by default; toggled by the
+             Kotlin side's own Legend button.
+             */
+          #map-legend-panel {
+            position: absolute; left: 12px; bottom: 12px; z-index: 900;
+            background: rgba(255,255,255,0.95); border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.35); padding: 10px 12px;
+            max-width: 230px; font-family: sans-serif; color: #1a1a1a;
+            display: none;
+          }
+          #map-legend-panel.visible { display: block; }
+          #map-legend-panel .legend-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+          #map-legend-panel .legend-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
+          #map-legend-panel .legend-swatch { width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
         </style>
         </head>
         <body>
         <div id="map"></div>
+        <div id="map-legend-panel"><div class="legend-title">Map Legend</div><div id="map-legend-rows"></div></div>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
         <script>
         try {
@@ -3806,16 +3839,27 @@ private fun buildTerritoryMapHtml(): String {
                 return '<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>';
             }
           }
+          // "MAP LEGEND AND MAP ICONS MUST USE THE EXACT SAME ICONS... a
+          // centralized icon configuration/registry so that both the map
+          // and legend reference the same icon definition" — this raw-HTML
+          // builder is that single source of truth for the House Holder
+          // pin; [buildPinIcon] below (the real marker) and
+          // [window.setLegendState] (the legend row) both call this exact
+          // same function rather than each having their own copy of the
+          // SVG markup.
+          function pinIconHtml(w, h, selected, color, kind) {
+            var fill = selected ? '#FFC107' : (color || '#EA4335');
+            var glyph = iconGlyphFor(kind);
+            return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 30 42" xmlns="http://www.w3.org/2000/svg">' +
+              '<path d="M15 0C6.7 0 0 6.7 0 15c0 11 15 27 15 27s15-16 15-27C30 6.7 23.3 0 15 0z" fill="' + fill + '" stroke="#8a1c14" stroke-width="1"/>' +
+              '<g transform="translate(8.5,8.5) scale(0.54)" fill="#ffffff">' + glyph + '</g></svg>';
+          }
           function buildPinIcon(selected, color, kind) {
             // "Make all map icons... smaller and more professional" — the
             // pin's own shape/color/glyph are unchanged (still the official
             // 3D location pin), only its on-screen size shrank.
             var w = selected ? 28 : 22, h = selected ? 39 : 31;
-            var fill = selected ? '#FFC107' : (color || '#EA4335');
-            var glyph = iconGlyphFor(kind);
-            var html = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 30 42" xmlns="http://www.w3.org/2000/svg">' +
-              '<path d="M15 0C6.7 0 0 6.7 0 15c0 11 15 27 15 27s15-16 15-27C30 6.7 23.3 0 15 0z" fill="' + fill + '" stroke="#8a1c14" stroke-width="1"/>' +
-              '<g transform="translate(8.5,8.5) scale(0.54)" fill="#ffffff">' + glyph + '</g></svg>';
+            var html = pinIconHtml(w, h, selected, color, kind);
             return L.divIcon({ className: 'territory-marker', html: html, iconSize: [w, h], iconAnchor: [w / 2, h] });
           }
           // "My Location" isn't a record status at all, so it keeps its own
@@ -3869,10 +3913,15 @@ private fun buildTerritoryMapHtml(): String {
           // special multiple-record indicator" — a small, professional
           // circular badge (never the red 3D pin itself, which stays
           // reserved for one individual record) showing how many real
-          // records are stacked at that spot.
+          // records are stacked at that spot. Same single-source-of-truth
+          // split as [pinIconHtml] above — [multiRecordIconHtml] is what
+          // both the real marker and the legend row build from.
+          function multiRecordIconHtml(s, count) {
+            return '<div style="width:' + s + 'px;height:' + s + 'px;border-radius:50%;background:#B71C1C;border:2.5px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;color:#ffffff;font-weight:700;font-size:13px;">' + count + '</div>';
+          }
           function buildMultiRecordIcon(count) {
             var s = 34;
-            var html = '<div style="width:' + s + 'px;height:' + s + 'px;border-radius:50%;background:#B71C1C;border:2.5px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;color:#ffffff;font-weight:700;font-size:13px;">' + count + '</div>';
+            var html = multiRecordIconHtml(s, count);
             return L.divIcon({ className: 'territory-marker', html: html, iconSize: [s, s], iconAnchor: [s / 2, s / 2] });
           }
 
@@ -4084,6 +4133,64 @@ private fun buildTerritoryMapHtml(): String {
           window.setShowPipelineLabels = function(show) {
             window.showPipelineLabels = show;
             refreshPipelineLabels();
+          };
+
+          // "MAP LEGEND AND MAP ICONS MUST USE THE EXACT SAME ICONS... a
+          // centralized icon configuration/registry so that both the map
+          // and legend reference the same icon definition" — every row
+          // built here calls the exact same functions/CSS classes/color
+          // constants the real map markers/badges/boundaries use
+          // ([pinIconHtml], [multiRecordIconHtml], the `.group-badge`/
+          // `.publisher-badge` CSS classes + [GROUP_BADGE_SVG]/
+          // [PUBLISHER_BADGE_SVG], [BOUNDARY_MAIN_COLOR]/[BOUNDARY_CASING_COLOR]) —
+          // never a separately-drawn substitute icon. Changing any one of
+          // those in one place automatically changes both the real map
+          // icon and this legend row, since there is only ever the one
+          // definition. Only Municipality/Territory-Group's own *color* is
+          // representative here (a neutral sample swatch) rather than one
+          // specific real Municipality's/Group's own color — there is no
+          // single "the" color for an entire layer, only for one real
+          // instance of it — but the icon/badge/line style itself is
+          // always the identical real asset.
+          //
+          // A plain UI overlay, never positioned by geographic coordinates
+          // (see `#map-legend-panel`'s own CSS doc comment) — entirely
+          // independent of the map's own pan/zoom/projection.
+          window.setLegendState = function(state) {
+            var rows = [];
+            if (state.selectedAreaActive) {
+              rows.push(
+                '<div class="legend-row"><div class="legend-swatch"><div style="width:14px;height:3px;background:' + BOUNDARY_MAIN_COLOR + ';border:1px solid ' + BOUNDARY_CASING_COLOR + ';"></div></div>Municipality / Barangay Boundary</div>'
+              );
+            }
+            if (state.municipalitiesVisible) {
+              rows.push(
+                '<div class="legend-row"><div class="legend-swatch"><div style="width:14px;height:14px;background:#9E9E9E;opacity:' + MUNICIPALITY_FILL_OPACITY + ';border:1px solid #616161;"></div></div>Municipality (Province overview)</div>'
+              );
+            }
+            if (state.groupsVisible && state.groupSelected) {
+              rows.push(
+                '<div class="legend-row"><div class="legend-swatch"><div class="group-badge" style="background:#5E35B1;">' + GROUP_BADGE_SVG + '</div></div>Territory Group</div>'
+              );
+            }
+            if (state.publisherTerritoryShown) {
+              rows.push(
+                '<div class="legend-row"><div class="legend-swatch"><div class="publisher-badge" style="background:#5E35B1;">' + PUBLISHER_BADGE_SVG + '</div></div>Publisher Territory (boundary line)</div>'
+              );
+            }
+            if (state.householdersVisible) {
+              rows.push(
+                '<div class="legend-row"><div class="legend-swatch">' + pinIconHtml(16, 22, false, null, 'SEARCHING') + '</div>House Holder</div>'
+              );
+              rows.push(
+                '<div class="legend-row"><div class="legend-swatch">' + multiRecordIconHtml(18, '3') + '</div>Multiple House Holders (tap to choose)</div>'
+              );
+            }
+            document.getElementById('map-legend-rows').innerHTML = rows.join('');
+          };
+          window.setLegendVisible = function(visible) {
+            var panel = document.getElementById('map-legend-panel');
+            if (visible) { panel.classList.add('visible'); } else { panel.classList.remove('visible'); }
           };
 
           // "Do not reload the entire map unnecessarily after every search.
@@ -5113,96 +5220,6 @@ private fun PublisherInfoSheet(
         }
     }
 }
-
-/** One row of [TerritoryMapLegend] — [swatch] draws whatever small visual
- * (a solid square, an outlined square, a dashed line, a pin glyph) actually
- * matches how that layer is rendered on the map itself, so the legend is
- * never just a generic bullet list disconnected from what's really drawn. */
-private data class LegendEntry(val label: String, val swatch: @Composable () -> Unit)
-
-/** "MAP LEGEND" / "DYNAMIC LEGEND" — a small, professional card explaining
- * only the GoPreach layers actually visible right now (spec's own "Do not
- * show legend items for layers that are completely disabled or hidden"),
- * built fresh from the same layer-visibility/selection state the map
- * itself renders from — never a fixed list independent of what's on
- * screen. Roads/streets/place names themselves are the OpenStreetMap base
- * tile layer, not a GoPreach overlay, so they're never a legend row of
- * their own; the entries here are exactly the vector layers this app draws
- * on top of that base map. */
-@Composable
-private fun TerritoryMapLegend(
-    municipalitiesVisible: Boolean,
-    groupsVisible: Boolean,
-    householdersVisible: Boolean,
-    selectedAreaActive: Boolean,
-    groupSelected: Boolean,
-    publisherTerritoryShown: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val entries = buildList {
-        // Real Municipality/Barangay administrative boundary — always this
-        // one fixed red casing+fill style regardless of which of the two it
-        // currently outlines (see `boundaryMainStyle`/`boundaryCasingStyle`
-        // in the JS), so one row covers both.
-        if (selectedAreaActive) {
-            add(LegendEntry("Municipality / Barangay Boundary") { LegendLineSwatch(BOUNDARY_MAIN_COLOR_ARGB) })
-        }
-        if (municipalitiesVisible) {
-            add(LegendEntry("Municipality (Province overview)") { LegendSquareSwatch(Color(0xFF9E9E9E)) })
-        }
-        if (groupsVisible && groupSelected) {
-            add(LegendEntry("Group Territory") { LegendSquareSwatch(MaterialTheme.colorScheme.primary) })
-        }
-        if (publisherTerritoryShown) {
-            add(LegendEntry("Publisher Territory Boundary") { LegendLineSwatch(MaterialTheme.colorScheme.primary.toArgb(), dashed = true) })
-        }
-        if (householdersVisible) {
-            add(LegendEntry("House Holder") { Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(16.dp)) })
-        }
-    }
-    if (entries.isEmpty()) return
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)), modifier = modifier.widthIn(max = 220.dp)) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text("Map Legend", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(6.dp))
-            entries.forEach { entry ->
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 3.dp)) {
-                    Box(modifier = Modifier.size(16.dp), contentAlignment = Alignment.Center) { entry.swatch() }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(entry.label, style = MaterialTheme.typography.labelSmall)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LegendSquareSwatch(color: Color) {
-    Box(modifier = Modifier.size(12.dp).background(color))
-}
-
-@Composable
-private fun LegendLineSwatch(colorArgb: Int, dashed: Boolean = false) {
-    val color = Color(colorArgb)
-    Canvas(modifier = Modifier.size(width = 16.dp, height = 3.dp)) {
-        if (dashed) {
-            val dash = 4.dp.toPx()
-            var x = 0f
-            while (x < size.width) {
-                drawLine(color, Offset(x, size.height / 2), Offset((x + dash).coerceAtMost(size.width), size.height / 2), strokeWidth = size.height)
-                x += dash * 2
-            }
-        } else {
-            drawLine(color, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = size.height)
-        }
-    }
-}
-
-// The real Municipality/Barangay administrative boundary's own fixed red
-// (matches `BOUNDARY_MAIN_COLOR` in the JS below — kept in sync by hand,
-// same convention [BaseLayerOption]/[GoPreachLayerOption] already use for
-// their own JS-side counterparts).
-private val BOUNDARY_MAIN_COLOR_ARGB = AndroidColor.parseColor("#D32F2F")
 
 /** A base map style offered in [MapLayersSheet] — [id] is what
  * `window.setBaseLayer`/the JS `BASE_LAYER_DEFS` map key on the other end
