@@ -360,23 +360,11 @@ fun TerritoryMapScreen(
     // shown read-only in the filter sheet rather than editable, and applied
     // as a no-op alongside [fixedCongregationId]'s own scoping (every row a
     // scoped role ever sees already shares this same province/city).
-    // "Show the whole municipality as an initial map focus, based on the
-    // municipality of the congregation" — the congregation's own
-    // [Congregation.cityMunicipality], captured alongside [advancedFilter
-    // .province] above (same latch-once-for-a-scoped-role /
-    // re-derive-per-congregation-for-Super-Admin split) and passed to
-    // [TerritoryLiveMap] as [initialFocusMunicipality], which fits the
-    // camera to it once on first load instead of the Province-wide default
-    // view — see that effect's own doc comment.
-    var congregationMunicipality by remember { mutableStateOf<String?>(null) }
     if (!isSuperAdmin) {
         LaunchedEffect(fixedCongregationId) {
             viewModel.congregationById(fixedCongregationId!!).collect { congregation ->
                 if (congregation?.province != null && advancedFilter.province == null) {
                     advancedFilter = advancedFilter.copy(province = congregation.province)
-                }
-                if (congregation?.cityMunicipality != null && congregationMunicipality == null) {
-                    congregationMunicipality = congregation.cityMunicipality
                 }
             }
         }
@@ -400,7 +388,6 @@ fun TerritoryMapScreen(
                 if (advancedFilter.province != null) {
                     advancedFilter = advancedFilter.copy(province = null, cityMunicipality = null, barangay = null)
                 }
-                congregationMunicipality = null
                 return@LaunchedEffect
             }
             viewModel.congregationById(congId).collect { congregation ->
@@ -408,7 +395,6 @@ fun TerritoryMapScreen(
                 if (newProvince != advancedFilter.province) {
                     advancedFilter = advancedFilter.copy(province = newProvince, cityMunicipality = null, barangay = null)
                 }
-                congregationMunicipality = congregation?.cityMunicipality
             }
         }
     }
@@ -1208,7 +1194,6 @@ fun TerritoryMapScreen(
                         selectedAreaNames = selectedAreaNames,
                         explicitAreaSelection = explicitAreaSelection,
                         province = effectiveProvince,
-                        initialFocusMunicipality = congregationMunicipality,
                         groupBoundaries = mapGroupBoundaries,
                         groupColorFor = { it.resolvedGroupColor() },
                         groupNameFor = { row -> row.resolvedGroupId()?.let { id -> mapGroups.firstOrNull { g -> g.id == id }?.name } },
@@ -2070,15 +2055,6 @@ private fun TerritoryLiveMap(
     // for the "Territory Map Loading — Province Wide Only" initial-focus
     // geocode query below.
     province: String?,
-    // "Show the whole municipality as an initial map focus, based on the
-    // municipality of the congregation" — the congregation's own
-    // [com.emfitsolutions.gopreach.data.model.Congregation.cityMunicipality],
-    // or null while it's still resolving/unknown (Super-Admin viewing "All
-    // Congregations", or a congregation with no municipality on file yet).
-    // Fits the camera to this one Municipality's real boundary, once, on
-    // first load — see the dedicated effect below for how this overrides
-    // the plain Province-wide fit.
-    initialFocusMunicipality: String?,
     // "Create a separate barrier line for every Congregation Group... do not
     // merge different groups into one barrier" — one entry per Group
     // currently represented among [rows] (plus an "Unassigned" entry when
@@ -2549,48 +2525,17 @@ private fun TerritoryLiveMap(
             val entriesJson = entries.joinToString(",", prefix = "[", postfix = "]") { (name, geometry) ->
                 """{name:"${jsEscape(name)}",geometry:$geometry}"""
             }
-            // Every Municipality is still drawn regardless, but the camera
-            // itself only fits to all of them when there's no congregation
-            // Municipality to focus on instead (a still-unresolved fetch at
-            // this exact moment, or Super-Admin's "All Congregations") — see
-            // the dedicated [initialFocusMunicipality] effect right below,
-            // which owns the camera whenever it has one.
-            val fit = initialFocusMunicipality == null
-            webView.evaluateJavascript("if (window.setMunicipalityLayers) { window.setMunicipalityLayers($entriesJson, $fit); }", null)
+            // "Make the entire Province selected when initial load of the
+            // map" — always fits the camera to every Municipality in the
+            // Province, unconditionally, on first load.
+            webView.evaluateJavascript("if (window.setMunicipalityLayers) { window.setMunicipalityLayers($entriesJson, true); }", null)
             // A real bounds-fit across every Municipality just positioned
             // the camera far more precisely than the plain geocoded
             // center+zoom-9 pan below ever could — suppressing that
             // fallback here means the two never fight over the camera on
             // the same screen-open.
-            if (fit) hasAppliedProvinceFocus = true
+            hasAppliedProvinceFocus = true
         }
-    }
-
-    // "Show the whole municipality as an initial map focus, based on the
-    // municipality of the congregation" — overrides the plain Province-wide
-    // fit above with a real bounds-fit to just the congregation's own
-    // Municipality, once, the first time [initialFocusMunicipality] actually
-    // resolves. Its own decoupled effect (same reasoning as the
-    // Province-wide one above) so a slow/late-resolving congregation fetch
-    // can't get cancelled by unrelated recompositions; runs independently of
-    // — and, since it fires strictly after, on top of — whatever camera
-    // position the Province-wide effect already landed on, so it always
-    // wins the moment it has a real answer, brief province-wide flash and
-    // all, rather than leaving the two racing to see whichever fires last.
-    var hasAppliedCongregationMunicipalityFit by remember { mutableStateOf(false) }
-    LaunchedEffect(loadState, webViewRef, initialFocusMunicipality) {
-        if (loadState != MapLoadState.LOADED || hasAppliedCongregationMunicipalityFit) return@LaunchedEffect
-        val webView = webViewRef ?: return@LaunchedEffect
-        val municipality = initialFocusMunicipality ?: return@LaunchedEffect
-        val geometry = boundaryGeometry(municipality, null) ?: return@LaunchedEffect
-        hasAppliedCongregationMunicipalityFit = true
-        // Suppresses the plain geocoded center+zoom-9 fallback below, same
-        // as the Province-wide effect's own real bounds-fit already does.
-        hasAppliedProvinceFocus = true
-        webView.evaluateJavascript(
-            "if (window.setAreaBoundaryGeoJson) { window.setAreaBoundaryGeoJson($geometry, true, MUNICIPALITY_FOCUS_MAX_ZOOM); }",
-            null,
-        )
     }
 
     // "Do not reload or reset the Territory Map [when changing a map
@@ -4056,9 +4001,6 @@ private fun buildTerritoryMapHtml(): String {
           // be.
           var AREA_FOCUS_MIN_ZOOM = 12;
           var AREA_FOCUS_MAX_ZOOM = 16;
-          // A whole-Municipality fit's own, tighter ceiling — see
-          // [window.setAreaBoundaryGeoJson]'s `maxZoom` doc comment.
-          var MUNICIPALITY_FOCUS_MAX_ZOOM = 13;
           // "Never use a generic square, rectangle, circle, or rounded
           // shape to represent an actual geographic territory" — the
           // minimum real-world radius (meters) a lone point (or a tight
@@ -4363,46 +4305,64 @@ private fun buildTerritoryMapHtml(): String {
               marker.setIcon(L.divIcon({ className: 'territory-marker', html: groupLabelHtml(marker._groupName, marker._groupColor, zoom, marker._groupBounds) }));
             });
           }
-          // "FINAL GEOGRAPHICAL AND LIST VIEW FIX §1" — no heptagon, no
-          // artificial polygon, no fixed/fake territory shape: a Group
-          // Territory has no real administrative boundary of its own
-          // anywhere (not NAMRIA/PSA/OSM — a Congregation invents these
-          // assignments itself), and every attempt at approximating one
-          // either fabricated a shape from scratch (the old convex-hull-plus
-          // -padding approach this replaces, which is exactly what produced
-          // a visibly artificial ~7-sided "heptagon" for a small Group) or
-          // reused a real Barangay polygon that covers far more area than
-          // that Group's own actual records (a real union-of-Barangays
-          // approach was tried and explicitly reverted earlier in this
-          // file's own history for exactly that reason). Explicit
-          // instruction: skip drawing any shape or divider line for a
-          // Group's own territory at all — a
-          // Group is now represented only by this one color-coded marker +
-          // name label, positioned at its own records' centroid. Tapping it
-          // is what opens Group details (`AndroidBridge.showGroupDetails`),
-          // replacing the removed polygon's own click handler.
+          // Bug fix ("I cannot find the Group Territory Map, and the
+          // Publishers Territory now in the Map View... show the map that
+          // is working before") — the marker-only rendering this replaced
+          // (see this file's own git history) made a Group's territory
+          // nearly invisible against a solid, much-larger Municipality
+          // fill: a small badge sitting on top of a huge color block reads
+          // as just another household pin, not as its own distinct
+          // territory. Restored to a real, visible filled shape — the
+          // tightest real polygon around this Group's own points (a
+          // genuine convex hull of real, congregation-assigned record
+          // coordinates, proportional to their actual spread — the closest
+          // thing to "the actual territory" derivable from real data when
+          // no surveyed Field Service Group boundary dataset exists), with
+          // the same color-coded marker + name label as before still
+          // centered on it.
+          var GROUP_FILL_OPACITY = 1.0;
           function buildGroupBoundaryLayer(points, color, groupId, name) {
-            var centroidLat = 0, centroidLng = 0;
-            for (var i = 0; i < points.length; i++) { centroidLat += points[i][0]; centroidLng += points[i][1]; }
-            centroidLat /= points.length; centroidLng /= points.length;
-            var centroid = L.latLng(centroidLat, centroidLng);
-            var bounds = L.latLngBounds(points.map(function(p) { return L.latLng(p[0], p[1]); }));
-            var labelMarker = L.marker(centroid, {
-              icon: L.divIcon({ className: 'territory-marker', html: groupLabelHtml(name || '', color, map.getZoom(), bounds) }),
-              interactive: true,
-              zIndexOffset: 500,
-            });
-            labelMarker._groupName = name;
-            labelMarker._groupColor = color;
-            labelMarker._groupBounds = bounds;
+            var casingStyle = { color: shadeColor(color, -0.35), weight: BOUNDARY_CASING_WEIGHT, opacity: 1, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
+            var mainStyle = { color: color, weight: BOUNDARY_MAIN_WEIGHT, opacity: 1, fill: true, fillColor: color, fillOpacity: GROUP_FILL_OPACITY, lineJoin: 'round', lineCap: 'round', interactive: true };
+            var casingLayer, mainLayer;
+            if (points.length === 1) {
+              var soloHull = smallTerritoryPolygon(points);
+              casingLayer = L.polygon(soloHull, casingStyle);
+              mainLayer = L.polygon(soloHull, mainStyle);
+            } else {
+              var unique = dedupePoints(points);
+              var hull = unique.length >= 3 ? convexHull(unique) : unique;
+              if (hull.length < 3) {
+                var smallHull = smallTerritoryPolygon(unique);
+                casingLayer = L.polygon(smallHull, casingStyle);
+                mainLayer = L.polygon(smallHull, mainStyle);
+              } else {
+                casingLayer = L.polygon(hull, casingStyle);
+                mainLayer = L.polygon(hull, mainStyle);
+              }
+            }
+            disableClickCapture(casingLayer);
             if (groupId) {
-              labelMarker.on('click', function(e) {
+              mainLayer.on('click', function(e) {
                 if (window.AndroidBridge) { AndroidBridge.showGroupDetails(groupId); }
                 L.DomEvent.stopPropagation(e);
               });
-              window.groupLabelMarkers[groupId] = labelMarker;
             }
-            return L.featureGroup([labelMarker]);
+            var layers = [casingLayer, mainLayer];
+            if (name) {
+              var labelMarker = L.marker(mainLayer.getBounds().getCenter(), {
+                icon: L.divIcon({ className: 'territory-marker', html: groupLabelHtml(name, color, map.getZoom(), mainLayer.getBounds()) }),
+                interactive: false,
+                zIndexOffset: 500,
+              });
+              labelMarker._groupName = name;
+              labelMarker._groupColor = color;
+              labelMarker._groupBounds = mainLayer.getBounds();
+              disableClickCapture(labelMarker);
+              if (groupId) { window.groupLabelMarkers[groupId] = labelMarker; }
+              layers.push(labelMarker);
+            }
+            return L.featureGroup(layers);
           }
           // Rough "how big is this Group's own footprint" heuristic (a
           // plain bounding-box area, not a true geodesic one — only ever
@@ -4529,39 +4489,58 @@ private fun buildTerritoryMapHtml(): String {
               marker.setIcon(L.divIcon({ className: 'territory-marker', html: publisherLabelHtml(marker._pubName, marker._pubColor, zoom, marker._pubBounds) }));
             });
           }
-          // "FINAL GEOGRAPHICAL AND LIST VIEW FIX §5-8" — "just make the
-          // color the same as the group, skip the line and shape" —
-          // explicit instruction superseding the earlier boundary-line-only
-          // idea: a Publisher's own subdivision is no longer drawn as any
-          // polygon or divider line at all (there's no real sub-Barangay
-          // geometry to draw one from honestly — see [buildGroupBoundaryLayer]'s
-          // own doc comment for why that's true one level up too). A
-          // Publisher is represented only by this one marker, in the parent
-          // Group's own single [color] (see [TerritoryMapScreen]'s
-          // `selectedGroupPublisherBoundaries`), positioned at that
-          // Publisher's own records' centroid. Tapping it opens that
-          // Publisher's own details.
+          // Bug fix ("I cannot find... the Publishers Territory now in the
+          // Map View... show the map that is working before") — same
+          // restore as [buildGroupBoundaryLayer] above, one level down: a
+          // real, visible filled shape instead of a marker-only badge that
+          // read as invisible against the map underneath it. Still every
+          // Publisher's own single [color] is the parent Group's own (see
+          // [TerritoryMapScreen]'s `selectedGroupPublisherBoundaries`) —
+          // "no different colors for individual Publishers" stays true;
+          // Publishers are only distinguished from each other by their own
+          // shape/position and name label, never by a different fill color.
+          var PUBLISHER_FILL_OPACITY = 1.0;
           function buildPublisherBoundaryLayer(points, color, publisherId, name) {
-            var centroidLat = 0, centroidLng = 0;
-            for (var i = 0; i < points.length; i++) { centroidLat += points[i][0]; centroidLng += points[i][1]; }
-            centroidLat /= points.length; centroidLng /= points.length;
-            var centroid = L.latLng(centroidLat, centroidLng);
-            var bounds = L.latLngBounds(points.map(function(p) { return L.latLng(p[0], p[1]); }));
-            var labelMarker = L.marker(centroid, {
-              icon: L.divIcon({ className: 'territory-marker', html: publisherLabelHtml(name || '', color, map.getZoom(), bounds) }),
-              interactive: true,
-              zIndexOffset: 700,
-            });
-            labelMarker._pubName = name;
-            labelMarker._pubColor = color;
-            labelMarker._pubBounds = bounds;
+            var casingStyle = { color: shadeColor(color, -0.35), weight: 3, opacity: 1, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
+            var mainStyle = { color: color, weight: 2.5, opacity: 1, fill: true, fillColor: color, fillOpacity: PUBLISHER_FILL_OPACITY, lineJoin: 'round', lineCap: 'round', interactive: true };
+            var casingLayer, mainLayer;
+            if (points.length === 1) {
+              var soloHull = smallTerritoryPolygon(points);
+              casingLayer = L.polygon(soloHull, casingStyle);
+              mainLayer = L.polygon(soloHull, mainStyle);
+            } else {
+              var unique = dedupePoints(points);
+              var hull = unique.length >= 3 ? convexHull(unique) : unique;
+              if (hull.length < 3) {
+                var smallHull = smallTerritoryPolygon(unique);
+                casingLayer = L.polygon(smallHull, casingStyle);
+                mainLayer = L.polygon(smallHull, mainStyle);
+              } else {
+                casingLayer = L.polygon(hull, casingStyle);
+                mainLayer = L.polygon(hull, mainStyle);
+              }
+            }
+            disableClickCapture(casingLayer);
             // "Clicking a Publisher Territory" (spec §6).
-            labelMarker.on('click', function(e) {
+            mainLayer.on('click', function(e) {
               if (window.AndroidBridge) { AndroidBridge.showPublisherDetails(publisherId); }
               L.DomEvent.stopPropagation(e);
             });
-            window.publisherLabelMarkers[publisherId] = labelMarker;
-            return L.featureGroup([labelMarker]);
+            var layers = [casingLayer, mainLayer];
+            if (name) {
+              var labelMarker = L.marker(mainLayer.getBounds().getCenter(), {
+                icon: L.divIcon({ className: 'territory-marker', html: publisherLabelHtml(name, color, map.getZoom(), mainLayer.getBounds()) }),
+                interactive: false,
+                zIndexOffset: 700,
+              });
+              labelMarker._pubName = name;
+              labelMarker._pubColor = color;
+              labelMarker._pubBounds = mainLayer.getBounds();
+              disableClickCapture(labelMarker);
+              window.publisherLabelMarkers[publisherId] = labelMarker;
+              layers.push(labelMarker);
+            }
+            return L.featureGroup(layers);
           }
           // [groupId]'s own boundary layer (already drawn by
           // `setGroupScopeBoundaries`) is dimmed to a subtle background the
