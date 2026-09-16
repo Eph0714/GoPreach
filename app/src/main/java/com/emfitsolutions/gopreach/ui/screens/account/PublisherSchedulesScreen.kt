@@ -16,14 +16,20 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.rounded.Search
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Person
@@ -52,6 +58,15 @@ fun PublisherSchedulesScreen(
     val publishers by (congregationId?.let { viewModel.assignablePublishers(it) } ?: kotlinx.coroutines.flow.flowOf(emptyList()))
         .collectAsStateWithLifecycle(initialValue = null)
 
+    // Plain name filter — same congregation-scoped list [publishers] already
+    // is, just narrowed client-side so a Publisher can jump straight to one
+    // name in a larger congregation instead of scrolling the whole list.
+    var query by rememberSaveable { mutableStateOf("") }
+    val filteredPublishers = remember(publishers, query) {
+        val q = query.trim()
+        if (q.isBlank()) publishers else publishers?.filter { it.fullName.contains(q, ignoreCase = true) }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -62,28 +77,43 @@ fun PublisherSchedulesScreen(
             )
         },
     ) { padding ->
-        when {
-            congregationId == null -> Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center,
-            ) { Text("No congregation assigned.", style = MaterialTheme.typography.bodyMedium) }
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Search by name") },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+            )
+            when {
+                congregationId == null -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) { Text("No congregation assigned.", style = MaterialTheme.typography.bodyMedium) }
 
-            publishers == null -> Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator() }
+                filteredPublishers == null -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator() }
 
-            publishers!!.isEmpty() -> Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center,
-            ) { Text("No publishers found in your congregation.", style = MaterialTheme.typography.bodyMedium) }
+                filteredPublishers.isEmpty() -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (query.isBlank()) "No publishers found in your congregation." else "No publishers match \"$query\".",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
 
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(publishers!!, key = { it.id }) { publisher -> PublisherScheduleRow(publisher, isSelf = publisher.id == currentPersonId) }
+                else -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(filteredPublishers, key = { it.id }) { publisher -> PublisherScheduleRow(publisher, isSelf = publisher.id == currentPersonId) }
+                }
             }
         }
     }

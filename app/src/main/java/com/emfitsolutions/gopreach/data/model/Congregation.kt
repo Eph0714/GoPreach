@@ -70,6 +70,20 @@ data class Group(
     val createdAt: Long = 0L,
     /** "Admin Record Deletion and Inactive Status" spec — see [Congregation.status]. */
     val status: RecordStatus = RecordStatus.ACTIVE,
+    /** "Same Group = Same Color, Different Group = Different Color... the
+     * color must always come from the Group Record assignment and must
+     * never be determined randomly or individually for each member" — the
+     * single source of truth for every member/record belonging to this
+     * Group everywhere it's shown (Territory Map markers, Territory Scope
+     * boundary, Group detail view, Group member display, Group Report). A
+     * "#RRGGBB" string, assigned automatically from a curated palette when
+     * the Group is first created (see ManageGroupsScreen's GroupDialog) and
+     * editable by an admin afterward; null only for a Group saved before
+     * this field existed, in which case
+     * [com.emfitsolutions.gopreach.ui.screens.territories.TerritoryMapScreen]
+     * falls back to its legacy generated color so old data keeps working
+     * until that Group is next edited and picks up a real one. */
+    val color: String? = null,
 ) {
     /** Which of the three required roles still need an Elder — empty means fully assigned. */
     fun missingRoles(): List<RegularElderRole> = buildList {

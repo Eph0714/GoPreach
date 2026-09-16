@@ -18,6 +18,7 @@ import com.emfitsolutions.gopreach.data.model.isCurrentlyFresh
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
+import com.emfitsolutions.gopreach.data.repository.OverpassStreetRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
@@ -92,6 +93,7 @@ class TerritoryMapViewModel @Inject constructor(
     private val philippineLocationRepository: PhilippineLocationRepository,
     private val visitRepository: VisitRepository,
     private val territoryBoundaryRepository: TerritoryBoundaryRepository,
+    private val overpassStreetRepository: OverpassStreetRepository,
 ) : ViewModel() {
 
     init {
@@ -269,6 +271,30 @@ class TerritoryMapViewModel @Inject constructor(
     suspend fun boundaryGeometry(municipality: String, barangay: String?): String? =
         if (barangay != null) territoryBoundaryRepository.barangayGeometry(municipality, barangay)
         else territoryBoundaryRepository.municipalityGeometry(municipality)
+
+    /** "PROVINCE-WIDE COLOR CODING... the initial map view must clearly show
+     * the province divided into its different municipalities" — every real
+     * Municipality name in [provinceName]'s own province (via the same
+     * bundled PSGC table [municipalitiesInProvince] already exposes),
+     * paired with its real boundary polygon wherever the bundled
+     * [TerritoryBoundaryRepository] asset actually covers it; a Municipality
+     * with no bundled polygon is simply omitted (same graceful-miss
+     * convention [boundaryGeometry] already uses) rather than drawn as a
+     * fallback circle — a province-wide overview needs real shapes, not a
+     * dozen-plus overlapping approximations. */
+    suspend fun provinceMunicipalityBoundaries(provinceName: String): List<Pair<String, String>> {
+        val provinceId = resolveProvinceId(provinceName) ?: return emptyList()
+        return municipalitiesInProvince(provinceId).mapNotNull { name ->
+            territoryBoundaryRepository.municipalityGeometry(name)?.let { name to it }
+        }
+    }
+
+    /** "Snap the small [Group Territory] shape to real streets/blocks where
+     * possible" — see [OverpassStreetRepository]'s own doc comment. `null`
+     * on any failure means the caller falls back to its own points-only
+     * shape, exactly like [boundaryGeometry]'s own "not covered" case. */
+    suspend fun nearbyStreetPoints(lat: Double, lng: Double, radiusMeters: Double): List<Pair<Double, Double>>? =
+        overpassStreetRepository.nearbyStreetPoints(lat, lng, radiusMeters)
 
     // ---------------------------------------------------------------------
     // "Add a filter in Territory Map" / "Territory Map Congregation and

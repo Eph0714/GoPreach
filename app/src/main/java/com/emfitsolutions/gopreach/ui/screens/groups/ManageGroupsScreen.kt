@@ -2,17 +2,27 @@ package com.emfitsolutions.gopreach.ui.screens.groups
 
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
@@ -45,6 +55,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -58,6 +70,7 @@ import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
+import com.emfitsolutions.gopreach.ui.components.GroupColorPalette
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.displayLabel
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
@@ -152,7 +165,19 @@ fun ManageGroupsScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(row.group.name, style = MaterialTheme.typography.titleMedium)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // "Same Group = Same Color" — the same
+                                    // swatch the Territory Map/Group Report
+                                    // use for this Group (GroupColorPalette
+                                    // is the shared source both read).
+                                    Box(
+                                        modifier = Modifier.size(14.dp)
+                                            .clip(CircleShape)
+                                            .background(GroupColorPalette.parseHex(row.group.color ?: GroupColorPalette.UNASSIGNED_COLOR)),
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(row.group.name, style = MaterialTheme.typography.titleMedium)
+                                }
                                 if (!readOnly) {
                                     Row {
                                         IconButton(onClick = { pendingEdit = row.group }) {
@@ -226,6 +251,8 @@ fun ManageGroupsScreen(
             existingGroup = null,
             currentPersonId = currentPersonId,
             viewModel = viewModel,
+            usedColors = allRows.filter { it.group.status == RecordStatus.ACTIVE }.mapNotNull { it.group.color },
+            legacyFallbackColor = null,
             onDismiss = { showCreateDialog = false },
         )
     }
@@ -237,6 +264,16 @@ fun ManageGroupsScreen(
             existingGroup = toEditGroup,
             currentPersonId = currentPersonId,
             viewModel = viewModel,
+            usedColors = allRows.filter { it.group.status == RecordStatus.ACTIVE && it.group.id != toEditGroup.id }.mapNotNull { it.group.color },
+            // A legacy Group (saved before Group.color existed) has no color
+            // of its own yet — default the picker to whatever the Territory
+            // Map is *already* showing for it (same creation-order/curated-
+            // palette formula as TerritoryMapScreen.groupColorById) rather
+            // than a fresh random pick, so opening Edit and saving without
+            // touching the swatch can never silently change a color members
+            // are already used to seeing on the map.
+            legacyFallbackColor = allRows.map { it.group }.sortedBy { it.createdAt }.indexOfFirst { it.id == toEditGroup.id }
+                .let { index -> if (index < 0) null else GroupColorPalette.CURATED.getOrNull(index) ?: GroupColorPalette.colorForGroupId(toEditGroup.id) },
             onDismiss = { pendingEdit = null },
         )
     }
@@ -260,16 +297,40 @@ fun ManageGroupsScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun GroupDialog(
     fixedCongregationId: String?,
     existingGroup: Group?,
     currentPersonId: String,
     viewModel: ManageGroupsViewModel,
+    /** Every other active Group's own assigned color in this list — used to
+     * auto-suggest a not-already-taken curated color for a brand-new Group
+     * (see [GroupColorPalette.nextAvailableColor]) so "Different Group =
+     * Different Color" holds by default without the admin having to think
+     * about it; irrelevant once [existingGroup] already has its own color. */
+    usedColors: List<String>,
+    /** Only used when [existingGroup] has no [Group.color] of its own yet —
+     * see the caller's own doc comment on why this must be the color the
+     * map is already showing, never a fresh pick. */
+    legacyFallbackColor: String?,
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf(existingGroup?.name ?: "") }
+    // "The color must always come from the Group Record assignment and must
+    // never be determined randomly or individually for each member" — a new
+    // Group starts from the next unused curated color (still just a
+    // starting point the admin can override below); an existing Group keeps
+    // its own saved color, or (legacy, pre-color Group) whatever the map
+    // already shows for it, untouched unless the admin picks a different one.
+    var selectedColor by remember {
+        mutableStateOf(
+            existingGroup?.color
+                ?: legacyFallbackColor
+                ?: GroupColorPalette.nextAvailableColor(usedColors, seedId = java.util.UUID.randomUUID().toString()),
+        )
+    }
+    val initialColor = remember { selectedColor }
     val showToast = rememberActionToast()
     val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
     // Bug fix ("Congregation/Group is required" even after picking one):
@@ -402,6 +463,7 @@ private fun GroupDialog(
                 congregationId = resolvedCongregationId!!,
                 name = name.trim(),
                 regularElderPersonId = existingGroup?.regularElderPersonId,
+                color = selectedColor,
                 overseerPersonId = overseer?.id,
                 servantPersonId = servant?.id,
                 assistantPersonId = assistant?.id,
@@ -425,7 +487,8 @@ private fun GroupDialog(
         hasUnsavedChanges = name != (existingGroup?.name ?: "") ||
             pickedCongregationId != existingGroup?.congregationId ||
             overseer?.id != initialOverseer?.id || servant?.id != initialServant?.id || assistant?.id != initialAssistant?.id ||
-            checkedMemberIds != initialCheckedMemberIds,
+            checkedMemberIds != initialCheckedMemberIds ||
+            selectedColor != initialColor,
     ) {
                 if (fixedCongregationId == null) {
                     CongregationPickerDropdown(
@@ -446,6 +509,35 @@ private fun GroupDialog(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // "The Group Color must be applied consistently... in
+                // Territory Map markers, Territory Scope/territory color,
+                // Group detail view, Group member display" — every member's
+                // map icon uses whatever is picked here (see
+                // TerritoryMapScreen.groupColorById), and changing it later
+                // and saving refreshes all of those automatically since they
+                // all read this same field live off the Group record.
+                EditSectionHeader("Group Color")
+                Text(
+                    "Every member's Territory Map icon and territory scope will use this color.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GroupColorPalette.CURATED.forEach { hex ->
+                        val isSelected = hex.equals(selectedColor, ignoreCase = true)
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(GroupColorPalette.parseHex(hex))
+                                .border(
+                                    width = if (isSelected) 3.dp else 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
+                                    shape = CircleShape,
+                                )
+                                .clickable { selectedColor = hex },
+                        )
+                    }
+                }
                 if (legacyElderName != null && existingGroup?.isComplete == false) {
                     Text(
                         "Existing assignment: $legacyElderName — pick which role they hold below.",

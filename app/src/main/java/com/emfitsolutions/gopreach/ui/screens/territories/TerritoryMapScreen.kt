@@ -42,9 +42,15 @@ import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
@@ -53,17 +59,20 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
@@ -104,6 +113,7 @@ import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PipelineStage
+import com.emfitsolutions.gopreach.ui.components.GroupColorPalette
 import com.emfitsolutions.gopreach.ui.components.isValidLatitude
 import com.emfitsolutions.gopreach.ui.components.isValidLongitude
 import com.emfitsolutions.gopreach.ui.components.openCoordinatesInMaps
@@ -133,13 +143,17 @@ private enum class TerritorySearchByField(val label: String) {
     PUBLISHER("Publisher Assigned"),
 }
 
-private fun TerritoryMapRow.matchesSearch(field: TerritorySearchByField, query: String, publisherName: String?): Boolean {
+private fun TerritoryMapRow.matchesSearch(field: TerritorySearchByField, query: String, publisherName: String?, groupName: String? = null): Boolean {
     if (query.isBlank()) return true
     fun String?.has() = this != null && contains(query, ignoreCase = true)
     return when (field) {
+        // "Include Group name or number in Search All" — [groupName] is the
+        // Congregation Group this record's own assigned Publisher belongs
+        // to; typing "Group 5" or just "5" both match since the name itself
+        // ("Group 5") already contains the number.
         TerritorySearchByField.ALL ->
             person.name.has() || person.cityMunicipality.has() || person.barangay.has() ||
-                person.pipelineStage.statusLabel().has() || publisherName.has()
+                person.pipelineStage.statusLabel().has() || publisherName.has() || groupName.has()
         TerritorySearchByField.NAME -> person.name.has()
         TerritorySearchByField.MUNICIPALITY -> person.cityMunicipality.has()
         TerritorySearchByField.BARANGAY -> person.barangay.has()
@@ -417,6 +431,11 @@ fun TerritoryMapScreen(
     // landing mode (previously Map View); Map View is still reachable via
     // the exact same top-bar toggle, unchanged.
     var viewMode by remember { mutableStateOf(TerritoryViewMode.LIST) }
+    // "Full-Screen Map" (spec §20) — hides this Scaffold's own TopAppBar so
+    // the map claims that space too; Map Layers/Search/Current Location
+    // stay reachable since those all float over the map itself inside
+    // [TerritoryLiveMap], never inside the TopAppBar being hidden here.
+    var isFullScreen by remember { mutableStateOf(false) }
     // "Make the Map Full Screen... Make the search expand and shrink to view
     // full screen. Make shrink as default" — Map View's own search/filter
     // controls now float on top of the map (see the Map View render block
@@ -620,9 +639,17 @@ fun TerritoryMapScreen(
     // guaranteed-collision-prone alternative). [colorForGroupId]'s own
     // hash-based generator is kept only as the overflow fallback once a
     // congregation has more Groups than the curated palette has colors for.
+    //
+    // "The color must always come from the Group Record assignment and
+    // must never be determined randomly or individually for each member" —
+    // [Group.color] (set by GroupDialog, editable by an admin at any time)
+    // is now the actual source of truth here; the creation-order palette/
+    // hash fallback below only fires for a Group saved before that field
+    // existed (`color == null`), so old data keeps a stable color until
+    // it's next edited and picks up a real assigned one.
     val groupColorById: Map<String, String> = remember(mapGroups) {
         mapGroups.sortedBy { it.createdAt }.mapIndexed { index, group ->
-            group.id to (CURATED_GROUP_PALETTE.getOrNull(index) ?: colorForGroupId(group.id))
+            group.id to (group.color?.takeIf { it.isNotBlank() } ?: CURATED_GROUP_PALETTE.getOrNull(index) ?: colorForGroupId(group.id))
         }.toMap()
     }
     fun TerritoryMapRow.resolvedGroupId(): String? = person.publisherPersonId?.let { publisherGroupIds[it] }
@@ -684,7 +711,7 @@ fun TerritoryMapScreen(
     //
     // Every other category already narrows [mapScopedRows] to its own kind
     // of record, so plain name/address matching stays exactly as it was.
-    val mapDeepSearchedRows = remember(mapScopedRows, mapDeepSearchQuery, mapSearchCategory, personNames) {
+    val mapDeepSearchedRows = remember(mapScopedRows, mapDeepSearchQuery, mapSearchCategory, personNames, mapGroups, publisherGroupIds) {
         val query = mapDeepSearchQuery.trim()
         when {
             query.isEmpty() -> mapScopedRows
@@ -694,7 +721,18 @@ fun TerritoryMapScreen(
                     row.person.cityMunicipality?.contains(query, ignoreCase = true) == true ||
                     row.person.barangay?.contains(query, ignoreCase = true) == true ||
                     row.person.pipelineStage.statusLabel().contains(query, ignoreCase = true) ||
-                    row.person.publisherPersonId?.let { personNames[it] }?.contains(query, ignoreCase = true) == true
+                    row.person.publisherPersonId?.let { personNames[it] }?.contains(query, ignoreCase = true) == true ||
+                    // "Include Group name or number in Search All" — the
+                    // Congregation Group this record's own assigned
+                    // Publisher belongs to (resolved the same way every
+                    // other Group lookup on this map already does — through
+                    // [publisherGroupIds], since a record has no Group field
+                    // of its own); typing "Group 5" or just "5" both match
+                    // since the name itself ("Group 5") already contains the
+                    // number.
+                    row.person.publisherPersonId?.let { publisherGroupIds[it] }
+                        ?.let { groupId -> mapGroups.firstOrNull { it.id == groupId }?.name }
+                        ?.contains(query, ignoreCase = true) == true
             }
             // Matches the assigned Publisher's own name only, deliberately
             // never the household record's — "do not display unrelated...
@@ -748,10 +786,14 @@ fun TerritoryMapScreen(
     // same as every list this app already sorts alphabetically by default;
     // the dropdown still exists in the filter bar below purely so the
     // control itself is present per spec, with nothing else to switch to.
-    val filtered = remember(advancedFilteredRows, searchQuery, searchByField, personNames) {
+    val filtered = remember(advancedFilteredRows, searchQuery, searchByField, personNames, mapGroups, publisherGroupIds) {
         val query = searchQuery.trim()
         advancedFilteredRows
-            .filter { row -> row.matchesSearch(searchByField, query, row.person.publisherPersonId?.let { personNames[it] }) }
+            .filter { row ->
+                val groupName = row.person.publisherPersonId?.let { publisherGroupIds[it] }
+                    ?.let { groupId -> mapGroups.firstOrNull { it.id == groupId }?.name }
+                row.matchesSearch(searchByField, query, row.person.publisherPersonId?.let { personNames[it] }, groupName)
+            }
             .sortedBy { it.person.name }
     }
 
@@ -799,7 +841,29 @@ fun TerritoryMapScreen(
     // records, not a place name a Geocoder could ever resolve). Barangay's
     // zoom is tighter than a whole Municipality's (spec's own "zoom closer
     // to the selected Barangay").
-    val selectedAreaQuery: Pair<String, Float>? = remember(effectiveProvince, mapSearchCategory, mapSelectionId) {
+    // "In Search All, it must search all Municipalities, Barangay..." — the
+    // deep-search query under [MapSearchCategory.ALL] already matches a
+    // record's own cityMunicipality/barangay text (see [mapDeepSearchedRows]
+    // below), but that alone never triggered the real boundary+zoom a
+    // deliberate Municipality/Barangay *category* search gets — typing
+    // "Solano" under "All" found the right records but never drew Solano's
+    // own real polygon or centered on it. These recognize when the typed
+    // query itself names a real Municipality/Barangay (not just some
+    // record's own field happening to contain it) so that case gets the
+    // exact same treatment as manually switching to that category and
+    // picking it — Barangay checked first since a name match there is more
+    // specific than a same-named Municipality.
+    val impliedBarangay: Pair<String, String>? = remember(mapSearchCategory, mapDeepSearchQuery, mapBarangayDirectory) {
+        if (mapSearchCategory != MapSearchCategory.ALL) return@remember null
+        val q = mapDeepSearchQuery.trim()
+        if (q.isEmpty()) null else mapBarangayDirectory.firstOrNull { (_, brgy) -> brgy.equals(q, ignoreCase = true) }
+    }
+    val impliedMunicipality: String? = remember(mapSearchCategory, mapDeepSearchQuery, municipalityOptions, impliedBarangay) {
+        if (mapSearchCategory != MapSearchCategory.ALL || impliedBarangay != null) return@remember null
+        val q = mapDeepSearchQuery.trim()
+        if (q.isEmpty()) null else municipalityOptions.firstOrNull { it.equals(q, ignoreCase = true) }
+    }
+    val selectedAreaQuery: Pair<String, Float>? = remember(effectiveProvince, mapSearchCategory, mapSelectionId, impliedMunicipality, impliedBarangay) {
         val selection = mapSelectionId
         when {
             mapSearchCategory == MapSearchCategory.BARANGAY && selection != null -> {
@@ -809,19 +873,47 @@ fun TerritoryMapScreen(
             }
             mapSearchCategory == MapSearchCategory.MUNICIPALITY && selection != null ->
                 "$selection, ${effectiveProvince ?: ""}, Philippines" to 12.5f
+            impliedBarangay != null ->
+                "${impliedBarangay.second}, ${impliedBarangay.first}, ${effectiveProvince ?: ""}, Philippines" to 15f
+            impliedMunicipality != null -> "$impliedMunicipality, ${effectiveProvince ?: ""}, Philippines" to 12.5f
             else -> null
         }
     }
+    // "The Municipality barrier must be shown always" — true only when the
+    // user actually picked a specific Municipality/Barangay via search
+    // (spec's own "zoom closer to the selected area" deliberate-focus
+    // action) — including now the implied "All"-category name match above,
+    // which is just as deliberate a "focus on this area" as switching
+    // categories by hand; the *implicit* single-Municipality fallback
+    // [selectedAreaNames] falls back to below must never force the camera
+    // to jump there the same way, or every map open would zoom straight to
+    // Municipality level instead of staying Province-wide.
+    val explicitAreaSelection: Boolean =
+        (mapSearchCategory == MapSearchCategory.MUNICIPALITY || mapSearchCategory == MapSearchCategory.BARANGAY) && mapSelectionId != null ||
+            impliedMunicipality != null || impliedBarangay != null
     // Raw (un-templated) Municipality/Barangay names for the real-boundary
     // lookup ([TerritoryBoundaryRepository] keys by exact name, not a
-    // geocoder query string) — same gating as [selectedAreaQuery] above.
-    val selectedAreaNames: Pair<String, String?>? = remember(mapSearchCategory, mapSelectionId) {
+    // geocoder query string) — same gating as [selectedAreaQuery] above for
+    // an explicit selection. Bug fix (explicit instruction, confirmed live:
+    // browsing records under "All"/a record-type category — never a
+    // Municipality/Barangay search — showed no Municipality line barrier at
+    // all) — "the line barrier should always be displayed regardless of the
+    // search level" was already this file's own stated intent (see the doc
+    // comment a few lines down) but was never actually implemented for
+    // every other category; nothing explicitly selected now falls back to
+    // whichever single Municipality every currently-visible record shares
+    // (the common case for one congregation/territory — real, ambiguous
+    // multi-Municipality spans still show none rather than guessing which
+    // one to pick).
+    val selectedAreaNames: Pair<String, String?>? = remember(mapSearchCategory, mapSelectionId, mapGroupFilteredRows, impliedMunicipality, impliedBarangay) {
         val selection = mapSelectionId
         when {
             mapSearchCategory == MapSearchCategory.MUNICIPALITY && selection != null -> selection to null
             mapSearchCategory == MapSearchCategory.BARANGAY && selection != null ->
                 selection.substringBefore(BARANGAY_SELECTION_SEPARATOR) to selection.substringAfter(BARANGAY_SELECTION_SEPARATOR)
-            else -> null
+            impliedBarangay != null -> impliedBarangay.first to impliedBarangay.second
+            impliedMunicipality != null -> impliedMunicipality to null
+            else -> mapGroupFilteredRows.mapNotNull { it.person.cityMunicipality }.distinct().singleOrNull()?.let { it to null }
         }
     }
     // "The line barrier should always be displayed regardless of the search
@@ -843,7 +935,13 @@ fun TerritoryMapScreen(
     // spec §1's own "show only... records belonging to that group") — never
     // [mapPublisherRows] (see that val's own doc comment for why a
     // Publisher's own last-known/live location must never skew any barrier).
-    val mapGroupBoundaries: List<MapGroupBoundary> = remember(mapGroupFilteredRows, groupColorById) {
+    // "Show group names in every territory map" — [MapGroupBoundary.name]
+    // is drawn as a label at the center of that Group's own territory
+    // shape (see [TerritoryLiveMap]'s own `setGroupScopeBoundaries`), same
+    // real Group name the filter dropdown/Group Report already show,
+    // "Unassigned" for the one pseudo-group covering a record whose
+    // Publisher has no Group at all.
+    val mapGroupBoundaries: List<MapGroupBoundary> = remember(mapGroupFilteredRows, groupColorById, mapGroups) {
         mapGroupFilteredRows
             .mapNotNull { row ->
                 val lat = row.person.gpsLat
@@ -853,32 +951,28 @@ fun TerritoryMapScreen(
             }
             .groupBy({ it.first }, { it.second to it.third })
             .map { (groupId, entries) ->
-                MapGroupBoundary(id = groupId ?: UNASSIGNED_GROUP_ID, color = entries.first().first, points = entries.map { it.second })
+                val name = if (groupId == null) "Unassigned" else mapGroups.firstOrNull { it.id == groupId }?.name ?: "Unassigned"
+                MapGroupBoundary(id = groupId ?: UNASSIGNED_GROUP_ID, name = name, color = entries.first().first, points = entries.map { it.second })
             }
     }
-    // "Each Field Service Group is assigned specific whole Barangays; the
-    // group's territory is the union of those Barangays' real boundaries"
-    // (reference design) — this app has no explicit Barangay-to-Group
-    // assignment of its own, so the best available stand-in, derived
-    // entirely from data that already exists, is: whichever (Municipality,
-    // Barangay) pairs the Group's own *actual current records* happen to
-    // fall in. [TerritoryLiveMap] resolves each pair to its real bundled
-    // polygon (same [TerritoryBoundaryRepository] data Municipality search
-    // already uses) and unions whichever ones exist for that Group — a real
-    // geographic shape, not a point-cluster approximation, whenever the
-    // Group's own records happen to fall inside covered Barangays; a Group
-    // with no covered Barangay yet falls back to [mapGroupBoundaries]'s own
-    // point-hull shape (unchanged) for that one Group only.
-    val mapGroupBarangaySets: Map<String, Set<Pair<String, String>>> = remember(mapGroupFilteredRows) {
-        mapGroupFilteredRows
-            .mapNotNull { row ->
-                val muni = row.person.cityMunicipality
-                val brgy = row.person.barangay
-                if (muni != null && brgy != null) Triple(row.resolvedGroupId() ?: UNASSIGNED_GROUP_ID, muni, brgy) else null
-            }
-            .groupBy({ it.first }) { it.second to it.third }
-            .mapValues { it.value.toSet() }
-    }
+    // Bug fix (explicit instruction, confirmed live: two Return Visit
+    // records from the same Group — Kit Gamboa and Kenneth Fernandez —
+    // showed a Group territory covering the *entire* Barangay they happen
+    // to live in, when it must show only the area actually between them) —
+    // this used to union the real bundled polygon of every Barangay a
+    // Group's own records fell in ("Each Field Service Group is assigned
+    // specific whole Barangays; the group's territory is the union of
+    // those Barangays' real boundaries"), which is correct only if Groups
+    // really do own whole Barangays; this app has no such explicit
+    // assignment, so that was actually derived from wherever a Group's
+    // members *happened* to live — nowhere near a real per-Barangay
+    // assignment, and it made a 2-record Group's own territory look
+    // exactly like a much bigger Group's. [mapGroupBoundaries]'s own
+    // point-hull shape (a Group's Territory Scope is the convex hull of
+    // its own actual records — see [TerritoryLiveMap]'s own
+    // `buildGroupBoundaryLayer`) is the only shape drawn now, always
+    // proportional to the Group's own real records, never a whole
+    // administrative unit.
     // Only null at the screen's absolute default (now "All", per spec —
     // previously Municipalities → All) — see this card's own render site
     // for why.
@@ -970,22 +1064,24 @@ fun TerritoryMapScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Territory Map") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = ::toggleViewMode) {
-                        Icon(
-                            if (viewMode == TerritoryViewMode.MAP) Icons.Rounded.ViewList else Icons.Rounded.Map,
-                            contentDescription = if (viewMode == TerritoryViewMode.MAP) "Switch to List View" else "Switch to Map View",
-                        )
-                    }
-                },
-            )
+            if (!isFullScreen) {
+                TopAppBar(
+                    title = { Text("Territory Map") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = ::toggleViewMode) {
+                            Icon(
+                                if (viewMode == TerritoryViewMode.MAP) Icons.Rounded.ViewList else Icons.Rounded.Map,
+                                contentDescription = if (viewMode == TerritoryViewMode.MAP) "Switch to List View" else "Switch to Map View",
+                            )
+                        }
+                    },
+                )
+            }
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -1066,12 +1162,18 @@ fun TerritoryMapScreen(
                         hasLocationPermission = viewModel::hasLocationPermission,
                         geocodeArea = viewModel::geocodeArea,
                         boundaryGeometry = viewModel::boundaryGeometry,
+                        nearbyStreetPoints = viewModel::nearbyStreetPoints,
                         selectedAreaQuery = selectedAreaQuery,
                         selectedAreaNames = selectedAreaNames,
+                        explicitAreaSelection = explicitAreaSelection,
+                        province = effectiveProvince,
                         groupBoundaries = mapGroupBoundaries,
-                        groupBarangaySets = mapGroupBarangaySets,
                         groupColorFor = { it.resolvedGroupColor() },
                         groupNameFor = { row -> row.resolvedGroupId()?.let { id -> mapGroups.firstOrNull { g -> g.id == id }?.name } },
+                        groupIdFor = { it.resolvedGroupId() },
+                        municipalityBoundaries = viewModel::provinceMunicipalityBoundaries,
+                        isFullScreen = isFullScreen,
+                        onToggleFullScreen = { isFullScreen = !isFullScreen },
                         noRecordsAreaLabel = noRecordsAreaLabel,
                         focusLat = focusLat,
                         focusLng = focusLng,
@@ -1893,8 +1995,23 @@ private fun TerritoryLiveMap(
     // yet (see [TerritoryBoundaryRepository]'s own doc comment); that null
     // case is the only time the circle below is still drawn.
     boundaryGeometry: suspend (String, String?) -> String?,
+    // "Snap the small [Group Territory] shape to real streets/blocks where
+    // possible" — see [OverpassStreetRepository]'s own doc comment; `null`
+    // (offline, timeout, rate-limited) means the caller falls back to that
+    // Group's own points-only shape, same "best-effort, never blocking"
+    // convention [geocodeArea]/[boundaryGeometry] already use.
+    nearbyStreetPoints: suspend (Double, Double, Double) -> List<Pair<Double, Double>>?,
     selectedAreaQuery: Pair<String, Float>?,
     selectedAreaNames: Pair<String, String?>?,
+    // False for [selectedAreaNames]' own implicit single-Municipality
+    // fallback — the Municipality barrier still draws, but must never force
+    // the camera to jump there the way a deliberate search selection does
+    // (see [TerritoryMapScreen]'s own `explicitAreaSelection` doc comment).
+    explicitAreaSelection: Boolean,
+    // The scoped role/Super-Admin's own effective Province — needed only
+    // for the "Territory Map Loading — Province Wide Only" initial-focus
+    // geocode query below.
+    province: String?,
     // "Create a separate barrier line for every Congregation Group... do not
     // merge different groups into one barrier" — one entry per Group
     // currently represented among [rows] (plus an "Unassigned" entry when
@@ -1903,18 +2020,6 @@ private fun TerritoryLiveMap(
     // real Municipality/Barangay administrative polygon [selectedAreaNames]
     // resolves, when it does.
     groupBoundaries: List<MapGroupBoundary>,
-    // "Each Field Service Group is assigned specific whole Barangays; the
-    // group's territory is the union of those Barangays' real boundaries"
-    // — the (Municipality, Barangay) pairs each Group's own *current
-    // records* happen to fall in (see [TerritoryMapScreen]'s own
-    // `mapGroupBarangaySets` doc comment for why this, not an explicit
-    // assignment, is the best available stand-in). Resolved to real
-    // bundled polygons here (via [boundaryGeometry], already a suspend
-    // lookup this composable calls for the single-area case) and unioned
-    // into that Group's own territory shape whenever at least one of its
-    // Barangays is covered; falls back to [groupBoundaries]'s own
-    // point-hull shape, per Group, otherwise.
-    groupBarangaySets: Map<String, Set<Pair<String, String>>>,
     // "Every record displayed on the map must use the color assigned to its
     // Congregation Group" — resolved per-row by the caller (which already
     // owns [publisherGroupIds]/the color-by-id cache), keeping this
@@ -1923,6 +2028,24 @@ private fun TerritoryLiveMap(
     // already use for their own caller-owned lookups.
     groupColorFor: (TerritoryMapRow) -> String,
     groupNameFor: (TerritoryMapRow) -> String?,
+    // See [MapPoint.groupId]'s own doc comment — the real Congregation
+    // Group id (never the display name), same caller-owned-lookup
+    // convention as [groupColorFor]/[groupNameFor] above.
+    groupIdFor: (TerritoryMapRow) -> String?,
+    // "PROVINCE-WIDE COLOR CODING... the initial map view must clearly show
+    // the province divided into its different municipalities" — every real
+    // Municipality name + boundary geometry pair in the congregation's own
+    // Province (see [TerritoryMapViewModel.provinceMunicipalityBoundaries]),
+    // an empty list when the Province isn't known yet or isn't covered by
+    // the bundled boundary asset (see [TerritoryBoundaryRepository]'s own
+    // doc comment) — same graceful-miss convention [boundaryGeometry]
+    // already uses.
+    municipalityBoundaries: suspend (String) -> List<Pair<String, String>>,
+    // "Full-Screen Map" (spec §20) — owned by the parent (it hides that
+    // Scaffold's own TopAppBar), just read/toggled here so the Full Screen
+    // control can live among this composable's own floating map controls.
+    isFullScreen: Boolean,
+    onToggleFullScreen: () -> Unit,
     noRecordsAreaLabel: String?,
     focusLat: Double? = null,
     focusLng: Double? = null,
@@ -1980,6 +2103,7 @@ private fun TerritoryLiveMap(
                     publisherName = row.person.publisherPersonId.takeIf { it.isNotBlank() }?.let { publisherNames[it] },
                     groupColor = groupColorFor(row),
                     groupName = groupNameFor(row),
+                    groupId = groupIdFor(row),
                 )
             } else {
                 null
@@ -2026,6 +2150,135 @@ private fun TerritoryLiveMap(
     // permission prompt they didn't ask for.
     var myLocation by remember { mutableStateOf<LatLng?>(null) }
     var selectedPointId by remember { mutableStateOf<String?>(null) }
+    // "Selecting a Territory Group... Expand House Holders Inside the
+    // Selected Territory" — set from `AndroidBridge.showGroupDetails` (see
+    // the WebView factory below) when a Group's own territory fill is
+    // tapped; drives both the info panel below and which House Holders
+    // actually get pushed to the map (see [visiblePoints]) — the Group
+    // territory shapes themselves are unaffected (every Group's barrier
+    // stays visible, per spec's own "keep the other territories visible in
+    // the background").
+    var selectedGroupId by remember { mutableStateOf<String?>(null) }
+    // Bug fix (confirmed live: with a Publisher subdivision now rendered
+    // *underneath* the Group's own info sheet — spec's own "tap a
+    // Publisher's territory subdivision" — there was no way to actually
+    // reach it: Compose's `ModalBottomSheet` puts a full-screen scrim
+    // behind itself that intercepts every tap, including ones that
+    // visually land on the sliver of map still showing above the sheet, so
+    // any second tap just dismissed the sheet instead of reaching the
+    // Leaflet layer underneath — and dismissing used to clear
+    // [selectedGroupId] itself, erasing the Publisher subdivisions too).
+    // This tracks "the sheet's own UI is closed" separately from "no Group
+    // is selected" — swiping/tapping the sheet away now only hides that
+    // UI, leaving the Group selection (and its Publisher subdivisions)
+    // fully intact and tappable; only the sheet's own explicit "Show All
+    // Territories" button actually clears [selectedGroupId].
+    var groupInfoSheetDismissed by remember { mutableStateOf(false) }
+    // "Territory Group Information" (spec §11) — Group Name, Publishers,
+    // Interested Persons, Bible Studies, reusing the exact same
+    // [GroupReportRow] shape/counting logic [TerritoryMapScreen]'s own
+    // Group Report table already computes (spec §9's "map and report must
+    // use the same filtered dataset"), just for one Group instead of every
+    // Group at once. [rows] here is already Congregation/Publisher/Status-
+    // filtered by the caller — same dataset [points] itself came from —
+    // never re-derived from anything wider.
+    val selectedGroupInfo = remember(selectedGroupId, rows, groupIdFor, groupBoundaries, publisherNames) {
+        val groupId = selectedGroupId ?: return@remember null
+        val boundary = groupBoundaries.firstOrNull { it.id == groupId }
+        val groupRows = rows.filter { groupIdFor(it) == groupId }
+        val publisherIds = groupRows.mapNotNull { it.person.publisherPersonId.takeIf { pid -> pid.isNotBlank() } }.distinct()
+        GroupReportRow(
+            groupId = groupId,
+            groupName = boundary?.name ?: "Unassigned",
+            color = boundary?.color ?: UNASSIGNED_GROUP_COLOR,
+            publishers = publisherIds.size,
+            interestedPersons = groupRows.count { it.person.pipelineStage == PipelineStage.SEARCHING },
+            returnVisits = groupRows.count { it.person.pipelineStage == PipelineStage.RETURN_VISIT },
+            bibleStudies = groupRows.count { it.person.pipelineStage == PipelineStage.BIBLE_STUDY },
+            // "Show the names of the group publishers if the Territory
+            // Group is clicked" — every distinct assigned Publisher's own
+            // full name across this Group's own records (resolved via this
+            // composable's own [publisherNames] param, the same id -> name
+            // map every other Publisher-name lookup here already uses),
+            // sorted so the list reads consistently rather than in
+            // arbitrary record order.
+            publisherNames = publisherIds.mapNotNull { id -> publisherNames[id] }.sorted(),
+            municipalities = groupRows.mapNotNull { it.person.cityMunicipality?.takeIf { m -> m.isNotBlank() } }.distinct().sorted(),
+            barangays = groupRows.mapNotNull { it.person.barangay?.takeIf { b -> b.isNotBlank() } }.distinct().sorted(),
+            houseHolderCount = groupRows.size,
+        )
+    }
+    // "GROUP TERRITORY & PUBLISHER TERRITORY DIVISION" — once a Group is
+    // selected, subdivide its own territory by the Publisher each record
+    // is actually assigned to (spec §1's own "this is a map visualization
+    // of the existing assignments," never a new database record). Deliberately
+    // the exact same point-hull shape convention [MapGroupBoundary] already
+    // uses one level up — since every one of a Publisher's own points here
+    // is already a subset of the Group's own points the parent hull was
+    // built from, the Publisher's own hull is mathematically guaranteed to
+    // stay inside the Group's own hull (a convex hull of any subset of
+    // points can never extend outside the convex hull of the full set) —
+    // spec's own "must remain inside the parent Group Territory" holds
+    // automatically, with no separate clipping step needed. Empty (not
+    // just unpopulated) whenever no Group is selected, so the JS push
+    // effect below can use emptiness alone to decide whether to draw or
+    // clear this layer.
+    val selectedGroupPublisherBoundaries: List<MapPublisherBoundary> = remember(selectedGroupId, rows, groupIdFor, publisherNames) {
+        val groupId = selectedGroupId ?: return@remember emptyList()
+        rows.filter { groupIdFor(it) == groupId }
+            .mapNotNull { row ->
+                val lat = row.person.gpsLat
+                val lng = row.person.gpsLng
+                val publisherId = row.person.publisherPersonId.takeIf { it.isNotBlank() }
+                if (lat == null || lng == null || publisherId == null) null
+                else Triple(publisherId, publisherNames[publisherId] ?: "Unassigned", LatLng(lat, lng, null))
+            }
+            .groupBy({ it.first }, { it.second to it.third })
+            .entries
+            .sortedBy { it.key }
+            .mapIndexed { index, (publisherId, entries) ->
+                val color = PUBLISHER_TERRITORY_COLORS.getOrNull(index) ?: colorForGroupId(publisherId)
+                MapPublisherBoundary(id = publisherId, name = entries.first().first, color = color, points = entries.map { it.second })
+            }
+    }
+    // "Clicking a Publisher Territory" (spec §6) — set from
+    // `AndroidBridge.showPublisherDetails`; always cleared the moment the
+    // parent Group selection itself changes (a stale Publisher detail
+    // panel from a *previous* Group must never survive into a new one).
+    var selectedPublisherId by remember { mutableStateOf<String?>(null) }
+    // "Publisher Territories must remain hidden by default... Do NOT
+    // immediately display the individual Publisher Territories" — a Group
+    // tap alone only ever opens the Group's own details now; this is the
+    // one thing that actually reveals the Publisher subdivisions (the
+    // "SHOW PUBLISHER TERRITORY"/"HIDE THE PUBLISHERS TERRITORY" button in
+    // [GroupInfoSheet]), reset to hidden every time the Group selection
+    // itself changes so a *new* Group never inherits the previous one's
+    // "shown" state.
+    var showPublisherTerritories by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedGroupId) {
+        selectedPublisherId = null
+        groupInfoSheetDismissed = false
+        showPublisherTerritories = false
+    }
+    val selectedPublisherInfo = remember(selectedPublisherId, selectedGroupId, rows, groupIdFor, selectedGroupPublisherBoundaries, groupBoundaries) {
+        val publisherId = selectedPublisherId ?: return@remember null
+        val groupId = selectedGroupId ?: return@remember null
+        val boundary = selectedGroupPublisherBoundaries.firstOrNull { it.id == publisherId } ?: return@remember null
+        val groupBoundary = groupBoundaries.firstOrNull { it.id == groupId }
+        val publisherRows = rows.filter { groupIdFor(it) == groupId && it.person.publisherPersonId == publisherId }
+        PublisherTerritoryInfo(
+            publisherId = publisherId,
+            publisherName = boundary.name,
+            color = boundary.color,
+            groupName = groupBoundary?.name ?: "Unassigned",
+            municipalities = publisherRows.mapNotNull { it.person.cityMunicipality?.takeIf { m -> m.isNotBlank() } }.distinct().sorted(),
+            barangays = publisherRows.mapNotNull { it.person.barangay?.takeIf { b -> b.isNotBlank() } }.distinct().sorted(),
+            houseHolderCount = publisherRows.size,
+            interestedPersons = publisherRows.count { it.person.pipelineStage == PipelineStage.SEARCHING },
+            returnVisits = publisherRows.count { it.person.pipelineStage == PipelineStage.RETURN_VISIT },
+            bibleStudies = publisherRows.count { it.person.pipelineStage == PipelineStage.BIBLE_STUDY },
+        )
+    }
     // "Show details in all categories in territory map even 'My Location'" —
     // a synthetic point built from the live GPS fix, id "me", so tapping the
     // "you are here" dot opens the exact same bottom sheet every other
@@ -2066,6 +2319,31 @@ private fun TerritoryLiveMap(
     val consoleMessages = remember { mutableStateListOf<String>() }
     var showDiagnostics by remember { mutableStateOf(false) }
 
+    // "OPENSTREETMAP MAP LAYERS AND MAP CONTROLS" — the base map style and
+    // which optional overlays/GoPreach layers are on. Deliberately plain UI
+    // state, pushed to the WebView by its own dedicated effects below (see
+    // each one's own doc comment) — never folded into the main data-driven
+    // effect, so switching a layer can never touch camera position, search,
+    // or any GoPreach territory data (spec §15's own "do not reset the
+    // user's current map position... do not remove House Holder markers").
+    var showMapLayers by remember { mutableStateOf(false) }
+    var selectedBaseLayer by remember { mutableStateOf("standard") }
+    var overlayStates by remember {
+        mutableStateOf(mapOf("bicycle" to false, "hiking" to false, "railways" to false, "gpsTraces" to false, "mapNotes" to false, "mapData" to false))
+    }
+    var goPreachLayerStates by remember {
+        mutableStateOf(mapOf("municipalities" to true, "groups" to true, "householders" to true))
+    }
+    // "Show or hide the Names and other details of Interested Person/Return
+    // Visit/Bible Study" — the on-map "Name (Status)" + "RP <publisher>"
+    // label every such marker can show. Defaults OFF (explicit instruction —
+    // "Uncheck 'Names and details on map' as initial state in GoPreach
+    // Layers"): the map opens clean/uncluttered, and a user who wants the
+    // labels can still turn them on from Map Layers. Its own effect below,
+    // same "never touch anything else" convention as every other layer
+    // toggle here.
+    var showPipelineDetails by remember { mutableStateOf(false) }
+
     // Fetches a fresh GPS fix the first time "My Location" is requested —
     // shared so a fix obtained once during this screen's lifetime is never
     // asked for twice. Surfaces the two specific failure states as
@@ -2073,8 +2351,22 @@ private fun TerritoryLiveMap(
     // [webViewRef] (a plain local function still reads the *current* value
     // of a `by remember` var, since it isn't itself snapshotted — it only
     // needs to be declared textually after so the name resolves).
-    suspend fun ensureMyLocation(): LatLng? {
-        myLocation?.let { return it }
+    // "Current Location Button... Move the map to the user's current
+    // location... Do not permanently change the default province-wide
+    // opening behavior" (spec §19) — a deliberate, one-off camera move,
+    // completely separate from the province-wide initial focus
+    // ([hasAppliedProvinceFocus]/[hasAppliedMunicipalityProvinceFit]
+    // below): this only ever runs when the button itself is tapped, never
+    // automatically, and never touches either of those "already applied"
+    // flags. Always re-centers on tap (never short-circuits just because
+    // [myLocation] was already known once this screen session), so
+    // pressing it again after panning away actually brings the camera back.
+    suspend fun ensureMyLocation(recenter: Boolean = true): LatLng? {
+        val existing = myLocation
+        if (existing != null) {
+            if (recenter) webViewRef?.evaluateJavascript("if (window.territoryMap) { window.territoryMap.setView([${existing.lat}, ${existing.lng}], 17); }", null)
+            return existing
+        }
         if (!hasLocationPermission()) {
             snackbarHostState.showSnackbar("Location permission is required to display your current position.")
             return null
@@ -2086,6 +2378,7 @@ private fun TerritoryLiveMap(
         }
         myLocation = fix
         webViewRef?.evaluateJavascript("if (window.setMyLocation) { window.setMyLocation(${fix.lat}, ${fix.lng}); }", null)
+        if (recenter) webViewRef?.evaluateJavascript("if (window.territoryMap) { window.territoryMap.setView([${fix.lat}, ${fix.lng}], 17); }", null)
         return fix
     }
 
@@ -2103,6 +2396,15 @@ private fun TerritoryLiveMap(
     // sized browser window would (a second, deeper WebView-internal-
     // viewport bug is worked around separately in `onPageFinished` below).
     var containerReady by remember { mutableStateOf(false) }
+
+    // "Territory Map Loading — Province Wide Only... do not load the entire
+    // world map... automatically focus on the Province" — set the very
+    // first time the map positions its camera with no Municipality/Barangay
+    // narrowed down yet (see the main boundary/camera effect below); never
+    // re-applied afterward so it can't fight a user's own later pan/zoom or
+    // a deliberate "All Municipalities" re-selection every time [points]
+    // simply refreshes off a live Firestore listener.
+    var hasAppliedProvinceFocus by remember { mutableStateOf(false) }
 
     // Only reloads the page itself on first mount and on a manual "Retry"
     // tap — never on a search/filter change (see [html]'s own doc comment);
@@ -2128,16 +2430,129 @@ private fun TerritoryLiveMap(
     // selected) and center there instead of leaving the camera on whatever
     // was visible before the filter changed (spec §19/§20's own "still show
     // the Municipality's/Barangay's geographic area").
-    LaunchedEffect(loadState, webViewRef, points, selectedAreaQuery, selectedAreaNames, groupBoundaries) {
+    // Bug fix (confirmed live: the Overpass fetch below never once
+    // completed — logging showed the boundary-push effect firing
+    // repeatedly, LOADED and all, but never reaching the point where it
+    // would log a street-point request) — that effect is keyed on
+    // [points] and [selectedAreaQuery]/[selectedAreaNames], both of which
+    // this app's own live Firestore listeners can legitimately recompute
+    // every second or two even when nothing a user would call "changed"
+    // actually did; Compose cancels and restarts a `LaunchedEffect`
+    // whenever any of its keys change, so a suspend chain slow enough to
+    // take a few seconds — a live network round-trip to Overpass, exactly
+    // this — could keep getting cancelled mid-flight before ever finishing,
+    // forever. Running the fetch here instead, in its own effect keyed
+    // only on [groupBoundaries] itself (structurally compared, so an
+    // unrelated Firestore update that leaves every Group's own points
+    // unchanged never restarts this either), decouples it completely from
+    // that churn; [streetPointsByGroupId] is read back synchronously
+    // (already resolved, no suspend call) by the boundary-push effect
+    // below, which re-pushes an upgraded, street-snapped shape the moment
+    // a fetch actually lands, without needing anything else to change.
+    // "TERRITORY MAP – PROVINCE-WIDE COLOR CODING" — every Municipality in
+    // the congregation's own Province, solid-filled and fit to camera, once,
+    // the first real attempt this screen-open makes (same "consumed only
+    // once a real attempt actually happens" convention [hasAppliedProvinceFocus]
+    // below already uses — an unresolved [province] simply waits for the
+    // next recomposition rather than forfeiting the one real attempt). Its
+    // own decoupled effect, keyed only on (loadState, webViewRef, province)
+    // — never on [points]/[selectedAreaQuery]/etc. — for the exact same
+    // reason [streetPointsByGroupId] below needed its own effect: a
+    // province-wide fetch (up to a dozen-plus real boundary lookups) must
+    // never get cancelled mid-flight by an unrelated live-Firestore-driven
+    // recomposition of this composable.
+    var hasAppliedMunicipalityProvinceFit by remember { mutableStateOf(false) }
+    LaunchedEffect(loadState, webViewRef, province) {
+        if (loadState != MapLoadState.LOADED || hasAppliedMunicipalityProvinceFit) return@LaunchedEffect
+        val webView = webViewRef ?: return@LaunchedEffect
+        val currentProvince = province ?: return@LaunchedEffect
+        val entries = municipalityBoundaries(currentProvince)
+        hasAppliedMunicipalityProvinceFit = true
+        if (entries.isNotEmpty()) {
+            val entriesJson = entries.joinToString(",", prefix = "[", postfix = "]") { (name, geometry) ->
+                """{name:"${jsEscape(name)}",geometry:$geometry}"""
+            }
+            webView.evaluateJavascript("if (window.setMunicipalityLayers) { window.setMunicipalityLayers($entriesJson, true); }", null)
+            // A real bounds-fit across every Municipality just positioned
+            // the camera far more precisely than the plain geocoded
+            // center+zoom-9 pan below ever could — suppressing that
+            // fallback here means the two never fight over the camera on
+            // the same screen-open.
+            hasAppliedProvinceFocus = true
+        }
+    }
+
+    // "Do not reload or reset the Territory Map [when changing a map
+    // layer]" — three independent effects, each keyed only on its own
+    // piece of layer state (never on [points]/[groupBoundaries]/[province]/
+    // etc.), so toggling a base map or overlay can never cancel/restart
+    // anything data-driven, and a data refresh can never re-push a layer
+    // choice the user didn't just change. `window.set*` on the JS side is
+    // always idempotent (checks `map.hasLayer` before adding/removing), so
+    // pushing the same state twice is harmless.
+    LaunchedEffect(loadState, webViewRef, selectedBaseLayer) {
+        if (loadState != MapLoadState.LOADED) return@LaunchedEffect
+        webViewRef?.evaluateJavascript("if (window.setBaseLayer) { window.setBaseLayer('${jsEscape(selectedBaseLayer)}'); }", null)
+    }
+    LaunchedEffect(loadState, webViewRef, overlayStates) {
+        if (loadState != MapLoadState.LOADED) return@LaunchedEffect
+        val webView = webViewRef ?: return@LaunchedEffect
+        overlayStates.forEach { (id, enabled) ->
+            webView.evaluateJavascript("if (window.setOverlayEnabled) { window.setOverlayEnabled('${jsEscape(id)}', $enabled); }", null)
+        }
+    }
+    LaunchedEffect(loadState, webViewRef, goPreachLayerStates) {
+        if (loadState != MapLoadState.LOADED) return@LaunchedEffect
+        val webView = webViewRef ?: return@LaunchedEffect
+        goPreachLayerStates.forEach { (id, visible) ->
+            webView.evaluateJavascript("if (window.setGoPreachLayerVisible) { window.setGoPreachLayerVisible('${jsEscape(id)}', $visible); }", null)
+        }
+    }
+    LaunchedEffect(loadState, webViewRef, showPipelineDetails) {
+        if (loadState != MapLoadState.LOADED) return@LaunchedEffect
+        webViewRef?.evaluateJavascript("if (window.setShowPipelineLabels) { window.setShowPipelineLabels($showPipelineDetails); }", null)
+    }
+
+    var streetPointsByGroupId by remember { mutableStateOf<Map<String, List<Pair<Double, Double>>>>(emptyMap()) }
+    LaunchedEffect(groupBoundaries) {
+        for (entry in groupBoundaries) {
+            val pts = entry.points
+            if (pts.isEmpty() || streetPointsByGroupId.containsKey(entry.id)) continue
+            val centroidLat = pts.sumOf { it.lat } / pts.size
+            val centroidLng = pts.sumOf { it.lng } / pts.size
+            val maxDist = pts.maxOf { haversineMeters(centroidLat, centroidLng, it.lat, it.lng) }
+            val fetchRadius = (maxDist + 150.0).coerceIn(150.0, 500.0)
+            val result = nearbyStreetPoints(centroidLat, centroidLng, fetchRadius)
+            if (result != null) {
+                streetPointsByGroupId = streetPointsByGroupId + (entry.id to result)
+            }
+        }
+    }
+
+    // "Expand House Holders Inside the Selected Territory... only show
+    // House Holders actually located inside the selected territory. Do not
+    // display unrelated House Holders from other territories" — a plain
+    // client-side narrowing of the already-filtered [points], applied only
+    // once a Group's own territory has actually been tapped
+    // ([selectedGroupId]); a Publisher-sharing point's own [MapPoint.groupId]
+    // is always null (see that field's own doc comment), so it's dropped
+    // here too — a Publisher was never a House Holder to begin with (spec
+    // §15). Selecting nothing (`null`, the default) shows every point,
+    // completely unchanged from before this Group-tap feature existed.
+    val visiblePoints = remember(points, selectedGroupId) {
+        val groupId = selectedGroupId
+        if (groupId == null) points else points.filter { it.groupId == groupId }
+    }
+    LaunchedEffect(loadState, webViewRef, visiblePoints, selectedAreaQuery, selectedAreaNames, groupBoundaries, province, streetPointsByGroupId) {
         if (loadState != MapLoadState.LOADED) return@LaunchedEffect
         val webView = webViewRef ?: return@LaunchedEffect
         // "Update only the required markers, search results, and line
-        // barrier" — pushes the latest already-filtered [points] straight
-        // into the already-loaded page (see `window.setPoints`'s own doc
-        // comment) instead of Kotlin reloading the whole WebView; runs on
-        // every search/filter change, same as the boundary logic below it,
-        // never only once at load.
-        webView.evaluateJavascript("if (window.setPoints) { window.setPoints(${mapPointsToJs(points)}); }", null)
+        // barrier" — pushes the latest already-filtered [visiblePoints]
+        // straight into the already-loaded page (see `window.setPoints`'s
+        // own doc comment) instead of Kotlin reloading the whole WebView;
+        // runs on every search/filter change, same as the boundary logic
+        // below it, never only once at load.
+        webView.evaluateJavascript("if (window.setPoints) { window.setPoints(${mapPointsToJs(visiblePoints)}); }", null)
         // `setPoints` above rebuilds every marker from scratch, so whichever
         // one was highlighted needs to be re-applied right after — it no
         // longer refers to a marker object that still exists otherwise.
@@ -2176,12 +2591,17 @@ private fun TerritoryLiveMap(
                 // to an empty result. [setAreaBoundaryGeoJson] itself frames
                 // the camera to these exact bounds, taking priority over any
                 // marker elsewhere in the province (a Publisher's shared
-                // location, say) — see that JS function's own doc comment.
+                // location, say) — see that JS function's own doc comment —
+                // but only for an actual deliberate selection
+                // ([explicitAreaSelection]); [selectedAreaNames]' own
+                // implicit single-Municipality fallback still draws this
+                // same boundary ("must be shown always") without forcing
+                // the camera to jump there on every plain map open.
                 webView.evaluateJavascript(
-                    "if (window.setAreaBoundaryGeoJson) { window.setAreaBoundaryGeoJson($geometry); }",
+                    "if (window.setAreaBoundaryGeoJson) { window.setAreaBoundaryGeoJson($geometry, $explicitAreaSelection); }",
                     null,
                 )
-                cameraAlreadyFit = true
+                if (explicitAreaSelection) cameraAlreadyFit = true
             }
             selectedAreaQuery != null -> {
                 // No bundled real polygon for this Municipality/Barangay —
@@ -2213,34 +2633,95 @@ private fun TerritoryLiveMap(
                 webView.evaluateJavascript("if (window.clearAreaBoundary) { window.clearAreaBoundary(); }", null)
             }
         }
-        // "Each Field Service Group is assigned specific whole Barangays;
-        // the group's territory is the union of those Barangays' real
-        // boundaries" — for every Group, resolve every (Municipality,
-        // Barangay) pair its own current records fall in (see
-        // [groupBarangaySets]'s own doc comment) to its real bundled
-        // polygon, same [boundaryGeometry] lookup the Municipality/Barangay
-        // case above already uses. A Group with at least one covered
-        // Barangay gets the real union of those polygons as its territory;
-        // one with none yet (outside the bundled province, or simply no
-        // Barangay recorded on its records) falls back to
-        // [MapGroupBoundary.points]' own point-hull shape instead — real
-        // data wins whenever it's actually available, never silently
-        // dropped in favor of the approximation.
-        // A plain `for` loop, not `joinToString { }` — `joinToString`'s own
-        // transform lambda isn't inline, so [boundaryGeometry] (a suspend
-        // function) can't be called from inside one.
+        // "Territory Map Loading — Province Wide Only" — bug fix: this used
+        // to live only in the `when` block's own `else` branch above, which
+        // stopped running once [selectedAreaNames]' own implicit
+        // single-Municipality fallback started resolving real `geometry`
+        // there instead (the common case — nothing explicitly searched, but
+        // a real bundled boundary still exists for the one Municipality
+        // every visible record shares). Gating on [explicitAreaSelection]
+        // directly, independent of which branch above actually drew the
+        // boundary, means the Province-wide initial focus still applies
+        // whenever nothing was *deliberately* searched, exactly as before —
+        // "do not initially focus on only one Householder or one Group
+        // unless the user specifically searches for it." Skipped once a
+        // Share-Location deep link ([focusLat]/[focusLng]) already claims
+        // the camera, and only ever applied once per screen-open (see
+        // [hasAppliedProvinceFocus]'s own doc comment) — consumed only once
+        // a real geocode attempt actually happens, so a still-loading
+        // [province] simply waits for the next re-run instead of
+        // forfeiting the one real attempt.
+        if (!explicitAreaSelection && !hasAppliedProvinceFocus && focusLat == null && focusLng == null && province != null) {
+            hasAppliedProvinceFocus = true
+            val fix = geocodeArea("$province, Philippines")
+            if (fix != null) {
+                webView.evaluateJavascript("if (window.territoryMap) { window.territoryMap.setView([${fix.lat}, ${fix.lng}], 9); }", null)
+                cameraAlreadyFit = true
+            }
+        }
+        // Bug fix (explicit instruction, confirmed live: two records from
+        // the same Group showed a territory covering the whole Barangay
+        // they happen to live in, when it must show only the area actually
+        // between them) — this used to also resolve each Group's real
+        // bundled Barangay polygon(s) and union them in as `geometry`,
+        // which [buildRealGroupTerritoryLayer] preferred over the tight
+        // point-hull whenever available. That's removed: every Group's
+        // Territory Scope is now always [MapGroupBoundary.points]' own
+        // point-hull shape (see [buildGroupBoundaryLayer]), proportional to
+        // that Group's own actual records, never a whole administrative
+        // unit standing in for it.
+        // "Snap the small territory shape to real streets/blocks where
+        // possible" — [nearbyStreetPoints] (best-effort; see its own doc
+        // comment for why a failure/timeout is never treated as an error)
+        // gives each Group's own territory real OpenStreetMap street-node
+        // coordinates to shape itself around, tightly capped to that
+        // Group's own footprint so this can never balloon into anything
+        // close to a whole administrative unit:
+        //  - 3+ records (already a real point-hull) — each vertex is
+        //    nudged onto its own nearest real street node, only when one
+        //    exists within [snapMaxMeters]; the hull's own actual shape/
+        //    extent is otherwise unchanged.
+        //  - 1-2 records (the JS side's own fully synthetic jittered-
+        //    polygon fallback — exactly the "just any drawing" this
+        //    replaces) — the handful of real street nodes nearest this
+        //    Group's own centroid stand in for that synthetic shape
+        //    instead, still only ever within [fetchRadius] of the Group's
+        //    own real records.
+        // A plain `for` loop, not `joinToString { }` — this used to call
+        // [nearbyStreetPoints] (a suspend function) inline here, but that
+        // starved it: this whole effect is keyed on several values (live
+        // Firestore-backed state, in particular) that can legitimately
+        // change every second or two even when nothing a user would call
+        // "changed" actually did, and Compose cancels+restarts a
+        // `LaunchedEffect` on every key change — so the network round-trip
+        // never once survived long enough to finish. The fetch itself now
+        // happens in its own effect keyed only on [groupBoundaries]
+        // (see [streetPointsByGroupId] above); this loop just reads back
+        // whatever has already resolved, synchronously.
+        val snapMaxMeters = 60.0
         val groupEntryJsons = mutableListOf<String>()
         for (entry in groupBoundaries) {
-            val barangayPairs = groupBarangaySets[entry.id].orEmpty()
-            val resolvedGeometries = mutableListOf<String>()
-            for ((muni, brgy) in barangayPairs) {
-                boundaryGeometry(muni, brgy)?.let { resolvedGeometries.add(it) }
+            val pts = entry.points
+            val augmented: List<Pair<Double, Double>> = if (pts.isEmpty()) {
+                emptyList()
+            } else {
+                val centroidLat = pts.sumOf { it.lat } / pts.size
+                val centroidLng = pts.sumOf { it.lng } / pts.size
+                val streetPoints = streetPointsByGroupId[entry.id].orEmpty()
+                if (streetPoints.isEmpty()) {
+                    pts.map { it.lat to it.lng }
+                } else if (pts.size >= 3) {
+                    pts.map { p ->
+                        val nearest = streetPoints.minByOrNull { haversineMeters(p.lat, p.lng, it.first, it.second) }
+                        if (nearest != null && haversineMeters(p.lat, p.lng, nearest.first, nearest.second) <= snapMaxMeters) nearest else p.lat to p.lng
+                    }
+                } else {
+                    val nearestStreetPoints = streetPoints.sortedBy { haversineMeters(centroidLat, centroidLng, it.first, it.second) }.take(6)
+                    (pts.map { it.lat to it.lng } + nearestStreetPoints).distinct()
+                }
             }
-            val geometryField = if (resolvedGeometries.isEmpty()) "" else {
-                ",geometry:${resolvedGeometries.joinToString(",", prefix = "[", postfix = "]")}"
-            }
-            val pointsJson = entry.points.joinToString(",", prefix = "[", postfix = "]") { "[${it.lat},${it.lng}]" }
-            groupEntryJsons.add("""{id:"${jsEscape(entry.id)}",color:"${jsEscape(entry.color)}",points:$pointsJson$geometryField}""")
+            val pointsJson = augmented.joinToString(",", prefix = "[", postfix = "]") { (lat, lng) -> "[$lat,$lng]" }
+            groupEntryJsons.add("""{id:"${jsEscape(entry.id)}",name:"${jsEscape(entry.name)}",color:"${jsEscape(entry.color)}",points:$pointsJson}""")
         }
         val groupEntriesJson = groupEntryJsons.joinToString(",", prefix = "[", postfix = "]")
         // "Create a separate barrier line for every Congregation Group" —
@@ -2267,6 +2748,34 @@ private fun TerritoryLiveMap(
             "if (window.areaBoundary && window.areaBoundary.bringToFront) { window.areaBoundary.bringToFront(); }",
             null,
         )
+    }
+
+    // "GROUP TERRITORY & PUBLISHER TERRITORY DIVISION" — its own decoupled
+    // effect, keyed only on [selectedGroupId]/[selectedGroupPublisherBoundaries]/
+    // [showPublisherTerritories] (never on [points]/[selectedAreaQuery]/etc.),
+    // same "never let an unrelated recomposition cancel this" convention
+    // every other independent push effect on this screen already follows.
+    // Clearing (`groupId == null` OR [showPublisherTerritories] false) is
+    // just as real a state change as drawing — the JS side's own
+    // `clearPublisherScopeBoundaries` also restores the parent Group's
+    // normal solid style, so this must fire for that transition too, not
+    // only for a new selection.
+    LaunchedEffect(loadState, webViewRef, selectedGroupId, selectedGroupPublisherBoundaries, showPublisherTerritories) {
+        if (loadState != MapLoadState.LOADED) return@LaunchedEffect
+        val webView = webViewRef ?: return@LaunchedEffect
+        val groupId = selectedGroupId
+        if (groupId == null || !showPublisherTerritories) {
+            webView.evaluateJavascript("if (window.clearPublisherScopeBoundaries) { window.clearPublisherScopeBoundaries(); }", null)
+        } else {
+            val entriesJson = selectedGroupPublisherBoundaries.joinToString(",", prefix = "[", postfix = "]") { entry ->
+                val pointsJson = entry.points.joinToString(",", prefix = "[", postfix = "]") { (lat, lng) -> "[$lat,$lng]" }
+                """{id:"${jsEscape(entry.id)}",name:"${jsEscape(entry.name)}",color:"${jsEscape(entry.color)}",points:$pointsJson}"""
+            }
+            webView.evaluateJavascript(
+                "if (window.setPublisherScopeBoundaries) { window.setPublisherScopeBoundaries('${jsEscape(groupId)}', $entriesJson); }",
+                null,
+            )
+        }
     }
 
     // "Clicking coordinates should open the Territory Map centered on the
@@ -2339,6 +2848,46 @@ private fun TerritoryLiveMap(
                             @JavascriptInterface
                             fun showDetails(id: String) {
                                 self.post { selectedPointId = id }
+                            }
+
+                            // "Selecting a Territory Group" (spec §10) — a
+                            // tap anywhere inside a Group's own solid
+                            // territory fill (see `buildGroupBoundaryLayer`'s
+                            // own click binding) lands here with that
+                            // Group's real id.
+                            @JavascriptInterface
+                            fun showGroupDetails(groupId: String) {
+                                self.post {
+                                    // "Re-clicking the Group Territory...
+                                    // closes the Group details" (spec §9) —
+                                    // tapping the *same* already-selected
+                                    // Group's own fill again toggles
+                                    // everything closed (Group details AND
+                                    // any Publisher Territories currently
+                                    // showing, via the existing
+                                    // `LaunchedEffect(selectedGroupId)`
+                                    // reset this already triggers); tapping
+                                    // a *different* Group selects that one
+                                    // fresh instead.
+                                    if (selectedGroupId == groupId) {
+                                        selectedGroupId = null
+                                    } else {
+                                        selectedGroupId = groupId
+                                        groupInfoSheetDismissed = false
+                                    }
+                                }
+                            }
+
+                            // "Clicking a Publisher Territory" (spec §6) — a
+                            // tap anywhere inside a Publisher's own
+                            // subdivision fill (see
+                            // `buildPublisherBoundaryLayer`'s own click
+                            // binding, only ever drawn once a Group is
+                            // already selected) lands here with that
+                            // Publisher's real personId.
+                            @JavascriptInterface
+                            fun showPublisherDetails(publisherId: String) {
+                                self.post { selectedPublisherId = publisherId }
                             }
                         },
                         "AndroidBridge",
@@ -2487,12 +3036,43 @@ private fun TerritoryLiveMap(
         // "Add the user current location in the map view" — a small
         // floating action button rather than a dropdown entry now that the
         // old category dropdown is gone; still opt-in, still asks for
-        // permission the first time.
+        // permission the first time. A separate, deliberate action from the
+        // Province-wide initial open (spec §19) — see [ensureMyLocation]'s
+        // own doc comment.
         SmallFloatingActionButton(
             onClick = { scope.launch { ensureMyLocation() } },
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 140.dp),
         ) {
-            Icon(Icons.Rounded.Map, contentDescription = "Show my location")
+            Icon(Icons.Rounded.MyLocation, contentDescription = "Show my location")
+        }
+
+        // "Province Overview / Reset" map control (spec §18) — re-fits the
+        // camera to every Municipality's own bounds, independent of the
+        // Refresh button above (which re-fetches data/reloads the page);
+        // this only ever moves the camera.
+        SmallFloatingActionButton(
+            onClick = { webViewRef?.evaluateJavascript("if (window.resetProvinceView) { window.resetProvinceView(); }", null) },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 204.dp),
+        ) {
+            Icon(Icons.Rounded.Public, contentDescription = "Province overview")
+        }
+
+        // "Add a professional 'Map Layers' button" (spec §1).
+        SmallFloatingActionButton(
+            onClick = { showMapLayers = true },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 268.dp),
+        ) {
+            Icon(Icons.Rounded.Layers, contentDescription = "Map layers")
+        }
+
+        // "Full-Screen Map" (spec §20) — see [isFullScreen]'s own doc
+        // comment in the parent composable for why this hides only the
+        // Scaffold's TopAppBar, never anything inside this Box.
+        SmallFloatingActionButton(
+            onClick = onToggleFullScreen,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 332.dp),
+        ) {
+            Icon(if (isFullScreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen, contentDescription = if (isFullScreen) "Exit full screen" else "Full screen")
         }
 
         // Always available, not just on failure — lets whoever's testing
@@ -2520,6 +3100,43 @@ private fun TerritoryLiveMap(
                 selectedPointId = null
                 onRecordVisit(selectedPoint.id.removePrefix("pipeline_"))
             },
+        )
+    }
+
+    // "Clicking a Publisher Territory" takes over from the parent Group's
+    // own info sheet while a Publisher is selected — dismissing it falls
+    // back to the Group sheet still being open underneath (selectedGroupId
+    // itself is untouched by dismissing this one), rather than stacking
+    // two sheets or losing the Group context entirely.
+    if (selectedPublisherInfo != null) {
+        PublisherInfoSheet(
+            info = selectedPublisherInfo,
+            onDismiss = { selectedPublisherId = null },
+        )
+    } else if (selectedGroupInfo != null && !groupInfoSheetDismissed) {
+        GroupInfoSheet(
+            info = selectedGroupInfo,
+            // Just hides this sheet's own UI — see [groupInfoSheetDismissed]'s
+            // own doc comment for why this must never also clear
+            // [selectedGroupId] the way it used to.
+            onDismiss = { groupInfoSheetDismissed = true },
+            onClearFilter = { selectedGroupId = null },
+            showPublisherTerritories = showPublisherTerritories,
+            onToggleShowPublisherTerritories = { showPublisherTerritories = !showPublisherTerritories },
+        )
+    }
+
+    if (showMapLayers) {
+        MapLayersSheet(
+            selectedBaseLayer = selectedBaseLayer,
+            onSelectBaseLayer = { selectedBaseLayer = it },
+            overlayStates = overlayStates,
+            onOverlayChange = { id, enabled -> overlayStates = overlayStates + (id to enabled) },
+            goPreachLayerStates = goPreachLayerStates,
+            onGoPreachLayerChange = { id, visible -> goPreachLayerStates = goPreachLayerStates + (id to visible) },
+            showPipelineDetails = showPipelineDetails,
+            onShowPipelineDetailsChange = { showPipelineDetails = it },
+            onDismiss = { showMapLayers = false },
         )
     }
 
@@ -2564,7 +3181,15 @@ private fun TerritoryLiveMap(
  * every point given here is simply plotted. */
 private fun mapPointsToJs(points: List<MapPoint>): String =
     points.joinToString(",", prefix = "[", postfix = "]") { p ->
-        """{id:"${jsEscape(p.id)}",lat:${p.lat},lng:${p.lng},name:"${jsEscape(p.name)}",status:"${jsEscape(p.status)}",color:"${jsEscape(p.groupColor)}",kind:"${p.kind.name}"}"""
+        // "Householder Name + Status + assigned Group Member/Publisher" —
+        // [publisherName] is the *actual* Publisher assigned to this record
+        // ([MapPoint.publisherName]'s own doc comment: sourced from the
+        // record's real publisherPersonId, never the nearest publisher on
+        // the map); omitted (JS null) for a PUBLISHER/ME point, which has no
+        // assigned Publisher of its own, so the tooltip stays one line for
+        // those exactly as before.
+        val publisherJs = p.publisherName?.let { "\"${jsEscape(it)}\"" } ?: "null"
+        """{id:"${jsEscape(p.id)}",lat:${p.lat},lng:${p.lng},name:"${jsEscape(p.name)}",status:"${jsEscape(p.status)}",color:"${jsEscape(p.groupColor)}",kind:"${p.kind.name}",publisherName:$publisherJs}"""
     }
 
 /** Built once, with no markers baked in — [TerritoryLiveMap]'s own
@@ -2588,8 +3213,54 @@ private fun buildTerritoryMapHtml(): String {
              viewport instead (see TerritoryLiveMap's own bug-fix history). */
           html, body { height: 100%; margin: 0; padding: 0; }
           #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
-          .territory-label { background: rgba(255,255,255,0.92); border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.3); padding: 1px 6px; font-size: 12px; white-space: nowrap; }
+          /* "SMALLER MAP ICONS AND TEXT... no fill, badge, box, bubble, or
+             solid background... clean text with appropriate contrast" —
+             every text label on this map (marker names, Group/Municipality/
+             Publisher names) now uses a plain, borderless, background-free
+             halo technique instead: white text with a solid dark outline
+             (4 directional shadows) plus a soft glow, the same convention
+             most professional map labels use to stay readable over *any*
+             color/tile underneath without needing an opaque chip behind
+             the text. Shared as one rule ([.map-label-text]) rather than
+             repeated per label class, since every label now wants the
+             exact same treatment. */
+          .map-label-text {
+            background: none; border: none; box-shadow: none; padding: 0;
+            color: #ffffff;
+            text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 3px rgba(0,0,0,0.7);
+          }
+          .territory-label { font-size: 10px; font-weight: 600; white-space: nowrap; }
           .territory-marker { background: transparent; border: none; }
+          /* "Show group names in every territory map... professional Group
+             icon/name" — [font-size] is set inline per-marker by
+             [groupLabelHtml] (map-aware/zoom-responsive, spec §1/§4/§5), so
+             it's deliberately absent here. */
+          .group-name-label { font-weight: 700; white-space: nowrap; }
+          /* "Professional Territory Group icon... smaller... clean modern
+             appearance... uses the same color assigned to that Territory
+             Group" — a small circular badge (never the teardrop pin shape
+             a House Holder marker uses, so the two are never visually
+             confused), solid-filled in the Group's own color with a plain
+             white flag glyph, recognizable at a glance at any zoom. */
+          .group-badge { width: 15px; height: 15px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 2px rgba(0,0,0,0.45); border: 1.5px solid #ffffff; flex: 0 0 auto; }
+          .group-label-wrap { display: flex; align-items: center; gap: 4px; }
+          /* Province-wide overview (spec "PROVINCE → MUNICIPALITY → TERRITORY
+             GROUP → HOUSE HOLDER") — same halo text as every other label
+             now, just a lighter font-weight, since a Municipality is the
+             outer/background layer of that hierarchy, never the focus.
+             [font-size] set inline by [refreshMunicipalityLabels], same
+             zoom-responsive convention as the Group label above. */
+          .municipality-name-label { font-weight: 600; white-space: nowrap; letter-spacing: 0.2px; }
+          /* "GROUP TERRITORY & PUBLISHER TERRITORY DIVISION" — the same
+             icon-badge convention as .group-badge above, one size down (a
+             Publisher's own subdivision is always smaller than its parent
+             Group's territory), with a plain person glyph instead of a
+             flag so the two are never confused at a glance even when both
+             a Group's own [now-subtle] boundary and its Publisher
+             subdivisions are visible together. */
+          .publisher-badge { width: 12px; height: 12px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 2px rgba(0,0,0,0.45); border: 1.5px solid #ffffff; flex: 0 0 auto; }
+          .publisher-label-wrap { display: flex; align-items: center; gap: 4px; }
+          .publisher-name-label { font-weight: 700; white-space: nowrap; }
         </style>
         </head>
         <body>
@@ -2616,6 +3287,329 @@ private fun buildTerritoryMapHtml(): String {
           var tileErrorCount = 0;
           tiles.on('tileerror', function(e) { tileErrorCount++; console.error('Tile load failed (' + tileErrorCount + ')'); });
 
+          // "OPENSTREETMAP MAP LAYERS" — only styles this app can actually
+          // load with no paid/keyed provider are offered (spec's own "Only
+          // show layers that are actually supported... Do not display a
+          // layer that cannot be loaded... do not pretend that [a keyed
+          // service] is a completely free OSM service"). A full "Transport"
+          // base style (buses+rail together) has no free, key-less tile
+          // provider — Thunderforest Transport is the usual one and needs a
+          // paid API key this app doesn't have — so it's deliberately not
+          // offered here; [OVERLAY_TILE_DEFS.railways] below (OpenRailwayMap)
+          // covers the rail half of that ask for free instead. Each style's
+          // own required attribution is kept intact, per that provider's own
+          // usage policy (spec §21) — never just the plain OSM line reused
+          // for a different provider's tiles.
+          var BASE_LAYER_DEFS = {
+            standard: { url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', options: { maxZoom: 19, subdomains: 'abc', attribution: '&copy; OpenStreetMap contributors' } },
+            topo: { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', options: { maxZoom: 17, subdomains: 'abc', attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)' } },
+            cycling: { url: 'https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', options: { maxZoom: 20, subdomains: 'abc', attribution: '&copy; OpenStreetMap contributors, tiles style by CyclOSM' } },
+            humanitarian: { url: 'https://tile-{s}.openstreetmap.fr/hot/{z}/{x}/{y}.png', options: { maxZoom: 19, subdomains: 'abc', attribution: '&copy; OpenStreetMap contributors, tiles style by Humanitarian OSM Team' } },
+            // "Detailed/Colorful" (spec's Shortbread/MapTiler OMT example)
+            // was tried here with CARTO's Voyager rastertiles endpoint and
+            // reverted: confirmed live that it now demands an API key this
+            // app doesn't have (a plain, un-styled "API KEY REQUIRED"
+            // watermark tiled across the whole map) — every genuinely free,
+            // key-less "detailed/colorful" OSM raster provider checked
+            // (MapTiler OMT, Stadia's Stamen styles) has the same problem.
+            // Per spec §21's own "do not pretend that [a keyed service] is
+            // a completely free OSM service" / §1's "do not display a layer
+            // that cannot be loaded," this style is simply not offered
+            // rather than shipped broken; Standard/Humanitarian already
+            // cover a clearly-labeled, readable base map.
+          };
+          var baseLayerInstances = { standard: tiles };
+          window.currentBaseLayerId = 'standard';
+          // Bug fix (confirmed live: a blank gray map — no tiles, no
+          // Municipality fills, nothing — with logcat showing "Cannot
+          // convert undefined or null to object at Object.keys... at
+          // refreshGroupLabels"): this used to be declared right before
+          // [buildGroupBoundaryLayer] itself, much further down this same
+          // script — but [window.setPoints]'s own `fitToMarkers()` call
+          // fires a synchronous `zoomend` event the very first time it
+          // runs (during this script's own initial `window.setPoints([])`
+          // call near the bottom), which immediately invokes
+          // [refreshGroupLabels]. That happens long before the script's
+          // own top-to-bottom execution ever reaches the line that used to
+          // assign this — `Object.keys(undefined)` throws, and since this
+          // is a *plain assignment* (unlike a hoisted `function` statement,
+          // execution order genuinely matters here) the uncaught exception
+          // aborts every remaining line of the script, including the
+          // `buildGroupBoundaryLayer`/`setGroupScopeBoundaries` definitions
+          // and the final `invalidateSize()` calls — explaining why
+          // *nothing* rendered, not just Group labels. Declared here
+          // instead, before anything that could possibly trigger a
+          // `zoomend` event.
+          window.groupLabelMarkers = {};
+          // Same fix, same reason, for the Publisher-territory-subdivision
+          // globals below (see [buildPublisherBoundaryLayer]/[refreshPublisherLabels])
+          // — they're also read from the shared `zoomend` handler, which
+          // can fire before this script's own execution would otherwise
+          // reach their declaration.
+          window.publisherLabelMarkers = {};
+          window.publisherBoundaryLayers = {};
+          window.publisherSubdividedGroupId = null;
+          // Swaps only the tile layer — every GoPreach territory layer
+          // lives in its own separate Leaflet layer object, entirely
+          // untouched by this (spec §11/§15's own "must not remove the
+          // GoPreach Territory Map data... do not reset the user's current
+          // map position"); no camera change here either.
+          window.setBaseLayer = function(id) {
+            var def = BASE_LAYER_DEFS[id];
+            if (!def) return;
+            if (!baseLayerInstances[id]) { baseLayerInstances[id] = L.tileLayer(def.url, def.options); }
+            var current = baseLayerInstances[window.currentBaseLayerId];
+            if (current && map.hasLayer(current) && current !== baseLayerInstances[id]) { map.removeLayer(current); }
+            if (!map.hasLayer(baseLayerInstances[id])) { baseLayerInstances[id].addTo(map); }
+            window.currentBaseLayerId = id;
+          };
+
+          // "MAP OVERLAYS" — real, free, key-less raster overlays (each its
+          // own separate tile layer, always in Leaflet's tilePane, so —
+          // same as every base style above — these can never render above
+          // or interfere with a GoPreach vector layer regardless of
+          // add/remove order). "Public Transit" has the same no-free-
+          // provider problem as the Transport base map above, so it's
+          // covered by [railways] (OpenRailwayMap) rather than offered as
+          // something it isn't; "Bicycle Routes"/"Hiking" use
+          // waymarkedtrails.org, the same overlay provider OpenStreetMap's
+          // own osm.org site uses for these.
+          var OVERLAY_TILE_DEFS = {
+            bicycle: { url: 'https://tile.waymarkedtrails.org/cycling/{z}/{x}/{y}.png', options: { maxZoom: 18, opacity: 0.85, attribution: '&copy; waymarkedtrails.org, OpenStreetMap contributors' } },
+            hiking: { url: 'https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png', options: { maxZoom: 18, opacity: 0.85, attribution: '&copy; waymarkedtrails.org, OpenStreetMap contributors' } },
+            railways: { url: 'https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', options: { maxZoom: 19, subdomains: 'abc', opacity: 0.9, attribution: '&copy; OpenRailwayMap contributors' } },
+            gpsTraces: { url: 'https://gps.tile.openstreetmap.org/lines/{z}/{x}/{y}.png', options: { maxZoom: 20, opacity: 0.7, attribution: 'GPS traces &copy; OpenStreetMap contributors' } },
+          };
+          var overlayLayerInstances = {};
+          // "Map Notes" — real open OSM Notes near whatever the map is
+          // currently showing, via OSM's own public Notes API (no key
+          // needed to read). "GoPreach House Holder records and Territory
+          // Groups must remain separate from OpenStreetMap Notes" — its own
+          // [notesLayer], never mixed into [cluster] (House Holders) or any
+          // GoPreach layer.
+          window.notesLayer = L.layerGroup();
+          function refreshMapNotes() {
+            if (!map.hasLayer(window.notesLayer)) return;
+            var b = map.getBounds();
+            var bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(',');
+            fetch('https://api.openstreetmap.org/api/0.6/notes.json?bbox=' + bbox + '&limit=100')
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                window.notesLayer.clearLayers();
+                (data.features || []).forEach(function(f) {
+                  var coords = f.geometry.coordinates;
+                  var comments = f.properties && f.properties.comments;
+                  var text = (comments && comments[0] && comments[0].text) || 'Map Note';
+                  var icon = L.divIcon({
+                    className: 'territory-marker',
+                    html: '<div style="background:#fff;border:2px solid #FB8C00;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.4);">&#128221;</div>',
+                    iconSize: [22, 22], iconAnchor: [11, 11],
+                  });
+                  L.marker([coords[1], coords[0]], { icon: icon }).bindPopup(escapeHtml(text)).addTo(window.notesLayer);
+                });
+              })
+              .catch(function(e) { console.error('Map Notes fetch failed: ' + e); });
+          }
+          window.setMapNotesEnabled = function(enabled) {
+            if (enabled) { map.addLayer(window.notesLayer); refreshMapNotes(); }
+            else { map.removeLayer(window.notesLayer); }
+          };
+          // "Map Data" — the underlying OSM way geometry itself (osm.org's
+          // own "Data" layer), fetched live via the same Overpass API
+          // [OverpassStreetRepository]/[nearbyStreetPoints] already use.
+          // osm.org's real Data layer only loads once zoomed in close
+          // enough that a bbox query stays cheap — mirrored here via
+          // [MAP_DATA_MIN_ZOOM], consistent with spec's own "do not display
+          // a layer that cannot be loaded" rather than firing an
+          // unbounded, possibly-huge query at whatever's on screen.
+          window.mapDataLayer = L.layerGroup();
+          var MAP_DATA_MIN_ZOOM = 16;
+          function refreshMapData() {
+            if (!map.hasLayer(window.mapDataLayer)) return;
+            window.mapDataLayer.clearLayers();
+            if (map.getZoom() < MAP_DATA_MIN_ZOOM) return;
+            var b = map.getBounds();
+            var bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].join(',');
+            var query = '[out:json][timeout:15];(way(' + bbox + '););out geom 300;';
+            fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(query) })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                (data.elements || []).forEach(function(el) {
+                  if (!el.geometry) return;
+                  var latlngs = el.geometry.map(function(g) { return [g.lat, g.lon]; });
+                  L.polyline(latlngs, { color: '#FF6600', weight: 2, opacity: 0.75, interactive: false }).addTo(window.mapDataLayer);
+                });
+              })
+              .catch(function(e) { console.error('Map Data fetch failed: ' + e); });
+          }
+          window.setMapDataEnabled = function(enabled) {
+            if (enabled) { map.addLayer(window.mapDataLayer); refreshMapData(); }
+            else { map.removeLayer(window.mapDataLayer); }
+          };
+          map.on('moveend', function() { refreshMapNotes(); refreshMapData(); });
+          window.setOverlayEnabled = function(id, enabled) {
+            if (id === 'mapNotes') { window.setMapNotesEnabled(enabled); return; }
+            if (id === 'mapData') { window.setMapDataEnabled(enabled); return; }
+            var def = OVERLAY_TILE_DEFS[id];
+            if (!def) return;
+            if (!overlayLayerInstances[id]) { overlayLayerInstances[id] = L.tileLayer(def.url, def.options); }
+            if (enabled) { if (!map.hasLayer(overlayLayerInstances[id])) overlayLayerInstances[id].addTo(map); }
+            else { if (map.hasLayer(overlayLayerInstances[id])) map.removeLayer(overlayLayerInstances[id]); }
+          };
+
+          // "GoPreach Layers" show/hide (Municipalities/Territory Groups/
+          // House Holders) — [window.municipalitiesVisible]/
+          // [window.groupLayersVisible]/[window.householdersVisible] default
+          // true and are consulted by [setMunicipalityLayers]/
+          // [setGroupScopeBoundaries]/[setPoints] below every time GoPreach's
+          // own data refreshes, so a hidden layer stays hidden across a live
+          // Firestore update instead of silently reappearing.
+          window.municipalitiesVisible = true;
+          window.groupLayersVisible = true;
+          window.householdersVisible = true;
+          window.setGoPreachLayerVisible = function(id, visible) {
+            if (id === 'municipalities') {
+              window.municipalitiesVisible = visible;
+              if (window.municipalityLayers) {
+                if (visible) { if (!map.hasLayer(window.municipalityLayers)) window.municipalityLayers.addTo(map); }
+                else { if (map.hasLayer(window.municipalityLayers)) map.removeLayer(window.municipalityLayers); }
+              }
+            } else if (id === 'groups') {
+              window.groupLayersVisible = visible;
+              Object.keys(window.groupBoundaryLayers).forEach(function(gid) {
+                var layer = window.groupBoundaryLayers[gid];
+                if (visible) { if (!map.hasLayer(layer)) layer.addTo(map); } else { if (map.hasLayer(layer)) map.removeLayer(layer); }
+              });
+            } else if (id === 'householders') {
+              window.householdersVisible = visible;
+              if (visible) { if (!map.hasLayer(cluster)) map.addLayer(cluster); } else { if (map.hasLayer(cluster)) map.removeLayer(cluster); }
+            }
+          };
+          // "Province Overview / Reset" map control — re-fits the camera to
+          // every Municipality's own combined bounds without reloading the
+          // page or touching any other layer/state.
+          window.resetProvinceView = function() {
+            if (window.municipalityLayers) { map.fitBounds(window.municipalityLayers.getBounds().pad(0.05)); }
+          };
+
+          // "PROVINCE-WIDE COLOR CODING" — every Municipality in the
+          // congregation's own Province, filled solid (never outline-only,
+          // never a gradient/transparent wash), each a different color from
+          // this fixed, professional palette so neighboring Municipalities
+          // are always visually distinguishable at a glance, even before
+          // any Congregation Group territory is drawn on top.
+          // "SOLID COLORS AND 100% OPACITY... do not automatically reduce
+          // the opacity of any color" — [MUNICIPALITY_FILL_OPACITY] is now
+          // fully opaque, same as a Group's own [GROUP_FILL_OPACITY] below;
+          // "Territory Group color should take visual priority" (an
+          // unchanged, still-real requirement) is achieved purely through
+          // z-order now instead — always `bringToBack()`-ed, so a Group's
+          // own opaque color, drawn after, simply paints over this layer
+          // everywhere the two overlap, with this layer's own full color
+          // only showing through wherever no Group territory covers it.
+          var MUNICIPALITY_COLORS = ['#1E88E5', '#43A047', '#FB8C00', '#8E24AA', '#00ACC1', '#F4511E', '#6D4C41', '#3949AB', '#7CB342', '#D81B60', '#00897B', '#5E35B1', '#C0CA33', '#546E7A'];
+          var MUNICIPALITY_FILL_OPACITY = 1.0;
+          // "MUNICIPALITY LABELS... map-responsive... show compactly when
+          // zoomed out" — below [MUNICIPALITY_LABEL_MIN_ZOOM] the label is
+          // hidden entirely (the province-wide initial view routinely sits
+          // right around this zoom, with a dozen-plus Municipality labels
+          // that would otherwise overlap each other and their neighbors'
+          // own areas); font-size scales up to [MUNICIPALITY_LABEL_MAX_ZOOM]
+          // — see [refreshMunicipalityLabels].
+          var MUNICIPALITY_LABEL_MIN_ZOOM = 7;
+          var MUNICIPALITY_LABEL_MAX_ZOOM = 14;
+          window.municipalityLayers = null;
+          window.municipalityLabelMarkers = [];
+          // [fit] mirrors [window.setAreaBoundaryGeoJson]'s own convention —
+          // true only for the one-time initial "show the entire Province"
+          // open (spec's own "do not initially focus on only one Householder
+          // or Group... the initial map view must clearly show the province
+          // divided into its different municipalities"); a later refresh of
+          // this same layer (e.g. the Province simply re-resolving) must
+          // never yank the camera away from wherever the user has since
+          // navigated to.
+          window.setMunicipalityLayers = function(entries, fit) {
+            if (window.municipalityLayers) { map.removeLayer(window.municipalityLayers); window.municipalityLayers = null; }
+            window.municipalityLabelMarkers = [];
+            if (!entries || entries.length === 0) return;
+            var layers = [];
+            entries.forEach(function(entry, idx) {
+              var color = MUNICIPALITY_COLORS[idx % MUNICIPALITY_COLORS.length];
+              var geoLayer = L.geoJSON(entry.geometry, {
+                interactive: false,
+                style: {
+                  color: shadeColor(color, -0.25), weight: 1.5, opacity: 1,
+                  fill: true, fillColor: color, fillOpacity: MUNICIPALITY_FILL_OPACITY,
+                  lineJoin: 'round', lineCap: 'round',
+                },
+              });
+              layers.push(geoLayer);
+              if (entry.name) {
+                var labelMarker = L.marker(geoLayer.getBounds().getCenter(), {
+                  icon: L.divIcon({ className: 'territory-marker', html: '<div class="municipality-name-label map-label-text">' + escapeHtml(entry.name) + '</div>' }),
+                  interactive: false,
+                  zIndexOffset: 50,
+                });
+                disableClickCapture(labelMarker);
+                window.municipalityLabelMarkers.push(labelMarker);
+                layers.push(labelMarker);
+              }
+            });
+            window.municipalityLayers = L.featureGroup(layers);
+            // Respects a "Municipalities" GoPreach-layer toggle the user
+            // already turned off (see [window.setGoPreachLayerVisible])
+            // even though this data just refreshed — the fit-bounds below
+            // still uses the layer's own bounds either way, since re-
+            // framing the camera is independent of whether it's drawn.
+            if (window.municipalitiesVisible !== false) {
+              window.municipalityLayers.addTo(map);
+              window.municipalityLayers.bringToBack();
+              disableClickCapture(window.municipalityLayers);
+            }
+            if (fit !== false) { map.fitBounds(window.municipalityLayers.getBounds().pad(0.05)); }
+            refreshMunicipalityLabels();
+          };
+          // "PREVENT TEXT AND ICON OVERLAPPING... Do not allow municipality
+          // labels to cover unrelated municipalities" — several
+          // Municipalities can sit small and tightly packed together at a
+          // province-wide zoom (confirmed live: Solano/Bayombong/Villaverde/
+          // Ambaguio/Bagabag's own labels stacking on top of each other,
+          // burying the thin sliver of each one's own color fill still
+          // peeking out underneath); any label whose own screen position
+          // lands within [MUNICIPALITY_LABEL_OVERLAP_PX] of one already kept
+          // is hidden too — the *polygon fill itself* is never hidden by
+          // this, only the text, and always the same (stable, non-flickering)
+          // ones survive since [window.municipalityLabelMarkers] keeps its
+          // own fixed order across every call.
+          var MUNICIPALITY_LABEL_OVERLAP_PX = 70;
+          // Re-evaluates every Municipality label's own visibility/font-size
+          // against the *current* zoom — called from the shared `zoomend`
+          // handler below.
+          function refreshMunicipalityLabels() {
+            var zoom = map.getZoom();
+            var fontSize = scaleForZoom(zoom, MUNICIPALITY_LABEL_MIN_ZOOM, MUNICIPALITY_LABEL_MAX_ZOOM, 8, 11);
+            var shownPoints = [];
+            window.municipalityLabelMarkers.forEach(function(marker) {
+              var el = marker.getElement();
+              if (!el) return;
+              var inner = el.querySelector('.municipality-name-label');
+              if (!inner) return;
+              if (zoom < MUNICIPALITY_LABEL_MIN_ZOOM) {
+                inner.style.display = 'none';
+                return;
+              }
+              var pt = map.latLngToContainerPoint(marker.getLatLng());
+              var overlapsShown = shownPoints.some(function(shownPt) { return pt.distanceTo(shownPt) < MUNICIPALITY_LABEL_OVERLAP_PX; });
+              if (overlapsShown) {
+                inner.style.display = 'none';
+              } else {
+                shownPoints.push(pt);
+                inner.style.display = '';
+                inner.style.fontSize = fontSize + 'px';
+              }
+            });
+          }
+
           // "Interested Person, Return Visit, and Bible Study must each have
           // unique, recognizable icons... do not use the same icon" —
           // supersedes the earlier "one shape for every record" rule: the
@@ -2628,6 +3622,13 @@ private fun buildTerritoryMapHtml(): String {
           // highlighted" convention Google Maps' own default marker uses —
           // `color` is simply ignored while `selected` is true; the glyph
           // itself is unaffected by selection.
+          // Leaflet tooltip content is rendered as HTML — needed now that a
+          // marker's tooltip can carry two lines (a `<br>`) — so any
+          // Householder/Publisher name that happens to contain HTML-special
+          // characters can never break the tooltip markup or inject into it.
+          function escapeHtml(text) {
+            return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          }
           function iconGlyphFor(kind) {
             switch (kind) {
               // Return Visit — a "revisit/follow-up" circular-arrow glyph.
@@ -2645,7 +3646,10 @@ private fun buildTerritoryMapHtml(): String {
             }
           }
           function buildPinIcon(selected, color, kind) {
-            var w = selected ? 38 : 30, h = selected ? 53 : 42;
+            // "Make all map icons... smaller and more professional" — the
+            // pin's own shape/color/glyph are unchanged (still the official
+            // 3D location pin), only its on-screen size shrank.
+            var w = selected ? 28 : 22, h = selected ? 39 : 31;
             var fill = selected ? '#FFC107' : (color || '#EA4335');
             var glyph = iconGlyphFor(kind);
             var html = '<svg width="' + w + '" height="' + h + '" viewBox="0 0 30 42" xmlns="http://www.w3.org/2000/svg">' +
@@ -2683,19 +3687,82 @@ private fun buildTerritoryMapHtml(): String {
             }
           };
 
-          // "Do NOT automatically cluster, combine, shrink, or compact
-          // Interested Person, Return Visit, or Bible Study icons when the
-          // user zooms out... each record should continue to display its
-          // designated icon" — a plain, non-clustering layer group (every
-          // marker always rendered individually, at every zoom level); this
-          // used to be `L.markerClusterGroup()`, which is exactly the
-          // "combine multiple records into one number" behavior this spec
-          // now explicitly forbids. "You are here" stays a separate marker
-          // outside this group entirely, unchanged.
+          // Superseded — an earlier spec forbade any clustering at all
+          // ("each record should continue to display its designated icon");
+          // the current spec explicitly asks for anti-overlap handling
+          // instead ("marker clustering, controlled spacing, spiderfying...
+          // ensure every House Holder remains individually selectable...
+          // never allow one marker to completely cover another"). Every
+          // marker is still rendered individually — none are ever combined
+          // into a single "N records" bubble — [declutterMarkers] below just
+          // nudges markers that would otherwise land on/near the exact same
+          // screen pixel outward into a small spiderfied ring around their
+          // shared spot, so each stays fully visible and independently
+          // tappable. "You are here" stays a separate marker outside this
+          // group entirely, unchanged.
           var cluster = L.layerGroup();
           var markers = [];
           var markersById = {};
           map.addLayer(cluster);
+
+          // Greedy single-link grouping by on-screen pixel distance (not
+          // real-world distance — two records genuinely far apart in meters
+          // can still overlap on screen when zoomed far out, and that's
+          // exactly the case this needs to catch) — any marker within
+          // [SPIDERFY_PIXEL_RADIUS] px of another joins the same group.
+          // Re-run on every zoom/pan (the same markers can go from
+          // overlapping to comfortably apart, or vice versa, purely from a
+          // zoom change) — always measured from each marker's own real,
+          // unmoved [_trueLatLng], never from a previous run's already-
+          // spiderfied position, so repeated runs never drift or compound.
+          var SPIDERFY_PIXEL_RADIUS = 26;
+          function declutterMarkers() {
+            if (!markers.length) return;
+            var used = new Array(markers.length).fill(false);
+            var groups = [];
+            for (var i = 0; i < markers.length; i++) {
+              if (used[i]) continue;
+              var group = [i];
+              used[i] = true;
+              var basePt = map.latLngToContainerPoint(markers[i]._trueLatLng);
+              for (var j = i + 1; j < markers.length; j++) {
+                if (used[j]) continue;
+                var pt = map.latLngToContainerPoint(markers[j]._trueLatLng);
+                if (basePt.distanceTo(pt) < SPIDERFY_PIXEL_RADIUS) { group.push(j); used[j] = true; }
+              }
+              groups.push(group);
+            }
+            groups.forEach(function(group) {
+              if (group.length === 1) {
+                markers[group[0]].setLatLng(markers[group[0]]._trueLatLng);
+                return;
+              }
+              var centerPt = map.latLngToContainerPoint(markers[group[0]]._trueLatLng);
+              var ringRadius = SPIDERFY_PIXEL_RADIUS * (group.length > 6 ? 1.7 : 1.2);
+              group.forEach(function(markerIdx, k) {
+                var angle = (k / group.length) * Math.PI * 2;
+                var offsetPt = L.point(centerPt.x + ringRadius * Math.cos(angle), centerPt.y + ringRadius * Math.sin(angle));
+                markers[markerIdx].setLatLng(map.containerPointToLatLng(offsetPt));
+              });
+            });
+          }
+          map.on('zoomend moveend', declutterMarkers);
+          // "MAP ZOOM MUST NOT BREAK THE DESIGN... zoom-aware text" — every
+          // zoom-responsive label (Group name/icon, Municipality name,
+          // House Holder name/status/publisher) re-evaluates itself here,
+          // on every zoom change; none of them depend on *pan* position (a
+          // territory's own on-screen pixel size, and a marker's own zoom
+          // tier, are both invariant under panning — only zooming changes
+          // either), so this stays on `zoomend` alone, never `moveend`.
+          // Guarded with `typeof` since this fires from a `map.on` callback
+          // registered before every one of these functions is necessarily
+          // defined further down the script — harmless no-ops until then.
+          map.on('zoomend', function() {
+            if (typeof refreshMunicipalityLabels === 'function') { refreshMunicipalityLabels(); }
+            if (typeof refreshGroupLabels === 'function') { refreshGroupLabels(); }
+            if (typeof refreshPipelineLabels === 'function') { refreshPipelineLabels(); }
+            if (typeof refreshPublisherLabels === 'function') { refreshPublisherLabels(); }
+          });
 
           // "RESPONSIVE MAP FILTERING... AUTOMATIC MAP ZOOM" — a single
           // point gets a comfortable street-level zoom (a 0-span "bounds"
@@ -2712,6 +3779,55 @@ private fun buildTerritoryMapHtml(): String {
             } else {
               map.setView([12.8797, 121.7740], 6);
             }
+          };
+
+          // "Show or hide the Names and other details of Interested Person/
+          // Return Visit/Bible Study" — the master on/off switch; defaults
+          // OFF (matching [TerritoryLiveMap]'s own `showPipelineDetails`
+          // default — "uncheck Names and details on map as initial state")
+          // so the map opens clean before Kotlin's own effect even has a
+          // chance to push a value. Combined with
+          // [PIPELINE_LABEL_MIN_ZOOM]/[PIPELINE_LABEL_FULL_ZOOM] below by
+          // [refreshPipelineLabels] — both have to agree a label should show
+          // (spec's own "at a far zoom level, do not display large amounts
+          // of House Holder text" applies regardless of this switch's own
+          // state). Never affects PUBLISHER/ME (spec names only Interested
+          // Person/Return Visit/Bible Study), nor whether a marker itself is
+          // shown — only its label.
+          window.showPipelineLabels = false;
+          // "HOUSE HOLDER LABELS... adapt to the current zoom level" — below
+          // [PIPELINE_LABEL_MIN_ZOOM] no label at all (just the pin — relying
+          // on [declutterMarkers]'s own spiderfy for legibility once several
+          // pins sit close together); from there up to
+          // [PIPELINE_LABEL_FULL_ZOOM] just "Name (Status)"; at or above
+          // [PIPELINE_LABEL_FULL_ZOOM] the complete "Name (Status)" + "RP
+          // <publisher>" form.
+          var PIPELINE_LABEL_MIN_ZOOM = 13;
+          var PIPELINE_LABEL_FULL_ZOOM = 16;
+          function pipelineTooltipHtml(marker, zoom) {
+            var html = escapeHtml(marker._name) + ' (' + escapeHtml(marker._status) + ')';
+            if (zoom >= PIPELINE_LABEL_FULL_ZOOM && marker._publisherName) { html += '<br>RP ' + escapeHtml(marker._publisherName); }
+            return html;
+          }
+          // Re-evaluates every pipeline marker's own label content/
+          // visibility against the *current* zoom and [window.showPipelineLabels]
+          // — called from the shared `zoomend` handler below, and once right
+          // after `window.setPoints` rebuilds every marker.
+          function refreshPipelineLabels() {
+            var zoom = map.getZoom();
+            markers.forEach(function(m) {
+              if (!m._isPipeline || !m.getTooltip()) return;
+              if (window.showPipelineLabels === false || zoom < PIPELINE_LABEL_MIN_ZOOM) {
+                m.closeTooltip();
+                return;
+              }
+              m.setTooltipContent(pipelineTooltipHtml(m, zoom));
+              m.openTooltip();
+            });
+          }
+          window.setShowPipelineLabels = function(show) {
+            window.showPipelineLabels = show;
+            refreshPipelineLabels();
           };
 
           // "Do not reload the entire map unnecessarily after every search.
@@ -2731,8 +3847,28 @@ private fun buildTerritoryMapHtml(): String {
               // exact color/glyph later without needing to look `p` back up.
               marker._color = p.color;
               marker._kind = p.kind;
-              // "Every visible marker must display: Name (Status)" (spec §26).
-              marker.bindTooltip(p.name + ' (' + p.status + ')', { permanent: true, direction: 'right', offset: [10, 0], className: 'territory-label' });
+              // This record's own real, unmoved coordinate — see
+              // [declutterMarkers]'s own doc comment for why every
+              // spiderfy/de-overlap pass always measures and offsets from
+              // this, never from wherever the marker's `setLatLng` last
+              // displayed it.
+              marker._trueLatLng = L.latLng(p.lat, p.lng);
+              // "Every visible marker must display: Name (Status)" (spec §26),
+              // plus — "Householder Name + Status + assigned Group Member/
+              // Publisher" — a second line naming the actual Publisher
+              // responsible for this record, when there is one (never for a
+              // PUBLISHER/ME point, which has no assigned Publisher of its
+              // own). Same "RP <name>" label the Group detail sheet/Group
+              // Report already use for a Publisher, so this reads
+              // consistently everywhere the app names one. Stashed on the
+              // marker itself (rather than only baked into the tooltip's
+              // own initial HTML) so [refreshPipelineLabels] can rebuild the
+              // right zoom-tier content later without needing [p] again.
+              marker._name = p.name;
+              marker._status = p.status;
+              marker._publisherName = p.publisherName || null;
+              marker._isPipeline = p.kind === 'SEARCHING' || p.kind === 'RETURN_VISIT' || p.kind === 'BIBLE_STUDY';
+              marker.bindTooltip(escapeHtml(p.name), { permanent: true, direction: 'right', offset: [10, 0], className: 'territory-label map-label-text' });
               marker.on('click', function() {
                 window.setSelectedMarker(p.id);
                 if (window.AndroidBridge) { AndroidBridge.showDetails(p.id); }
@@ -2748,6 +3884,8 @@ private fun buildTerritoryMapHtml(): String {
             // reference behind in the meantime.
             selectedMarkerId = null;
             window.fitToMarkers();
+            declutterMarkers();
+            refreshPipelineLabels();
           };
           window.setPoints([]);
 
@@ -2758,7 +3896,7 @@ private fun buildTerritoryMapHtml(): String {
             if (window.myLocationMarker) { map.removeLayer(window.myLocationMarker); }
             window.myLocationMarker = L.marker([lat, lng], { icon: buildMeIcon(selectedMarkerId === 'me'), zIndexOffset: 1000 }).addTo(map);
             window.myLocationMarker._isMe = true;
-            window.myLocationMarker.bindTooltip('My Location', { permanent: true, direction: 'right', offset: [10, 0], className: 'territory-label' });
+            window.myLocationMarker.bindTooltip('My Location', { permanent: true, direction: 'right', offset: [10, 0], className: 'territory-label map-label-text' });
             window.myLocationMarker.on('click', function() {
               window.setSelectedMarker('me');
               if (window.AndroidBridge) { AndroidBridge.showDetails('me'); }
@@ -2799,12 +3937,59 @@ private fun buildTerritoryMapHtml(): String {
           var BOUNDARY_CASING_WEIGHT = 9;
           var BOUNDARY_MAIN_WEIGHT = 4.5;
           var BOUNDARY_FILL_OPACITY = 0.10;
+          // See [window.setAreaBoundaryGeoJson]'s own doc comment — a floor
+          // (never more zoomed-out than this) and a ceiling (never more
+          // zoomed-in than this) on the camera zoom a single explicit
+          // Municipality/Barangay selection can land at, regardless of how
+          // large or small that area's own bundled bounding box happens to
+          // be.
+          var AREA_FOCUS_MIN_ZOOM = 12;
+          var AREA_FOCUS_MAX_ZOOM = 16;
           // "Never use a generic square, rectangle, circle, or rounded
           // shape to represent an actual geographic territory" — the
           // minimum real-world radius (meters) a lone point (or a tight
           // 2-point cluster) gets, via [smallTerritoryPolygon]'s own
           // deliberately-irregular shape, never a geometric primitive.
           var SMALL_TERRITORY_HALF_WIDTH_METERS = 150;
+          // Bug fix (confirmed live: tapping directly inside a Group's own
+          // solid territory fill never opened its info panel — logging
+          // showed the tap landing as a plain, unattributed map click
+          // instead of this layer's own bound click handler) — Leaflet's
+          // `interactive: false` option only skips *Leaflet's own* internal
+          // event wiring for a layer; it does nothing to the browser's own
+          // native SVG hit-testing, which by default still treats any
+          // painted (filled or stroked) `<path>` as opaque to pointer
+          // events regardless of what Leaflet calls it. The Municipality
+          // boundary's own solid fill sits deliberately *above* every Group
+          // layer (`window.areaBoundary.bringToFront()`, "the Municipality
+          // boundary must remain visible") and covers the same real
+          // territory a Group's own shape sits inside of — so a tap that
+          // visually lands inside a Group's own fill was actually
+          // physically hitting the *Municipality* fill's painted pixels
+          // sitting on top of it, which absorbs the click and lets it
+          // bubble straight up to the map's own (unrelated) click handler
+          // instead of ever reaching the Group polygon underneath. Applied
+          // to every genuinely non-interactive path layer (the Municipality
+          // boundary casing+fill, the province-wide Municipality fills, and
+          // each Group's own outline-only casing layer) right after it's
+          // added to the map, so all of them become purely visual and let
+          // clicks fall through to whatever's actually meant to receive them.
+          function disableClickCapture(layer) {
+            if (layer.eachLayer) { layer.eachLayer(disableClickCapture); return; }
+            var apply = function() {
+              // `getElement()` only exists on L.Marker/L.ImageOverlay — a
+              // Path (polygon/circle, what every layer this is actually
+              // used on really is) keeps its live SVG `<path>` element on
+              // the private `_path` property instead; there's no public
+              // accessor for it. Confirmed live: without this fallback,
+              // `getElement` is simply `undefined` on every Path layer, so
+              // `apply()` silently did nothing at all for exactly the
+              // layers that needed it.
+              var el = (layer.getElement && layer.getElement()) || layer._path || null;
+              if (el) { el.style.pointerEvents = 'none'; }
+            };
+            if (layer._map) { apply(); } else { layer.once('add', apply); }
+          }
           function boundaryCasingStyle() {
             return { color: BOUNDARY_CASING_COLOR, weight: BOUNDARY_CASING_WEIGHT, opacity: 0.9, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
           }
@@ -2819,13 +4004,21 @@ private fun buildTerritoryMapHtml(): String {
               L.circle(center, Object.assign({ radius: radiusMeters }, boundaryCasingStyle())),
               L.circle(center, Object.assign({ radius: radiusMeters }, boundaryMainStyle())),
             ]).addTo(map);
+            disableClickCapture(window.areaBoundary);
           };
           // The real thing: an actual Municipality/Barangay polygon (from
           // [TerritoryBoundaryRepository]'s bundled NAMRIA/PSA/OCHA boundary
           // data), drawn the same casing+main red style as the circle
           // fallback above so a real boundary and an approximate one never
           // look meaningfully different to the user.
-          window.setAreaBoundaryGeoJson = function(geometry) {
+          // "The Municipality barrier must be shown always" — [fit] is
+          // false for the implicit single-Municipality fallback
+          // ([TerritoryMapScreen]'s own `explicitAreaSelection` doc
+          // comment): the boundary still draws, just without the camera
+          // jump below, so a plain map open (nothing searched) can't get
+          // pulled away from the Province-wide initial view this map
+          // otherwise starts on.
+          window.setAreaBoundaryGeoJson = function(geometry, fit) {
             window.clearAreaBoundary();
             // "interactive" is a GeoJSON-layer-level constructor option, not
             // a Path style property — it has to sit alongside `style`, not
@@ -2836,6 +4029,7 @@ private fun buildTerritoryMapHtml(): String {
               L.geoJSON(geometry, { style: boundaryCasingStyle(), interactive: false }),
               main,
             ]).addTo(map);
+            disableClickCapture(window.areaBoundary);
             // Frame the real polygon directly from its own bounds — no
             // dependency on the on-device Geocoder (already found unreliable
             // on this session's own non-genuine-GMS test device) just to
@@ -2846,7 +4040,31 @@ private fun buildTerritoryMapHtml(): String {
             // from some other, unrelated area (e.g. a Publisher sharing
             // location elsewhere in the province) must never keep the camera
             // away from the area the user actually selected.
-            map.fitBounds(main.getBounds().pad(0.15));
+            //
+            // Bug fix ("calibrate the territory map... wrong zoom/scale,"
+            // reported live for Diadi) — a plain `fitBounds` has no floor:
+            // some Municipalities in the bundled boundary asset (see
+            // [TerritoryBoundaryRepository]'s own doc comment on where this
+            // data actually comes from) carry a noticeably larger bounding
+            // box than that Municipality's own real, compact footprint —
+            // Diadi's own bundled polygon spans roughly 0.16°x0.24°, nearly
+            // triple its real extent, confirmed live against OpenStreetMap's
+            // own data for the town. Plain `fitBounds` on a bounding box
+            // that size lands the camera far more zoomed out than "focus on
+            // this one Municipality" should ever look — `getBoundsZoom`
+            // computes what zoom that fit would actually produce, and
+            // [AREA_FOCUS_MIN_ZOOM] refuses to land any more zoomed-out
+            // than a single Municipality/Barangay selection should
+            // reasonably be, regardless of how much larger the bundled
+            // polygon's own bounding box happens to be than its real
+            // footprint — a real, if imperfect, safety floor rather than
+            // trying to fix the bundled geometry itself (not something this
+            // app can regenerate on-device).
+            if (fit !== false) {
+              var bounds = main.getBounds().pad(0.15);
+              var zoom = Math.max(map.getBoundsZoom(bounds), AREA_FOCUS_MIN_ZOOM);
+              map.setView(bounds.getCenter(), Math.min(zoom, AREA_FOCUS_MAX_ZOOM));
+            }
           };
           window.clearAreaBoundary = function() {
             if (window.areaBoundary) { map.removeLayer(window.areaBoundary); window.areaBoundary = null; }
@@ -2903,18 +4121,33 @@ private fun buildTerritoryMapHtml(): String {
             });
             return unique;
           }
-          // "Make the color solid" — a genuinely strong, clearly-colored
-          // fill (not the faint, barely-there wash a low opacity like 0.25
-          // reads as), matching the reference design's own solid-looking
-          // territory blocks; still short of fully opaque 1.0 so roads/
-          // markers underneath aren't completely blotted out. Kept as its
-          // own constant, separate from [BOUNDARY_FILL_OPACITY] (the real
-          // Municipality/Barangay administrative outline's own, unchanged,
-          // fill), since the two are conceptually different layers with no
-          // reason to share one tuning knob. See `window.areaBoundary`'s own
-          // `bringToFront()` call below for why a stronger fill here still
-          // never buries the Municipality's own boundary line underneath it.
-          var GROUP_FILL_OPACITY = 0.55;
+          // "MAP-RESPONSIVE TEXT AND DETAILS... map-aware/scaled labels,
+          // rather than fixed-size UI elements" — a plain linear interpolation
+          // between [minVal] (at [minZoom] or below) and [maxVal] (at
+          // [maxZoom] or above), shared by every zoom-responsive label below
+          // (Group name, Municipality name) so they all scale by the same
+          // rule rather than each inventing its own math.
+          function scaleForZoom(zoom, minZoom, maxZoom, minVal, maxVal) {
+            var t = maxZoom > minZoom ? (zoom - minZoom) / (maxZoom - minZoom) : 1;
+            t = Math.max(0, Math.min(1, t));
+            return minVal + (maxVal - minVal) * t;
+          }
+          // "SOLID COLORS AND 100% OPACITY... every selected color must
+          // appear in its full solid form... do not automatically reduce
+          // the opacity of any color" — fully opaque, not the previous
+          // 0.55. Kept as its own constant, separate from
+          // [BOUNDARY_FILL_OPACITY] (the real Municipality/Barangay
+          // administrative outline's own, unchanged, fill — a fixed
+          // selection-highlight indicator, never a Group/Publisher's own
+          // identity color, so it's out of scope for this rule), since the
+          // two are conceptually different layers with no reason to share
+          // one tuning knob. See `window.areaBoundary`'s own
+          // `bringToFront()` call below — that boundary's own *line* still
+          // draws above every Group so it's never buried, while its own
+          // (still low-opacity, unchanged) fill wash stays subtle enough
+          // that a Group's now fully-opaque color inside it still reads
+          // clearly.
+          var GROUP_FILL_OPACITY = 1.0;
           // A deliberately irregular (never square/rectangular/circular)
           // small polygon around a point or tiny cluster with no real
           // polygon of its own to draw (see [buildGroupBoundaryLayer]'s own
@@ -2954,30 +4187,15 @@ private fun buildTerritoryMapHtml(): String {
             var radius = Math.max(SMALL_TERRITORY_HALF_WIDTH_METERS, maxDist * 1.3);
             return smallIrregularPolygon(centerLat, centerLng, radius);
           }
-          // "Each Field Service Group is assigned specific whole Barangays;
-          // the group's territory is the union of those Barangays' real
-          // boundaries" — `geometries` is an array of real bundled Barangay
-          // polygon objects (from [TerritoryBoundaryRepository], the exact
-          // same source the Municipality/Barangay search boundary already
-          // uses); `L.geoJSON` accepts an array of geometries directly and
-          // draws every one of them as part of the same layer, so this is
-          // one real, non-fabricated shape per Group whenever its own
-          // records happen to fall inside covered Barangays — not an
-          // approximation.
-          function buildRealGroupTerritoryLayer(geometries, color) {
-            var casingStyle = { color: shadeColor(color, -0.35), weight: BOUNDARY_CASING_WEIGHT, opacity: 0.9, fill: false, lineJoin: 'round', lineCap: 'round' };
-            var mainStyle = { color: color, weight: BOUNDARY_MAIN_WEIGHT, opacity: 1, fill: true, fillColor: color, fillOpacity: GROUP_FILL_OPACITY, lineJoin: 'round', lineCap: 'round' };
-            return L.featureGroup([
-              L.geoJSON(geometries, { style: casingStyle, interactive: false }),
-              L.geoJSON(geometries, { style: mainStyle, interactive: false }),
-            ]);
-          }
           // Builds one Group's own casing+main hull layer, styled in *that
           // Group's own* solid color (never the fixed red the single
-          // Municipality/Barangay administrative boundary above uses) — the
-          // fallback for a Group with no covered Barangay yet (see
-          // `window.setGroupScopeBoundaries`'s own doc comment for when
-          // this, versus [buildRealGroupTerritoryLayer], actually gets used).
+          // Municipality/Barangay administrative boundary above uses) —
+          // always used for a Group's own Territory Scope now (a whole-
+          // Barangay-union alternative was tried and reverted: confirmed
+          // live to make a 2-record Group's own territory look exactly
+          // like a much bigger Group's, since it drew the entire Barangay
+          // both happened to live in rather than the area actually between
+          // them).
           //
           // "Never use a generic square, rectangle, circle, or rounded
           // shape to represent an actual geographic territory" — 3+
@@ -2994,9 +4212,77 @@ private fun buildTerritoryMapHtml(): String {
           // approximation (there is no "real shape" of a single address
           // either), but a deliberately irregular one, never a square,
           // rectangle, or circle.
-          function buildGroupBoundaryLayer(points, color, groupId) {
-            var casingStyle = { color: shadeColor(color, -0.35), weight: BOUNDARY_CASING_WEIGHT, opacity: 0.9, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
-            var mainStyle = { color: color, weight: BOUNDARY_MAIN_WEIGHT, opacity: 1, fill: true, fillColor: color, fillOpacity: GROUP_FILL_OPACITY, lineJoin: 'round', lineCap: 'round', interactive: false };
+          // "PROFESSIONAL TERRITORY GROUP ICON... same color assigned to
+          // that Territory Group" — a plain white flag glyph (Material
+          // Design's own "flag" icon path), simple enough to stay
+          // recognizable at every zoom rather than degrading into a smudge
+          // once shrunk; solid-filled onto [.group-badge]'s own colored
+          // circle (never the glyph itself recolored), so it always reads
+          // clearly against light or dark base-map tiles alike.
+          var GROUP_BADGE_SVG = '<svg viewBox="0 0 24 24" width="8" height="8"><path fill="#ffffff" d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>';
+          // "GROUP TEXT MUST FIT TO MAP... ZOOM-DEPENDENT GROUP LABELS" —
+          // below [GROUP_LABEL_MIN_ZOOM] only the icon badge shows at all
+          // (a territory this small on screen has no room for readable
+          // text without it spilling outside its own shape); between that
+          // and [GROUP_LABEL_FULL_ZOOM] the *short* form of the name shows
+          // (see [shortGroupName]); at or above [GROUP_LABEL_FULL_ZOOM] the
+          // complete name shows. The same tiers apply again, independently,
+          // whenever the territory's own on-screen pixel width is too
+          // narrow for its current tier's text (checked directly in
+          // [groupLabelHtml]) — a huge Group's territory still gets the
+          // short form at a middling zoom if its own shape is unusually
+          // narrow, and vice versa.
+          var GROUP_LABEL_MIN_ZOOM = 10;
+          var GROUP_LABEL_FULL_ZOOM = 15;
+          var GROUP_LABEL_MIN_BOX_PX = 34;
+          var GROUP_LABEL_FULL_BOX_PX = 110;
+          // A Group's own [name] is already short in this app ("Group 5") —
+          // but the same "GROUP 1 – BAYOMBONG EAST" -> "GROUP 1" shrink the
+          // spec itself asks for is supported for whenever a longer,
+          // hyphen-separated name exists (a future "Group 1 - Bayombong"
+          // naming convention, say): only the part before the first " - "/
+          // " – " survives the short form.
+          function shortGroupName(name) {
+            var sep = /\s[-–]\s/;
+            return sep.test(name) ? name.split(sep)[0] : name;
+          }
+          function groupLabelHtml(name, color, zoom, bounds) {
+            var badge = '<div class="group-badge" style="background:' + color + ';">' + GROUP_BADGE_SVG + '</div>';
+            var nw = map.latLngToContainerPoint(bounds.getNorthWest());
+            var se = map.latLngToContainerPoint(bounds.getSouthEast());
+            var boxWidth = Math.abs(se.x - nw.x);
+            if (zoom < GROUP_LABEL_MIN_ZOOM || boxWidth < GROUP_LABEL_MIN_BOX_PX) {
+              return '<div class="group-label-wrap">' + badge + '</div>';
+            }
+            var fontSize = scaleForZoom(zoom, GROUP_LABEL_MIN_ZOOM, GROUP_LABEL_FULL_ZOOM, 9, 13);
+            var showFull = zoom >= GROUP_LABEL_FULL_ZOOM && boxWidth >= GROUP_LABEL_FULL_BOX_PX;
+            var displayName = showFull ? name : shortGroupName(name);
+            return '<div class="group-label-wrap">' + badge +
+              '<div class="group-name-label map-label-text" style="font-size:' + fontSize + 'px;">' +
+              escapeHtml(displayName) + '</div></div>';
+          }
+          // Re-evaluates every currently-drawn Group's own label (icon-only
+          // vs. short vs. full name, and its own font-size) against the
+          // *current* zoom — called from the shared `zoomend` handler below,
+          // never on `moveend` (a Group's own territory bounds don't change
+          // on-screen pixel *width* from panning, only from zooming).
+          function refreshGroupLabels() {
+            var zoom = map.getZoom();
+            Object.keys(window.groupLabelMarkers).forEach(function(gid) {
+              var marker = window.groupLabelMarkers[gid];
+              if (!map.hasLayer(marker)) return;
+              marker.setIcon(L.divIcon({ className: 'territory-marker', html: groupLabelHtml(marker._groupName, marker._groupColor, zoom, marker._groupBounds) }));
+            });
+          }
+          function buildGroupBoundaryLayer(points, color, groupId, name) {
+            var casingStyle = { color: shadeColor(color, -0.35), weight: BOUNDARY_CASING_WEIGHT, opacity: 1, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
+            // "Selecting a Territory Group" (spec §10) — [mainStyle] (the
+            // solid fill, unlike the outline-only [casingStyle] above) is
+            // now `interactive: true` so tapping anywhere inside this
+            // Group's own territory fill calls back into
+            // `AndroidBridge.showGroupDetails` below, same convention every
+            // marker's own tap handler already uses.
+            var mainStyle = { color: color, weight: BOUNDARY_MAIN_WEIGHT, opacity: 1, fill: true, fillColor: color, fillOpacity: GROUP_FILL_OPACITY, lineJoin: 'round', lineCap: 'round', interactive: true };
             var casingLayer, mainLayer;
             if (points.length === 1) {
               var soloHull = smallTerritoryPolygon(points);
@@ -3022,7 +4308,46 @@ private fun buildTerritoryMapHtml(): String {
                 mainLayer = L.polygon(hull, mainStyle);
               }
             }
-            return L.featureGroup([casingLayer, mainLayer]);
+            // The casing is outline-only (`fill: false`) so its own
+            // clickable area is normally just its thin stroke line, but
+            // that's still real, painted pixels a tap can land on and get
+            // silently swallowed by (see [disableClickCapture]'s own doc
+            // comment) — never meant to intercept anything, only [mainLayer]
+            // is.
+            disableClickCapture(casingLayer);
+            if (groupId) {
+              mainLayer.on('click', function(e) {
+                if (window.AndroidBridge) { AndroidBridge.showGroupDetails(groupId); }
+                L.DomEvent.stopPropagation(e);
+              });
+            }
+            var layers = [casingLayer, mainLayer];
+            // "Show group names in every territory map... professional
+            // Group icon... map-aware/scaled labels" — a small, always-on
+            // icon+name label centered on this Group's own territory shape,
+            // same "permanent tooltip" convention every marker's own Name/
+            // Status label already uses; non-interactive so it never steals
+            // a tap meant for the territory fill underneath it (see that
+            // fill's own `AndroidBridge.showGroupDetails` click handler).
+            // [groupLabelHtml] itself decides — from the current zoom and
+            // this territory's own on-screen pixel size — whether to show
+            // icon-only, icon + short name, or icon + full name (see its
+            // own doc comment); [refreshGroupLabels] re-evaluates the same
+            // decision on every later zoom change.
+            if (name) {
+              var labelMarker = L.marker(mainLayer.getBounds().getCenter(), {
+                icon: L.divIcon({ className: 'territory-marker', html: groupLabelHtml(name, color, map.getZoom(), mainLayer.getBounds()) }),
+                interactive: false,
+                zIndexOffset: 500,
+              });
+              labelMarker._groupName = name;
+              labelMarker._groupColor = color;
+              labelMarker._groupBounds = mainLayer.getBounds();
+              disableClickCapture(labelMarker);
+              if (groupId) { window.groupLabelMarkers[groupId] = labelMarker; }
+              layers.push(labelMarker);
+            }
+            return L.featureGroup(layers);
           }
           // Rough "how big is this Group's own footprint" heuristic (a
           // plain bounding-box area, not a true geodesic one — only ever
@@ -3068,6 +4393,7 @@ private fun buildTerritoryMapHtml(): String {
               if (!keepIds[id]) {
                 map.removeLayer(window.groupBoundaryLayers[id]);
                 delete window.groupBoundaryLayers[id];
+                delete window.groupLabelMarkers[id];
               }
             });
             var allPoints = [];
@@ -3083,21 +4409,21 @@ private fun buildTerritoryMapHtml(): String {
               if (window.groupBoundaryLayers[entry.id]) {
                 map.removeLayer(window.groupBoundaryLayers[entry.id]);
                 delete window.groupBoundaryLayers[entry.id];
+                delete window.groupLabelMarkers[entry.id];
               }
               if (entry.points) { entry.points.forEach(function(p) { allPoints.push(p); }); }
-              // "The group's territory is the union of [its assigned
-              // Barangays'] real boundaries" — `entry.geometry` (an array of
-              // real bundled Barangay polygons, present only when at least
-              // one of this Group's own Barangays resolved — see
-              // [TerritoryLiveMap]'s own points-update effect) always wins
-              // over the point-hull approximation when it's actually
-              // available; only a Group with no covered Barangay yet falls
-              // back to [buildGroupBoundaryLayer]'s own shape.
-              var layer = entry.geometry
-                ? buildRealGroupTerritoryLayer(entry.geometry, entry.color)
-                : (entry.points && entry.points.length > 0 ? buildGroupBoundaryLayer(entry.points, entry.color, entry.id) : null);
+              // "Do not create an artificially large territory based on the
+              // distance between two Householders" — always the tight
+              // point-hull shape, proportional to this Group's own actual
+              // records, never a whole administrative unit standing in for
+              // it (see [buildGroupBoundaryLayer]'s own doc comment).
+              var layer = entry.points && entry.points.length > 0 ? buildGroupBoundaryLayer(entry.points, entry.color, entry.id, entry.name) : null;
               if (!layer) { return; }
-              window.groupBoundaryLayers[entry.id] = layer.addTo(map);
+              window.groupBoundaryLayers[entry.id] = layer;
+              // Respects a "Territory Groups" GoPreach-layer toggle already
+              // turned off (see [window.setGoPreachLayerVisible]) even
+              // though this data just refreshed.
+              if (window.groupLayersVisible !== false) { layer.addTo(map); }
             });
             if (fitCamera && allPoints.length > 0) {
               map.fitBounds(L.latLngBounds(allPoints).pad(0.2));
@@ -3106,6 +4432,137 @@ private fun buildTerritoryMapHtml(): String {
           window.clearGroupScopeBoundaries = function() {
             Object.keys(window.groupBoundaryLayers).forEach(function(id) { map.removeLayer(window.groupBoundaryLayers[id]); });
             window.groupBoundaryLayers = {};
+            window.groupLabelMarkers = {};
+          };
+
+          // "GROUP TERRITORY & PUBLISHER TERRITORY DIVISION" — once a Group
+          // is selected, subdivides its own territory into each Publisher's
+          // own real assigned records (spec §1's own "visualization of the
+          // existing assignments," never a new database record).
+          // "SOLID COLORS AND 100% OPACITY" superseded the earlier "Group
+          // Territory... subtle... Publisher Territory... stronger" idea —
+          // both are now equally fully opaque; the two still read as
+          // distinct layers purely through z-order (a Publisher's own
+          // subdivision is drawn, and stays, on top of its parent Group's
+          // own fill — see [window.setPublisherScopeBoundaries] below,
+          // which no longer dims the Group's own color at all) rather than
+          // through either one being faded.
+          var PUBLISHER_FILL_OPACITY = 1.0;
+          var PUBLISHER_LABEL_MIN_ZOOM = 11;
+          var PUBLISHER_LABEL_FULL_ZOOM = 15;
+          var PUBLISHER_BADGE_SVG = '<svg viewBox="0 0 24 24" width="7" height="7"><path fill="#ffffff" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
+          // Same "icon-only vs. short vs. full" zoom-tier idea
+          // [groupLabelHtml] already uses, one size down; "RP <name>" is the
+          // same Publisher-naming convention every other label on this map
+          // (marker tooltips, the Group Report table) already reads.
+          function publisherLabelHtml(name, color, zoom, bounds) {
+            var badge = '<div class="publisher-badge" style="background:' + color + ';">' + PUBLISHER_BADGE_SVG + '</div>';
+            var nw = map.latLngToContainerPoint(bounds.getNorthWest());
+            var se = map.latLngToContainerPoint(bounds.getSouthEast());
+            var boxWidth = Math.abs(se.x - nw.x);
+            if (zoom < PUBLISHER_LABEL_MIN_ZOOM || boxWidth < 26) {
+              return '<div class="publisher-label-wrap">' + badge + '</div>';
+            }
+            var fontSize = scaleForZoom(zoom, PUBLISHER_LABEL_MIN_ZOOM, PUBLISHER_LABEL_FULL_ZOOM, 8, 10);
+            return '<div class="publisher-label-wrap">' + badge +
+              '<div class="publisher-name-label map-label-text" style="font-size:' + fontSize + 'px;">RP ' +
+              escapeHtml(name) + '</div></div>';
+          }
+          function refreshPublisherLabels() {
+            var zoom = map.getZoom();
+            Object.keys(window.publisherLabelMarkers).forEach(function(pid) {
+              var marker = window.publisherLabelMarkers[pid];
+              if (!map.hasLayer(marker)) return;
+              marker.setIcon(L.divIcon({ className: 'territory-marker', html: publisherLabelHtml(marker._pubName, marker._pubColor, zoom, marker._pubBounds) }));
+            });
+          }
+          // Same point-hull convention [buildGroupBoundaryLayer] already
+          // uses, one level down — a Publisher's own hull is always a
+          // subset of the parent Group's own points, so it can never
+          // extend past the Group's own territory (see
+          // [TerritoryLiveMap]'s own `selectedGroupPublisherBoundaries` doc
+          // comment for why that's mathematically guaranteed, not just
+          // assumed).
+          function buildPublisherBoundaryLayer(points, color, publisherId, name) {
+            var casingStyle = { color: shadeColor(color, -0.35), weight: 3, opacity: 1, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
+            var mainStyle = { color: color, weight: 2.5, opacity: 1, fill: true, fillColor: color, fillOpacity: PUBLISHER_FILL_OPACITY, lineJoin: 'round', lineCap: 'round', interactive: true };
+            var casingLayer, mainLayer;
+            if (points.length === 1) {
+              var soloHull = smallTerritoryPolygon(points);
+              casingLayer = L.polygon(soloHull, casingStyle);
+              mainLayer = L.polygon(soloHull, mainStyle);
+            } else {
+              var unique = dedupePoints(points);
+              var hull = unique.length >= 3 ? convexHull(unique) : unique;
+              if (hull.length < 3) {
+                var smallHull = smallTerritoryPolygon(unique);
+                casingLayer = L.polygon(smallHull, casingStyle);
+                mainLayer = L.polygon(smallHull, mainStyle);
+              } else {
+                casingLayer = L.polygon(hull, casingStyle);
+                mainLayer = L.polygon(hull, mainStyle);
+              }
+            }
+            disableClickCapture(casingLayer);
+            // "Clicking a Publisher Territory" (spec §6).
+            mainLayer.on('click', function(e) {
+              if (window.AndroidBridge) { AndroidBridge.showPublisherDetails(publisherId); }
+              L.DomEvent.stopPropagation(e);
+            });
+            var layers = [casingLayer, mainLayer];
+            if (name) {
+              var labelMarker = L.marker(mainLayer.getBounds().getCenter(), {
+                icon: L.divIcon({ className: 'territory-marker', html: publisherLabelHtml(name, color, map.getZoom(), mainLayer.getBounds()) }),
+                interactive: false,
+                zIndexOffset: 700,
+              });
+              labelMarker._pubName = name;
+              labelMarker._pubColor = color;
+              labelMarker._pubBounds = mainLayer.getBounds();
+              disableClickCapture(labelMarker);
+              window.publisherLabelMarkers[publisherId] = labelMarker;
+              layers.push(labelMarker);
+            }
+            return L.featureGroup(layers);
+          }
+          // [groupId]'s own boundary layer (already drawn by
+          // `setGroupScopeBoundaries`) is dimmed to a subtle background the
+          // moment its own Publisher breakdown is showing — "Group
+          // Territory... subtle group-level boundary or background
+          // indication" (spec §4) — and the camera fits to that same
+          // Group's own bounds ("Automatically fit the selected Group
+          // Territory to the map when it is opened," spec §7).
+          // "Do not automatically reduce the opacity of any color" — the
+          // parent Group's own boundary is no longer dimmed while its own
+          // Publisher breakdown is showing (it used to drop to 12% fill);
+          // both stay fully opaque, and a Publisher's own subdivision
+          // simply paints over the Group's own color wherever the two
+          // overlap because it's added to the map *after* (see the
+          // `ordered.forEach` below), the same "later = on top" SVG
+          // stacking every other layer on this map already relies on — the
+          // Group's own full color still shows through everywhere a
+          // Publisher's own subdivision doesn't reach.
+          window.setPublisherScopeBoundaries = function(groupId, entries) {
+            window.clearPublisherScopeBoundaries();
+            window.publisherSubdividedGroupId = groupId;
+            var groupLayer = window.groupBoundaryLayers[groupId];
+            if (groupLayer && groupLayer.getBounds && groupLayer.getBounds().isValid()) {
+              map.fitBounds(groupLayer.getBounds().pad(0.25));
+            }
+            var ordered = (entries || []).slice().sort(function(a, b) {
+              return boundsFootprintArea(b.points) - boundsFootprintArea(a.points);
+            });
+            ordered.forEach(function(entry) {
+              if (!entry.points || entry.points.length === 0) return;
+              var layer = buildPublisherBoundaryLayer(entry.points, entry.color, entry.id, entry.name);
+              window.publisherBoundaryLayers[entry.id] = layer.addTo(map);
+            });
+          };
+          window.clearPublisherScopeBoundaries = function() {
+            Object.keys(window.publisherBoundaryLayers).forEach(function(id) { map.removeLayer(window.publisherBoundaryLayers[id]); });
+            window.publisherBoundaryLayers = {};
+            window.publisherLabelMarkers = {};
+            window.publisherSubdividedGroupId = null;
           };
 
           // JS-side fallback for the exact same "container wasn't its final
@@ -3156,9 +4613,18 @@ private fun MapPointDetailsSheet(
             // "Keep the category icon visible" — the same emoji as the
             // marker itself, legend, and dropdown, shown large above the
             // name (spec's own worked examples: "👤 / Juan Dela Cruz").
+            // "Use the color code of the icons of Interested Person/Return
+            // Visit/Bible Study based on the congregation Group color" — a
+            // pipeline point's own icon now uses its actual assigned
+            // Group's color ([MapPoint.groupColor], the exact same color
+            // its map pin/territory shape already use), never a fixed
+            // per-status color; Publisher/"Me" keep [markerColorFor]'s own
+            // fixed colors, since neither belongs to a Congregation Group
+            // the same way.
+            val iconColor = if (isPipelinePoint) parseHexColor(point.groupColor) else markerColorFor(point.kind)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(
-                    modifier = Modifier.size(44.dp).clip(CircleShape).background(markerColorFor(point.kind)),
+                    modifier = Modifier.size(44.dp).clip(CircleShape).background(iconColor),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(emojiFor(point.kind), style = MaterialTheme.typography.titleLarge)
@@ -3235,6 +4701,280 @@ private fun MapPointDetailsSheet(
     }
 }
 
+/** "Territory Group Information" (spec §11) — Group Name + Icon (both in
+ * the Group's own assigned color, spec §5/§14's own "consistency"
+ * requirement), Publishers/Interested Persons/Bible Studies counts, shown
+ * when a Group's own territory fill is tapped on the map (see
+ * [TerritoryLiveMap]'s own `selectedGroupId`/`AndroidBridge.showGroupDetails`).
+ * Same [ModalBottomSheet] convention [MapPointDetailsSheet] already uses,
+ * so both feel like the same app rather than two different UI patterns. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GroupInfoSheet(
+    info: GroupReportRow,
+    onDismiss: () -> Unit,
+    onClearFilter: () -> Unit,
+    // "Publisher Territories must remain hidden by default... SHOW
+    // PUBLISHER TERRITORY... HIDE THE PUBLISHERS TERRITORY" (spec §2/§3/§8) —
+    // this sheet only ever *reads* the current shown/hidden state and asks
+    // to toggle it; [TerritoryLiveMap] owns the actual state and everything
+    // that depends on it (which layer gets pushed to the map).
+    showPublisherTerritories: Boolean,
+    onToggleShowPublisherTerritories: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState()
+    val groupColor = parseHexColor(info.color)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).padding(bottom = 24.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
+                    modifier = Modifier.size(44.dp).clip(CircleShape).background(groupColor),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Groups, contentDescription = null, tint = Color.White)
+                }
+                Column {
+                    Text(info.groupName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = groupColor)
+                    Text("Congregation Group Territory", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            // "Hide/collapse the normal Group Territory detail information
+            // as appropriate" (spec §3) once Publisher Territories are
+            // actually showing — the map itself is already the detailed
+            // view at that point; the sheet shrinks to just the toggle
+            // button so it covers as little of the map as possible.
+            if (!showPublisherTerritories) {
+                if (info.municipalities.isNotEmpty()) {
+                    DetailRow(label = "Municipality", value = info.municipalities.joinToString(", "))
+                }
+                if (info.barangays.isNotEmpty()) {
+                    DetailRow(label = "Barangay", value = info.barangays.joinToString(", "))
+                }
+                DetailRow(label = "House Holders", value = info.houseHolderCount.toString())
+                DetailRow(label = "Publishers", value = info.publishers.toString())
+                // "Show the names of the group publishers if the Territory
+                // Group is clicked" — every distinct Publisher assigned to a
+                // record in this Group, listed right under the count above.
+                if (info.publisherNames.isNotEmpty()) {
+                    Text(
+                        info.publisherNames.joinToString(", "),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                DetailRow(label = "Interested Persons", value = info.interestedPersons.toString())
+                DetailRow(label = "Return Visits", value = info.returnVisits.toString())
+                DetailRow(label = "Bible Studies", value = info.bibleStudies.toString())
+            }
+            // "Do not display Publisher Territories automatically when the
+            // Group Territory is first clicked. They must only appear after
+            // the user explicitly selects SHOW PUBLISHER TERRITORY."
+            Button(onClick = onToggleShowPublisherTerritories, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                Text(if (showPublisherTerritories) "HIDE THE PUBLISHERS TERRITORY" else "SHOW PUBLISHER TERRITORY")
+            }
+            // "Keep the other territories visible in the background" — this
+            // only ever narrows which House Holder markers are drawn (see
+            // [TerritoryLiveMap]'s own `visiblePoints`), never which Group
+            // territory *shapes* are drawn; this button is the one explicit
+            // way back to seeing every Group's own House Holders again.
+            OutlinedButton(onClick = onClearFilter, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Text("Show All Territories")
+            }
+        }
+    }
+}
+
+/** "Clicking a Publisher Territory" (spec §6) — Publisher Name, Group Name,
+ * Municipality/Barangay, House Holder/Interested Person/Return Visit/Bible
+ * Study counts, all scoped to this one Publisher's own records *within the
+ * currently-selected Group* (spec §8). Same [ModalBottomSheet] convention
+ * [GroupInfoSheet]/[MapPointDetailsSheet] already use. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PublisherInfoSheet(
+    info: PublisherTerritoryInfo,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState()
+    val publisherColor = parseHexColor(info.color)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).padding(bottom = 24.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
+                    modifier = Modifier.size(44.dp).clip(CircleShape).background(publisherColor),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Person, contentDescription = null, tint = Color.White)
+                }
+                Column {
+                    Text("RP ${info.publisherName}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = publisherColor)
+                    Text("Publisher Territory · ${info.groupName}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            DetailRow(label = "Group", value = info.groupName)
+            if (info.municipalities.isNotEmpty()) {
+                DetailRow(label = "Municipality", value = info.municipalities.joinToString(", "))
+            }
+            if (info.barangays.isNotEmpty()) {
+                DetailRow(label = "Barangay", value = info.barangays.joinToString(", "))
+            }
+            DetailRow(label = "House Holders", value = info.houseHolderCount.toString())
+            DetailRow(label = "Interested Persons", value = info.interestedPersons.toString())
+            DetailRow(label = "Return Visits", value = info.returnVisits.toString())
+            DetailRow(label = "Bible Studies", value = info.bibleStudies.toString())
+        }
+    }
+}
+
+/** A base map style offered in [MapLayersSheet] — [id] is what
+ * `window.setBaseLayer`/the JS `BASE_LAYER_DEFS` map key on the other end
+ * expects, so this list and that JS object must be kept in sync by hand. */
+private data class BaseLayerOption(val id: String, val label: String, val description: String)
+private val BASE_LAYER_OPTIONS = listOf(
+    BaseLayerOption("standard", "Standard", "Roads, buildings, places, water, parks, points of interest"),
+    BaseLayerOption("topo", "Topographic", "Elevation, contours, terrain — mountainous/rural territories"),
+    BaseLayerOption("cycling", "Cycling", "Bicycle routes and cycling infrastructure (CyclOSM)"),
+    BaseLayerOption("humanitarian", "Humanitarian", "Emphasizes roads/tracks/buildings in less-mapped areas"),
+    // "Detailed / Colorful" (CARTO Voyager) was tried and removed — see
+    // the matching JS `BASE_LAYER_DEFS` comment: it now requires a paid
+    // API key this app doesn't have, and no genuinely free, key-less
+    // alternative for this exact style was found.
+)
+
+/** An optional overlay in [MapLayersSheet] — [id] matches what
+ * `window.setOverlayEnabled` on the JS side expects. */
+private data class OverlayOption(val id: String, val label: String, val description: String)
+private val OVERLAY_OPTIONS = listOf(
+    OverlayOption("bicycle", "Bicycle Routes", "Waymarked cycling routes"),
+    OverlayOption("hiking", "Hiking / Walking Routes", "Waymarked hiking routes"),
+    OverlayOption("railways", "Railways", "Rail lines and stations (OpenRailwayMap)"),
+    OverlayOption("gpsTraces", "Public GPS Traces", "Publicly shared OpenStreetMap GPS traces"),
+    OverlayOption("mapNotes", "Map Notes", "Open OpenStreetMap notes near the current view"),
+    OverlayOption("mapData", "Map Data", "Raw OpenStreetMap way geometry (zoom in to load)"),
+)
+
+private data class GoPreachLayerOption(val id: String, val label: String)
+private val GOPREACH_LAYER_OPTIONS = listOf(
+    GoPreachLayerOption("municipalities", "Municipalities"),
+    GoPreachLayerOption("groups", "Territory Groups"),
+    GoPreachLayerOption("householders", "House Holders"),
+)
+
+/** "MAP LAYER PANEL DESIGN" (spec §14) — Base Map (single choice, changes
+ * only `window.setBaseLayer`), Overlays (multi-choice, optional OpenStreetMap
+ * overlays), and GoPreach Layers (multi-choice, this app's own territory
+ * data — on by default). None of these three sections can ever affect one
+ * another: a base map swap, an overlay toggle, and a GoPreach layer toggle
+ * are three structurally separate Leaflet layer systems on the JS side (see
+ * [TerritoryLiveMap]'s own three independent `LaunchedEffect`s that push
+ * this state) — switching one never resets camera position, search, or any
+ * of the other two (spec §11/§15). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MapLayersSheet(
+    selectedBaseLayer: String,
+    onSelectBaseLayer: (String) -> Unit,
+    overlayStates: Map<String, Boolean>,
+    onOverlayChange: (String, Boolean) -> Unit,
+    goPreachLayerStates: Map<String, Boolean>,
+    onGoPreachLayerChange: (String, Boolean) -> Unit,
+    // "Show or hide the Names and other details of Interested Person/
+    // Return Visit/Bible Study in Territory Map" — a separate toggle from
+    // [goPreachLayerStates]'s own "householders" (that one hides the
+    // markers themselves; this only hides each marker's own on-map label).
+    showPipelineDetails: Boolean,
+    onShowPipelineDetailsChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).padding(bottom = 24.dp)
+                .heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Rounded.Layers, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text("Map Layers", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            }
+
+            Text("Base Map", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 20.dp, bottom = 4.dp))
+            BASE_LAYER_OPTIONS.forEach { option ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable { onSelectBaseLayer(option.id) }.padding(vertical = 6.dp),
+                ) {
+                    RadioButton(selected = selectedBaseLayer == option.id, onClick = { onSelectBaseLayer(option.id) })
+                    Column(modifier = Modifier.padding(start = 4.dp)) {
+                        Text(option.label, style = MaterialTheme.typography.bodyLarge)
+                        Text(option.description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            Text("Overlays", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 4.dp))
+            OVERLAY_OPTIONS.forEach { option ->
+                val checked = overlayStates[option.id] == true
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable { onOverlayChange(option.id, !checked) }.padding(vertical = 4.dp),
+                ) {
+                    Checkbox(checked = checked, onCheckedChange = { onOverlayChange(option.id, it) })
+                    Column(modifier = Modifier.padding(start = 4.dp)) {
+                        Text(option.label, style = MaterialTheme.typography.bodyLarge)
+                        Text(option.description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            // "Transport Map"/"Public Transit" have no free, key-less tile
+            // provider (Thunderforest requires a paid API key this app
+            // doesn't have) — Railways above (OpenRailwayMap) is offered
+            // instead of pretending a paid service is free (spec §21).
+            Text(
+                "Railways covers public rail routes; a full transit/bus overlay needs a paid provider not currently configured.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            Text("GoPreach Layers", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 4.dp))
+            GOPREACH_LAYER_OPTIONS.forEach { option ->
+                val checked = goPreachLayerStates[option.id] != false
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable { onGoPreachLayerChange(option.id, !checked) }.padding(vertical = 4.dp),
+                ) {
+                    Checkbox(checked = checked, onCheckedChange = { onGoPreachLayerChange(option.id, it) })
+                    Text(option.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 4.dp))
+                }
+            }
+            // "Make an option for the user if show or hide the Names and
+            // other details of the (Interested Person, Return Visit, Bible
+            // Study) in territory map" — hides only the on-map label
+            // ("Name (Status)" + "RP <publisher>"); the marker/pin itself
+            // (and its own tap-for-details bottom sheet) stays exactly as
+            // it is either way, so a record is never actually harder to
+            // find, just less cluttered/private-looking at a glance.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { onShowPipelineDetailsChange(!showPipelineDetails) }.padding(vertical = 4.dp),
+            ) {
+                Checkbox(checked = showPipelineDetails, onCheckedChange = onShowPipelineDetailsChange)
+                Column(modifier = Modifier.padding(start = 4.dp)) {
+                    Text("Names & Details on Map", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Show each Interested Person/Return Visit/Bible Study marker's name, status, and assigned publisher on the map",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun DetailRow(label: String, value: String) {
     Column(modifier = Modifier.padding(top = 10.dp)) {
@@ -3252,88 +4992,22 @@ private fun markerColorFor(kind: MapPointKind): Color = when (kind) {
 }
 
 /** Neutral gray for a record whose assigned Publisher has no Congregation
- * Group at all — deliberately never a "real" group's own generated color
- * (see [colorForGroupId]), so an unassigned record can never be mistaken
- * for belonging to one. */
-private const val UNASSIGNED_GROUP_COLOR = "#78909C"
+ * Group at all — deliberately never a "real" group's own assigned/generated
+ * color, so an unassigned record can never be mistaken for belonging to
+ * one. Delegates to [GroupColorPalette], the single shared palette
+ * [ManageGroupsScreen]'s color picker also reads/writes against, so the Map
+ * and the Group editor never drift onto two different color formulas. */
+private val UNASSIGNED_GROUP_COLOR = GroupColorPalette.UNASSIGNED_COLOR
 
-/** "Group 1 → Yellow, Group 2 → Orange, Group 3 → Blue, Group 4 → Green,
- * Group 5 → Violet" — spec's own exact worked example, extended to 12
- * hand-picked, mutually-distinct, professional colors (never a formula that
- * *might* produce two similar-looking ones — see [colorForGroupId]'s own
- * doc comment for why a purely computed palette isn't good enough on its
- * own for a small handful of Groups). [TerritoryMapScreen]'s own
- * `groupColorById` assigns these by creation order; a 13th+ Group falls
- * through to [colorForGroupId]'s generated color instead. */
-private val CURATED_GROUP_PALETTE = listOf(
-    "#FBC02D", // Yellow
-    "#FB8C00", // Orange
-    "#1E88E5", // Blue
-    "#43A047", // Green
-    "#8E24AA", // Violet
-    "#E53935", // Red
-    "#00ACC1", // Cyan
-    "#D81B60", // Pink
-    "#6D4C41", // Brown
-    "#3949AB", // Indigo
-    "#00897B", // Teal
-    "#F4511E", // Deep Orange
-)
+/** See [GroupColorPalette.CURATED] — kept as a local alias only so the rest
+ * of this file (and its own doc comments) don't need touching. */
+private val CURATED_GROUP_PALETTE = GroupColorPalette.CURATED
 
-/** Overflow generator, used only once a congregation has more Groups than
- * [CURATED_GROUP_PALETTE] has colors for (spec's own "do not limit the
- * system to five colors/groups... automatically generate/assign additional
- * visually distinct colors"). Golden-ratio-conjugate hue stepping, seeded by
- * the Group's own stable [Group.id] hash, is a standard trick for spreading
- * arbitrary-but-deterministic values well around the color wheel — not a
- * perfect guarantee against two unrelated ids landing on similar hues (true
- * graph-coloring of *geographically adjacent* territories would need the
- * territories' geometry, which this app doesn't have), but a reasonable,
- * dependency-free approximation for the rare case a congregation actually
- * runs past 12 Groups. Deriving the color purely from the Group's own
- * stable id (never its position in a list) keeps it permanent for that
- * Group's entire lifetime regardless of other Groups being added/removed.
- */
-private fun colorForGroupId(groupId: String): String {
-    val goldenRatioConjugate = 0.6180339887498949
-    val hash = groupId.hashCode().toLong() and 0xFFFFFFFFL
-    val hue = ((hash * goldenRatioConjugate) % 1.0 * 360.0).toFloat()
-    return hsvToHex(hue, saturation = 0.68f, value = 0.80f)
-}
+/** See [GroupColorPalette.colorForGroupId]. */
+private fun colorForGroupId(groupId: String): String = GroupColorPalette.colorForGroupId(groupId)
 
-/** Plain HSV -> "#RRGGBB" conversion with no Compose/Android dependency, so
- * the exact same color can be embedded straight into the map's own JS
- * (markers, group boundary lines/fills) and parsed back into a Compose
- * [Color] for the Congregation Group dropdown/legend/report — one formula,
- * never two color systems that could drift apart. */
-private fun hsvToHex(hueDegrees: Float, saturation: Float, value: Float): String {
-    val c = value * saturation
-    val x = c * (1 - kotlin.math.abs((hueDegrees / 60f) % 2 - 1))
-    val m = value - c
-    val (r1, g1, b1) = when {
-        hueDegrees < 60f -> Triple(c, x, 0f)
-        hueDegrees < 120f -> Triple(x, c, 0f)
-        hueDegrees < 180f -> Triple(0f, c, x)
-        hueDegrees < 240f -> Triple(0f, x, c)
-        hueDegrees < 300f -> Triple(x, 0f, c)
-        else -> Triple(c, 0f, x)
-    }
-    fun channel(v: Float) = ((v + m) * 255f).roundToInt().coerceIn(0, 255)
-    return "#%02X%02X%02X".format(channel(r1), channel(g1), channel(b1))
-}
-
-/** Parses a "#RRGGBB" string (as produced by [colorForGroupId]/
- * [UNASSIGNED_GROUP_COLOR]) into a Compose [Color] for the dropdown/legend/
- * report swatches — `android.graphics.Color.parseColor` would also work, but
- * pulling in the platform's own class for a format this file already
- * generates itself is one dependency this doesn't need. */
-private fun parseHexColor(hex: String): Color {
-    val clean = hex.removePrefix("#")
-    val r = clean.substring(0, 2).toInt(16)
-    val g = clean.substring(2, 4).toInt(16)
-    val b = clean.substring(4, 6).toInt(16)
-    return Color(r, g, b)
-}
+/** See [GroupColorPalette.parseHex]. */
+private fun parseHexColor(hex: String): Color = GroupColorPalette.parseHex(hex)
 
 /** "The icon identifies the person's current classification; GPS location
  * does not determine classification" — the one place every one of the five
@@ -3445,6 +5119,16 @@ private data class MapPoint(
     // Shown in the detail bottom sheet only — "clearly show which records...
     // belong to which group;" null for PUBLISHER/ME/an unassigned record.
     val groupName: String? = null,
+    // "Expand House Holders Inside the Selected Territory... only show
+    // House Holders actually located inside the selected territory" — the
+    // real Congregation Group id this record belongs to (never the display
+    // name), used purely client-side to filter [points] down to one Group's
+    // own once its territory is tapped (see [TerritoryLiveMap]'s own
+    // `selectedGroupId`); null for PUBLISHER/ME (a Publisher-sharing point
+    // is never a House Holder — spec §15 — so it's simply never a member of
+    // any Group's own filtered set) and for a pipeline record whose
+    // assigned Publisher has no Group.
+    val groupId: String? = null,
 )
 
 /** One Congregation Group's own barrier — see [TerritoryMapScreen]'s
@@ -3453,9 +5137,60 @@ private data class MapPoint(
  * never merged with another Group's). [id] is [UNASSIGNED_GROUP_ID] for the
  * one pseudo-group covering a record whose assigned Publisher has no real
  * Congregation Group. */
-private data class MapGroupBoundary(val id: String, val color: String, val points: List<LatLng>)
+private data class MapGroupBoundary(val id: String, val name: String, val color: String, val points: List<LatLng>)
 
 private const val UNASSIGNED_GROUP_ID = "—unassigned-group—"
+
+/** One Publisher's own territory subdivision *inside* an already-selected
+ * Group's own territory — see [TerritoryLiveMap]'s own
+ * `selectedGroupPublisherBoundaries` for how this is built and
+ * `window.setPublisherScopeBoundaries` for how it's actually drawn. [color]
+ * is assigned once, here, from [PUBLISHER_TERRITORY_COLORS] (by that
+ * Publisher's own stable ordering within the Group) so the same Publisher
+ * always gets the same color both on their own territory shape and their
+ * own [PublisherInfoSheet] — never re-derived independently on the JS side,
+ * the same "one color, one source of truth" convention [MapGroupBoundary]'s
+ * own [MapGroupBoundary.color] already follows. */
+private data class MapPublisherBoundary(val id: String, val name: String, val color: String, val points: List<LatLng>)
+
+/** "Territory Group Colors... professional... visually distinguishable"
+ * (Publisher Territory spec §3) — deliberately its own small palette,
+ * distinct in hue from both [GroupColorPalette.CURATED] (Group colors) and
+ * the Municipality solid-fill palette, so a Publisher's own subdivision
+ * color is never mistaken for either of those two outer layers when all
+ * three could plausibly be visible near each other. A Group with more
+ * Publishers than this palette has entries falls through to
+ * [colorForGroupId]'s own generated-color formula, same overflow
+ * convention [GroupColorPalette.nextAvailableColor] already uses. */
+private val PUBLISHER_TERRITORY_COLORS = listOf(
+    "#1565C0", // Blue
+    "#2E7D32", // Green
+    "#EF6C00", // Amber/Orange
+    "#6A1B9A", // Purple
+    "#C62828", // Red
+    "#00838F", // Teal
+    "#AD1457", // Pink
+    "#4E342E", // Brown
+)
+
+/** "Clicking a Publisher Territory" (spec §6) — everything shown in
+ * [PublisherInfoSheet]; [municipalities]/[barangays] are every distinct
+ * value across this Publisher's own records *within the selected Group*
+ * (never that Publisher's records in some other Group — spec §8's own
+ * "only... territory assignments belonging to the selected Group
+ * Territory"), sorted for a stable, predictable display order. */
+private data class PublisherTerritoryInfo(
+    val publisherId: String,
+    val publisherName: String,
+    val color: String,
+    val groupName: String,
+    val municipalities: List<String>,
+    val barangays: List<String>,
+    val houseHolderCount: Int,
+    val interestedPersons: Int,
+    val returnVisits: Int,
+    val bibleStudies: Int,
+)
 
 /** One row of the "Group Report" — see [TerritoryMapScreen]'s own
  * `groupReportRows` for how this is built (always from the same dataset the
@@ -3469,6 +5204,20 @@ private data class GroupReportRow(
     val interestedPersons: Int,
     val returnVisits: Int,
     val bibleStudies: Int,
+    // "Show the names of the group publishers if the Territory Group is
+    // clicked" — only ever populated for [GroupInfoSheet]'s own single-Group
+    // focus (see [TerritoryLiveMap]'s own `selectedGroupInfo`); the main
+    // multi-row Group Report table has no room for this and never needs it,
+    // so it stays the default empty list there.
+    val publisherNames: List<String> = emptyList(),
+    // "Group Territory details should include... Municipality, Barangay,
+    // House Holder records" (spec §2) — same single-Group-focus-only
+    // convention as [publisherNames] above; every distinct Municipality/
+    // Barangay actually covered by this Group's own records, and the total
+    // record count.
+    val municipalities: List<String> = emptyList(),
+    val barangays: List<String> = emptyList(),
+    val houseHolderCount: Int = 0,
 )
 
 /** Great-circle distance in meters — plenty accurate for "which of these
