@@ -2613,7 +2613,7 @@ private fun TerritoryLiveMap(
         val groupId = selectedGroupId
         if (groupId == null) points else points.filter { it.groupId == groupId }
     }
-    LaunchedEffect(loadState, webViewRef, visiblePoints, selectedAreaQuery, selectedAreaNames, groupBoundaries, province, streetPointsByGroupId) {
+    LaunchedEffect(loadState, webViewRef, visiblePoints, selectedAreaQuery, selectedAreaNames, groupBoundaries, province) {
         if (loadState != MapLoadState.LOADED) return@LaunchedEffect
         val webView = webViewRef ?: return@LaunchedEffect
         // "Update only the required markers, search results, and line
@@ -2645,13 +2645,11 @@ private fun TerritoryLiveMap(
         // inner Group territories and no outer Municipality boundary at
         // all. The outer boundary (real polygon, or this circle
         // approximation when there's no bundled polygon) is a completely
-        // separate concept from the Group barriers now drawn alongside it
-        // (see `setGroupScopeBoundaries` below) — one is the container, the
-        // other is what's inside it — so its own presence must never depend
-        // on whether the inner Group barriers happen to have anything to
-        // draw. [cameraAlreadyFit] tracks whether this block already
-        // positioned the camera, so the Group-boundary push below only
-        // takes over centering when nothing here already did.
+        // separate concept from the Group barriers (now pushed by their own
+        // decoupled effect below, never camera-fitting on their own — see
+        // its own doc comment) — one is the container, the other is what's
+        // inside it — so its own presence must never depend on whether the
+        // inner Group barriers happen to have anything to draw.
         var cameraAlreadyFit = false
         when {
             geometry != null -> {
@@ -2729,6 +2727,38 @@ private fun TerritoryLiveMap(
                 cameraAlreadyFit = true
             }
         }
+        // "Do not hide the Municipality map [boundary]" — Group territories
+        // are drawn *after* the Municipality/Barangay outline above, so a
+        // now-solid Group fill would otherwise land on top of it in the
+        // SVG stack and visually bury its line/fill underneath a Group's
+        // own color, especially once a Group's real Barangay-union
+        // territory covers roughly the same area as the Municipality
+        // itself. Explicitly raising the Municipality boundary back above
+        // every Group layer, every update, guarantees it stays visible
+        // regardless of how solid/opaque Group fills are.
+        webView.evaluateJavascript(
+            "if (window.areaBoundary && window.areaBoundary.bringToFront) { window.areaBoundary.bringToFront(); }",
+            null,
+        )
+    }
+
+    // Performance fix ("calibrate the map, it's lagging even [though] the
+    // internet is fast") — confirmed: this used to be part of the big
+    // combined effect above, keyed (among other things) on
+    // [streetPointsByGroupId]. Since Overpass street-point fetches land
+    // one Group at a time (see [streetPointsByGroupId]'s own effect above),
+    // every single one landing used to re-run *that entire* effect —
+    // rebuilding every House Holder marker from scratch and re-fitting the
+    // camera (`window.setPoints`/`window.fitToMarkers`) — for a congregation
+    // with N Groups, up to N extra full marker-rebuild/camera-jump passes
+    // in quick succession right after the map first opens, on top of
+    // whatever a live Firestore tick already triggers. Split into its own
+    // effect, keyed only on what it actually needs, so a street-point
+    // fetch landing only ever re-pushes this one (much cheaper) Group
+    // boundary update.
+    LaunchedEffect(loadState, webViewRef, groupBoundaries, streetPointsByGroupId) {
+        if (loadState != MapLoadState.LOADED) return@LaunchedEffect
+        val webView = webViewRef ?: return@LaunchedEffect
         // Bug fix (explicit instruction, confirmed live: two records from
         // the same Group showed a territory covering the whole Barangay
         // they happen to live in, when it must show only the area actually
@@ -2780,27 +2810,17 @@ private fun TerritoryLiveMap(
         }
         val groupEntriesJson = groupEntryJsons.joinToString(",", prefix = "[", postfix = "]")
         // "Create a separate barrier line for every Congregation Group" —
-        // always pushed, independently of whichever case the `when` above
-        // took, so a real (or approximated) Municipality/Barangay outline
-        // and each Group's own color-coded barrier are always visible
-        // together — the outer container and its inner territories, never
-        // one replacing the other. Camera-fitting is suppressed here only
-        // when the block above already positioned it this same update.
+        // always pushed, independently of the Municipality/Barangay/camera
+        // logic in the other effect, so a real (or approximated)
+        // Municipality/Barangay outline and each Group's own color-coded
+        // barrier are always visible together — the outer container and
+        // its inner territories, never one replacing the other. Never
+        // fits the camera itself — that already happens, once, from the
+        // other effect (a still-loading street-point fetch landing later
+        // must never yank the camera back to fit every Group again after
+        // the user has already panned/zoomed away).
         webView.evaluateJavascript(
-            "if (window.setGroupScopeBoundaries) { window.setGroupScopeBoundaries($groupEntriesJson, ${!cameraAlreadyFit}); }",
-            null,
-        )
-        // "Do not hide the Municipality map [boundary]" — Group territories
-        // are drawn *after* the Municipality/Barangay outline above, so a
-        // now-solid Group fill would otherwise land on top of it in the
-        // SVG stack and visually bury its line/fill underneath a Group's
-        // own color, especially once a Group's real Barangay-union
-        // territory covers roughly the same area as the Municipality
-        // itself. Explicitly raising the Municipality boundary back above
-        // every Group layer, every update, guarantees it stays visible
-        // regardless of how solid/opaque Group fills are.
-        webView.evaluateJavascript(
-            "if (window.areaBoundary && window.areaBoundary.bringToFront) { window.areaBoundary.bringToFront(); }",
+            "if (window.setGroupScopeBoundaries) { window.setGroupScopeBoundaries($groupEntriesJson, false); }",
             null,
         )
     }
@@ -3804,19 +3824,52 @@ private fun buildTerritoryMapHtml(): String {
           // unmoved [_trueLatLng], never from a previous run's already-
           // spiderfied position, so repeated runs never drift or compound.
           var SPIDERFY_PIXEL_RADIUS = 26;
+          // Performance fix ("calibrate the map, it's lagging even [though]
+          // the internet is fast") — this used to be a plain all-pairs
+          // O(n²) scan (every marker's on-screen pixel distance checked
+          // against every other marker), re-run on *every* pan/zoom
+          // (`map.on('zoomend moveend', declutterMarkers)` below) with no
+          // viewport culling — cost grows with the square of the visible
+          // House Holder count, on the WebView's own JS thread, competing
+          // with the pan/zoom rendering itself. A marker can only ever be
+          // within [SPIDERFY_PIXEL_RADIUS] of another marker that lands in
+          // the same or a directly-adjacent cell of a grid sized to that
+          // same radius — bucketing into that grid first (one pass, O(n))
+          // and only comparing within a marker's own 3x3 neighborhood of
+          // cells turns the common case back into close to O(n) without
+          // changing the actual grouping result at all (a marker's true
+          // neighbors, by definition, can never be more than one cell
+          // away).
           function declutterMarkers() {
             if (!markers.length) return;
+            var cellSize = SPIDERFY_PIXEL_RADIUS;
+            var pts = new Array(markers.length);
+            var grid = {};
+            for (var i = 0; i < markers.length; i++) {
+              var pt = map.latLngToContainerPoint(markers[i]._trueLatLng);
+              pts[i] = pt;
+              var cellKey = Math.floor(pt.x / cellSize) + ',' + Math.floor(pt.y / cellSize);
+              (grid[cellKey] || (grid[cellKey] = [])).push(i);
+            }
             var used = new Array(markers.length).fill(false);
             var groups = [];
             for (var i = 0; i < markers.length; i++) {
               if (used[i]) continue;
               var group = [i];
               used[i] = true;
-              var basePt = map.latLngToContainerPoint(markers[i]._trueLatLng);
-              for (var j = i + 1; j < markers.length; j++) {
-                if (used[j]) continue;
-                var pt = map.latLngToContainerPoint(markers[j]._trueLatLng);
-                if (basePt.distanceTo(pt) < SPIDERFY_PIXEL_RADIUS) { group.push(j); used[j] = true; }
+              var basePt = pts[i];
+              var cellX = Math.floor(basePt.x / cellSize);
+              var cellY = Math.floor(basePt.y / cellSize);
+              for (var dx = -1; dx <= 1; dx++) {
+                for (var dy = -1; dy <= 1; dy++) {
+                  var neighbors = grid[(cellX + dx) + ',' + (cellY + dy)];
+                  if (!neighbors) continue;
+                  for (var n = 0; n < neighbors.length; n++) {
+                    var j = neighbors[n];
+                    if (used[j]) continue;
+                    if (basePt.distanceTo(pts[j]) < SPIDERFY_PIXEL_RADIUS) { group.push(j); used[j] = true; }
+                  }
+                }
               }
               groups.push(group);
             }
@@ -3859,11 +3912,33 @@ private fun buildTerritoryMapHtml(): String {
           // marker lands clipped at the screen edge; zero falls back to a
           // Philippines-wide view until a fresh search (with real markers)
           // or a selected-but-empty area's own geocode repositions it.
+          // Performance fix ("calibrate the map, it's lagging even
+          // [though] the internet is fast") — `window.setPoints` (this
+          // app's own "push the latest data, never reload the page"
+          // update path) used to call this unconditionally on *every*
+          // push, including routine ones a live Firestore listener fires
+          // on its own (an unrelated record's field changing, an
+          // in-flight resolved-address fill-in landing, ...) — confirmed
+          // live as a real, frequent, camera-jumping/re-zooming source of
+          // "lag," completely independent of network speed, every time
+          // any of that data happened to change in the background while
+          // the user was mid-pan/zoom. A genuinely new selection (a
+          // search picking a different record, a filter narrowing the
+          // set) still needs the camera to move — but a same/still-visible
+          // marker set never does, so this skips the move entirely
+          // whenever every marker the caller wants shown is already
+          // comfortably inside the current view, rather than moving the
+          // camera on every call regardless of whether anything the user
+          // would call "different" actually happened.
           window.fitToMarkers = function() {
             if (markers.length === 1) {
-              map.setView(markers[0].getLatLng(), 16);
+              var latLng = markers[0].getLatLng();
+              if (map.getZoom() >= 13 && map.getBounds().pad(-0.1).contains(latLng)) { return; }
+              map.setView(latLng, 16);
             } else if (markers.length > 1) {
-              map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
+              var targetBounds = L.featureGroup(markers).getBounds();
+              if (map.getBounds().contains(targetBounds)) { return; }
+              map.fitBounds(targetBounds.pad(0.2));
             } else {
               map.setView([12.8797, 121.7740], 6);
             }
