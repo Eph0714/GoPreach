@@ -22,10 +22,38 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    // GoPreach is sideloaded (no Play Store), so every release has always
+    // been signed with the standard Android debug key -- confirmed by
+    // comparing v1.109.0's actual signer cert against
+    // ~/.android/debug.keystore's (identical SHA-256). Wiring it in here so
+    // `assembleRelease` produces an already-signed APK instead of silently
+    // shipping unsigned (the "parser did not find any certificates" install
+    // failure this fixes). Every dev machine building a release therefore
+    // needs its own local debug.keystore -- present automatically on any
+    // machine that has ever run/debugged an Android app from Android
+    // Studio or `gradlew`.
+    val debugKeystore = file(System.getProperty("user.home") + "/.android/debug.keystore")
+
+    signingConfigs {
+        getByName("debug") {
+            storeFile = debugKeystore
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+        create("release") {
+            storeFile = debugKeystore
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isMinifyEnabled = false
