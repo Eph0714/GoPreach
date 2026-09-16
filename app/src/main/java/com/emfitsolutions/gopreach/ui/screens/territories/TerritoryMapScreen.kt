@@ -2,6 +2,7 @@
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.graphics.Color as AndroidColor
 import android.util.Log
 import android.view.View
 import android.webkit.ConsoleMessage
@@ -14,6 +15,7 @@ import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.emfitsolutions.gopreach.BuildConfig
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,11 +25,14 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -38,6 +43,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -47,6 +53,7 @@ import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Person
@@ -94,7 +101,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -2380,6 +2389,11 @@ private fun TerritoryLiveMap(
     // or any GoPreach territory data (spec §15's own "do not reset the
     // user's current map position... do not remove House Holder markers").
     var showMapLayers by remember { mutableStateOf(false) }
+    // "MAP LEGEND" / "DYNAMIC LEGEND" — a small, professional legend
+    // explaining whichever GoPreach layers are actually visible right now;
+    // see [TerritoryMapLegend] below for how it derives its own entries
+    // from this same layer/selection state, never a fixed list.
+    var showLegend by remember { mutableStateOf(false) }
     var selectedBaseLayer by remember { mutableStateOf("standard") }
     var overlayStates by remember {
         mutableStateOf(mapOf("bicycle" to false, "hiking" to false, "railways" to false, "gpsTraces" to false, "mapNotes" to false, "mapData" to false))
@@ -2726,34 +2740,24 @@ private fun TerritoryLiveMap(
         // point-hull shape (see [buildGroupBoundaryLayer]), proportional to
         // that Group's own actual records, never a whole administrative
         // unit standing in for it.
-        // "Snap the small territory shape to real streets/blocks where
-        // possible" — [nearbyStreetPoints] (best-effort; see its own doc
-        // comment for why a failure/timeout is never treated as an error)
-        // gives each Group's own territory real OpenStreetMap street-node
-        // coordinates to shape itself around, tightly capped to that
-        // Group's own footprint so this can never balloon into anything
-        // close to a whole administrative unit:
-        //  - 3+ records (already a real point-hull) — each vertex is
-        //    nudged onto its own nearest real street node, only when one
-        //    exists within [snapMaxMeters]; the hull's own actual shape/
-        //    extent is otherwise unchanged.
-        //  - 1-2 records (the JS side's own fully synthetic jittered-
-        //    polygon fallback — exactly the "just any drawing" this
-        //    replaces) — the handful of real street nodes nearest this
-        //    Group's own centroid stand in for that synthetic shape
-        //    instead, still only ever within [fetchRadius] of the Group's
-        //    own real records.
-        // A plain `for` loop, not `joinToString { }` — this used to call
-        // [nearbyStreetPoints] (a suspend function) inline here, but that
-        // starved it: this whole effect is keyed on several values (live
-        // Firestore-backed state, in particular) that can legitimately
-        // change every second or two even when nothing a user would call
-        // "changed" actually did, and Compose cancels+restarts a
-        // `LaunchedEffect` on every key change — so the network round-trip
-        // never once survived long enough to finish. The fetch itself now
-        // happens in its own effect keyed only on [groupBoundaries]
-        // (see [streetPointsByGroupId] above); this loop just reads back
-        // whatever has already resolved, synchronously.
+        // Bug fix (confirmed live, twice: a Group with only 1-2 real
+        // records rendered as a visibly artificial ~7-sided "heptagon") —
+        // this used to also pad a 1-2-point Group's own real points with up
+        // to 6 nearby real OpenStreetMap street-node coordinates before
+        // handing them to `convexHull`; combined with the 1-2 real points,
+        // that reliably produced a 6-8-vertex hull — real street
+        // coordinates, but not this Group's own territory shape by any
+        // honest reading, and exactly what "no artificial/fixed/fabricated
+        // polygon" rules out. 3+-record Groups still get each of their own
+        // hull vertices individually nudged onto its own nearest real
+        // street node (never adding extra vertices, only relocating
+        // existing ones, only within [snapMaxMeters]) — that part stays,
+        // since it can't change the vertex *count* and therefore can't
+        // manufacture a heptagon the way the padding above did. A 1-2-point
+        // Group's own real points are passed through unchanged instead; the
+        // JS side draws a plain point marker (1 point) or a real line
+        // straight between them (2 points) from there — see
+        // `buildGroupBoundaryLayer`'s own doc comment.
         val snapMaxMeters = 60.0
         val groupEntryJsons = mutableListOf<String>()
         for (entry in groupBoundaries) {
@@ -2761,19 +2765,14 @@ private fun TerritoryLiveMap(
             val augmented: List<Pair<Double, Double>> = if (pts.isEmpty()) {
                 emptyList()
             } else {
-                val centroidLat = pts.sumOf { it.lat } / pts.size
-                val centroidLng = pts.sumOf { it.lng } / pts.size
                 val streetPoints = streetPointsByGroupId[entry.id].orEmpty()
-                if (streetPoints.isEmpty()) {
+                if (streetPoints.isEmpty() || pts.size < 3) {
                     pts.map { it.lat to it.lng }
-                } else if (pts.size >= 3) {
+                } else {
                     pts.map { p ->
                         val nearest = streetPoints.minByOrNull { haversineMeters(p.lat, p.lng, it.first, it.second) }
                         if (nearest != null && haversineMeters(p.lat, p.lng, nearest.first, nearest.second) <= snapMaxMeters) nearest else p.lat to p.lng
                     }
-                } else {
-                    val nearestStreetPoints = streetPoints.sortedBy { haversineMeters(centroidLat, centroidLng, it.first, it.second) }.take(6)
-                    (pts.map { it.lat to it.lng } + nearestStreetPoints).distinct()
                 }
             }
             val pointsJson = augmented.joinToString(",", prefix = "[", postfix = "]") { (lat, lng) -> "[$lat,$lng]" }
@@ -3129,6 +3128,28 @@ private fun TerritoryLiveMap(
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 332.dp),
         ) {
             Icon(if (isFullScreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen, contentDescription = if (isFullScreen) "Exit full screen" else "Full screen")
+        }
+
+        // "MAP LEGEND" — toggles the small dynamic legend card (see
+        // [TerritoryMapLegend] below); its own FAB, same convention as
+        // "Map Layers" right above it.
+        SmallFloatingActionButton(
+            onClick = { showLegend = !showLegend },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 396.dp),
+        ) {
+            Icon(Icons.AutoMirrored.Rounded.List, contentDescription = if (showLegend) "Hide map legend" else "Show map legend")
+        }
+
+        if (showLegend) {
+            TerritoryMapLegend(
+                municipalitiesVisible = goPreachLayerStates["municipalities"] != false,
+                groupsVisible = goPreachLayerStates["groups"] != false,
+                householdersVisible = goPreachLayerStates["householders"] != false,
+                selectedAreaActive = selectedAreaNames != null,
+                groupSelected = selectedGroupId != null,
+                publisherTerritoryShown = showPublisherTerritories,
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 16.dp),
+            )
         }
 
         // Always available, not just on failure — lets whoever's testing
@@ -3564,7 +3585,18 @@ private fun buildTerritoryMapHtml(): String {
           // everywhere the two overlap, with this layer's own full color
           // only showing through wherever no Group territory covers it.
           var MUNICIPALITY_COLORS = ['#1E88E5', '#43A047', '#FB8C00', '#8E24AA', '#00ACC1', '#F4511E', '#6D4C41', '#3949AB', '#7CB342', '#D81B60', '#00897B', '#5E35B1', '#C0CA33', '#546E7A'];
-          var MUNICIPALITY_FILL_OPACITY = 1.0;
+          // "ROADS, MAP DETAILS AND LEGENDS" — supersedes the earlier
+          // "SOLID COLORS AND 100% OPACITY" rule for this one layer:
+          // "territory overlays [must never] completely obscure important
+          // roads... the geographical territory must be an overlay on top
+          // of OpenStreetMap, not a replacement for the map." A fully
+          // opaque (1.0) fill painted every OSM road/river/place-name tile
+          // underneath it solid gray/orange/etc. — confirmed live, this was
+          // the actual cause of the map looking like a "blank gray canvas"
+          // with no roads, not a tile-loading failure. Lowered enough that
+          // the base map's own roads/labels stay legible through the fill
+          // while the Municipality's own color is still clearly readable.
+          var MUNICIPALITY_FILL_OPACITY = 0.55;
           // "MUNICIPALITY LABELS... map-responsive... show compactly when
           // zoomed out" — below [MUNICIPALITY_LABEL_MIN_ZOOM] the label is
           // hidden entirely (the province-wide initial view routinely sits
@@ -4001,12 +4033,6 @@ private fun buildTerritoryMapHtml(): String {
           // be.
           var AREA_FOCUS_MIN_ZOOM = 12;
           var AREA_FOCUS_MAX_ZOOM = 16;
-          // "Never use a generic square, rectangle, circle, or rounded
-          // shape to represent an actual geographic territory" — the
-          // minimum real-world radius (meters) a lone point (or a tight
-          // 2-point cluster) gets, via [smallTerritoryPolygon]'s own
-          // deliberately-irregular shape, never a geometric primitive.
-          var SMALL_TERRITORY_HALF_WIDTH_METERS = 150;
           // Bug fix (confirmed live: tapping directly inside a Group's own
           // solid territory fill never opened its info panel — logging
           // showed the tap landing as a plain, unattributed map click
@@ -4204,45 +4230,6 @@ private fun buildTerritoryMapHtml(): String {
             t = Math.max(0, Math.min(1, t));
             return minVal + (maxVal - minVal) * t;
           }
-          // A deliberately irregular (never square/rectangular/circular)
-          // small polygon around a point or tiny cluster with no real
-          // polygon of its own to draw (see [buildGroupBoundaryLayer]'s own
-          // doc comment for why this case exists at all) — vertices at
-          // uneven radii/angles, deterministic per exact coordinate (so the
-          // same location always draws the same shape across reloads,
-          // "keep color/shape assignments consistent... whenever possible"),
-          // rather than a perfect geometric primitive standing in for a
-          // location this app has no real surveyed boundary for.
-          function smallIrregularPolygon(centerLat, centerLng, radiusMeters) {
-            var vertices = [];
-            var sides = 7;
-            var cosLat = Math.cos(centerLat * Math.PI / 180);
-            var cosLatSafe = Math.abs(cosLat) > 0.01 ? cosLat : 0.01;
-            for (var i = 0; i < sides; i++) {
-              var angle = (i / sides) * Math.PI * 2;
-              var jitter = 0.65 + 0.35 * Math.abs(Math.sin(i * 12.9898 + centerLat * 78.233 + centerLng * 37.719));
-              var r = radiusMeters * jitter;
-              var dLat = (r * Math.cos(angle)) / 111320;
-              var dLng = (r * Math.sin(angle)) / (111320 * cosLatSafe);
-              vertices.push([centerLat + dLat, centerLng + dLng]);
-            }
-            return vertices;
-          }
-          // Same idea, sized to actually cover every one of [points] (never
-          // smaller than [SMALL_TERRITORY_HALF_WIDTH_METERS], so it stays a
-          // real, visible area rather than shrinking to nothing for two
-          // near-identical coordinates).
-          function smallTerritoryPolygon(points) {
-            var lats = points.map(function(p) { return p[0]; });
-            var lngs = points.map(function(p) { return p[1]; });
-            var centerLat = (Math.min.apply(null, lats) + Math.max.apply(null, lats)) / 2;
-            var centerLng = (Math.min.apply(null, lngs) + Math.max.apply(null, lngs)) / 2;
-            var center = L.latLng(centerLat, centerLng);
-            var maxDist = 0;
-            points.forEach(function(p) { maxDist = Math.max(maxDist, center.distanceTo(L.latLng(p[0], p[1]))); });
-            var radius = Math.max(SMALL_TERRITORY_HALF_WIDTH_METERS, maxDist * 1.3);
-            return smallIrregularPolygon(centerLat, centerLng, radius);
-          }
           // "PROFESSIONAL TERRITORY GROUP ICON... same color assigned to
           // that Territory Group" — a plain white flag glyph (Material
           // Design's own "flag" icon path), simple enough to stay
@@ -4320,44 +4307,76 @@ private fun buildTerritoryMapHtml(): String {
           // no surveyed Field Service Group boundary dataset exists), with
           // the same color-coded marker + name label as before still
           // centered on it.
-          var GROUP_FILL_OPACITY = 1.0;
+          // "ROADS, MAP DETAILS AND LEGENDS" — same reasoning as
+          // [MUNICIPALITY_FILL_OPACITY] above: a fully opaque Group fill
+          // blocked every OSM road/label underneath it. A Group's own fill
+          // stays a little stronger than the Municipality's (it's drawn on
+          // top and needs to still read as "a distinct territory," not
+          // wash out against it) but is no longer 1.0 either.
+          var GROUP_FILL_OPACITY = 0.65;
+          // Bug fix (confirmed live, three times, on the same real Group):
+          // [smallTerritoryPolygon] — the fallback for a Group with fewer
+          // than 3 real points to form a hull from — called into
+          // [smallIrregularPolygon], which hardcodes `var sides = 7`. Every
+          // 1-2-point Group was therefore *always* a jittered heptagon,
+          // completely independent of the street-node-padding fix above
+          // (which only ever applies to Groups with 3+ points to begin
+          // with) — this was the actual, literal root cause the whole time.
+          // There is no honest polygon for 1-2 points (any invented area
+          // around them is exactly the "artificial shape" every version of
+          // this spec has ruled out — a circle/rounded blob included, not
+          // just a heptagon specifically), so none is drawn any more:
+          //  - 1 real point: no shape at all, just this Group's own marker
+          //    + name label, same as [buildPublisherBoundaryLayer]'s own
+          //    marker; a single address has no real "area" to depict either
+          //    way.
+          //  - 2 real points, or 3+ collinear/identical-after-dedup points:
+          //    a real line directly between them — genuine geometry
+          //    connecting this Group's own real records, not an invented
+          //    vertex anywhere.
+          //  - 3+ non-collinear points: unchanged, the real convex hull.
           function buildGroupBoundaryLayer(points, color, groupId, name) {
             var casingStyle = { color: shadeColor(color, -0.35), weight: BOUNDARY_CASING_WEIGHT, opacity: 1, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
             var mainStyle = { color: color, weight: BOUNDARY_MAIN_WEIGHT, opacity: 1, fill: true, fillColor: color, fillOpacity: GROUP_FILL_OPACITY, lineJoin: 'round', lineCap: 'round', interactive: true };
-            var casingLayer, mainLayer;
-            if (points.length === 1) {
-              var soloHull = smallTerritoryPolygon(points);
-              casingLayer = L.polygon(soloHull, casingStyle);
-              mainLayer = L.polygon(soloHull, mainStyle);
+            var lineStyle = { color: color, weight: BOUNDARY_MAIN_WEIGHT, opacity: 1, lineJoin: 'round', lineCap: 'round', interactive: true };
+            var unique = dedupePoints(points);
+            var casingLayer = null, mainLayer;
+            if (unique.length === 1) {
+              mainLayer = L.circleMarker(unique[0], { radius: 9, color: shadeColor(color, -0.35), weight: 2, fill: true, fillColor: color, fillOpacity: 1, interactive: true });
             } else {
-              var unique = dedupePoints(points);
               var hull = unique.length >= 3 ? convexHull(unique) : unique;
               if (hull.length < 3) {
-                var smallHull = smallTerritoryPolygon(unique);
-                casingLayer = L.polygon(smallHull, casingStyle);
-                mainLayer = L.polygon(smallHull, mainStyle);
+                casingLayer = L.polyline(unique, { color: shadeColor(color, -0.35), weight: lineStyle.weight + 2, opacity: 1, lineCap: 'round', interactive: false });
+                mainLayer = L.polyline(unique, lineStyle);
               } else {
                 casingLayer = L.polygon(hull, casingStyle);
                 mainLayer = L.polygon(hull, mainStyle);
               }
             }
-            disableClickCapture(casingLayer);
+            if (casingLayer) { disableClickCapture(casingLayer); }
             if (groupId) {
               mainLayer.on('click', function(e) {
                 if (window.AndroidBridge) { AndroidBridge.showGroupDetails(groupId); }
                 L.DomEvent.stopPropagation(e);
               });
             }
-            var layers = [casingLayer, mainLayer];
+            // Real bounds computed straight from [unique] rather than
+            // `mainLayer.getBounds()` — `L.CircleMarker` (the 1-point case)
+            // has no `getBounds()` of its own (its own "radius" is in
+            // screen pixels, not a real geographic extent), so this has to
+            // work the same way regardless of which of the three shapes
+            // above `mainLayer` actually is.
+            var bounds = L.latLngBounds(unique);
+            var layers = casingLayer ? [casingLayer, mainLayer] : [mainLayer];
             if (name) {
-              var labelMarker = L.marker(mainLayer.getBounds().getCenter(), {
-                icon: L.divIcon({ className: 'territory-marker', html: groupLabelHtml(name, color, map.getZoom(), mainLayer.getBounds()) }),
+              var labelMarker = L.marker(bounds.getCenter(), {
+                icon: L.divIcon({ className: 'territory-marker', html: groupLabelHtml(name, color, map.getZoom(), bounds) }),
                 interactive: false,
                 zIndexOffset: 500,
               });
               labelMarker._groupName = name;
               labelMarker._groupColor = color;
-              labelMarker._groupBounds = mainLayer.getBounds();
+              labelMarker._groupBounds = bounds;
               disableClickCapture(labelMarker);
               if (groupId) { window.groupLabelMarkers[groupId] = labelMarker; }
               layers.push(labelMarker);
@@ -4489,53 +4508,65 @@ private fun buildTerritoryMapHtml(): String {
               marker.setIcon(L.divIcon({ className: 'territory-marker', html: publisherLabelHtml(marker._pubName, marker._pubColor, zoom, marker._pubBounds) }));
             });
           }
-          // Bug fix ("I cannot find... the Publishers Territory now in the
-          // Map View... show the map that is working before") — same
-          // restore as [buildGroupBoundaryLayer] above, one level down: a
-          // real, visible filled shape instead of a marker-only badge that
-          // read as invisible against the map underneath it. Still every
-          // Publisher's own single [color] is the parent Group's own (see
-          // [TerritoryMapScreen]'s `selectedGroupPublisherBoundaries`) —
-          // "no different colors for individual Publishers" stays true;
-          // Publishers are only distinguished from each other by their own
-          // shape/position and name label, never by a different fill color.
-          var PUBLISHER_FILL_OPACITY = 1.0;
+          // "ROADS, MAP DETAILS AND LEGENDS" §8/§11 — "Publisher Territory
+          // should use boundary lines only... Do not assign a different
+          // fill color to each Publisher... Group/Municipality/Barangay
+          // fills, if enabled, must not make road information unreadable."
+          // Restored as a real, visible polygon shape (see
+          // [buildGroupBoundaryLayer]'s own doc comment for why a
+          // marker-only badge wasn't findable), but this one level down
+          // goes back to boundary-line-only rather than getting the same
+          // partial-opacity fill treatment as Municipality/Group — a bold
+          // casing line is enough to keep it visible without ever
+          // competing with the roads/labels underneath it.
+          // `fillOpacity` stays a near-zero 0.02 rather than exactly 0
+          // purely so the polygon's own interior keeps registering taps
+          // ("Clicking a Publisher Territory," spec §6) — Leaflet/SVG only
+          // hit-tests a *painted* fill, and a real `fillOpacity: 0` stops
+          // registering clicks anywhere except the thin boundary stroke
+          // itself. Visually indistinguishable from no fill at all.
+          // Bug fix — same root cause and fix as [buildGroupBoundaryLayer]'s
+          // own doc comment: [smallTerritoryPolygon]'s hardcoded 7-sided
+          // fallback was the actual heptagon source, not street-padding.
+          // Same replacement one level down: 1 real point gets no shape at
+          // all (just this Publisher's own marker + name label), 2 real
+          // points (or a degenerate hull) get a real line directly between
+          // them, 3+ non-collinear points keep the real convex hull.
           function buildPublisherBoundaryLayer(points, color, publisherId, name) {
-            var casingStyle = { color: shadeColor(color, -0.35), weight: 3, opacity: 1, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
-            var mainStyle = { color: color, weight: 2.5, opacity: 1, fill: true, fillColor: color, fillOpacity: PUBLISHER_FILL_OPACITY, lineJoin: 'round', lineCap: 'round', interactive: true };
-            var casingLayer, mainLayer;
-            if (points.length === 1) {
-              var soloHull = smallTerritoryPolygon(points);
-              casingLayer = L.polygon(soloHull, casingStyle);
-              mainLayer = L.polygon(soloHull, mainStyle);
+            var casingStyle = { color: shadeColor(color, -0.35), weight: 4, opacity: 1, fill: false, lineJoin: 'round', lineCap: 'round', interactive: false };
+            var mainStyle = { color: color, weight: 3, opacity: 1, fill: true, fillColor: color, fillOpacity: 0.02, lineJoin: 'round', lineCap: 'round', interactive: true };
+            var lineStyle = { color: color, weight: 3, opacity: 1, lineJoin: 'round', lineCap: 'round', interactive: true };
+            var unique = dedupePoints(points);
+            var casingLayer = null, mainLayer;
+            if (unique.length === 1) {
+              mainLayer = L.circleMarker(unique[0], { radius: 8, color: shadeColor(color, -0.35), weight: 2, fill: true, fillColor: color, fillOpacity: 1, interactive: true });
             } else {
-              var unique = dedupePoints(points);
               var hull = unique.length >= 3 ? convexHull(unique) : unique;
               if (hull.length < 3) {
-                var smallHull = smallTerritoryPolygon(unique);
-                casingLayer = L.polygon(smallHull, casingStyle);
-                mainLayer = L.polygon(smallHull, mainStyle);
+                casingLayer = L.polyline(unique, { color: shadeColor(color, -0.35), weight: lineStyle.weight + 2, opacity: 1, lineCap: 'round', interactive: false });
+                mainLayer = L.polyline(unique, lineStyle);
               } else {
                 casingLayer = L.polygon(hull, casingStyle);
                 mainLayer = L.polygon(hull, mainStyle);
               }
             }
-            disableClickCapture(casingLayer);
+            if (casingLayer) { disableClickCapture(casingLayer); }
             // "Clicking a Publisher Territory" (spec §6).
             mainLayer.on('click', function(e) {
               if (window.AndroidBridge) { AndroidBridge.showPublisherDetails(publisherId); }
               L.DomEvent.stopPropagation(e);
             });
-            var layers = [casingLayer, mainLayer];
+            var bounds = L.latLngBounds(unique);
+            var layers = casingLayer ? [casingLayer, mainLayer] : [mainLayer];
             if (name) {
-              var labelMarker = L.marker(mainLayer.getBounds().getCenter(), {
-                icon: L.divIcon({ className: 'territory-marker', html: publisherLabelHtml(name, color, map.getZoom(), mainLayer.getBounds()) }),
+              var labelMarker = L.marker(bounds.getCenter(), {
+                icon: L.divIcon({ className: 'territory-marker', html: publisherLabelHtml(name, color, map.getZoom(), bounds) }),
                 interactive: false,
                 zIndexOffset: 700,
               });
               labelMarker._pubName = name;
               labelMarker._pubColor = color;
-              labelMarker._pubBounds = mainLayer.getBounds();
+              labelMarker._pubBounds = bounds;
               disableClickCapture(labelMarker);
               window.publisherLabelMarkers[publisherId] = labelMarker;
               layers.push(labelMarker);
@@ -4857,6 +4888,96 @@ private fun PublisherInfoSheet(
         }
     }
 }
+
+/** One row of [TerritoryMapLegend] — [swatch] draws whatever small visual
+ * (a solid square, an outlined square, a dashed line, a pin glyph) actually
+ * matches how that layer is rendered on the map itself, so the legend is
+ * never just a generic bullet list disconnected from what's really drawn. */
+private data class LegendEntry(val label: String, val swatch: @Composable () -> Unit)
+
+/** "MAP LEGEND" / "DYNAMIC LEGEND" — a small, professional card explaining
+ * only the GoPreach layers actually visible right now (spec's own "Do not
+ * show legend items for layers that are completely disabled or hidden"),
+ * built fresh from the same layer-visibility/selection state the map
+ * itself renders from — never a fixed list independent of what's on
+ * screen. Roads/streets/place names themselves are the OpenStreetMap base
+ * tile layer, not a GoPreach overlay, so they're never a legend row of
+ * their own; the entries here are exactly the vector layers this app draws
+ * on top of that base map. */
+@Composable
+private fun TerritoryMapLegend(
+    municipalitiesVisible: Boolean,
+    groupsVisible: Boolean,
+    householdersVisible: Boolean,
+    selectedAreaActive: Boolean,
+    groupSelected: Boolean,
+    publisherTerritoryShown: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val entries = buildList {
+        // Real Municipality/Barangay administrative boundary — always this
+        // one fixed red casing+fill style regardless of which of the two it
+        // currently outlines (see `boundaryMainStyle`/`boundaryCasingStyle`
+        // in the JS), so one row covers both.
+        if (selectedAreaActive) {
+            add(LegendEntry("Municipality / Barangay Boundary") { LegendLineSwatch(BOUNDARY_MAIN_COLOR_ARGB) })
+        }
+        if (municipalitiesVisible) {
+            add(LegendEntry("Municipality (Province overview)") { LegendSquareSwatch(Color(0xFF9E9E9E)) })
+        }
+        if (groupsVisible && groupSelected) {
+            add(LegendEntry("Group Territory") { LegendSquareSwatch(MaterialTheme.colorScheme.primary) })
+        }
+        if (publisherTerritoryShown) {
+            add(LegendEntry("Publisher Territory Boundary") { LegendLineSwatch(MaterialTheme.colorScheme.primary.toArgb(), dashed = true) })
+        }
+        if (householdersVisible) {
+            add(LegendEntry("House Holder") { Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = Color(0xFFD32F2F), modifier = Modifier.size(16.dp)) })
+        }
+    }
+    if (entries.isEmpty()) return
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)), modifier = modifier.widthIn(max = 220.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("Map Legend", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(6.dp))
+            entries.forEach { entry ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 3.dp)) {
+                    Box(modifier = Modifier.size(16.dp), contentAlignment = Alignment.Center) { entry.swatch() }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(entry.label, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LegendSquareSwatch(color: Color) {
+    Box(modifier = Modifier.size(12.dp).background(color))
+}
+
+@Composable
+private fun LegendLineSwatch(colorArgb: Int, dashed: Boolean = false) {
+    val color = Color(colorArgb)
+    Canvas(modifier = Modifier.size(width = 16.dp, height = 3.dp)) {
+        if (dashed) {
+            val dash = 4.dp.toPx()
+            var x = 0f
+            while (x < size.width) {
+                drawLine(color, Offset(x, size.height / 2), Offset((x + dash).coerceAtMost(size.width), size.height / 2), strokeWidth = size.height)
+                x += dash * 2
+            }
+        } else {
+            drawLine(color, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = size.height)
+        }
+    }
+}
+
+// The real Municipality/Barangay administrative boundary's own fixed red
+// (matches `BOUNDARY_MAIN_COLOR` in the JS below — kept in sync by hand,
+// same convention [BaseLayerOption]/[GoPreachLayerOption] already use for
+// their own JS-side counterparts).
+private val BOUNDARY_MAIN_COLOR_ARGB = AndroidColor.parseColor("#D32F2F")
 
 /** A base map style offered in [MapLayersSheet] — [id] is what
  * `window.setBaseLayer`/the JS `BASE_LAYER_DEFS` map key on the other end
