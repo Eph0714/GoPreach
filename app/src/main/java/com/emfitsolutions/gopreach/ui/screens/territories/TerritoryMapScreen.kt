@@ -350,11 +350,23 @@ fun TerritoryMapScreen(
     // shown read-only in the filter sheet rather than editable, and applied
     // as a no-op alongside [fixedCongregationId]'s own scoping (every row a
     // scoped role ever sees already shares this same province/city).
+    // "Show the whole municipality as an initial map focus, based on the
+    // municipality of the congregation" — the congregation's own
+    // [Congregation.cityMunicipality], captured alongside [advancedFilter
+    // .province] above (same latch-once-for-a-scoped-role /
+    // re-derive-per-congregation-for-Super-Admin split) and passed to
+    // [TerritoryLiveMap] as [initialFocusMunicipality], which fits the
+    // camera to it once on first load instead of the Province-wide default
+    // view — see that effect's own doc comment.
+    var congregationMunicipality by remember { mutableStateOf<String?>(null) }
     if (!isSuperAdmin) {
         LaunchedEffect(fixedCongregationId) {
             viewModel.congregationById(fixedCongregationId!!).collect { congregation ->
                 if (congregation?.province != null && advancedFilter.province == null) {
                     advancedFilter = advancedFilter.copy(province = congregation.province)
+                }
+                if (congregation?.cityMunicipality != null && congregationMunicipality == null) {
+                    congregationMunicipality = congregation.cityMunicipality
                 }
             }
         }
@@ -378,6 +390,7 @@ fun TerritoryMapScreen(
                 if (advancedFilter.province != null) {
                     advancedFilter = advancedFilter.copy(province = null, cityMunicipality = null, barangay = null)
                 }
+                congregationMunicipality = null
                 return@LaunchedEffect
             }
             viewModel.congregationById(congId).collect { congregation ->
@@ -385,6 +398,7 @@ fun TerritoryMapScreen(
                 if (newProvince != advancedFilter.province) {
                     advancedFilter = advancedFilter.copy(province = newProvince, cityMunicipality = null, barangay = null)
                 }
+                congregationMunicipality = congregation?.cityMunicipality
             }
         }
     }
@@ -1167,6 +1181,7 @@ fun TerritoryMapScreen(
                         selectedAreaNames = selectedAreaNames,
                         explicitAreaSelection = explicitAreaSelection,
                         province = effectiveProvince,
+                        initialFocusMunicipality = congregationMunicipality,
                         groupBoundaries = mapGroupBoundaries,
                         groupColorFor = { it.resolvedGroupColor() },
                         groupNameFor = { row -> row.resolvedGroupId()?.let { id -> mapGroups.firstOrNull { g -> g.id == id }?.name } },
@@ -2012,6 +2027,15 @@ private fun TerritoryLiveMap(
     // for the "Territory Map Loading — Province Wide Only" initial-focus
     // geocode query below.
     province: String?,
+    // "Show the whole municipality as an initial map focus, based on the
+    // municipality of the congregation" — the congregation's own
+    // [com.emfitsolutions.gopreach.data.model.Congregation.cityMunicipality],
+    // or null while it's still resolving/unknown (Super-Admin viewing "All
+    // Congregations", or a congregation with no municipality on file yet).
+    // Fits the camera to this one Municipality's real boundary, once, on
+    // first load — see the dedicated effect below for how this overrides
+    // the plain Province-wide fit.
+    initialFocusMunicipality: String?,
     // "Create a separate barrier line for every Congregation Group... do not
     // merge different groups into one barrier" — one entry per Group
     // currently represented among [rows] (plus an "Unassigned" entry when
@@ -2472,14 +2496,48 @@ private fun TerritoryLiveMap(
             val entriesJson = entries.joinToString(",", prefix = "[", postfix = "]") { (name, geometry) ->
                 """{name:"${jsEscape(name)}",geometry:$geometry}"""
             }
-            webView.evaluateJavascript("if (window.setMunicipalityLayers) { window.setMunicipalityLayers($entriesJson, true); }", null)
+            // Every Municipality is still drawn regardless, but the camera
+            // itself only fits to all of them when there's no congregation
+            // Municipality to focus on instead (a still-unresolved fetch at
+            // this exact moment, or Super-Admin's "All Congregations") — see
+            // the dedicated [initialFocusMunicipality] effect right below,
+            // which owns the camera whenever it has one.
+            val fit = initialFocusMunicipality == null
+            webView.evaluateJavascript("if (window.setMunicipalityLayers) { window.setMunicipalityLayers($entriesJson, $fit); }", null)
             // A real bounds-fit across every Municipality just positioned
             // the camera far more precisely than the plain geocoded
             // center+zoom-9 pan below ever could — suppressing that
             // fallback here means the two never fight over the camera on
             // the same screen-open.
-            hasAppliedProvinceFocus = true
+            if (fit) hasAppliedProvinceFocus = true
         }
+    }
+
+    // "Show the whole municipality as an initial map focus, based on the
+    // municipality of the congregation" — overrides the plain Province-wide
+    // fit above with a real bounds-fit to just the congregation's own
+    // Municipality, once, the first time [initialFocusMunicipality] actually
+    // resolves. Its own decoupled effect (same reasoning as the
+    // Province-wide one above) so a slow/late-resolving congregation fetch
+    // can't get cancelled by unrelated recompositions; runs independently of
+    // — and, since it fires strictly after, on top of — whatever camera
+    // position the Province-wide effect already landed on, so it always
+    // wins the moment it has a real answer, brief province-wide flash and
+    // all, rather than leaving the two racing to see whichever fires last.
+    var hasAppliedCongregationMunicipalityFit by remember { mutableStateOf(false) }
+    LaunchedEffect(loadState, webViewRef, initialFocusMunicipality) {
+        if (loadState != MapLoadState.LOADED || hasAppliedCongregationMunicipalityFit) return@LaunchedEffect
+        val webView = webViewRef ?: return@LaunchedEffect
+        val municipality = initialFocusMunicipality ?: return@LaunchedEffect
+        val geometry = boundaryGeometry(municipality, null) ?: return@LaunchedEffect
+        hasAppliedCongregationMunicipalityFit = true
+        // Suppresses the plain geocoded center+zoom-9 fallback below, same
+        // as the Province-wide effect's own real bounds-fit already does.
+        hasAppliedProvinceFocus = true
+        webView.evaluateJavascript(
+            "if (window.setAreaBoundaryGeoJson) { window.setAreaBoundaryGeoJson($geometry, true, MUNICIPALITY_FOCUS_MAX_ZOOM); }",
+            null,
+        )
     }
 
     // "Do not reload or reset the Territory Map [when changing a map
@@ -3945,6 +4003,9 @@ private fun buildTerritoryMapHtml(): String {
           // be.
           var AREA_FOCUS_MIN_ZOOM = 12;
           var AREA_FOCUS_MAX_ZOOM = 16;
+          // A whole-Municipality fit's own, tighter ceiling — see
+          // [window.setAreaBoundaryGeoJson]'s `maxZoom` doc comment.
+          var MUNICIPALITY_FOCUS_MAX_ZOOM = 13;
           // "Never use a generic square, rectangle, circle, or rounded
           // shape to represent an actual geographic territory" — the
           // minimum real-world radius (meters) a lone point (or a tight
@@ -4018,7 +4079,23 @@ private fun buildTerritoryMapHtml(): String {
           // jump below, so a plain map open (nothing searched) can't get
           // pulled away from the Province-wide initial view this map
           // otherwise starts on.
-          window.setAreaBoundaryGeoJson = function(geometry, fit) {
+          // [maxZoom] — optional, defaults to [AREA_FOCUS_MAX_ZOOM]. Added
+          // for the congregation's own initial-focus fit (see
+          // [TerritoryMapScreen]'s `initialFocusMunicipality` effect): on a
+          // wide-viewport device (a landscape tablet especially),
+          // `getBoundsZoom` legitimately computes a much higher zoom to fit
+          // the exact same real-world bounding box than it would on a
+          // narrow phone screen — confirmed live, a genuine ~0.11°x0.16°
+          // Municipality (Solano) landed at [AREA_FOCUS_MAX_ZOOM]'s ceiling
+          // (16) on a tablet, close enough to fill the entire screen with
+          // just one solid-color edge, nothing recognizable as "a whole
+          // Municipality" left in view. [AREA_FOCUS_MIN_ZOOM] (12) was
+          // already established by that same earlier fix as the zoom a
+          // "focus on this one Municipality" view should land at — a
+          // whole-Municipality fit's own ceiling is capped much closer to
+          // that floor (see call site) rather than sharing barangay-level
+          // search's own, deliberately closer, 16.
+          window.setAreaBoundaryGeoJson = function(geometry, fit, maxZoom) {
             window.clearAreaBoundary();
             // "interactive" is a GeoJSON-layer-level constructor option, not
             // a Path style property — it has to sit alongside `style`, not
@@ -4063,7 +4140,7 @@ private fun buildTerritoryMapHtml(): String {
             if (fit !== false) {
               var bounds = main.getBounds().pad(0.15);
               var zoom = Math.max(map.getBoundsZoom(bounds), AREA_FOCUS_MIN_ZOOM);
-              map.setView(bounds.getCenter(), Math.min(zoom, AREA_FOCUS_MAX_ZOOM));
+              map.setView(bounds.getCenter(), Math.min(zoom, maxZoom || AREA_FOCUS_MAX_ZOOM));
             }
           };
           window.clearAreaBoundary = function() {
