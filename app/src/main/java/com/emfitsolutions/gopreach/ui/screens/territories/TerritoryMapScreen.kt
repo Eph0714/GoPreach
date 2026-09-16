@@ -2202,6 +2202,20 @@ private fun TerritoryLiveMap(
     // permission prompt they didn't ask for.
     var myLocation by remember { mutableStateOf<LatLng?>(null) }
     var selectedPointId by remember { mutableStateOf<String?>(null) }
+    // "OVERLAPPING HOUSE HOLDER MARKERS" — two or more records at the same
+    // or near-identical coordinates no longer get spiderfied into their
+    // own slightly-offset individual pins; the JS side (see
+    // `declutterMarkers`'s own doc comment) instead shows one combined
+    // "multiple records here" marker and calls
+    // `AndroidBridge.showMultipleRecords` with every real record id at
+    // that spot. This is that selection — non-null shows [MultipleRecordsSheet]
+    // (a manual pick-one list, "do not automatically open the first
+    // record") instead of [selectedPoint]'s own single-record sheet;
+    // picking one from it sets [selectedPointId] the exact same way a
+    // normal individual pin tap already does, so every existing
+    // "open its normal House Holder details" behavior is reused unchanged
+    // from there.
+    var selectedMultiplePointIds by remember { mutableStateOf<List<String>?>(null) }
     // "Selecting a Territory Group... Expand House Holders Inside the
     // Selected Territory" — set from `AndroidBridge.showGroupDetails` (see
     // the WebView factory below) when a Group's own territory fill is
@@ -2364,6 +2378,13 @@ private fun TerritoryLiveMap(
     }
     val selectedPoint = remember(selectedPointId, points, myLocationPoint) {
         if (selectedPointId == "me") myLocationPoint else points.firstOrNull { it.id == selectedPointId }
+    }
+    val selectedMultiplePoints = remember(selectedMultiplePointIds, points) {
+        val ids = selectedMultiplePointIds ?: return@remember emptyList()
+        // Preserves every one of [ids]' own original order (the same
+        // order the JS side's own group — and therefore whatever the user
+        // saw stacked at that spot — was built in), never a re-sort.
+        ids.mapNotNull { id -> points.firstOrNull { it.id == id } }
     }
 
     // Built once — no [points] dependency at all now (see [buildTerritoryMapHtml]'s
@@ -2925,6 +2946,22 @@ private fun TerritoryLiveMap(
                                 self.post { selectedPointId = id }
                             }
 
+                            // "OVERLAPPING HOUSE HOLDER MARKERS" — a tap on
+                            // the combined multi-record marker
+                            // `declutterMarkers` shows for two or more
+                            // records at the same/near-identical spot (see
+                            // that function's own doc comment); [idsCsv] is
+                            // a plain comma-separated list of real record
+                            // ids (this bridge has no JSON parsing anywhere
+                            // else either, so this matches every other
+                            // method here rather than introducing one just
+                            // for this).
+                            @JavascriptInterface
+                            fun showMultipleRecords(idsCsv: String) {
+                                val ids = idsCsv.split(",").filter { it.isNotBlank() }
+                                self.post { selectedMultiplePointIds = ids }
+                            }
+
                             // "Selecting a Territory Group" (spec §10) — a
                             // tap anywhere inside a Group's own solid
                             // territory fill (see `buildGroupBoundaryLayer`'s
@@ -3197,6 +3234,22 @@ private fun TerritoryLiveMap(
                 selectedPointId = null
                 onRecordVisit(selectedPoint.id.removePrefix("pipeline_"))
             },
+        )
+    } else if (selectedMultiplePointIds != null) {
+        // "The user must manually select which House Holder record to
+        // open. Do not automatically open the first record." — this sheet
+        // is the manual picker; selecting a row opens the exact same
+        // [MapPointDetailsSheet] above a normal single-pin tap would,
+        // simply by setting [selectedPointId] the same way `AndroidBridge
+        // .showDetails` already does (the `if` above then takes over on
+        // the next recomposition).
+        MultipleRecordsSheet(
+            points = selectedMultiplePoints,
+            onSelect = { id ->
+                selectedMultiplePointIds = null
+                selectedPointId = id
+            },
+            onDismiss = { selectedMultiplePointIds = null },
         )
     }
 
@@ -3795,34 +3848,48 @@ private fun buildTerritoryMapHtml(): String {
             }
           };
 
-          // Superseded — an earlier spec forbade any clustering at all
-          // ("each record should continue to display its designated icon");
-          // the current spec explicitly asks for anti-overlap handling
-          // instead ("marker clustering, controlled spacing, spiderfying...
-          // ensure every House Holder remains individually selectable...
-          // never allow one marker to completely cover another"). Every
-          // marker is still rendered individually — none are ever combined
-          // into a single "N records" bubble — [declutterMarkers] below just
-          // nudges markers that would otherwise land on/near the exact same
-          // screen pixel outward into a small spiderfied ring around their
-          // shared spot, so each stays fully visible and independently
-          // tappable. "You are here" stays a separate marker outside this
-          // group entirely, unchanged.
+          // "OVERLAPPING HOUSE HOLDER MARKERS" — superseded the previous
+          // "spiderfy into a small ring, every marker still individually
+          // shown" approach: two or more records at the same/near-identical
+          // coordinates now collapse into one combined multi-record marker
+          // (in [multiCluster], separate from [cluster]'s own normal
+          // individual pins) — tapping it calls
+          // `AndroidBridge.showMultipleRecords` with every real record id
+          // at that spot, which shows a manual picker (never auto-opening
+          // the first one) instead of a normal single-record sheet. "You
+          // are here" stays a separate marker outside both of these
+          // entirely, unchanged.
           var cluster = L.layerGroup();
+          var multiCluster = L.layerGroup();
           var markers = [];
           var markersById = {};
           map.addLayer(cluster);
+          map.addLayer(multiCluster);
+          // "Only the overlapping/multiple-record state should use a
+          // special multiple-record indicator" — a small, professional
+          // circular badge (never the red 3D pin itself, which stays
+          // reserved for one individual record) showing how many real
+          // records are stacked at that spot.
+          function buildMultiRecordIcon(count) {
+            var s = 34;
+            var html = '<div style="width:' + s + 'px;height:' + s + 'px;border-radius:50%;background:#B71C1C;border:2.5px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;color:#ffffff;font-weight:700;font-size:13px;">' + count + '</div>';
+            return L.divIcon({ className: 'territory-marker', html: html, iconSize: [s, s], iconAnchor: [s / 2, s / 2] });
+          }
 
           // Greedy single-link grouping by on-screen pixel distance (not
           // real-world distance — two records genuinely far apart in meters
           // can still overlap on screen when zoomed far out, and that's
           // exactly the case this needs to catch) — any marker within
-          // [SPIDERFY_PIXEL_RADIUS] px of another joins the same group.
+          // [SPIDERFY_PIXEL_RADIUS] px of another joins the same group and
+          // collapses into one multi-record marker (see [buildMultiRecordIcon]).
           // Re-run on every zoom/pan (the same markers can go from
           // overlapping to comfortably apart, or vice versa, purely from a
-          // zoom change) — always measured from each marker's own real,
-          // unmoved [_trueLatLng], never from a previous run's already-
-          // spiderfied position, so repeated runs never drift or compound.
+          // zoom change — "when the map is sufficiently zoomed in and the
+          // actual markers become visually separated, display the
+          // individual red 3D location pins normally") — always measured
+          // from each marker's own real, unmoved [_trueLatLng], the single
+          // source of truth its on-screen position is recomputed from
+          // every time, never a previously-computed screen position.
           var SPIDERFY_PIXEL_RADIUS = 26;
           // Performance fix ("calibrate the map, it's lagging even [though]
           // the internet is fast") — this used to be a plain all-pairs
@@ -3873,18 +3940,44 @@ private fun buildTerritoryMapHtml(): String {
               }
               groups.push(group);
             }
+            // Rebuilt fresh every run (zoom/pan can move a record from one
+            // group to another, or dissolve a group entirely once real
+            // separation appears at a closer zoom — "when the map is
+            // sufficiently zoomed in and the actual markers become
+            // visually separated, display the individual red 3D location
+            // pins normally") rather than trying to diff the previous
+            // run's own groups against this one.
+            multiCluster.clearLayers();
             groups.forEach(function(group) {
               if (group.length === 1) {
-                markers[group[0]].setLatLng(markers[group[0]]._trueLatLng);
+                var m = markers[group[0]];
+                m.setLatLng(m._trueLatLng);
+                if (!cluster.hasLayer(m)) { cluster.addLayer(m); }
                 return;
               }
-              var centerPt = map.latLngToContainerPoint(markers[group[0]]._trueLatLng);
-              var ringRadius = SPIDERFY_PIXEL_RADIUS * (group.length > 6 ? 1.7 : 1.2);
-              group.forEach(function(markerIdx, k) {
-                var angle = (k / group.length) * Math.PI * 2;
-                var offsetPt = L.point(centerPt.x + ringRadius * Math.cos(angle), centerPt.y + ringRadius * Math.sin(angle));
-                markers[markerIdx].setLatLng(map.containerPointToLatLng(offsetPt));
+              // Two or more real records still overlapping at this zoom —
+              // hide their own individual pins (never delete them: the
+              // exact same marker objects, at their own real coordinates,
+              // come straight back the moment this group dissolves) and
+              // show one combined marker instead, at the true geographic
+              // centroid of every record in it (never a screen-pixel
+              // average — [_trueLatLng] is real lat/lng the whole way
+              // through).
+              var sumLat = 0, sumLng = 0;
+              var ids = [];
+              group.forEach(function(idx) {
+                var m = markers[idx];
+                if (cluster.hasLayer(m)) { cluster.removeLayer(m); }
+                sumLat += m._trueLatLng.lat;
+                sumLng += m._trueLatLng.lng;
+                ids.push(m._id);
               });
+              var centroid = L.latLng(sumLat / group.length, sumLng / group.length);
+              var multiMarker = L.marker(centroid, { icon: buildMultiRecordIcon(group.length), zIndexOffset: 800 });
+              multiMarker.on('click', function() {
+                if (window.AndroidBridge) { AndroidBridge.showMultipleRecords(ids.join(',')); }
+              });
+              multiCluster.addLayer(multiMarker);
             });
           }
           map.on('zoomend moveend', declutterMarkers);
@@ -4008,6 +4101,7 @@ private fun buildTerritoryMapHtml(): String {
               var marker = L.marker([p.lat, p.lng], { icon: buildPinIcon(false, p.color, p.kind) });
               // Stashed so `window.setSelectedMarker` can revert to this
               // exact color/glyph later without needing to look `p` back up.
+              marker._id = p.id;
               marker._color = p.color;
               marker._kind = p.kind;
               // This record's own real, unmoved coordinate — see
@@ -4725,6 +4819,62 @@ private fun buildTerritoryMapHtml(): String {
 
 private fun jsEscape(text: String): String =
     text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ")
+
+/** "OVERLAPPING HOUSE HOLDER MARKERS" — the manual picker shown for a tap
+ * on the combined multi-record marker `declutterMarkers` draws for two or
+ * more records at the same/near-identical coordinates, in place of
+ * spiderfying them into their own slightly-offset pins. "The user must
+ * manually select which House Holder record to open. Do not automatically
+ * open the first record" — every row here is a plain tap target; picking
+ * one is the only thing that opens [MapPointDetailsSheet]. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MultipleRecordsSheet(
+    points: List<MapPoint>,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).padding(bottom = 24.dp)) {
+            Text(
+                "${points.size} Records at This Location",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "Select a record to view its details.",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            points.forEach { point ->
+                val iconColor = if (point.kind == MapPointKind.SEARCHING || point.kind == MapPointKind.RETURN_VISIT || point.kind == MapPointKind.BIBLE_STUDY) {
+                    parseHexColor(point.groupColor)
+                } else {
+                    markerColorFor(point.kind)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { onSelect(point.id) }.padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(iconColor), contentAlignment = Alignment.Center) {
+                        Text(emojiFor(point.kind), style = MaterialTheme.typography.titleMedium)
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(point.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                        Text(point.status, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        point.publisherName?.let {
+                            Text("RP $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                if (point !== points.last()) HorizontalDivider()
+            }
+        }
+    }
+}
 
 /** "Display a compact information card/bottom sheet" — the exact field set
  * and wording from the spec's own three worked examples, built from
