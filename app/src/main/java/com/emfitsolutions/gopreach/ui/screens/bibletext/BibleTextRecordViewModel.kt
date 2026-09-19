@@ -168,6 +168,7 @@ class BibleTextRecordViewModel @Inject constructor(
                     verses = exported.verses,
                     categoryId = eventId,
                     remarks = exported.remarks,
+                    videos = exported.videos,
                     createdAt = now,
                     updatedAt = now,
                 ),

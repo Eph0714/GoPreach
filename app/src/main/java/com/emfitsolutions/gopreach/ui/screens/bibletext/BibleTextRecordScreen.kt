@@ -2,20 +2,33 @@ package com.emfitsolutions.gopreach.ui.screens.bibletext
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoStories
+import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Update
+import androidx.compose.material.icons.rounded.VideoLibrary
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FilterList
@@ -31,15 +44,18 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -49,7 +65,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
@@ -69,6 +90,9 @@ import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.launch
 import androidx.compose.ui.window.DialogProperties
 
@@ -258,11 +282,6 @@ private fun EventListScreen(
                 },
             )
         },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showAddEvent = true }) {
-                Icon(Icons.Rounded.Add, contentDescription = "Add Event")
-            }
-        },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -308,21 +327,30 @@ private fun EventListScreen(
                 }
             }
 
-            if (filtered.isEmpty()) {
-                Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        if (eventsWithTexts.isEmpty()) "No Events saved yet. Tap + to add one." else "No Events found for the selected search/filter.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (filtered.isEmpty()) {
+                    item {
+                        Text(
+                            if (eventsWithTexts.isEmpty()) "No Events saved yet. Tap Add Record to add one." else "No Events found for the selected search/filter.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(vertical = 16.dp),
+                        )
+                    }
+                } else {
                     items(filtered, key = { it.event.id }) { item ->
                         EventCard(item = item, onClick = { onOpenEvent(item.event.id) }, onDelete = { pendingDeleteEvent = item })
+                    }
+                }
+                // The add action sits just below the list of events (it used to be
+                // a floating "+" in the corner of the screen).
+                item {
+                    Button(onClick = { showAddEvent = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text("Add Record")
                     }
                 }
             }
@@ -396,23 +424,82 @@ private fun bibleTextReportTable(items: List<EventWithTexts>): ReportTable {
     )
 }
 
+/**
+ * The heading colours for one Event, taken from the app's own theme (so they
+ * follow whichever theme colour the user picked, light or dark): each Event is
+ * given a solid primary, secondary or tertiary colour and its matching "on"
+ * colour for text, chosen from the Event's id so an Event keeps the same
+ * colour in the list and on its own page, and no matter how the list is sorted.
+ */
+@Composable
+private fun eventAccent(eventId: String): Pair<Color, Color> {
+    val scheme = MaterialTheme.colorScheme
+    return when (Math.floorMod(eventId.hashCode(), 3)) {
+        0 -> scheme.primary to scheme.onPrimary
+        1 -> scheme.secondary to scheme.onSecondary
+        else -> scheme.tertiary to scheme.onTertiary
+    }
+}
+
+/** A line of text led by a small icon — the icon says at a glance what the line
+ * is (event, speaker, date, ...) without having to read the label. */
+@Composable
+private fun IconLine(
+    icon: ImageVector,
+    text: String,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyMedium,
+    fontWeight: FontWeight? = null,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    textColor: Color = Color.Unspecified,
+) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+        Text(text, style = style, fontWeight = fontWeight, color = textColor)
+    }
+}
+
 @Composable
 private fun EventCard(item: EventWithTexts, onClick: () -> Unit, onDelete: () -> Unit) {
+    val (headingBackground, headingText) = eventAccent(item.event.id)
     Card(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
-        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(item.event.eventLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(item.event.name, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                if (item.event.speaker?.isNotBlank() == true) {
-                    Text("Speaker: ${item.event.speaker}", style = MaterialTheme.typography.bodySmall)
-                }
+        Column {
+            // Theme/Topic leads, in capitals and larger (e.g. FAMILY), on a band in
+            // the Event's theme colour; the arrow shows the card opens.
+            Row(
+                modifier = Modifier.fillMaxWidth().background(headingBackground).padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    "${item.texts.size} Bible Text${if (item.texts.size == 1) "" else "s"}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    item.event.name.ifBlank { item.event.eventLabel }.uppercase(),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = headingText,
+                    modifier = Modifier.weight(1f),
                 )
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = "Open event", tint = headingText)
             }
-            IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, contentDescription = "Delete Event") }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    IconLine(Icons.Rounded.Event, item.event.eventLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, tint = MaterialTheme.colorScheme.primary)
+                    if (item.event.speaker?.isNotBlank() == true) {
+                        IconLine(Icons.Rounded.Person, "Speaker: ${item.event.speaker}", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconLine(
+                        Icons.AutoMirrored.Rounded.MenuBook,
+                        "${item.texts.size} Bible Text${if (item.texts.size == 1) "" else "s"}",
+                        style = MaterialTheme.typography.labelLarge,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Rounded.Delete, contentDescription = "Delete event", tint = MaterialTheme.colorScheme.error)
+                }
+            }
         }
     }
 }
@@ -430,46 +517,103 @@ private fun EventDetailScreen(
     viewModel: BibleTextRecordViewModel,
 ) {
     val showToast = rememberActionToast()
+    // Video download results ("downloaded for offline use" / "couldn't download").
+    val videoViewModel: VideoViewModel = hiltViewModel()
+    LaunchedEffect(Unit) { videoViewModel.messages.collect { showToast(it) } }
     val event = eventWithTexts.event
     var showEditEvent by remember { mutableStateOf(false) }
     var showAddText by remember { mutableStateOf(false) }
+    var showAddVideo by remember { mutableStateOf(false) }
     var pendingEditText by remember { mutableStateOf<BibleTextRecord?>(null) }
     var pendingDeleteText by remember { mutableStateOf<BibleTextRecord?>(null) }
     var pendingDeleteEvent by remember { mutableStateOf(false) }
 
+    // The event's own videos, plus any attached to one of its Bible Texts before
+    // events had their own gallery (each removed from wherever it is kept).
+    val galleryVideos = remember(event, eventWithTexts.texts) {
+        event.videos.map { video ->
+            GalleryVideo(video) { viewModel.saveEvent(event.copy(videos = event.videos - video, updatedAt = System.currentTimeMillis())) }
+        } + eventWithTexts.texts.flatMap { record ->
+            record.videos.map { video ->
+                GalleryVideo(video) { viewModel.saveRecord(record.copy(videos = record.videos - video, updatedAt = System.currentTimeMillis())) }
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(event.eventLabel) },
+                title = { Text(event.name.ifBlank { event.eventLabel }.uppercase()) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
                 actions = {
-                    IconButton(onClick = { showEditEvent = true }) { Icon(Icons.Rounded.Edit, contentDescription = "Edit Event") }
-                    IconButton(onClick = { pendingDeleteEvent = true }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete Event") }
+                    IconButton(onClick = { showEditEvent = true }) {
+                        Icon(Icons.Rounded.Edit, contentDescription = "Edit event", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = { pendingDeleteEvent = true }) {
+                        Icon(Icons.Rounded.Delete, contentDescription = "Delete event", tint = MaterialTheme.colorScheme.error)
+                    }
                 },
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showAddText = true }) {
-                Icon(Icons.Rounded.Add, contentDescription = "Add Bible Text")
-            }
         },
     ) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
-                Text("Event Information", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Text("Event: ${event.eventLabel}", style = MaterialTheme.typography.bodyMedium)
-                Text("Theme/Topic: ${event.name}", style = MaterialTheme.typography.bodyMedium)
-                Text("Speaker: ${event.speaker?.ifBlank { null } ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-                Text("Date Created: ${formatRecordTimestamp(event.createdAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Last Updated: ${formatRecordTimestamp(event.updatedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // Same theme-coloured heading band as this Event's card in the list.
+                val (headingBackground, headingText) = eventAccent(event.id)
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column {
+                        Column(modifier = Modifier.fillMaxWidth().background(headingBackground).padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            Text("Event Information", style = MaterialTheme.typography.labelMedium, color = headingText)
+                            Text(
+                                event.name.ifBlank { event.eventLabel }.uppercase(),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = headingText,
+                            )
+                        }
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            IconLine(Icons.Rounded.Event, "Event: ${event.eventLabel}", style = MaterialTheme.typography.titleMedium, tint = MaterialTheme.colorScheme.primary)
+                            IconLine(Icons.Rounded.Person, "Speaker: ${event.speaker?.ifBlank { null } ?: "—"}", style = MaterialTheme.typography.titleMedium, tint = MaterialTheme.colorScheme.primary)
+                            IconLine(Icons.Rounded.Schedule, "Created: ${formatRecordTimestamp(event.createdAt)}", style = MaterialTheme.typography.bodySmall)
+                            IconLine(Icons.Rounded.Update, "Updated: ${formatRecordTimestamp(event.updatedAt)}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             }
-            item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
-            item { Text("Bible Texts", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold) }
-            if (eventWithTexts.texts.isEmpty()) {
-                item { Text("No Bible texts yet. Tap + to add one.", style = MaterialTheme.typography.bodySmall) }
-            } else {
-                items(eventWithTexts.texts.sortedByDescending { it.createdAt }, key = { it.id }) { text ->
-                    BibleTextCard(text = text, onEdit = { pendingEditText = text }, onDelete = { pendingDeleteText = text })
+            // Bible Texts and Videos are two separate groups, each with its own
+            // Add button.
+            item {
+                GroupCard(
+                    icon = Icons.AutoMirrored.Rounded.MenuBook,
+                    title = "Bible Texts",
+                    count = eventWithTexts.texts.size,
+                    addLabel = "Add Bible Text",
+                    addIcon = Icons.Rounded.Add,
+                    onAdd = { showAddText = true },
+                ) {
+                    if (eventWithTexts.texts.isEmpty()) {
+                        Text("No Bible texts yet. Tap Add Bible Text to add one.", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        eventWithTexts.texts.sortedByDescending { it.createdAt }.forEach { text ->
+                            BibleTextCard(text = text, onEdit = { pendingEditText = text }, onDelete = { pendingDeleteText = text })
+                        }
+                    }
+                }
+            }
+            item {
+                GroupCard(
+                    icon = Icons.Rounded.VideoLibrary,
+                    title = "Videos",
+                    count = galleryVideos.size,
+                    addLabel = "Add Video",
+                    addIcon = Icons.Rounded.VideoLibrary,
+                    onAdd = { showAddVideo = true },
+                ) {
+                    if (galleryVideos.isEmpty()) {
+                        Text("No videos yet. Tap Add Video to add one from JW Library.", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        VideoGallery(galleryVideos)
+                    }
                 }
             }
         }
@@ -484,12 +628,21 @@ private fun EventDetailScreen(
         )
     }
 
+    if (showAddVideo) {
+        AddVideoDialog(
+            videos = event.videos,
+            onVideosChange = { viewModel.saveEvent(event.copy(videos = it, updatedAt = System.currentTimeMillis())) },
+            defaultLocale = "E",
+            onDismiss = { showAddVideo = false },
+        )
+    }
+
     if (showAddText) {
         BibleTextRecordDialog(
             existing = null,
             eventId = event.id,
             publisherPersonId = publisherPersonId,
-            onSave = { viewModel.saveRecord(it); showToast("Bible text added successfully.") },
+            onSave = { viewModel.saveRecord(it); showToast("Bible text added successfully."); showAddText = false },
             onDismiss = { showAddText = false },
         )
     }
@@ -548,24 +701,69 @@ private fun EventDetailScreen(
     }
 }
 
+/** A titled group on the event page — a heading with its count, that group's own
+ * Add button, then its content. Bible Texts and Videos each get one so they read
+ * as two separate sections. */
+@Composable
+private fun GroupCard(
+    icon: ImageVector,
+    title: String,
+    count: Int,
+    addLabel: String,
+    addIcon: ImageVector,
+    onAdd: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            IconLine(icon, "$title ($count)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, tint = MaterialTheme.colorScheme.primary)
+            Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) {
+                Icon(addIcon, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                Text(addLabel)
+            }
+            content()
+        }
+    }
+}
+
 @Composable
 private fun BibleTextCard(text: BibleTextRecord, onEdit: () -> Unit, onDelete: () -> Unit) {
+    val context = LocalContext.current
+    val showToast = rememberActionToast()
+    val bookNumber = NwtBibleReferenceData.book(text.bibleVersionId, text.languageId, text.bibleBookId)?.order
+    val jwLocale = NwtBibleReferenceData.language(text.languageId)?.jwLocale
     Card(modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text.referenceLabel(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                if (text.remarks.isNotBlank()) {
-                    Text(text.remarks, style = MaterialTheme.typography.bodySmall)
+        Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 16.dp, end = 8.dp, bottom = 4.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    IconLine(Icons.AutoMirrored.Rounded.MenuBook, text.referenceLabel(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, tint = MaterialTheme.colorScheme.primary)
+                    NwtBibleReferenceData.version(text.bibleVersionId)?.let {
+                        Text(it.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                    if (text.remarks.isNotBlank()) {
+                        Text(text.remarks, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
-                Text(
-                    "Added: ${formatRecordTimestamp(text.createdAt)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row {
+                    IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, contentDescription = "Edit Bible text", tint = MaterialTheme.colorScheme.primary) }
+                    IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, contentDescription = "Delete Bible text", tint = MaterialTheme.colorScheme.error) }
+                }
             }
-            Row {
-                IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, contentDescription = "Edit") }
-                IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, contentDescription = "Delete") }
+            // Bottom row: when it was added on the left, and — at the lower right
+            // — the button that opens this verse in the JW Library app (offline if
+            // that Bible is downloaded there).
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                IconLine(Icons.Rounded.Schedule, "Added: ${formatRecordTimestamp(text.createdAt)}", style = MaterialTheme.typography.labelSmall)
+                if (bookNumber != null && jwLocale != null) {
+                    TextButton(
+                        onClick = {
+                            if (!openInJwLibrary(context, jwLocale, bookNumber, text.chapter, text.verses)) showToast("Couldn't open JW Library.")
+                        },
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 6.dp).size(18.dp))
+                        Text("Open verse in JW Library")
+                    }
+                }
             }
         }
     }
@@ -625,13 +823,15 @@ private fun AddEditEventDialog(
             placeholder = "Select or search Event",
             required = true,
         )
-        SearchableOptionField(
-            label = "Theme/Topic",
+        // A plain textbox — the publisher writes their own Theme or Topic rather
+        // than choosing from a list.
+        OutlinedTextField(
             value = themeTopic,
-            options = SUGGESTED_THEME_TOPICS,
             onValueChange = { themeTopic = it; errorMessage = null },
-            placeholder = "Select or search Theme/Topic",
-            required = true,
+            label = { Text("Theme/Topic *") },
+            placeholder = { Text("Type your own Theme or Topic") },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = speaker,
@@ -694,6 +894,30 @@ private fun SearchableOptionField(
 // Add/Edit Bible Text — Book → Chapters two-level navigation (spec §3-§5),
 // Bible Language removed from the UI entirely and fixed to English (§6).
 
+private val VERSE_PART_REGEX = Regex("""^\d+(-\d+)?$""")
+private val SPACES_AROUND_HYPHEN = Regex("""\s*-\s*""")
+
+/** "3 - 4" and "3–4" (en dash, already converted to "-" as it's typed) read the
+ * same as "3-4". */
+private fun normalizeVerses(text: String): String = text.replace(SPACES_AROUND_HYPHEN, "-").trim()
+
+/** True for a comma-separated list of verses/ranges ("3", "3-4", "3, 5",
+ * "3-4, 8") whose ranges run low to high. Takes text already run through
+ * [normalizeVerses]. */
+private fun isValidVerseList(normalized: String): Boolean {
+    if (normalized.isEmpty()) return false
+    return normalized.split(",").map { it.trim() }.all { part ->
+        VERSE_PART_REGEX.matches(part) &&
+            part.split("-").let { bounds ->
+                val numbers = bounds.map { it.toIntOrNull() ?: return false }
+                numbers.size == 1 || numbers[0] <= numbers[1]
+            }
+    }
+}
+
+/** Progress of the jw.org verse-text lookup in the Add/Edit dialog. */
+private enum class VerseLookup { IDLE, LOADING, FAILED }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BibleTextRecordDialog(
@@ -704,11 +928,12 @@ private fun BibleTextRecordDialog(
     onDismiss: () -> Unit,
 ) {
     val version = NwtBibleReferenceData.defaultVersion
-    // Spec §6 — "Bible Language = English as the system default", no picker
-    // shown anywhere in this dialog. An existing record keeps whatever
-    // language it already had (spec §7: never silently change saved data);
-    // every new record is created as English.
-    val languageId = existing?.languageId ?: NwtBibleReferenceData.languages.first().id
+    // Bible Language — English by default (spec §6), now with a picker again so a
+    // record can be kept in another language the New World Translation is
+    // published in. An existing record starts on whatever language it already
+    // had (spec §7: never silently change saved data).
+    var languageId by remember { mutableStateOf(existing?.languageId?.ifBlank { null } ?: NwtBibleReferenceData.languages.first().id) }
+    val language = NwtBibleReferenceData.language(languageId)
     val books = remember(languageId) { NwtBibleReferenceData.booksFor(version.id, languageId) }
     var bookId by remember { mutableStateOf(existing?.bibleBookId?.ifBlank { null }) }
     val selectedBook = books.firstOrNull { it.id == bookId }
@@ -736,17 +961,61 @@ private fun BibleTextRecordDialog(
     // Chapter/verse *existence* is already enforced structurally by the
     // Chapter grid (only ever offers 1..chapterCount) rather than needing a
     // separate existence check here.
-    val versePartRegex = remember { Regex("""^\d+(-\d+)?$""") }
-    val verseRangeValid = remember(versesText) {
-        val trimmed = versesText.trim()
-        if (trimmed.isEmpty()) return@remember false
-        val parts = trimmed.split(",").map { it.trim() }
-        parts.isNotEmpty() && parts.all { part ->
-            versePartRegex.matches(part) &&
-                part.split("-").let { it.size == 1 || it[0].toInt() <= it[1].toInt() }
+    // "3 - 4" and "3–4" (en dash) read the same as "3-4".
+    // Used for what's shown on screen. [submit] and [lookUpVerseText] below
+    // deliberately re-derive these from [versesText] when they run rather than
+    // reading these two values: they are plain values captured when the dialog
+    // was composed, and the Save button's callback can keep using the version
+    // captured while Verses was still empty — which made Save reject a
+    // perfectly valid "1".
+    val versesNormalized = normalizeVerses(versesText)
+    val verseRangeValid = isValidVerseList(versesNormalized)
+    // "Add the real verses in the remarks" — once a book, chapter and valid
+    // verses are chosen, the New World Translation text for them is looked up
+    // on jw.org and put in Remarks (in the chosen language; needs internet). It only
+    // fills Remarks when that's blank or still holds a previous automatic
+    // fill, so text the publisher typed is never overwritten — the "Insert
+    // verse text" button is the explicit way to replace it. A failed lookup
+    // just leaves Remarks to be typed; nothing here blocks saving.
+    val verseTextViewModel: BibleVerseTextViewModel = hiltViewModel()
+    val context = LocalContext.current
+    val showToast = rememberActionToast()
+    val clipboardManager = LocalClipboardManager.current
+    val verseScope = rememberCoroutineScope()
+    var verseStatus by remember { mutableStateOf(VerseLookup.IDLE) }
+    var autoFilledRemarks by remember { mutableStateOf<String?>(null) }
+    val canLookUpVerses = selectedBook != null && chapter != null && verseRangeValid && language != null
+    suspend fun lookUpVerseText(overwrite: Boolean) {
+        val book = selectedBook ?: return
+        val chapterNumber = chapter ?: return
+        val jwLocale = language?.jwLocale ?: return
+        verseStatus = VerseLookup.LOADING
+        val text = verseTextViewModel.fetchVerses(jwLocale, book.order, chapterNumber, normalizeVerses(versesText))
+        coroutineContext.ensureActive()
+        if (text == null) {
+            verseStatus = VerseLookup.FAILED
+            return
         }
+        if (overwrite || remarks.isBlank() || remarks == autoFilledRemarks) {
+            remarks = text
+            autoFilledRemarks = text
+        }
+        verseStatus = VerseLookup.IDLE
     }
+    LaunchedEffect(bookId, chapter, versesText, languageId) {
+        val unchangedSavedReference = existing != null && bookId == existing.bibleBookId && chapter == existing.chapter && versesText == existing.verses && languageId == existing.languageId
+        if (!canLookUpVerses || unchangedSavedReference) {
+            verseStatus = VerseLookup.IDLE
+            return@LaunchedEffect
+        }
+        delay(700) // let the publisher finish typing the verses
+        lookUpVerseText(overwrite = false)
+    }
+
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    // A validation message from an earlier Save attempt is stale as soon as the
+    // publisher changes anything — it must not linger over a now-valid entry.
+    LaunchedEffect(bookId, chapter, versesText) { errorMessage = null }
 
     fun submit() {
         val message = requiredFieldsMessage(
@@ -763,7 +1032,8 @@ private fun BibleTextRecordDialog(
         // problem, not a missing-field one; conflating the two into the same
         // "is required" message is exactly what made this look like a bug
         // rather than a validation error to the Publisher.
-        if (!verseRangeValid) {
+        val currentVerses = normalizeVerses(versesText)
+        if (!isValidVerseList(currentVerses)) {
             errorMessage = "Please enter a valid verse or verse range (e.g. 3, 3-4, or 3, 5)."
             return
         }
@@ -775,7 +1045,7 @@ private fun BibleTextRecordDialog(
                 languageId = languageId,
                 bibleBookId = bookId.orEmpty(),
                 chapter = chapter ?: 0,
-                verses = versesText.trim(),
+                verses = currentVerses,
                 categoryId = eventId,
                 remarks = remarks.trim(),
                 updatedAt = now,
@@ -791,9 +1061,19 @@ private fun BibleTextRecordDialog(
         errorMessage = errorMessage,
         maxContentHeight = 620.dp,
         hasUnsavedChanges = bookId != existing?.bibleBookId?.ifBlank { null } ||
+            languageId != (existing?.languageId?.ifBlank { null } ?: NwtBibleReferenceData.languages.first().id) ||
             chapter != existing?.chapter?.takeIf { it > 0 } ||
             versesText != existing?.verses.orEmpty() || remarks != existing?.remarks.orEmpty(),
     ) {
+        // The verse text put in Remarks is always this version (the jw.org
+        // Online Bible's "New World Translation of the Holy Scriptures").
+        Text(version.name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        LabeledDropdown(
+            label = "Bible Language",
+            selectedLabel = language?.name ?: languageId,
+            options = NwtBibleReferenceData.languages.map { it.id to it.name },
+            onSelected = { newId -> if (newId != null) languageId = newId },
+        )
         Text("Bible Book *", style = MaterialTheme.typography.labelMedium)
         if (showingBookList) {
             // Spec §3 initial view — books only, no chapters shown alongside.
@@ -837,7 +1117,12 @@ private fun BibleTextRecordDialog(
         }
         OutlinedTextField(
             value = versesText,
-            onValueChange = { versesText = it.filter { c -> c.isDigit() || c == '-' || c == ',' || c == ' ' } },
+            onValueChange = { input ->
+                versesText = input
+                    .map { c -> if (c == '–' || c == '—') '-' else c }
+                    .filter { c -> c.isDigit() || c == '-' || c == ',' || c == ' ' }
+                    .joinToString("")
+            },
             label = { Text("Verses *") },
             placeholder = { Text("e.g. 3, 3-4, or 3, 5") },
             singleLine = true,
@@ -850,6 +1135,56 @@ private fun BibleTextRecordDialog(
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth(),
         )
+        when (verseStatus) {
+            VerseLookup.LOADING -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Text("Getting the verse text from jw.org…", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp))
+            }
+            VerseLookup.FAILED -> Text(
+                "Couldn't get the verse text. It needs an internet connection the first time a chapter is used — or open it in JW Library and paste it, or type it in Remarks.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            VerseLookup.IDLE -> Unit
+        }
+        if (canLookUpVerses) {
+            TextButton(onClick = { verseScope.launch { lookUpVerseText(overwrite = true) } }, enabled = verseStatus != VerseLookup.LOADING) {
+                Icon(Icons.Rounded.AutoStories, contentDescription = null, modifier = Modifier.padding(end = 8.dp).size(18.dp))
+                Text("Insert verse text in Remarks")
+            }
+            // Read the verse in the JW Library app (works offline if that Bible is
+            // downloaded there); GoPreach can't read JW Library's storage, so the
+            // text comes back through the copy/paste button below.
+            TextButton(
+                onClick = {
+                    val book = selectedBook
+                    val chapterNumber = chapter
+                    val jwLocale = language?.jwLocale
+                    val opened = book != null && chapterNumber != null && jwLocale != null &&
+                        openInJwLibrary(context, jwLocale, book.order, chapterNumber, normalizeVerses(versesText))
+                    if (!opened) showToast("Couldn't open JW Library.")
+                },
+            ) {
+                Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 8.dp).size(18.dp))
+                Text("Open verse in JW Library")
+            }
+        }
+        // Puts whatever was just copied (for example a verse copied in JW Library)
+        // into Remarks — replaces it when it's empty, otherwise adds it on a new
+        // line.
+        TextButton(
+            onClick = {
+                val copied = clipboardManager.getText()?.text?.replace("\r", "")?.trim().orEmpty()
+                if (copied.isEmpty()) {
+                    showToast("Nothing copied yet. Copy a verse first, then tap here.")
+                } else {
+                    remarks = if (remarks.isBlank()) copied else remarks.trimEnd() + "\n" + copied
+                }
+            },
+        ) {
+            Icon(Icons.Rounded.ContentPaste, contentDescription = null, modifier = Modifier.padding(end = 8.dp).size(18.dp))
+            Text("Paste copied text into Remarks")
+        }
         OutlinedTextField(
             value = remarks,
             onValueChange = { remarks = it },

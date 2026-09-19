@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -80,15 +81,27 @@ fun BibleBookGrid(
         if (filtered.isEmpty()) {
             Text("No matching Bible books.", style = MaterialTheme.typography.bodySmall)
         } else {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                filtered.forEach { book ->
-                    SelectableBox(
-                        label = book.name,
-                        selected = book.id == selectedBookId,
-                        onClick = { onSelect(book.id) },
-                        minWidth = 100.dp,
-                        minHeight = 48.dp,
-                    )
+            // Two groups, each under its own heading — a heading only appears when
+            // it has books (a search can leave just one testament).
+            listOf(
+                NwtBibleReferenceData.Testament.OLD to "Old Testament",
+                NwtBibleReferenceData.Testament.NEW to "New Testament",
+            ).forEach { (testament, heading) ->
+                val group = filtered.filter { it.testament == testament }
+                if (group.isNotEmpty()) {
+                    Text(heading, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    HorizontalDivider()
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        group.forEach { book ->
+                            SelectableBox(
+                                label = book.name,
+                                selected = book.id == selectedBookId,
+                                onClick = { onSelect(book.id) },
+                                minWidth = 100.dp,
+                                minHeight = 48.dp,
+                            )
+                        }
+                    }
                 }
             }
         }

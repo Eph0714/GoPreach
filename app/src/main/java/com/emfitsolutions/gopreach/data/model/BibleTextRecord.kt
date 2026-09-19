@@ -49,6 +49,11 @@ data class BibleTextCategory(
     val name: String = "",
     /** Optional (spec §1: "Speaker must NOT be required"). */
     val speaker: String? = null,
+    /** The event's own video gallery — jw.org videos kept with the Event as a
+     * group separate from its Bible Texts (see [SavedVideo]). Videos that were
+     * attached to an individual [BibleTextRecord.videos] before this existed are
+     * still shown in the same gallery. */
+    val videos: List<SavedVideo> = emptyList(),
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
 )
@@ -95,6 +100,31 @@ data class BibleTextRecord(
     /** Optional (spec §3/§20) — the Publisher's own personal note; multi-line
      * free text. */
     val remarks: String = "",
+    /** JW Library / jw.org videos the Publisher attached to this Bible Text —
+     * links only (see [SavedVideo]); the video files themselves are never
+     * stored in the record. */
+    val videos: List<SavedVideo> = emptyList(),
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
+)
+
+/**
+ * A jw.org video attached to a [BibleTextRecord], saved as a reference only —
+ * its [lank] (jw.org's key for the video, the same one JW Library puts in a
+ * shared link, e.g. "pub-jwbvod26_34_VIDEO") and the language it was found in.
+ * The streaming/download addresses are looked up from jw.org each time they're
+ * needed rather than saved here, so a link that later changes still works. A
+ * downloaded copy lives only on the device it was downloaded to (see
+ * [com.emfitsolutions.gopreach.data.repository.JwVideoRepository]) and is
+ * found again from [lank] + [jwLocale], so nothing device-specific is stored
+ * in the synced record.
+ */
+data class SavedVideo(
+    val title: String = "",
+    val lank: String = "",
+    /** jw.org locale code of the language this video was found in ("E", "TG"...). */
+    val jwLocale: String = "E",
+    val durationSeconds: Int = 0,
+    val thumbnailUrl: String = "",
+    val addedAt: Long = 0L,
 )

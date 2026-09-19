@@ -24,12 +24,8 @@ package com.emfitsolutions.gopreach.domain
  * Content note (spec §32): only book *names*, canonical order, and chapter
  * *counts* live here — structural facts common to the standard 66-book
  * canon this app's New World Translation uses, not the licensed verse text
- * itself. The Filipino book titles below are transcribed from memory
- * against the published Bagong Sanlibutang Salin ng Banal na Kasulatan
- * edition and should be spot-checked against an actual jw.org/JW Library
- * copy before this ships to real congregations — a wrong book title is a
- * data-accuracy bug worth catching, even though it carries none of the
- * full-verse-text copyright risk spec §32 is actually guarding against.
+ * itself. The book titles in every language were read from the jw.org Online Bible
+ * itself (not typed from memory).
  */
 object NwtBibleReferenceData {
 
@@ -41,7 +37,9 @@ object NwtBibleReferenceData {
 
     /** Spec §3/§4 — the dropdown source; never hard-code a language list in
      * a screen, read [languages] instead. */
-    data class BibleLanguage(val id: String, val name: String, val code: String, val isActive: Boolean = true)
+    /** [jwLocale] is the language's jw.org locale code, used to look verse text up
+     * in that language's New World Translation. */
+    data class BibleLanguage(val id: String, val name: String, val code: String, val jwLocale: String, val isActive: Boolean = true)
 
     /** Spec §5/§8 — one Bible book, scoped to a specific Version+Language
      * (spec §21's exact composite: "Bible Version + Language + Bible Book"),
@@ -65,9 +63,19 @@ object NwtBibleReferenceData {
     )
     val defaultVersion: BibleVersion = versions.first()
 
+    /** Every language the jw.org Online Bible offers the New World Translation in
+     * that is spoken in the Philippines, plus English. [BibleLanguage.id] "fil"
+     * (Filipino) is Tagalog, kept under its original id so earlier records still
+     * resolve. */
     val languages: List<BibleLanguage> = listOf(
-        BibleLanguage(id = "en", name = "English", code = "en"),
-        BibleLanguage(id = "fil", name = "Filipino", code = "fil"),
+        BibleLanguage(id = "en", name = "English", code = "en", jwLocale = "E"),
+        BibleLanguage(id = "fil", name = "Filipino (Tagalog)", code = "fil", jwLocale = "TG"),
+        BibleLanguage(id = "bcl", name = "Bicol", code = "bcl", jwLocale = "BI"),
+        BibleLanguage(id = "ceb", name = "Cebuano", code = "ceb", jwLocale = "CV"),
+        BibleLanguage(id = "hil", name = "Hiligaynon", code = "hil", jwLocale = "HV"),
+        BibleLanguage(id = "ilo", name = "Iloko", code = "ilo", jwLocale = "IL"),
+        BibleLanguage(id = "pag", name = "Pangasinan", code = "pag", jwLocale = "PN"),
+        BibleLanguage(id = "war", name = "Waray-Waray", code = "war", jwLocale = "SA"),
     )
 
     fun language(id: String?): BibleLanguage? = languages.firstOrNull { it.id == id }
@@ -159,49 +167,119 @@ object NwtBibleReferenceData {
         BookShape("revelation", 66, Testament.NEW, 22),
     )
 
-    private val englishNames: Map<String, String> = mapOf(
-        "genesis" to "Genesis", "exodus" to "Exodus", "leviticus" to "Leviticus", "numbers" to "Numbers",
-        "deuteronomy" to "Deuteronomy", "joshua" to "Joshua", "judges" to "Judges", "ruth" to "Ruth",
-        "1samuel" to "1 Samuel", "2samuel" to "2 Samuel", "1kings" to "1 Kings", "2kings" to "2 Kings",
-        "1chronicles" to "1 Chronicles", "2chronicles" to "2 Chronicles", "ezra" to "Ezra", "nehemiah" to "Nehemiah",
-        "esther" to "Esther", "job" to "Job", "psalms" to "Psalms", "proverbs" to "Proverbs",
-        "ecclesiastes" to "Ecclesiastes", "songofsolomon" to "Song of Solomon", "isaiah" to "Isaiah",
-        "jeremiah" to "Jeremiah", "lamentations" to "Lamentations", "ezekiel" to "Ezekiel", "daniel" to "Daniel",
-        "hosea" to "Hosea", "joel" to "Joel", "amos" to "Amos", "obadiah" to "Obadiah", "jonah" to "Jonah",
-        "micah" to "Micah", "nahum" to "Nahum", "habakkuk" to "Habakkuk", "zephaniah" to "Zephaniah",
-        "haggai" to "Haggai", "zechariah" to "Zechariah", "malachi" to "Malachi",
-        "matthew" to "Matthew", "mark" to "Mark", "luke" to "Luke", "john" to "John", "acts" to "Acts",
-        "romans" to "Romans", "1corinthians" to "1 Corinthians", "2corinthians" to "2 Corinthians",
-        "galatians" to "Galatians", "ephesians" to "Ephesians", "philippians" to "Philippians",
-        "colossians" to "Colossians", "1thessalonians" to "1 Thessalonians", "2thessalonians" to "2 Thessalonians",
-        "1timothy" to "1 Timothy", "2timothy" to "2 Timothy", "titus" to "Titus", "philemon" to "Philemon",
-        "hebrews" to "Hebrews", "james" to "James", "1peter" to "1 Peter", "2peter" to "2 Peter",
-        "1john" to "1 John", "2john" to "2 John", "3john" to "3 John", "jude" to "Jude", "revelation" to "Revelation",
+    /** Official book names, in canonical (1-66) order, as printed by the jw.org
+     * Online Bible for each language — read from jw.org rather than typed from
+     * memory. Keyed by [BibleLanguage.id]. */
+    private val bookNamesByLanguage: Map<String, List<String>> = mapOf(
+        "en" to listOf(
+            "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy", "Joshua",
+            "Judges", "Ruth", "1 Samuel", "2 Samuel", "1 Kings", "2 Kings",
+            "1 Chronicles", "2 Chronicles", "Ezra", "Nehemiah", "Esther", "Job",
+            "Psalms", "Proverbs", "Ecclesiastes", "Song of Solomon", "Isaiah", "Jeremiah",
+            "Lamentations", "Ezekiel", "Daniel", "Hosea", "Joel", "Amos",
+            "Obadiah", "Jonah", "Micah", "Nahum", "Habakkuk", "Zephaniah",
+            "Haggai", "Zechariah", "Malachi", "Matthew", "Mark", "Luke",
+            "John", "Acts", "Romans", "1 Corinthians", "2 Corinthians", "Galatians",
+            "Ephesians", "Philippians", "Colossians", "1 Thessalonians", "2 Thessalonians", "1 Timothy",
+            "2 Timothy", "Titus", "Philemon", "Hebrews", "James", "1 Peter",
+            "2 Peter", "1 John", "2 John", "3 John", "Jude", "Revelation",
+        ),
+        "fil" to listOf(
+            "Genesis", "Exodo", "Levitico", "Bilang", "Deuteronomio", "Josue",
+            "Hukom", "Ruth", "1 Samuel", "2 Samuel", "1 Hari", "2 Hari",
+            "1 Cronica", "2 Cronica", "Ezra", "Nehemias", "Esther", "Job",
+            "Awit", "Kawikaan", "Eclesiastes", "Awit ni Solomon", "Isaias", "Jeremias",
+            "Panaghoy", "Ezekiel", "Daniel", "Oseas", "Joel", "Amos",
+            "Obadias", "Jonas", "Mikas", "Nahum", "Habakuk", "Zefanias",
+            "Hagai", "Zacarias", "Malakias", "Mateo", "Marcos", "Lucas",
+            "Juan", "Gawa", "Roma", "1 Corinto", "2 Corinto", "Galacia",
+            "Efeso", "Filipos", "Colosas", "1 Tesalonica", "2 Tesalonica", "1 Timoteo",
+            "2 Timoteo", "Tito", "Filemon", "Hebreo", "Santiago", "1 Pedro",
+            "2 Pedro", "1 Juan", "2 Juan", "3 Juan", "Judas", "Apocalipsis",
+        ),
+        "bcl" to listOf(
+            "Genesis", "Exodo", "Levitico", "Bilang", "Deuteronomio", "Josue",
+            "Hukom", "Ruth", "1 Samuel", "2 Samuel", "1 Hadi", "2 Hadi",
+            "1 Cronica", "2 Cronica", "Esdras", "Nehemias", "Esther", "Job",
+            "Salmo", "Talinhaga", "Eclesiastes", "Awit ni Solomon", "Isaias", "Jeremias",
+            "Lamentasyon", "Ezekiel", "Daniel", "Oseas", "Joel", "Amos",
+            "Obadias", "Jonas", "Mikas", "Nahum", "Habakuk", "Sofonias",
+            "Hageo", "Zacarias", "Malakias", "Mateo", "Marcos", "Lucas",
+            "Juan", "Gibo", "Roma", "1 Corinto", "2 Corinto", "Galacia",
+            "Efeso", "Filipos", "Colosas", "1 Tesalonica", "2 Tesalonica", "1 Timoteo",
+            "2 Timoteo", "Tito", "Filemon", "Hebreo", "Santiago", "1 Pedro",
+            "2 Pedro", "1 Juan", "2 Juan", "3 Juan", "Judas", "Kapahayagan",
+        ),
+        "ceb" to listOf(
+            "Genesis", "Exodo", "Levitico", "Numeros", "Deuteronomio", "Josue",
+            "Maghuhukom", "Ruth", "1 Samuel", "2 Samuel", "1 Hari", "2 Hari",
+            "1 Cronicas", "2 Cronicas", "Esdras", "Nehemias", "Ester", "Job",
+            "Salmo", "Proverbio", "Ecclesiastes", "Awit ni Solomon", "Isaias", "Jeremias",
+            "Lamentaciones", "Ezequiel", "Daniel", "Oseas", "Joel", "Amos",
+            "Abdias", "Jonas", "Miqueas", "Nahum", "Habacuc", "Sofonias",
+            "Haggeo", "Zacarias", "Malaquias", "Mateo", "Marcos", "Lucas",
+            "Juan", "Buhat", "Roma", "1 Corinto", "2 Corinto", "Galacia",
+            "Efeso", "Filipos", "Colosas", "1 Tesalonica", "2 Tesalonica", "1 Timoteo",
+            "2 Timoteo", "Tito", "Filemon", "Hebreohanon", "Santiago", "1 Pedro",
+            "2 Pedro", "1 Juan", "2 Juan", "3 Juan", "Judas", "Pinadayag",
+        ),
+        "hil" to listOf(
+            "Genesis", "Exodo", "Levitico", "Numeros", "Deuteronomio", "Josue",
+            "Hukom", "Rut", "1 Samuel", "2 Samuel", "1 Hari", "2 Hari",
+            "1 Cronica", "2 Cronica", "Esdras", "Nehemias", "Ester", "Job",
+            "Salmo", "Hulubaton", "Manugwali", "Ambahanon ni Solomon", "Isaias", "Jeremias",
+            "Panalambiton", "Ezequiel", "Daniel", "Oseas", "Joel", "Amos",
+            "Obadias", "Jonas", "Miqueas", "Nahum", "Habacuc", "Sofonias",
+            "Hageo", "Zacarias", "Malaquias", "Mateo", "Marcos", "Lucas",
+            "Juan", "Binuhatan", "Roma", "1 Corinto", "2 Corinto", "Galacia",
+            "Efeso", "Filipos", "Colosas", "1 Tesalonica", "2 Tesalonica", "1 Timoteo",
+            "2 Timoteo", "Tito", "Filemon", "Hebreo", "Santiago", "1 Pedro",
+            "2 Pedro", "1 Juan", "2 Juan", "3 Juan", "Judas", "Bugna",
+        ),
+        "ilo" to listOf(
+            "Genesis", "Exodo", "Levitico", "Numeros", "Deuteronomio", "Josue",
+            "Uk-ukom", "Ruth", "1 Samuel", "2 Samuel", "1 Ar-ari", "2 Ar-ari",
+            "1 Cronicas", "2 Cronicas", "Esdras", "Nehemias", "Ester", "Job",
+            "Salmo", "Proverbio", "Eclesiastes", "Kanta ni Solomon", "Isaias", "Jeremias",
+            "Un-unnoy", "Ezekiel", "Daniel", "Oseas", "Joel", "Amos",
+            "Abdias", "Jonas", "Mikias", "Nahum", "Habakuk", "Sofonias",
+            "Haggeo", "Zacarias", "Malakias", "Mateo", "Marcos", "Lucas",
+            "Juan", "Aramid", "Roma", "1 Corinto", "2 Corinto", "Galacia",
+            "Efeso", "Filipos", "Colosas", "1 Tesalonica", "2 Tesalonica", "1 Timoteo",
+            "2 Timoteo", "Tito", "Filemon", "Hebreo", "Santiago", "1 Pedro",
+            "2 Pedro", "1 Juan", "2 Juan", "3 Juan", "Judas", "Apocalipsis",
+        ),
+        "pag" to listOf(
+            "Genesis", "Exodo", "Levitico", "Numeros", "Deuteronomio", "Josue",
+            "Ukom", "Ruth", "1 Samuel", "2 Samuel", "1 Arari", "2 Arari",
+            "1 Awaran", "2 Awaran", "Esdras", "Nehemias", "Ester", "Job",
+            "Salmo", "Proverbio", "Eclesiastes", "Kansion nen Solomon", "Isaias", "Jeremias",
+            "Tagleey", "Ezequiel", "Daniel", "Oseas", "Joel", "Amos",
+            "Obadias", "Jonas", "Miqueas", "Nahum", "Habacuc", "Sofonias",
+            "Aggeo", "Zacarias", "Malaquias", "Mateo", "Marcos", "Lucas",
+            "Juan", "Gawa", "Roma", "1 Corinto", "2 Corinto", "Galacia",
+            "Efeso", "Filipos", "Colosas", "1 Tesalonica", "2 Tesalonica", "1 Timoteo",
+            "2 Timoteo", "Tito", "Filemon", "Hebreo", "Santiago", "1 Pedro",
+            "2 Pedro", "1 Juan", "2 Juan", "3 Juan", "Judas", "Apocalipsis",
+        ),
+        "war" to listOf(
+            "Genesis", "Exodo", "Levitico", "Numeros", "Deuteronomio", "Josue",
+            "Hukom", "Ruth", "1 Samuel", "2 Samuel", "1 Hadi", "2 Hadi",
+            "1 Cronicas", "2 Cronicas", "Ezra", "Nehemias", "Esther", "Job",
+            "Salmo", "Proberbios", "Eclesiastes", "Kanta ni Solomon", "Isaias", "Jeremias",
+            "Pagtangis", "Ezekiel", "Daniel", "Hosea", "Joel", "Amos",
+            "Obadias", "Jonas", "Micas", "Nahum", "Habakuk", "Zepanias",
+            "Hagai", "Zacarias", "Malakias", "Mateo", "Marcos", "Lucas",
+            "Juan", "Buhat", "Roma", "1 Corinto", "2 Corinto", "Galacia",
+            "Efeso", "Filipos", "Colosas", "1 Tesalonica", "2 Tesalonica", "1 Timoteo",
+            "2 Timoteo", "Tito", "Filemon", "Hebreo", "Santiago", "1 Pedro",
+            "2 Pedro", "1 Juan", "2 Juan", "3 Juan", "Judas", "Pahayag",
+        ),
     )
 
-    // See the file's own doc comment — verify against an official Tagalog
-    // NWT copy before production use.
-    private val filipinoNames: Map<String, String> = mapOf(
-        "genesis" to "Genesis", "exodus" to "Exodus", "leviticus" to "Levitico", "numbers" to "Mga Bilang",
-        "deuteronomy" to "Deuteronomio", "joshua" to "Josue", "judges" to "Mga Hukom", "ruth" to "Ruth",
-        "1samuel" to "1 Samuel", "2samuel" to "2 Samuel", "1kings" to "1 Hari", "2kings" to "2 Hari",
-        "1chronicles" to "1 Cronica", "2chronicles" to "2 Cronica", "ezra" to "Ezra", "nehemiah" to "Nehemias",
-        "esther" to "Esther", "job" to "Job", "psalms" to "Mga Awit", "proverbs" to "Kawikaan",
-        "ecclesiastes" to "Eclesiastes", "songofsolomon" to "Awit ni Solomon", "isaiah" to "Isaias",
-        "jeremiah" to "Jeremias", "lamentations" to "Mga Panaghoy", "ezekiel" to "Ezekiel", "daniel" to "Daniel",
-        "hosea" to "Hoseas", "joel" to "Joel", "amos" to "Amos", "obadiah" to "Obadias", "jonah" to "Jonas",
-        "micah" to "Mikas", "nahum" to "Nahum", "habakkuk" to "Habacuc", "zephaniah" to "Zefanias",
-        "haggai" to "Hagai", "zechariah" to "Zacarias", "malachi" to "Malakias",
-        "matthew" to "Mateo", "mark" to "Marcos", "luke" to "Lucas", "john" to "Juan", "acts" to "Mga Gawa",
-        "romans" to "Roma", "1corinthians" to "1 Corinto", "2corinthians" to "2 Corinto",
-        "galatians" to "Galacia", "ephesians" to "Efeso", "philippians" to "Filipos",
-        "colossians" to "Colosas", "1thessalonians" to "1 Tesalonica", "2thessalonians" to "2 Tesalonica",
-        "1timothy" to "1 Timoteo", "2timothy" to "2 Timoteo", "titus" to "Tito", "philemon" to "Filemon",
-        "hebrews" to "Hebreo", "james" to "Santiago", "1peter" to "1 Pedro", "2peter" to "2 Pedro",
-        "1john" to "1 Juan", "2john" to "2 Juan", "3john" to "3 Juan", "jude" to "Judas", "revelation" to "Apocalipsis",
-    )
-
-    private val namesByLanguage: Map<String, Map<String, String>> = mapOf("en" to englishNames, "fil" to filipinoNames)
+    private val namesByLanguage: Map<String, Map<String, String>> = bookNamesByLanguage.mapValues { (_, names) ->
+        bookShapes.zip(names) { shape, name -> shape.slug to name }.toMap()
+    }
 
     private val booksByVersionAndLanguage: Map<Pair<String, String>, List<BibleBook>> = buildMap {
         for (version in versions) {
