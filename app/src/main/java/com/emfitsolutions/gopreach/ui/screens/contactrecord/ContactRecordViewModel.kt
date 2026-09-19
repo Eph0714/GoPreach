@@ -41,6 +41,9 @@ data class ContactRow(
      * unavailable for these rows). */
     val contact: String,
     val address: String,
+    /** What [address] means for this row: a Person-backed row has a plain
+     * address, while an Interested Person row stores its Place of Origin there. */
+    val addressLabel: String = "Address",
     val congregationId: String,
     val congregationName: String,
     val profileImageUrl: String? = null,
@@ -190,6 +193,7 @@ class ContactRecordViewModel @Inject constructor(
                     sourceLabels = setOf(label),
                     contact = "",
                     address = interestedPerson.address,
+                    addressLabel = "Place of Origin",
                     congregationId = interestedPerson.congregationId,
                     congregationName = congregationNameFor(interestedPerson.congregationId),
                 )

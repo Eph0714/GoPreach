@@ -502,9 +502,18 @@ private fun GroupReportCard(
             section.categoryBibleStudies.entries.sortedBy { it.key.displayLabel() }.forEach { (category, count) ->
                 Text(stringResource(R.string.reports_total_bible_studies_for, category.displayLabel(), count), style = MaterialTheme.typography.bodySmall)
             }
-            section.categoryHours.entries.sortedBy { it.key.displayLabel() }.forEach { (category, hours) ->
+            // "Total of hours per group... Regular Pioneer, Auxiliary
+            // Pioneer and Special Pioneer" — all three always listed (0.0
+            // when none), then the group's overall total across every
+            // category.
+            section.pioneerHours.forEach { (category, hours) ->
                 Text(stringResource(R.string.reports_total_hours_for, category.displayLabel(), "%.1f".format(hours)), style = MaterialTheme.typography.bodySmall)
             }
+            Text(
+                stringResource(R.string.reports_group_total_hours, "%.1f".format(section.totalHours)),
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+            )
         }
     }
 }
@@ -587,9 +596,10 @@ private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateR
         section.categoryBibleStudies.entries.sortedBy { it.key.displayLabel() }.forEach { (category, count) ->
             rows += listOf("Total Bible Studies for ${category.displayLabel()}", count.toString(), "", "", "")
         }
-        section.categoryHours.entries.sortedBy { it.key.displayLabel() }.forEach { (category, hours) ->
+        section.pioneerHours.forEach { (category, hours) ->
             rows += listOf("Total Hours for ${category.displayLabel()}", "%.1f".format(hours), "", "", "")
         }
+        rows += listOf("Total Hours for this Group (All Categories)", "%.1f".format(section.totalHours), "", "", "")
         rows += listOf("", "", "", "", "")
     }
     val allRows = sections.flatMap { it.rows }

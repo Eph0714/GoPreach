@@ -390,6 +390,10 @@ class TerritoryMapViewModel @Inject constructor(
     // saved record — so a Municipality/Barangay with zero current records
     // still shows up as a real, selectable choice.
 
+    /** The real, complete province list (Territory Map's Province search). */
+    suspend fun allProvinces(): List<String> =
+        runCatching { philippineLocationRepository.searchProvinces("").map { it.name } }.getOrDefault(emptyList())
+
     /** `null` if [provinceName] doesn't match a real PSGC province (should
      * never happen for a congregation's own stored [Congregation.province],
      * but a blank/free-text province edge case degrades to "no PH options"

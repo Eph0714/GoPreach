@@ -142,7 +142,7 @@ fun IncomingHouseholderAssignmentsScreen(
                     Text("House Holder: ${assignment.personNameSnapshot}")
                     Text("Record Type: ${assignment.recordType.assignmentLabel()}")
                     (assignment.barangaySnapshot ?: person?.barangay)?.let { if (it.isNotBlank()) Text("Barangay: $it") }
-                    (assignment.addressSnapshot ?: person?.address)?.let { if (it.isNotBlank()) Text("Address: $it") }
+                    (assignment.addressSnapshot ?: person?.address)?.let { if (it.isNotBlank()) Text("Place of Origin: $it") }
                     person?.let { p ->
                         p.gender?.let { Text("Gender: ${it.name.lowercase().replaceFirstChar(Char::uppercase)}") }
                         p.ageYears?.let { Text("Age: $it") }

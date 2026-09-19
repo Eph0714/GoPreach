@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.ManageAccounts
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.People
@@ -597,6 +598,7 @@ fun AdminHomeScreen(
                                 DashboardTile(stringResource(R.string.side_group_chat_setting), Icons.Rounded.Chat, { onNavigate(Destinations.GROUP_CHAT_SETTING) })
                                 DashboardTile(stringResource(R.string.side_reports_summary), Icons.Rounded.Assessment, { onNavigate(Destinations.REPORTS) })
                                 DashboardTile(stringResource(R.string.dashboard_tile_share_location), Icons.Rounded.LocationOn, { onNavigate(Destinations.SHARE_LOCATION) })
+                                DashboardTile(stringResource(R.string.home_tile_find_location_title), Icons.Rounded.Navigation, { onNavigate(Destinations.FIND_LOCATION) })
                                 DashboardTile(stringResource(R.string.home_nav_calendar), Icons.Rounded.CalendarMonth, { onNavigate(Destinations.CALENDAR) })
                             }
                         }

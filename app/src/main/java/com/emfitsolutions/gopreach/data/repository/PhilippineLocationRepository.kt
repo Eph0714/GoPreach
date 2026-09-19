@@ -32,6 +32,16 @@ private fun normalize(s: String): String =
         .trim()
         .uppercase()
 
+/** [normalize]d [s] without the "City of"/"Municipality of" prefix or trailing
+ * "City" — the PSGC names cities both ways ("City of Batac", "Legazpi City"),
+ * so searching on the core name finds either. Left alone when stripping would
+ * leave nothing. */
+private fun cityKey(s: String): String {
+    val n = normalize(s)
+    val core = n.removePrefix("CITY OF ").removePrefix("MUNICIPALITY OF ").removeSuffix(" CITY").trim()
+    return core.ifBlank { n }
+}
+
 /**
  * "Add a dropdown for City, Municipalities, Town Barangay... The publisher
  * will browse manually, however it can be automatic if the publisher will
@@ -48,12 +58,46 @@ private fun normalize(s: String): String =
 class PhilippineLocationRepository @Inject constructor(
     private val dao: PsgcDao,
 ) {
-    suspend fun searchProvinces(query: String): List<PsgcOption> =
-        dao.searchProvinces(normalize(query)).map { it.toOption() }
+    /** Province-name search, plus — because the data has no Region level — any
+     * province in a region the query names ("Bicol", "Region V", "Calabarzon",
+     * ...); see [PhilippineRegions]. */
+    suspend fun searchProvinces(query: String): List<PsgcOption> {
+        val normalized = normalize(query)
+        val byName = dao.searchProvinces(normalized)
+        val regionProvinceNames = PhilippineRegions.provincesForQuery(normalized, ::normalize).toSet()
+        if (regionProvinceNames.isEmpty()) return byName.map { it.toOption() }
+        val byRegion = dao.searchProvinces("").filter { it.nameNormalized in regionProvinceNames }
+        return (byName + byRegion).distinctBy { it.id }.sortedBy { it.name }.map { it.toOption() }
+    }
 
-    suspend fun searchCitiesMunicipalities(provinceId: Int?, query: String): List<PsgcOption> =
-        (if (provinceId != null) dao.searchMuncitiesInProvince(provinceId, normalize(query)) else dao.searchMuncitiesNationwide(normalize(query)))
+    suspend fun searchCitiesMunicipalities(provinceId: Int?, query: String): List<PsgcOption> {
+        val key = cityKey(query)
+        return (if (provinceId != null) dao.searchMuncitiesInProvince(provinceId, key) else dao.searchMuncitiesNationwide(key))
             .map { it.toOption() }
+    }
+
+    /** Exact match on a place the publisher typed by hand, or — for a
+     * municipality/city inside a known province — the one unambiguous match
+     * ("Legazpi" -> "Legazpi City"). Null means "not a place in the data", so
+     * the caller keeps the typed text as-is and assigns no id. */
+    suspend fun canonicalProvince(rawName: String): PsgcOption? =
+        normalize(rawName).takeIf { it.isNotBlank() }?.let { dao.provinceByExactName(it)?.toOption() }
+
+    suspend fun canonicalMuncity(rawName: String, provinceId: Int?): PsgcOption? {
+        val n = normalize(rawName)
+        if (n.isBlank() || provinceId == null) return null
+        dao.muncityByExactName(n, provinceId)?.let { return it.toOption() }
+        return dao.searchMuncitiesInProvince(provinceId, cityKey(rawName)).singleOrNull()?.toOption()
+    }
+
+    suspend fun canonicalBarangay(rawName: String, muncityId: Int?): PsgcOption? {
+        val n = normalize(rawName)
+        if (n.isBlank() || muncityId == null) return null
+        return dao.barangayByExactName(n, muncityId)?.toOption()
+    }
+
+    suspend fun provinceOfMuncity(muncityId: Int): PsgcOption? =
+        dao.muncityById(muncityId)?.let { dao.provinceById(it.provinceId) }?.toOption()
 
     suspend fun searchBarangays(muncityId: Int, query: String): List<PsgcOption> =
         dao.searchBarangaysInMuncity(muncityId, normalize(query)).map { it.toOption() }
@@ -71,8 +115,15 @@ class PhilippineLocationRepository @Inject constructor(
      * simply left null rather than guessed — see [PhilippineAddressPicker]
      * for how an unmatched level still falls back to manual browsing. */
     suspend fun resolveFromGeocode(geocoded: GeocodedAddress): ResolvedAddress {
-        val province = geocoded.province?.let { findProvince(it) }
+        var province = geocoded.province?.let { findProvince(it) }
         val muncity = geocoded.cityMunicipality?.let { findMuncity(it, province?.id) }
+        // A geocoder that returned a region ("Cagayan Valley") or nothing for
+        // the province still usually gets the municipality right — take the
+        // province from that municipality's own record rather than leaving it
+        // blank (or, worse, wrong).
+        if (muncity != null && province?.id != muncity.provinceId) {
+            province = dao.provinceById(muncity.provinceId) ?: province
+        }
         val barangay = if (muncity != null) geocoded.barangay?.let { findBarangay(it, muncity.id) } else null
         return ResolvedAddress(
             provinceId = province?.id,
@@ -101,7 +152,13 @@ class PhilippineLocationRepository @Inject constructor(
         val n = normalize(rawName)
         dao.muncityByExactName(n, provinceId)?.let { return it }
         val candidates = if (provinceId != null) dao.searchMuncitiesInProvince(provinceId, n) else dao.searchMuncitiesNationwide(n)
-        return candidates.firstOrNull()
+        candidates.firstOrNull()?.let { return it }
+        // The PSGC writes some cities "City of Batac" and others "Legazpi
+        // City", while a geocoder may return either form for either — retry
+        // on just the core name so "Batac City" still finds "City of Batac".
+        val core = cityKey(rawName)
+        if (core == n) return null
+        return (if (provinceId != null) dao.searchMuncitiesInProvince(provinceId, core) else dao.searchMuncitiesNationwide(core)).firstOrNull()
     }
 
     private suspend fun findBarangay(rawName: String, muncityId: Int): BarangayEntity? {

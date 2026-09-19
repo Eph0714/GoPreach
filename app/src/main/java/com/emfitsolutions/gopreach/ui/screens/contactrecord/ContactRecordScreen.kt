@@ -317,7 +317,7 @@ private fun ContactRowCard(
                 Text("📱 ${row.contact}", style = MaterialTheme.typography.bodySmall)
             }
             if (row.address.isNotBlank()) {
-                Text("Address: ${row.address}", style = MaterialTheme.typography.bodySmall)
+                Text("${row.addressLabel}: ${row.address}", style = MaterialTheme.typography.bodySmall)
             }
 
             // "Every valid contact must have Call and Message actions" —
@@ -377,7 +377,7 @@ private fun ContactDetailsSheet(
                 Text("Mobile: ${row.contact}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
             }
             if (row.address.isNotBlank()) {
-                Text("Address: ${row.address}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+                Text("${row.addressLabel}: ${row.address}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
             }
             if (!hasPhone) {
                 Text(

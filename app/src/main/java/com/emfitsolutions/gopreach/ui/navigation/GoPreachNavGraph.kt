@@ -37,6 +37,7 @@ import com.emfitsolutions.gopreach.ui.screens.enrollment.CongregationEnrollmentS
 import com.emfitsolutions.gopreach.ui.screens.enrollment.EldersEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.MinisterialServantEnrollmentScreen
 import com.emfitsolutions.gopreach.ui.screens.enrollment.PublisherEnrollmentScreen
+import com.emfitsolutions.gopreach.ui.screens.findlocation.FindLocationEnrollmentAccess
 import com.emfitsolutions.gopreach.ui.screens.findlocation.FindLocationScreen
 import com.emfitsolutions.gopreach.ui.screens.groups.ManageGroupsScreen
 import com.emfitsolutions.gopreach.ui.screens.home.AdminHomeScreen
@@ -870,7 +871,21 @@ fun GoPreachNavGraph(
             )
         }
         composable(Destinations.FIND_LOCATION) {
-            FindLocationScreen(currentPersonId = currentPersonId, onBack = { navController.popBackStack() })
+            // Publisher: enrolls to themselves. Admin-track roles (own congregation, or a
+            // Regular Elder's own group's congregation): enroll then ASSIGN PUBLISHER.
+            // Super-Admin: picks a congregation first. Look Around reuses the Territory
+            // Map's existing focus-on-a-coordinate view and never creates a record.
+            FindLocationScreen(
+                currentPersonId = currentPersonId,
+                enrollmentAccess = FindLocationEnrollmentAccess(
+                    isPublisher = ownPublisherAssignment != null,
+                    isSuperAdmin = currentRole == AdminRole.SUPER_ADMIN,
+                    congregationId = ownPublisherAssignment?.congregationId ?: ownCongregationId ?: ownGroupAssignment?.congregationId,
+                    groupId = ownGroupAssignment?.groupId,
+                ),
+                onLookAround = { lat, lng -> navController.navigate(Destinations.territoryMapFocusedOn(lat, lng, "Found location")) },
+                onBack = { navController.popBackStack() },
+            )
         }
         composable(Destinations.CALENDAR) {
             val scope = when (currentRole) {

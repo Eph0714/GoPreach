@@ -17,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -148,6 +149,22 @@ class PhilippineAddressPickerViewModel @Inject constructor(
 
     suspend fun resolveProvinceId(name: String): Int? = runCatching { repository.findProvinceByName(name)?.id }.getOrNull()
     suspend fun resolveCityId(name: String, provinceId: Int?): Int? = runCatching { repository.findMuncityByName(name, provinceId)?.id }.getOrNull()
+
+    // Manual-entry mode (see [PhilippineAddressPicker]'s `allowManualEntry`):
+    // text the publisher typed by hand must never be "resolved" through the
+    // loose contains-match above — half-typed "Ca" would silently scope the
+    // next dropdown to whichever province alphabetically contains it. These
+    // only ever return a row for a genuine, exact (or, for a municipality
+    // within a known province, unambiguous) match, so an id is only assigned
+    // when the typed text really is that place.
+    suspend fun canonicalProvince(name: String): PsgcOption? = runCatching { repository.canonicalProvince(name) }.getOrNull()
+    suspend fun canonicalCity(name: String, provinceId: Int?): PsgcOption? = runCatching { repository.canonicalMuncity(name, provinceId) }.getOrNull()
+    suspend fun canonicalBarangay(name: String, cityId: Int?): PsgcOption? = runCatching { repository.canonicalBarangay(name, cityId) }.getOrNull()
+
+    /** The province a picked municipality/city belongs to — used to fill
+     * Province in automatically when a municipality was chosen from the
+     * nationwide list before any province was set. */
+    suspend fun provinceOfCity(cityId: Int): PsgcOption? = runCatching { repository.provinceOfMuncity(cityId) }.getOrNull()
 }
 
 /**
@@ -193,8 +210,19 @@ fun PhilippineAddressPicker(
     barangay: String?,
     onChanged: (province: String?, cityMunicipality: String?, barangay: String?) -> Unit,
     modifier: Modifier = Modifier,
+    /** When true, each level also accepts text that isn't in the list: what's
+     * typed is reported through [onChanged] as-is, and all three levels stay
+     * enabled even if the level above is blank or not a known place (a place
+     * missing from the bundled data, or a publisher who only knows the
+     * barangay). A typed name that *does* match a real place exactly is
+     * snapped to that place's canonical spelling when the field loses focus,
+     * so filters/reports that compare names still line up. Off by default —
+     * the enrollment/congregation forms keep their pick-from-the-list
+     * behavior. */
+    allowManualEntry: Boolean = false,
     viewModel: PhilippineAddressPickerViewModel = hiltViewModel(),
 ) {
+    val scope = rememberCoroutineScope()
     var provinceId by remember { mutableStateOf<Int?>(null) }
     var cityId by remember { mutableStateOf<Int?>(null) }
     var provinceText by remember(province) { mutableStateOf(province.orEmpty()) }
@@ -204,11 +232,18 @@ fun PhilippineAddressPicker(
     // Re-hydrate ids from whatever names this composable was handed (a
     // loaded record, or a fresh automatic fill-up) so City/Barangay search
     // is correctly scoped from the very first keystroke, not just after the
-    // publisher re-picks something by hand.
+    // publisher re-picks something by hand. Manual-entry mode only assigns an
+    // id for an exact/unambiguous match (see the ViewModel's `canonical*`).
     LaunchedEffect(province, cityMunicipality) {
-        provinceId = province?.let { viewModel.resolveProvinceId(it) }
-        cityId = cityMunicipality?.let { viewModel.resolveCityId(it, provinceId) }
+        if (allowManualEntry) {
+            provinceId = province?.let { viewModel.canonicalProvince(it)?.id }
+            cityId = cityMunicipality?.let { viewModel.canonicalCity(it, provinceId)?.id }
+        } else {
+            provinceId = province?.let { viewModel.resolveProvinceId(it) }
+            cityId = cityMunicipality?.let { viewModel.resolveCityId(it, provinceId) }
+        }
     }
+    val manualHint = if (allowManualEntry) "Not in the list? You can type it in." else null
 
     // Bug fix ("I cannot see Province/City and other address related..."):
     // each dropdown's option list used to stay empty until the publisher
@@ -234,9 +269,25 @@ fun PhilippineAddressPicker(
             text = provinceText,
             state = provinceState,
             onRetry = viewModel::retryProvinces,
+            supportingText = manualHint,
+            allowFreeText = allowManualEntry,
+            // Browsing an already-filled field should list everything, not
+            // only the one entry matching what's currently in it.
+            onFocused = { viewModel.searchProvinces("") },
             onTextChange = {
                 provinceText = it
                 viewModel.searchProvinces(it)
+                if (allowManualEntry) onChanged(it.ifBlank { null }, cityText.ifBlank { null }, barangayText.ifBlank { null })
+            },
+            onFocusLost = {
+                if (allowManualEntry) scope.launch {
+                    val match = viewModel.canonicalProvince(provinceText)
+                    provinceId = match?.id
+                    if (match != null && match.name != provinceText) {
+                        provinceText = match.name
+                        onChanged(match.name, cityText.ifBlank { null }, barangayText.ifBlank { null })
+                    }
+                }
             },
             onOptionSelected = { option ->
                 provinceText = option.name
@@ -252,17 +303,41 @@ fun PhilippineAddressPicker(
             text = cityText,
             state = cityState,
             onRetry = viewModel::retryCities,
-            enabled = provinceId != null,
-            supportingText = if (provinceId == null) "Select Province first" else null,
+            enabled = allowManualEntry || provinceId != null,
+            supportingText = if (allowManualEntry) manualHint else if (provinceId == null) "Select Province first" else null,
+            allowFreeText = allowManualEntry,
+            onFocused = { viewModel.searchCities(provinceId, "") },
             onTextChange = {
                 cityText = it
                 viewModel.searchCities(provinceId, it)
+                if (allowManualEntry) onChanged(provinceText.ifBlank { null }, it.ifBlank { null }, barangayText.ifBlank { null })
+            },
+            onFocusLost = {
+                if (allowManualEntry) scope.launch {
+                    val match = viewModel.canonicalCity(cityText, provinceId)
+                    cityId = match?.id
+                    if (match != null && match.name != cityText) {
+                        cityText = match.name
+                        onChanged(provinceText.ifBlank { null }, match.name, barangayText.ifBlank { null })
+                    }
+                }
             },
             onOptionSelected = { option ->
                 cityText = option.name
                 cityId = option.id
                 barangayText = ""
+                // Picked from the nationwide list with no province set yet:
+                // fill the province in from the city itself (manual-entry
+                // mode), so the two can't disagree.
                 onChanged(provinceText.ifBlank { null }, option.name, null)
+                if (allowManualEntry && provinceText.isBlank()) {
+                    scope.launch {
+                        val owner = viewModel.provinceOfCity(option.id) ?: return@launch
+                        provinceText = owner.name
+                        provinceId = owner.id
+                        onChanged(owner.name, option.name, null)
+                    }
+                }
             },
         )
         SearchableDropdown(
@@ -270,11 +345,23 @@ fun PhilippineAddressPicker(
             text = barangayText,
             state = barangayState,
             onRetry = viewModel::retryBarangays,
-            enabled = cityId != null,
-            supportingText = if (cityId == null) "Select Municipality / City first" else null,
+            enabled = allowManualEntry || cityId != null,
+            supportingText = if (allowManualEntry) manualHint else if (cityId == null) "Select Municipality / City first" else null,
+            allowFreeText = allowManualEntry,
+            onFocused = { cityId?.let { id -> viewModel.searchBarangays(id, "") } },
             onTextChange = {
                 barangayText = it
                 cityId?.let { id -> viewModel.searchBarangays(id, it) }
+                if (allowManualEntry) onChanged(provinceText.ifBlank { null }, cityText.ifBlank { null }, it.ifBlank { null })
+            },
+            onFocusLost = {
+                if (allowManualEntry) scope.launch {
+                    val match = viewModel.canonicalBarangay(barangayText, cityId)
+                    if (match != null && match.name != barangayText) {
+                        barangayText = match.name
+                        onChanged(provinceText.ifBlank { null }, cityText.ifBlank { null }, match.name)
+                    }
+                }
             },
             onOptionSelected = { option ->
                 barangayText = option.name
@@ -295,9 +382,17 @@ private fun SearchableDropdown(
     onOptionSelected: (PsgcOption) -> Unit,
     enabled: Boolean = true,
     supportingText: String? = null,
+    /** Text that matches no option is still a valid value (manual entry). */
+    allowFreeText: Boolean = false,
+    /** Called each time the field gains focus — lets the caller reset the
+     * option list to "everything" so an already-filled field can be browsed. */
+    onFocused: () -> Unit = {},
+    /** Called when the field loses focus after having had it. */
+    onFocusLost: () -> Unit = {},
 ) {
     val options = state.options
     var expanded by remember { mutableStateOf(false) }
+    var hadFocus by remember { mutableStateOf(false) }
     // Bug fix — see PhilippineAddressPicker's own doc comment: [options]
     // being empty no longer hides the menu outright, only shows nothing
     // filtered under it; the menu opening at all is what makes it obvious
@@ -334,7 +429,12 @@ private fun SearchableDropdown(
             // means the pre-loaded options (see the LaunchedEffects above)
             // are visible immediately.
             modifier = Modifier.fillMaxWidth().menuAnchor().onFocusChanged { focusState ->
-                if (enabled && focusState.isFocused) expanded = true
+                if (enabled && focusState.isFocused) {
+                    expanded = true
+                    if (!hadFocus) onFocused()
+                }
+                if (hadFocus && !focusState.isFocused) onFocusLost()
+                hadFocus = focusState.isFocused
             },
         )
         ExposedDropdownMenu(expanded = showMenu, onDismissRequest = { expanded = false }) {
@@ -374,7 +474,11 @@ private fun SearchableDropdown(
                         onClick = onRetry,
                     )
                     state.isLoading && options.isEmpty() -> DropdownMenuItem(text = { Text("Loading…") }, onClick = {}, enabled = false)
-                    options.isEmpty() -> DropdownMenuItem(text = { Text(if (text.isBlank()) "Loading…" else "No matches") }, onClick = {}, enabled = false)
+                    options.isEmpty() -> DropdownMenuItem(
+                        text = { Text(if (text.isBlank()) "Loading…" else if (allowFreeText) "No matches — \"$text\" will be used as typed" else "No matches") },
+                        onClick = {},
+                        enabled = false,
+                    )
                 }
                 options.forEach { option ->
                     DropdownMenuItem(

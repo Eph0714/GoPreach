@@ -160,7 +160,7 @@ fun SuperAdminInterestedRecordsScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("Search by name or address") },
+                label = { Text("Search by name or place of origin") },
                 leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                 singleLine = true,
                 visualTransformation = VisualTransformation.None,

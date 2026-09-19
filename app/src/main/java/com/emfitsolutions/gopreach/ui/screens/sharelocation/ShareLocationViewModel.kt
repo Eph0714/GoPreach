@@ -130,6 +130,13 @@ class ShareLocationViewModel @Inject constructor(
     val myLocation: StateFlow<MyLocationState?> = _myLocation.asStateFlow()
 
     fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
+
+    /** One-off read of this device's current coordinates for "Show my current
+     * Coordinates" — purely for the publisher to look at: nothing is shared or
+     * stored. Falls back to the last known fix when a fresh one isn't available;
+     * null when neither is. */
+    suspend fun currentCoordinates(): LatLng? =
+        runCatching { locationTracker.getCurrentLocation() ?: locationTracker.getLastKnownLocation() }.getOrNull()
     fun isLocationServicesEnabled(): Boolean = locationTracker.isLocationServicesEnabled()
 
     /** Keeps "My Current Location" in sync with whatever [LocationSharingService]

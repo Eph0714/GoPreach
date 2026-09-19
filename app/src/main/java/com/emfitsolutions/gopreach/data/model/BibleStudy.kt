@@ -57,6 +57,14 @@ data class InterestedPerson(
     val congregationId: String = "",
     val name: String = "",
     val gender: Gender? = null,
+    /** Shown to users as **Place of Origin** (renamed from "Address") — where
+     * the person comes from, as distinct from the structured "Current
+     * Address" ([province]/[cityMunicipality]/[barangay]) below. The stored
+     * field name stays `address` so every existing Searching/Return Visit/
+     * Bible Study record keeps its data with no migration; only the label
+     * changed. The older, separate optional [placeOrigin] field predates this
+     * rename and is no longer offered in the forms — it is kept (never
+     * deleted) purely so records that already have a value still show it. */
     val address: String = "",
     /** "Add a dropdown for City, Municipalities, Town Barangay" — the
      * Philippine Standard Geographic Code's three levels (see
@@ -108,9 +116,17 @@ data class InterestedPerson(
      * folding general notes into it. */
     val notes: String? = null,
     val createdAt: Long = 0L,
+    /** Stamped by [com.emfitsolutions.gopreach.data.repository
+     * .InterestedPersonRepository.save] on every write; `0` only on a record
+     * that predates this field and hasn't been saved since. */
+    val updatedAt: Long = 0L,
     /** System-generated (spec §2/§12) — the signed-in session that enrolled
      * this person; set once at creation and never touched by an edit, same
-     * way [createdAt] is already handled. Not shown as an editable field. */
+     * way [createdAt] is already handled. Not shown as an editable field.
+     * Distinct from [publisherPersonId] (the *assigned* publisher): a
+     * Publisher enrolling their own record is both, but an Admin/Elder/
+     * Service Overseer enrolling one from Find Location is only the creator
+     * and picks (or leaves blank) who it's assigned to. */
     val createdByPersonId: String = "",
     /** Optional (spec §7) — empty until a supporting photo is captured. Only
      * the first entry is used by the current UI; see [SupportingImage]. */

@@ -284,6 +284,7 @@
     <string name="reports_total_unbaptized_publisher">Total Unbaptized Publisher: %1$d</string>
     <string name="reports_total_bible_studies_for">Total Bible Studies for %1$s: %2$d</string>
     <string name="reports_total_hours_for">Total Hours for %1$s: %2$s</string>
+    <string name="reports_group_total_hours">Total Hours for this Group (All Categories): %1$s</string>
     <string name="reports_all_congregations_groups">All Congregations/Groups</string>
     <string name="reports_congregation_group_label">Congregation/Group</string>
     <string name="reports_group_label">Field Service Group</string>

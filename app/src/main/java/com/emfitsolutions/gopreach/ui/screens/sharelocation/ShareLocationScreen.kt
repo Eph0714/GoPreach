@@ -16,8 +16,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.ViewList
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -30,6 +32,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.size
+import kotlinx.coroutines.launch
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -41,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,6 +59,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.location.LatLng
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.LocationSharingSettings
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
@@ -162,6 +170,35 @@ fun ShareLocationScreen(
             // application to fail silently" — a denied permission used to
             // just leave the Switch off with zero explanation.
             showToast("Location permission is required to share your location.")
+        }
+    }
+
+    // "Show my current Coordinates" — a one-off look at where this device is
+    // right now. Separate from sharing: it never turns sharing on and nothing
+    // it reads is sent anywhere.
+    val coordinatesScope = rememberCoroutineScope()
+    var shownCoordinates by remember { mutableStateOf<LatLng?>(null) }
+    var isFetchingCoordinates by remember { mutableStateOf(false) }
+    var coordinatesError by remember { mutableStateOf<String?>(null) }
+    fun fetchCoordinates() {
+        coordinatesError = null
+        isFetchingCoordinates = true
+        coordinatesScope.launch {
+            val fix = viewModel.currentCoordinates()
+            isFetchingCoordinates = false
+            if (fix != null) shownCoordinates = fix else coordinatesError = "Could not get your current coordinates. Make sure location is turned on and try again."
+        }
+    }
+    val coordinatesPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) fetchCoordinates() else coordinatesError = "Location permission is required to show your coordinates."
+    }
+    fun showMyCoordinates() {
+        if (!viewModel.isLocationServicesEnabled()) {
+            coordinatesError = "Location services are disabled. Please enable GPS to continue."
+        } else if (viewModel.hasLocationPermission()) {
+            fetchCoordinates()
+        } else {
+            coordinatesPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
     }
 
@@ -283,6 +320,30 @@ fun ShareLocationScreen(
                         }
                     }
                 }
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedButton(onClick = ::showMyCoordinates, enabled = !isFetchingCoordinates, modifier = Modifier.fillMaxWidth()) {
+                            if (isFetchingCoordinates) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp).padding(end = 0.dp), strokeWidth = 2.dp)
+                                Text("Getting your coordinates…", modifier = Modifier.padding(start = 8.dp))
+                            } else {
+                                Icon(Icons.Rounded.MyLocation, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                                Text("Show my current Coordinates")
+                            }
+                        }
+                        shownCoordinates?.let { fix ->
+                            Text("Latitude: ${"%.6f".format(fix.lat)}", style = MaterialTheme.typography.bodyMedium)
+                            Text("Longitude: ${"%.6f".format(fix.lng)}", style = MaterialTheme.typography.bodyMedium)
+                            if (fix.accuracyMeters != null) {
+                                Text("Accuracy: ${fix.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text("Only shown to you — not shared.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            OutlinedButton(onClick = { shownCoordinates = null; coordinatesError = null }, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Rounded.VisibilityOff, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                                Text("Hide my current location")
+                            }
+                        }
+                        coordinatesError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                    }
                 HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
             }
 

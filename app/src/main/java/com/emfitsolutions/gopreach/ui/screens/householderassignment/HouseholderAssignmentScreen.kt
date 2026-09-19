@@ -172,7 +172,7 @@ fun HouseholderAssignmentScreen(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("Search by name or address") },
+                    label = { Text("Search by name or place of origin") },
                     leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,
@@ -364,7 +364,7 @@ private fun AddEligibleRecordDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("House Holder Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Address") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Place of Origin") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(
                     value = coordinates,
                     onValueChange = { coordinates = it; lookupState = LookupState.Idle; resolvedBarangay = null; resolvedMunicipality = null },

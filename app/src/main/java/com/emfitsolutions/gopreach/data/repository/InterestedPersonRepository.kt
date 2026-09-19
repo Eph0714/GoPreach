@@ -26,7 +26,7 @@ class InterestedPersonRepository @Inject constructor(
 
     suspend fun save(person: InterestedPerson): InterestedPerson {
         val id = person.id.ifBlank { firestore.collection(COLLECTION).document().id }
-        val withId = person.copy(id = id)
+        val withId = person.copy(id = id, updatedAt = System.currentTimeMillis())
         offline.save(COLLECTION, id, withId)
         return withId
     }

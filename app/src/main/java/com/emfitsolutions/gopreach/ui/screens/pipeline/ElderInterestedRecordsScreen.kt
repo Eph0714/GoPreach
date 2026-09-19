@@ -120,7 +120,7 @@ fun ElderInterestedRecordsScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("Search by name or address") },
+                label = { Text("Search by name or place of origin") },
                 leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                 singleLine = true,
                 visualTransformation = VisualTransformation.None,
@@ -180,15 +180,15 @@ private fun InterestedPersonReadOnlyDialog(person: InterestedPerson, publisherNa
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 ReadOnlyRow("Publisher", publisherName ?: "Unassigned")
-                ReadOnlyRow("Address", person.address)
+                ReadOnlyRow("Place of Origin", person.address)
                 if (!person.province.isNullOrBlank() || !person.cityMunicipality.isNullOrBlank() || !person.barangay.isNullOrBlank()) {
-                    ReadOnlyRow("Location", listOfNotNull(person.barangay, person.cityMunicipality, person.province).joinToString(", "))
+                    ReadOnlyRow("Current Address", listOfNotNull(person.barangay, person.cityMunicipality, person.province).joinToString(", "))
                 }
                 person.gender?.let { ReadOnlyRow("Gender", it.name) }
                 person.ageYears?.let { ReadOnlyRow("Age", it.toString()) }
                 person.spouse?.let { if (it.isNotBlank()) ReadOnlyRow("Spouse", it) }
                 person.children?.let { if (it.isNotBlank()) ReadOnlyRow("Children", it) }
-                person.placeOrigin?.let { if (it.isNotBlank()) ReadOnlyRow("Place of Origin", it) }
+                person.placeOrigin?.let { if (it.isNotBlank() && it != person.address) ReadOnlyRow("Previously Recorded Place Origin", it) }
                 person.language?.let { if (it.isNotBlank()) ReadOnlyRow("Language", it) }
                 person.religion?.let { if (it.isNotBlank()) ReadOnlyRow("Religion", it) }
                 person.literaturePlace?.let { if (it.isNotBlank()) ReadOnlyRow("Literature Left At", it) }

@@ -88,10 +88,12 @@ class PipelineViewModel @Inject constructor(
      * approach as [saveGpsLocation]; returns null (not an all-null
      * selection) if the geocoder had nothing at all, so the caller can
      * leave whatever the publisher already picked untouched. */
-    suspend fun resolveAddressLevels(lat: Double, lng: Double): PhilippineAddressSelection? {
-        val geocoded = runCatching { locationTracker.reverseGeocodeAddress(lat, lng) }.getOrNull() ?: return null
-        return philippineLocationRepository.resolveFromGeocode(geocoded).toSelection()
-    }
+    suspend fun resolveAddressLevels(lat: Double, lng: Double): PhilippineAddressSelection? = runCatching {
+        val geocoded = locationTracker.reverseGeocodeAddress(lat, lng)
+        Log.d("AddressDetect", "geocoder($lat, $lng) -> $geocoded")
+        if (geocoded == null) return@runCatching null
+        philippineLocationRepository.resolveFromGeocode(geocoded).toSelection().also { Log.d("AddressDetect", "PSGC match -> $it") }
+    }.onFailure { Log.e("AddressDetect", "address detection failed", it) }.getOrNull()
 
     /** Every record this publisher owns at [stage], active-only unless
      * [includeInactive] (same "Show Inactive" convention as every other list
@@ -146,6 +148,47 @@ class PipelineViewModel @Inject constructor(
      * builds; reused as-is with a blank exclude id since nobody needs
      * excluding here. */
     fun publishersFor(congregationId: String): Flow<List<Person>> = otherPublishers(congregationId, excludePersonId = "")
+
+    /** Publishers a Find Location enrollment can be assigned to — everyone
+     * [publishersFor] returns, narrowed to [groupId]'s own members when the
+     * signed-in role is scoped to a single Group (a Regular Elder), using the
+     * same "Publisher RoleAssignment.groupId" membership [peopleForScope]
+     * already relies on. */
+    fun assignablePublishersFor(congregationId: String, groupId: String?): Flow<List<Person>> {
+        if (groupId == null) return publishersFor(congregationId)
+        return combine(publishersFor(congregationId), roleAssignmentRepository.observeAll()) { publishers, assignments ->
+            val memberIds = assignments
+                .filter { it.status == RoleAssignmentStatus.ACTIVE && it.groupId == groupId && it.resolvedRoleTypeOrNull() is RoleType.Publisher }
+                .map { it.personId }
+                .toSet()
+            publishers.filter { it.id in memberIds }
+        }
+    }
+
+    /** Saves a record enrolled from Find Location and leaves an audit trail
+     * of who created it and who (if anyone) it was assigned to — [save]
+     * itself deliberately stays audit-free, as it always has been. */
+    fun saveEnrolledRecord(person: InterestedPerson, actorPersonId: String) {
+        viewModelScope.launch {
+            runCatching {
+                val saved = interestedPersonRepository.save(person)
+                // The record is already saved; a failed audit entry must not
+                // be reported to the user as a failed save.
+                runCatching {
+                    auditLogRepository.log(
+                        actorPersonId = actorPersonId,
+                        action = "ENROLL_FROM_FIND_LOCATION",
+                        targetType = "InterestedPerson",
+                        targetId = saved.id,
+                        details = "${saved.pipelineStage}: ${saved.name} (assigned: ${saved.publisherPersonId.ifBlank { "none" }})",
+                    )
+                }
+            }.onFailure { e ->
+                Log.e("PipelineViewModel", "Failed to save Find Location enrollment", e)
+                _errorEvents.emit("Could not save the record: ${e.message ?: "unknown error"}")
+            }
+        }
+    }
 
     fun save(person: InterestedPerson) {
         viewModelScope.launch {

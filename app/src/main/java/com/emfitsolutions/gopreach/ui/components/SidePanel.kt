@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.ManageAccounts
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.People
@@ -243,6 +244,7 @@ fun GoPreachSidePanelContent(
             if (canEditMeetingAssignments) add(SideItem(stringResource(R.string.home_tile_meeting_cart_assignment_title), Icons.Rounded.Event, Destinations.MEETING_ASSIGNMENTS))
             if (canManageTerritories) add(SideItem(stringResource(R.string.side_territory_map), Icons.Rounded.Map, Destinations.MANAGE_TERRITORIES_BASE))
             add(SideItem(stringResource(R.string.side_share_location_settings), Icons.Rounded.LocationOn, Destinations.SHARE_LOCATION))
+            add(SideItem(stringResource(R.string.home_tile_find_location_title), Icons.Rounded.Navigation, Destinations.FIND_LOCATION))
             if (canViewUserLogs) add(SideItem(stringResource(R.string.side_user_logs), Icons.Rounded.History, Destinations.USER_LOGS))
             if (canViewContactRecord) add(SideItem(stringResource(R.string.side_contact_record), Icons.Rounded.Contacts, Destinations.CONTACT_RECORD))
             // "Theme Color Settings — Simplified User Experience" (spec §16/

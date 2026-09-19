@@ -141,6 +141,7 @@ private enum class TerritoryViewMode(val label: String) { LIST("List View"), MAP
 private enum class TerritorySearchByField(val label: String) {
     ALL("All"),
     NAME("House Holder Name"),
+    PROVINCE("Province"),
     MUNICIPALITY("Municipalities"),
     BARANGAY("Barangay"),
     STATUS("Status"),
@@ -166,9 +167,10 @@ private fun TerritoryMapRow.matchesSearch(field: TerritorySearchByField, rawQuer
         // to; typing "Group 5" or just "5" both match since the name itself
         // ("Group 5") already contains the number.
         TerritorySearchByField.ALL ->
-            person.name.has() || person.cityMunicipality.has() || person.barangay.has() ||
+            person.name.has() || person.province.has() || person.cityMunicipality.has() || person.barangay.has() ||
                 person.pipelineStage.statusLabel().has() || publisherName.has() || groupName.has()
         TerritorySearchByField.NAME -> person.name.has()
+        TerritorySearchByField.PROVINCE -> person.province.has()
         TerritorySearchByField.MUNICIPALITY -> person.cityMunicipality.has()
         TerritorySearchByField.BARANGAY -> person.barangay.has()
         TerritorySearchByField.STATUS -> person.pipelineStage.statusLabel().has()
@@ -235,6 +237,7 @@ private enum class MapSearchCategory(
      * state and [MapSearchCategory.entries]'s iteration order below).
      */
     ALL("All", null, "", "All Records"),
+    PROVINCE("Province", null, "Select Province", "All Provinces"),
     MUNICIPALITY("Municipalities", null, "Select Municipality", "All Municipalities"),
     BARANGAY("Barangay", null, "Select Barangay", "All Barangays"),
     INTERESTED_PERSON("Interested Person", PipelineStage.SEARCHING, "Select Interested Person", "All Interested Persons"),
@@ -616,6 +619,16 @@ fun TerritoryMapScreen(
             municipalityOptions.flatMap { muni -> viewModel.barangaysInMuncity(id, muni).map { muni to it } }
         }
     }
+    // Province: the real Philippine list (PSGC), not just the values
+    // that happen to appear on saved records; a failed lookup falls back to the
+    // record-derived values at the dropdown below.
+    var mapProvinceOptions by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(mapSearchCategory, provinceId.value) {
+        when (mapSearchCategory) {
+            MapSearchCategory.PROVINCE -> mapProvinceOptions = viewModel.allProvinces()
+            else -> {}
+        }
+    }
     // Interested Person / Return Visit / Bible Study: every named record
     // currently at that pipeline stage, in scope.
     val mapStageOptions = remember(rows, mapSearchCategory) {
@@ -699,6 +712,8 @@ fun TerritoryMapScreen(
             // completely unfiltered by place or Publisher; [mapDeepSearchQuery]
             // below is what actually narrows this down as the user types.
             MapSearchCategory.ALL -> rows
+            MapSearchCategory.PROVINCE ->
+                if (selection == null) rows else rows.filter { it.person.province == selection }
             MapSearchCategory.MUNICIPALITY ->
                 if (selection == null) rows else rows.filter { it.person.cityMunicipality == selection }
             MapSearchCategory.BARANGAY ->
@@ -749,6 +764,7 @@ fun TerritoryMapScreen(
             mapSearchCategory == MapSearchCategory.ALL -> mapScopedRows.filter { row ->
                 row.person.name.contains(query, ignoreCase = true) ||
                     row.person.address.contains(query, ignoreCase = true) ||
+                    row.person.province?.contains(query, ignoreCase = true) == true ||
                     row.person.cityMunicipality?.contains(query, ignoreCase = true) == true ||
                     row.person.barangay?.contains(query, ignoreCase = true) == true ||
                     row.person.pipelineStage.statusLabel().contains(query, ignoreCase = true) ||
@@ -850,6 +866,7 @@ fun TerritoryMapScreen(
                 // [mapSelectionId] never leaves null for it (see the `if`
                 // above); kept only so this `when` stays exhaustive.
                 MapSearchCategory.ALL -> mapSearchCategory.allLabel
+                MapSearchCategory.PROVINCE -> selection
                 MapSearchCategory.MUNICIPALITY -> selection
                 MapSearchCategory.BARANGAY -> {
                     val brgy = selection.substringAfter(BARANGAY_SELECTION_SEPARATOR)
@@ -1242,6 +1259,7 @@ fun TerritoryMapScreen(
                                         selectionOptions = when (mapSearchCategory) {
                                             // No second dropdown for [ALL] (see its own doc comment) — [TerritoryMapSearchBar] skips rendering it entirely when this is empty and `selectLabel` is blank.
                                             MapSearchCategory.ALL -> emptyList()
+                                            MapSearchCategory.PROVINCE -> mapProvinceOptions.ifEmpty { rows.mapNotNull { it.person.province?.takeIf { p -> p.isNotBlank() } }.distinct().sorted() }.map { it to it }
                                             MapSearchCategory.MUNICIPALITY -> municipalityOptions.map { it to it }
                                             MapSearchCategory.BARANGAY -> mapBarangayDirectory.map { (muni, brgy) -> "$muni$BARANGAY_SELECTION_SEPARATOR$brgy" to "$brgy, $muni" }
                                             MapSearchCategory.INTERESTED_PERSON, MapSearchCategory.RETURN_VISIT, MapSearchCategory.BIBLE_STUDY -> mapStageOptions
@@ -5073,7 +5091,7 @@ private fun MapPointDetailsSheet(
                     point.province?.let { DetailRow(label = "Province", value = it) }
                     point.cityMunicipality?.let { DetailRow(label = "Municipality", value = it) }
                     point.barangay?.let { DetailRow(label = "Barangay", value = it) }
-                    point.address?.let { DetailRow(label = "Complete Address", value = it) }
+                    point.address?.let { DetailRow(label = "Place of Origin", value = it) }
                 }
             }
 

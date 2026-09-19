@@ -70,6 +70,14 @@ data class PublisherReportRow(
     val bibleStudiesByReportCategory: Map<PublisherCategory, Int>,
 )
 
+/** The three Pioneer categories a report breaks hours/Bible Studies out by, in
+ * display order. */
+val PIONEER_CATEGORIES = listOf(
+    PublisherCategory.REGULAR_PIONEER,
+    PublisherCategory.SPECIAL_PIONEER,
+    PublisherCategory.AUXILIARY_PIONEER,
+)
+
 /** One Group's worth of the Publisher Report — "Group the record by Group"
  * (example: "Group: 5 / Group Overseer: ... / Group Servant: ... / Group
  * Assistant: ...", one publisher table, then a per-group summary total).
@@ -94,6 +102,20 @@ data class GroupReportSection(
      * [categoryHours] (the shared extension) for how this is derived from
      * each row's *reported* category rather than its current one. */
     val categoryHours: Map<PublisherCategory, Double> get() = rows.categoryHours()
+
+    /** "Total of hours per group, categorized by Regular / Auxiliary / Special
+     * Pioneer" — [categoryHours] restricted to the three Pioneer categories
+     * and always listing all three (0.0 when this group has no hours for one),
+     * so every group's summary reads the same instead of a category silently
+     * missing. Still summed by each report's own category snapshot. */
+    val pioneerHours: Map<PublisherCategory, Double> get() = categoryHours.let { byCategory ->
+        PIONEER_CATEGORIES.associateWith { byCategory[it] ?: 0.0 }
+    }
+
+    /** Every hour this group's publishers reported, whatever their category
+     * (Pioneers, Regular/Unbaptized Publishers) — the overall group total the
+     * three Pioneer lines above are part of. */
+    val totalHours: Double get() = rows.sumOf { it.totalHours }
 
     /** "Separate the Auxiliary and Regular Pioneer... Bible Study" — see
      * [categoryBibleStudies] (the shared extension). */

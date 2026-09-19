@@ -48,6 +48,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -374,17 +375,31 @@ internal fun PipelinePersonDialog(
     onSave: (InterestedPerson) -> Unit,
     onDismiss: () -> Unit,
     viewModel: PipelineViewModel,
+    /** Find Location hand-off: coordinates the form should open with on a
+     * brand-new record. Held only as form state — nothing is written until
+     * the user saves — so opening this form never creates a record by
+     * itself. Ignored when editing ([existingPerson] non-null). */
+    initialCoordinates: CoordinatesValue? = null,
+    /** Non-null shows the "ASSIGN PUBLISHER" picker (an authorized non-
+     * Publisher creating a record); null means the record is simply owned by
+     * [publisherPersonId] as before, with no assignment step. */
+    assignablePublishers: List<Person>? = null,
 ) {
     var name by remember { mutableStateOf(existingPerson?.name.orEmpty()) }
     var spouse by remember { mutableStateOf(existingPerson?.spouse.orEmpty()) }
-    var address by remember { mutableStateOf(existingPerson?.address.orEmpty()) }
+    // "Place of Origin" — still stored in [InterestedPerson.address]; see that
+    // field's doc comment. An older record whose only value lives in the
+    // legacy separate placeOrigin field opens with that value instead of blank.
+    var address by remember { mutableStateOf(existingPerson?.address.orEmpty().ifBlank { existingPerson?.placeOrigin.orEmpty() }) }
+    var assignedPublisherId by remember { mutableStateOf(publisherPersonId) }
+    var isSubmitted by remember { mutableStateOf(false) }
+    var locationDetection by remember { mutableStateOf(LocationDetection.NONE) }
     var province by remember { mutableStateOf(existingPerson?.province) }
     var cityMunicipality by remember { mutableStateOf(existingPerson?.cityMunicipality) }
     var barangay by remember { mutableStateOf(existingPerson?.barangay) }
     var children by remember { mutableStateOf(existingPerson?.children.orEmpty()) }
     var religion by remember { mutableStateOf(existingPerson?.religion.orEmpty()) }
     var ageText by remember { mutableStateOf(existingPerson?.ageYears?.toString().orEmpty()) }
-    var placeOrigin by remember { mutableStateOf(existingPerson?.placeOrigin.orEmpty()) }
     var language by remember { mutableStateOf(existingPerson?.language.orEmpty()) }
     var literaturePlace by remember { mutableStateOf(existingPerson?.literaturePlace.orEmpty()) }
     var remarks by remember { mutableStateOf(existingPerson?.remarks.orEmpty()) }
@@ -394,7 +409,7 @@ internal fun PipelinePersonDialog(
     val originalCoordinates = remember(existingPerson) {
         existingPerson?.takeIf { it.hasGpsLocation }?.let { CoordinatesValue(it.gpsLat!!, it.gpsLng!!, it.gpsAccuracy) }
     }
-    var coordinates by remember { mutableStateOf(originalCoordinates) }
+    var coordinates by remember { mutableStateOf(originalCoordinates ?: initialCoordinates.takeIf { existingPerson == null }) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     // "It can be automatic if the publisher will capture the coordinates,
@@ -405,32 +420,57 @@ internal fun PipelinePersonDialog(
     // already-saved coordinates unchanged. Only overwrites a level the
     // reverse-geocode actually resolved, per resolveAddressLevels' own doc
     // comment — never clears a level the publisher already picked by hand.
-    LaunchedEffect(coordinates) {
-        val c = coordinates
-        if (c == null || c == originalCoordinates) return@LaunchedEffect
-        val resolved = viewModel.resolveAddressLevels(c.lat, c.lng) ?: return@LaunchedEffect
+    //
+    // Province/Municipality/Barangay/coordinates are all optional — a failed
+    // or unavailable lookup only changes [locationDetection] (which drives the
+    // message under CURRENT ADDRESS), it never blocks saving.
+    // Looks the Current Address up from [c] and fills Province, Municipality,
+    // Barangay and City. Shared by the automatic fill (a new capture) and the
+    // "Update the Current Address" button (the record's existing coordinates).
+    suspend fun detectCurrentAddress(c: CoordinatesValue) {
+        locationDetection = LocationDetection.RESOLVING
+        val resolved = viewModel.resolveAddressLevels(c.lat, c.lng)
+        if (resolved == null || (resolved.province == null && resolved.cityMunicipality == null && resolved.barangay == null)) {
+            locationDetection = LocationDetection.FAILED
+            return
+        }
         resolved.province?.let { province = it }
+        // A barangay left over from a different municipality would be wrong, so
+        // when the municipality changes the barangay follows the new lookup
+        // (blank if it couldn't be determined).
+        if (resolved.cityMunicipality != null && resolved.cityMunicipality != cityMunicipality) barangay = resolved.barangay
         resolved.cityMunicipality?.let { cityMunicipality = it }
         resolved.barangay?.let { barangay = it }
+        locationDetection = LocationDetection.DETECTED
     }
 
+    LaunchedEffect(coordinates) {
+        val c = coordinates
+        if (c == null) {
+            locationDetection = LocationDetection.NONE
+            return@LaunchedEffect
+        }
+        if (c == originalCoordinates) return@LaunchedEffect
+        detectCurrentAddress(c)
+    }
+    val addressScope = rememberCoroutineScope()
+
     fun submit() {
+        if (isSubmitted) return
         val message = requiredFieldsMessage(
             "Name" to name.isNotBlank(),
-            "Address" to address.isNotBlank(),
+            "Place of Origin" to address.isNotBlank(),
             "Gender" to (gender != null),
-            "Province" to !province.isNullOrBlank(),
-            "Municipality / City" to !cityMunicipality.isNullOrBlank(),
-            "Barangay" to !barangay.isNullOrBlank(),
         )
         if (message != null) {
             errorMessage = message
             return
         }
+        isSubmitted = true
         val coordinatesChanged = coordinates != originalCoordinates
         val now = System.currentTimeMillis()
         val base = existingPerson ?: InterestedPerson(
-            publisherPersonId = publisherPersonId,
+            publisherPersonId = if (assignablePublishers != null) assignedPublisherId else publisherPersonId,
             congregationId = congregationId,
             createdAt = now,
             createdByPersonId = currentPersonId,
@@ -453,7 +493,6 @@ internal fun PipelinePersonDialog(
                 children = children.trim().ifBlank { null },
                 religion = religion.trim().ifBlank { null },
                 ageYears = ageText.toIntOrNull(),
-                placeOrigin = placeOrigin.trim().ifBlank { null },
                 language = language.trim().ifBlank { null },
                 literaturePlace = literaturePlace.trim().ifBlank { null },
                 remarks = remarks.trim().ifBlank { null },
@@ -481,11 +520,11 @@ internal fun PipelinePersonDialog(
             address != existingPerson?.address.orEmpty() || province != existingPerson?.province ||
             cityMunicipality != existingPerson?.cityMunicipality || barangay != existingPerson?.barangay ||
             children != existingPerson?.children.orEmpty() || religion != existingPerson?.religion.orEmpty() ||
-            ageText != existingPerson?.ageYears?.toString().orEmpty() || placeOrigin != existingPerson?.placeOrigin.orEmpty() ||
+            ageText != existingPerson?.ageYears?.toString().orEmpty() ||
             language != existingPerson?.language.orEmpty() || literaturePlace != existingPerson?.literaturePlace.orEmpty() ||
             remarks != existingPerson?.remarks.orEmpty() || notes != existingPerson?.notes.orEmpty() ||
             gender != existingPerson?.gender || image != existingPerson?.primarySupportingImage ||
-            coordinates != originalCoordinates,
+            coordinates != originalCoordinates || assignedPublisherId != publisherPersonId,
     ) {
                 // "Move the capture coordinates in the upper part of the
                 // enrollment" — captured (or manually entered) first, so the
@@ -493,8 +532,20 @@ internal fun PipelinePersonDialog(
                 // have a best-effort fill-up by the time the publisher
                 // reaches them (see the LaunchedEffect above this dialog's
                 // submit() for the reverse-geocode-and-fill logic).
-                EditSectionHeader("Location")
+                EditSectionHeader("Coordinates")
                 CoordinatesEditorField(coordinates = coordinates, onChange = { coordinates = it }, viewModel = viewModel)
+
+                // "CURRENT ADDRESS" — grouped in one container, kept visibly
+                // apart from PLACE OF ORIGIN below. Every level is optional.
+                CurrentAddressGroup(
+                    province = province,
+                    cityMunicipality = cityMunicipality,
+                    barangay = barangay,
+                    detection = locationDetection,
+                    // Editing a record that already has coordinates: re-derive the address from them.
+                    onUpdateFromCoordinates = if (existingPerson != null) coordinates?.let { c -> { addressScope.launch { detectCurrentAddress(c) }; Unit } } else null,
+                    onChanged = { p, c, b -> province = p; cityMunicipality = c; barangay = b },
+                )
 
                 EditSectionHeader("Personal Information")
                 OutlinedTextField(value = name, onValueChange = { name = it.uppercase() }, label = { Text("Name") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
@@ -507,28 +558,24 @@ internal fun PipelinePersonDialog(
                     }
                 }
                 OutlinedTextField(value = spouse, onValueChange = { spouse = it.uppercase() }, label = { Text("Spouse (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = address, onValueChange = { address = it.uppercase() }, label = { Text("Address") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 // "Add a dropdown for City, Municipalities, Town Barangay...
                 // The publisher will browse manually, however it can be
                 // automatic if the publisher will capture the coordinates" —
-                // manual browsing lives here; the automatic half is the
-                // LaunchedEffect(coordinates) above, which reverse-geocodes
-                // whatever was captured/entered in the Location section
-                // above and fills these three in, still fully editable
-                // afterward. GpsLocationSection on the record's own detail
-                // screen (used to *update* an already-saved record's
-                // location later) does the same auto-fill independently.
-                com.emfitsolutions.gopreach.ui.components.PhilippineAddressPicker(
-                    province = province,
-                    cityMunicipality = cityMunicipality,
-                    barangay = barangay,
-                    onChanged = { p, c, b -> province = p; cityMunicipality = c; barangay = b },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                // manual browsing lives in [CurrentAddressGroup] above; the
+                // automatic half is the LaunchedEffect(coordinates) earlier
+                // in this function, which reverse-geocodes whatever was
+                // captured/entered in the Coordinates section and fills
+                // those three in, still fully editable afterward.
+                // GpsLocationSection on the record's own detail screen (used
+                // to *update* an already-saved record's location later) does
+                // the same auto-fill independently.
+                EditSectionHeader("Place of Origin")
+                OutlinedTextField(value = address, onValueChange = { address = it.uppercase() }, label = { Text("Place of Origin") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+
+                EditSectionHeader("Other Details")
                 OutlinedTextField(value = children, onValueChange = { children = it.uppercase() }, label = { Text("Children (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = religion, onValueChange = { religion = it.uppercase() }, label = { Text("Religion (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = ageText, onValueChange = { ageText = it.filter { c -> c.isDigit() } }, label = { Text("Age (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = placeOrigin, onValueChange = { placeOrigin = it.uppercase() }, label = { Text("Place Origin (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = language, onValueChange = { language = it.uppercase() }, label = { Text("Language (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = literaturePlace, onValueChange = { literaturePlace = it.uppercase() }, label = { Text("Literature Place (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = remarks, onValueChange = { remarks = it }, label = { Text("Remarks (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
@@ -537,14 +584,120 @@ internal fun PipelinePersonDialog(
                 EditSectionHeader("Supporting Information")
                 SupportingImageSection(currentImage = image, onImageConfirmed = { image = it }, onClear = { image = null })
 
+                // "ASSIGN PUBLISHER" — only for an authorized non-Publisher
+                // creating a new record. Optional: left on "None" the record
+                // is saved unassigned (and stays eligible for the House
+                // Holder Assignment module). Never defaults to the creator.
+                if (existingPerson == null && assignablePublishers != null) {
+                    EditSectionHeader("ASSIGN PUBLISHER")
+                    AssignPublisherPicker(
+                        publishers = assignablePublishers,
+                        selectedId = assignedPublisherId,
+                        onSelected = { assignedPublisherId = it },
+                    )
+                }
+
                 if (existingPerson != null) {
+                    val createdByName by remember(existingPerson.createdByPersonId) { viewModel.personName(existingPerson.createdByPersonId) }.collectAsStateWithLifecycle(initialValue = null)
+                    val assignedName by remember(existingPerson.publisherPersonId) { viewModel.personName(existingPerson.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
                     EditSectionHeader("System Information")
                     ReadOnlyField("Record ID", existingPerson.id)
                     ReadOnlyField("Status", existingPerson.status.name)
                     ReadOnlyField("Stage", existingPerson.pipelineStage.label())
                     ReadOnlyField("Date Created", formatRecordTimestamp(existingPerson.createdAt))
-                    ReadOnlyField("Created By", existingPerson.createdByPersonId.ifBlank { "—" })
+                    ReadOnlyField("Date Updated", formatRecordTimestamp(existingPerson.updatedAt))
+                    ReadOnlyField("Created By", createdByName ?: existingPerson.createdByPersonId)
+                    ReadOnlyField("Assigned Publisher", assignedName ?: existingPerson.publisherPersonId)
                 }
+    }
+}
+
+/** How far the automatic Current Address lookup got — drives the message under
+ * CURRENT ADDRESS ([NONE] shows nothing, e.g. before any coordinates exist or
+ * when just re-opening a saved record). */
+private enum class LocationDetection { NONE, RESOLVING, DETECTED, FAILED }
+
+/** The "CURRENT ADDRESS" container: Province / Municipality / Barangay in one
+ * bordered card, plus the automatic-detection status line. All three levels
+ * are optional and manually editable whether or not detection worked. */
+@Composable
+private fun CurrentAddressGroup(
+    province: String?,
+    cityMunicipality: String?,
+    barangay: String?,
+    detection: LocationDetection,
+    onUpdateFromCoordinates: (() -> Unit)?,
+    onChanged: (province: String?, cityMunicipality: String?, barangay: String?) -> Unit,
+) {
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("CURRENT ADDRESS", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            when (detection) {
+                LocationDetection.RESOLVING -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text("Detecting location…", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp))
+                }
+                LocationDetection.DETECTED -> {
+                    Text("✓ Location detected automatically", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    if (barangay.isNullOrBlank()) {
+                        Text("Barangay could not be determined. You may enter it manually.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                LocationDetection.FAILED -> Text(
+                    "Location could not be determined. You may enter the Current Address manually.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                LocationDetection.NONE -> Unit
+            }
+            if (onUpdateFromCoordinates != null) {
+                OutlinedButton(
+                    onClick = onUpdateFromCoordinates,
+                    enabled = detection != LocationDetection.RESOLVING,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                    Text("Update the Current Address")
+                }
+            }
+            com.emfitsolutions.gopreach.ui.components.PhilippineAddressPicker(
+                province = province,
+                cityMunicipality = cityMunicipality,
+                barangay = barangay,
+                onChanged = onChanged,
+                allowManualEntry = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+/** Single-select publisher dropdown for [PipelinePersonDialog]'s ASSIGN
+ * PUBLISHER section; "None" clears the selection (blank id = unassigned). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AssignPublisherPicker(publishers: List<Person>, selectedId: String, onSelected: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedName = publishers.firstOrNull { it.id == selectedId }?.fullName ?: "None (leave unassigned)"
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selectedName,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Assigned Publisher") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("None (leave unassigned)") }, onClick = { onSelected(""); expanded = false })
+            publishers.forEach { publisher ->
+                DropdownMenuItem(text = { Text(publisher.fullName) }, onClick = { onSelected(publisher.id); expanded = false })
+            }
+        }
+    }
+    if (publishers.isEmpty()) {
+        Text("No publishers available in this congregation.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -552,41 +705,29 @@ internal fun PipelinePersonDialog(
 private fun CoordinatesEditorField(coordinates: CoordinatesValue?, onChange: (CoordinatesValue?) -> Unit, viewModel: PipelineViewModel) {
     val coroutineScope = rememberCoroutineScope()
     var isCapturing by remember { mutableStateOf(false) }
-    var pendingCapture by remember { mutableStateOf<LatLng?>(null) }
     var showManualEntry by remember { mutableStateOf(false) }
     var captureError by remember { mutableStateOf<String?>(null) }
 
+    // A successful capture is applied straight away — no "Confirm" step. (The
+    // Current Address is then detected from it by the form's own effect.)
     fun runCapture() {
         captureError = null
         isCapturing = true
         coroutineScope.launch {
             val result = viewModel.captureCurrentLocation()
             isCapturing = false
-            if (result == null) captureError = "Could not get a GPS fix. Make sure location is turned on and try again." else pendingCapture = result
+            if (result == null) captureError = "Could not get a GPS fix. Make sure location is turned on and try again, or enter the Current Address manually." else onChange(CoordinatesValue(result.lat, result.lng, result.accuracyMeters))
         }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) runCapture() else captureError = "Location permission is required to capture GPS."
+        if (granted) runCapture() else captureError = "Location permission was denied, so coordinates could not be captured. You may enter the Current Address manually."
     }
     fun startCapture() {
         if (viewModel.hasLocationPermission()) runCapture() else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
-    val capture = pendingCapture
     when {
-        capture != null -> Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("New Location Captured", style = MaterialTheme.typography.labelLarge)
-                Text("Latitude: ${"%.6f".format(capture.lat)}", style = MaterialTheme.typography.bodyMedium)
-                Text("Longitude: ${"%.6f".format(capture.lng)}", style = MaterialTheme.typography.bodyMedium)
-                if (capture.accuracyMeters != null) Text("Accuracy: ${capture.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
-                    TextButton(onClick = { onChange(CoordinatesValue(capture.lat, capture.lng, capture.accuracyMeters)); pendingCapture = null }) { Text("Confirm") }
-                    TextButton(onClick = { pendingCapture = null }) { Text("Cancel") }
-                }
-            }
-        }
         isCapturing -> Row(verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(modifier = Modifier.padding(end = 12.dp))
             Text("Getting current location…")
@@ -596,14 +737,14 @@ private fun CoordinatesEditorField(coordinates: CoordinatesValue?, onChange: (Co
             Text("Longitude: ${"%.6f".format(coordinates.lng)}", style = MaterialTheme.typography.bodyMedium)
             if (coordinates.accuracyMeters != null) Text("Accuracy: ${coordinates.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { startCapture() }) { Text("Edit Location") }
+                OutlinedButton(onClick = { startCapture() }) { Text("Recapture Coordinates") }
                 OutlinedButton(onClick = { onChange(null) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Clear") }
             }
         }
         else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { startCapture() }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                Text("Capture Current Location")
+                Text("Capture Coordinates")
             }
             OutlinedButton(onClick = { showManualEntry = true }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
@@ -740,14 +881,20 @@ internal fun PipelinePersonDetailScreen(
                 // structured fields [address] already sits alongside, shown
                 // explicitly here rather than only ever driving the address
                 // picker/filters behind the scenes.
+                Text("Place of Origin: ${livePerson.address.ifBlank { "—" }}", style = MaterialTheme.typography.bodyMedium)
+                // Records saved before the "Address → Place of Origin" rename
+                // may carry a separate legacy Place Origin value; keep it
+                // visible rather than silently hiding stored data.
+                livePerson.placeOrigin?.takeIf { it.isNotBlank() && it != livePerson.address }?.let {
+                    Text("Previously Recorded Place Origin: $it", style = MaterialTheme.typography.bodyMedium)
+                }
+                Text("CURRENT ADDRESS", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
                 Text("Province: ${livePerson.province ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Municipality/City: ${livePerson.cityMunicipality ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Barangay: ${livePerson.barangay ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-                Text("Address: ${livePerson.address}", style = MaterialTheme.typography.bodyMedium)
-                Text("Children: ${livePerson.children ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                Text("Children: ${livePerson.children ?: "—"}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
                 Text("Religion: ${livePerson.religion ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Age: ${livePerson.ageYears ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-                Text("Place Origin: ${livePerson.placeOrigin ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Language: ${livePerson.language ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Literature Place: ${livePerson.literaturePlace ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Congregation/Group: $congregationName", style = MaterialTheme.typography.bodyMedium)
@@ -799,6 +946,7 @@ internal fun PipelinePersonDetailScreen(
             if (stage != PipelineStage.SEARCHING) {
                 item { EditSectionHeader("System Information", modifier = Modifier.padding(top = 16.dp))
                     Text("Date Created: ${formatRecordTimestamp(livePerson.createdAt)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Date Updated: ${formatRecordTimestamp(livePerson.updatedAt)}", style = MaterialTheme.typography.bodyMedium)
                     Text("Created By: ${createdByName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 }
                 item { EditSectionHeader("Visit History", modifier = Modifier.padding(top = 16.dp)) }
@@ -853,6 +1001,7 @@ internal fun PipelinePersonDetailScreen(
             } else {
                 item { EditSectionHeader("System Information", modifier = Modifier.padding(top = 16.dp))
                     Text("Date Created: ${formatRecordTimestamp(livePerson.createdAt)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Date Updated: ${formatRecordTimestamp(livePerson.updatedAt)}", style = MaterialTheme.typography.bodyMedium)
                     Text("Created By: ${createdByName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 }
             }
@@ -1263,7 +1412,6 @@ private fun SupportingImagePreview(image: SupportingImage?) {
 private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String, canEdit: Boolean, viewModel: PipelineViewModel) {
     val coroutineScope = rememberCoroutineScope()
     var isCapturing by remember { mutableStateOf(false) }
-    var pendingCapture by remember { mutableStateOf<LatLng?>(null) }
     var captureError by remember { mutableStateOf<String?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
     var showManualEntry by remember { mutableStateOf(false) }
@@ -1275,12 +1423,16 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
         coroutineScope.launch {
             val result = viewModel.captureCurrentLocation()
             isCapturing = false
-            if (result == null) captureError = "Could not get a GPS fix. Make sure location is turned on and try again." else pendingCapture = result
+            // Saved straight away — no "Confirm" step.
+            if (result == null) captureError = "Could not get a GPS fix. Make sure location is turned on and try again, or enter the Current Address manually." else {
+                viewModel.saveGpsLocation(person, result.lat, result.lng, result.accuracyMeters, currentPersonId)
+                showToast("Location saved.")
+            }
         }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) runCapture() else captureError = "Location permission is required to capture GPS."
+        if (granted) runCapture() else captureError = "Location permission was denied, so coordinates could not be captured. You may enter the Current Address manually."
     }
     fun startCapture() {
         if (viewModel.hasLocationPermission()) runCapture() else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -1288,25 +1440,7 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
 
     Column(modifier = Modifier.padding(top = 16.dp)) {
         Text("Interested Person Location", style = MaterialTheme.typography.titleMedium)
-        val capture = pendingCapture
         when {
-            capture != null -> Card(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("New Location Captured", style = MaterialTheme.typography.titleSmall)
-                    ClickableCoordinatesText(lat = capture.lat, lng = capture.lng, label = person.name.ifBlank { null })
-                    if (capture.accuracyMeters != null) Text("Accuracy: ${capture.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodyMedium)
-                    Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = {
-                                viewModel.saveGpsLocation(person, capture.lat, capture.lng, capture.accuracyMeters, currentPersonId)
-                                showToast("Location saved.")
-                                pendingCapture = null
-                            },
-                        ) { Text("Confirm & Save") }
-                        OutlinedButton(onClick = { pendingCapture = null }) { Text("Cancel") }
-                    }
-                }
-            }
             isCapturing -> Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(modifier = Modifier.padding(end = 12.dp))
                 Text("Getting current location…")
@@ -1325,7 +1459,7 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
                     // captured location above, never these mutation controls.
                     if (canEdit) {
                         Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { startCapture() }) { Text("Edit Location") }
+                            OutlinedButton(onClick = { startCapture() }) { Text("Recapture Coordinates") }
                             OutlinedButton(onClick = { showClearConfirm = true }, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Clear Location") }
                         }
                     }
@@ -1340,7 +1474,7 @@ private fun GpsLocationSection(person: InterestedPerson, currentPersonId: String
                 if (canEdit) {
                     Button(onClick = { startCapture() }) {
                         Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text("Capture Current Location")
+                        Text("Capture Coordinates")
                     }
                     OutlinedButton(onClick = { showManualEntry = true }) {
                         Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))

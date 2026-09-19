@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DirectionsBus
 import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material3.AlertDialog
@@ -46,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -63,10 +65,15 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
+import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.PipelineStage
+import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.SavedLocation
+import com.emfitsolutions.gopreach.ui.components.CoordinatesValue
 import com.emfitsolutions.gopreach.ui.components.FormDialog
+import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelinePersonDialog
+import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineViewModel
 import com.emfitsolutions.gopreach.ui.components.RoundIconActionButton
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
@@ -96,16 +103,53 @@ private enum class TravelMode(val label: String, val icon: ImageVector, val trav
  * .ShareLocationScreen] already opens a bare `geo:` intent rather than
  * drawing its own map.
  */
+/**
+ * Who is using Find Location, as far as enrolling a found coordinate into a
+ * Searching / Return Visit / Bible Study record goes.
+ *
+ * - [isPublisher]: the active role is Publisher — records they enroll are
+ *   automatically assigned to themselves.
+ * - Any other role with a congregation ([congregationId], plus [groupId] for
+ *   a Regular Elder scoped to one Group) creates the record as themselves and
+ *   then assigns it to a publisher of that congregation via ASSIGN PUBLISHER.
+ * - [isSuperAdmin] has no fixed congregation, so picks one first.
+ * - Anyone else (e.g. a Circuit Overseer/custom-grant user with no
+ *   congregation of their own) can still find and look around, but isn't
+ *   offered enrollment — same "no access outside your existing permissions"
+ *   rule the rest of the app follows.
+ */
+data class FindLocationEnrollmentAccess(
+    val isPublisher: Boolean,
+    val isSuperAdmin: Boolean,
+    val congregationId: String?,
+    val groupId: String? = null,
+) {
+    val canEnroll: Boolean get() = isSuperAdmin || !congregationId.isNullOrBlank()
+}
+
+/** A pending "Enroll to …" action: the stage chosen, the coordinate that was
+ * on screen at that moment (so editing the search box afterwards can't shift
+ * it), and — for Super-Admin — the congregation, filled in after their pick.
+ * Purely form state: nothing is stored until the enrollment form is saved. */
+private data class EnrollRequest(val stage: PipelineStage, val lat: Double, val lng: Double, val congregationId: String?)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FindLocationScreen(
     currentPersonId: String,
+    enrollmentAccess: FindLocationEnrollmentAccess,
+    onLookAround: (lat: Double, lng: Double) -> Unit,
     onBack: () -> Unit,
     viewModel: FindLocationViewModel = hiltViewModel(),
+    pipelineViewModel: PipelineViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val showToast = rememberActionToast()
     val coroutineScope = rememberCoroutineScope()
+    var enrollRequest by remember { mutableStateOf<EnrollRequest?>(null) }
+    // Super-Admin only: the stage they tapped, waiting on a congregation pick.
+    var pendingSuperAdminStage by remember { mutableStateOf<PipelineStage?>(null) }
+    LaunchedEffect(Unit) { pipelineViewModel.errorEvents.collect { showToast(it) } }
     // "The textbox will search a coordinates or address, not just the
     // latitude and longitude" — one field that accepts either
     // "14.5995, 120.9842" or free-text like "Rizal Park, Manila".
@@ -215,18 +259,45 @@ fun FindLocationScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Text(
-                                "Destination",
+                                "LOCATION FOUND",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(start = 4.dp),
                             )
                         }
-                        Text("Coordinates: ${formatCoordinatesDms(lat, lng)}", style = MaterialTheme.typography.bodyMedium)
+                        Text("Latitude: ${"%.6f".format(lat)}", style = MaterialTheme.typography.bodyMedium)
+                        Text("Longitude: ${"%.6f".format(lng)}", style = MaterialTheme.typography.bodyMedium)
+                        Text(formatCoordinatesDms(lat, lng), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
                             "Location: ${address ?: "Resolving address…"}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        LocationPreviewMap(lat = lat, lng = lng, modifier = Modifier.padding(vertical = 8.dp))
+                        // "Enroll to …" opens the existing enrollment form with
+                        // this coordinate (and its detected Current Address)
+                        // already filled in; "Look Around" only views the
+                        // spot and never creates anything. Enrollment isn't
+                        // offered to roles with no congregation to enroll
+                        // into (see [FindLocationEnrollmentAccess]).
+                        if (enrollmentAccess.canEnroll) {
+                            PipelineStage.entries.forEach { stage ->
+                                Button(
+                                    onClick = {
+                                        if (enrollmentAccess.isSuperAdmin) {
+                                            pendingSuperAdminStage = stage
+                                        } else {
+                                            enrollRequest = EnrollRequest(stage, lat, lng, enrollmentAccess.congregationId)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text(stage.enrollLabel()) }
+                            }
+                        }
+                        OutlinedButton(onClick = { onLookAround(lat, lng) }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.Explore, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                            Text("Look Around")
+                        }
                         // "The publisher can save the location and can
                         // assign a 'Searching Record', 'Return Visit'
                         // record or 'Bible Study' Record or simply save the
@@ -241,9 +312,14 @@ fun FindLocationScreen(
                                 Icon(Icons.Rounded.Save, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
                                 Text("Save Location")
                             }
-                            OutlinedButton(onClick = { showAssignDialog = true }, modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Rounded.Assignment, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
-                                Text("Assign to Record")
+                            // Attaches this coordinate to one of the signed-in
+                            // Publisher's *own existing* records — meaningless
+                            // for a role that owns none.
+                            if (enrollmentAccess.isPublisher) {
+                                OutlinedButton(onClick = { showAssignDialog = true }, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Rounded.Assignment, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                                    Text("Assign to Record")
+                                }
                             }
                         }
                     }
@@ -325,6 +401,51 @@ fun FindLocationScreen(
             },
             onDismiss = { showAssignDialog = false },
             viewModel = viewModel,
+        )
+    }
+
+    // Super-Admin has no congregation of their own, so choose one first.
+    val superAdminStage = pendingSuperAdminStage
+    if (superAdminStage != null && destinationForSave != null) {
+        val congregations by pipelineViewModel.congregations.collectAsStateWithLifecycle()
+        SelectCongregationDialog(
+            congregations = congregations.filter { it.status == RecordStatus.ACTIVE }.sortedBy { it.name },
+            onSelected = { congregation ->
+                enrollRequest = EnrollRequest(superAdminStage, destinationForSave.first, destinationForSave.second, congregation.id)
+                pendingSuperAdminStage = null
+            },
+            onDismiss = { pendingSuperAdminStage = null },
+        )
+    }
+
+    // The existing Searching / Return Visit / Bible Study enrollment form,
+    // opened with the found coordinate pre-filled (its Current Address is then
+    // detected from it). Nothing is written until the form itself is saved, so
+    // opening it can never leave a stray record behind.
+    val request = enrollRequest
+    if (request != null) {
+        val congregationId = request.congregationId.orEmpty()
+        val publishersFlow = remember(congregationId, enrollmentAccess.groupId) {
+            pipelineViewModel.assignablePublishersFor(congregationId, enrollmentAccess.groupId)
+        }
+        val publishers by publishersFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+        PipelinePersonDialog(
+            existingPerson = null,
+            // A Publisher owns what they enroll; anyone else creates the
+            // record unassigned and picks a publisher in ASSIGN PUBLISHER —
+            // never defaulting to themselves.
+            publisherPersonId = if (enrollmentAccess.isPublisher) currentPersonId else "",
+            congregationId = congregationId,
+            currentPersonId = currentPersonId,
+            stage = request.stage,
+            onSave = {
+                pipelineViewModel.saveEnrolledRecord(it, currentPersonId)
+                showToast("${request.stage.assignLabel()} record added.")
+            },
+            onDismiss = { enrollRequest = null },
+            viewModel = pipelineViewModel,
+            initialCoordinates = CoordinatesValue(request.lat, request.lng),
+            assignablePublishers = if (enrollmentAccess.isPublisher) null else publishers,
         )
     }
 
@@ -463,6 +584,44 @@ private fun PipelineStage.assignLabel(): String = when (this) {
     PipelineStage.SEARCHING -> "Searching"
     PipelineStage.RETURN_VISIT -> "Return Visit"
     PipelineStage.BIBLE_STUDY -> "Bible Study"
+}
+
+private fun PipelineStage.enrollLabel(): String = when (this) {
+    PipelineStage.SEARCHING -> "Enroll to Searching Record"
+    PipelineStage.RETURN_VISIT -> "Enroll to Return Visit Record"
+    PipelineStage.BIBLE_STUDY -> "Enroll to Bible Study Record"
+}
+
+/** Super-Admin's "which congregation is this record for?" step before the
+ * enrollment form opens. */
+@Composable
+private fun SelectCongregationDialog(
+    congregations: List<Congregation>,
+    onSelected: (Congregation) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
+        onDismissRequest = onDismiss,
+        title = { Text("Select Congregation") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (congregations.isEmpty()) {
+                    Text("No congregations available.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                congregations.forEach { congregation ->
+                    Card(modifier = Modifier.fillMaxWidth().clickable { onSelected(congregation) }) {
+                        Text(congregation.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(12.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** Launches Google Maps (falling back to any browser if the app isn't

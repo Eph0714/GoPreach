@@ -161,7 +161,7 @@ fun HouseholderVisitHistoryScreen(
         ReportTable(
             title = "House Holder Visit History",
             columns = listOf(
-                "House Holder", "Status", "Assigned Publisher", "Congregation", "Address",
+                "House Holder", "Status", "Assigned Publisher", "Congregation", "Place of Origin",
                 "Province", "Municipality/City", "Barangay", "House Holder GPS",
                 "Visit Date", "Visit Status", "Remarks", "Visit Coordinates", "Recorded By",
             ),
@@ -402,11 +402,9 @@ private fun buildHouseholderVisitHistoryPrintHtml(rows: List<HouseholderRow>, pe
             append("<p class=\"field\"><b>Coordinates:</b> ")
                 .append(esc(if (person.hasGpsLocation) formatGpsDecimal(person.gpsLat!!, person.gpsLng!!) else "Not available"))
                 .append("</p>")
-            val address = listOfNotNull(
-                person.address.takeIf { it.isNotBlank() },
-                person.barangay, person.cityMunicipality, person.province,
-            ).joinToString(", ")
-            append("<p class=\"field\"><b>Address:</b> ").append(esc(address.ifBlank { "—" })).append("</p>")
+            val currentAddress = listOfNotNull(person.barangay, person.cityMunicipality, person.province).filter { it.isNotBlank() }.joinToString(", ")
+            append("<p class=\"field\"><b>Place of Origin:</b> ").append(esc(person.address.ifBlank { "—" })).append("</p>")
+            append("<p class=\"field\"><b>Current Address:</b> ").append(esc(currentAddress.ifBlank { "—" })).append("</p>")
             if (row.visits.isEmpty()) {
                 append("<div class=\"visit\"><p>No visit history recorded.</p></div>")
             } else {

@@ -8,6 +8,7 @@ import android.location.Geocoder
 import android.location.LocationManager
 import android.os.Build
 import android.os.Looper
+import android.util.Log
 import androidx.core.location.LocationManagerCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.CurrentLocationRequest
@@ -24,6 +25,10 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import com.google.gson.JsonParser
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -56,6 +61,10 @@ data class GeocodedAddress(
 class LocationTracker @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
+    private companion object {
+        const val TAG = "LocationTracker"
+    }
+
     fun hasLocationPermission(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -187,13 +196,39 @@ class LocationTracker @Inject constructor(
      * line. Returns null (not a [GeocodedAddress] with all-null fields) if
      * the geocoder has nothing at all, so callers can tell "no match" apart
      * from "matched, but couldn't identify any of the three levels." */
-    suspend fun reverseGeocodeAddress(lat: Double, lng: Double): GeocodedAddress? = withContext(Dispatchers.IO) {
+    suspend fun reverseGeocodeAddress(lat: Double, lng: Double): GeocodedAddress? {
+        val onDevice = reverseGeocodeOnDevice(lat, lng)
+        Log.d(TAG, "on-device geocoder -> $onDevice")
+        // Phones without Google's geocoder backend (e.g. Huawei devices
+        // running without full Google Mobile Services) report no geocoder at
+        // all or always come back empty, and even where it works the barangay
+        // is often missing. Fall back to OpenStreetMap's public Nominatim
+        // service to fill whatever the device couldn't resolve.
+        val online = reverseGeocodeOnline(lat, lng)
+        Log.d(TAG, "online geocoder -> $online")
+        if (online == null) return onDevice
+        // Online values win: OSM's levels follow the Philippine hierarchy
+        // (province/municipality/barangay), whereas a phone's own geocoder can
+        // report a region ("Cagayan Valley") as the province and leave the
+        // municipality empty. The on-device result only fills what's missing.
+        return GeocodedAddress(
+            barangay = online.barangay ?: onDevice?.barangay,
+            cityMunicipality = online.cityMunicipality ?: onDevice?.cityMunicipality,
+            province = online.province ?: onDevice?.province,
+        )
+    }
+
+    private suspend fun reverseGeocodeOnDevice(lat: Double, lng: Double): GeocodedAddress? = withContext(Dispatchers.IO) {
         if (!Geocoder.isPresent()) return@withContext null
         runCatching {
             val geocoder = Geocoder(context, Locale.getDefault())
             val address = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                suspendCancellableCoroutine { cont ->
-                    geocoder.getFromLocation(lat, lng, 1) { addresses -> cont.resume(addresses.firstOrNull()) }
+                // The listener's onError does nothing by default, so a failed
+                // lookup would otherwise never resume this coroutine.
+                withTimeoutOrNull(8_000L) {
+                    suspendCancellableCoroutine { cont ->
+                        geocoder.getFromLocation(lat, lng, 1) { addresses -> cont.resume(addresses.firstOrNull()) }
+                    }
                 }
             } else {
                 @Suppress("DEPRECATION")
@@ -202,7 +237,42 @@ class LocationTracker @Inject constructor(
             address?.let {
                 GeocodedAddress(barangay = it.subLocality, cityMunicipality = it.locality, province = it.adminArea)
             }
-        }.getOrNull()
+        }.onFailure { Log.w(TAG, "on-device geocoder failed", it) }.getOrNull()
+    }
+
+    /** OpenStreetMap Nominatim reverse lookup (no API key; its usage policy
+     * asks for an identifying User-Agent and no more than one request per
+     * second, which one lookup per coordinate capture stays well within).
+     * In Philippine OSM data the province is `state`, the municipality/city
+     * is `city`/`town`/`municipality`, and the barangay is one of `suburb`/
+     * `village`/`quarter`/`neighbourhood`. Null on any failure. */
+    private suspend fun reverseGeocodeOnline(lat: Double, lng: Double): GeocodedAddress? = withContext(Dispatchers.IO) {
+        runCatching {
+            val url = URL("https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=en&lat=$lat&lon=$lng")
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 6_000
+                readTimeout = 8_000
+                setRequestProperty("User-Agent", "GoPreach/1.0 (Android; congregation ministry app)")
+            }
+            try {
+                if (connection.responseCode != 200) {
+                    Log.w(TAG, "Nominatim HTTP ${connection.responseCode}")
+                    return@runCatching null
+                }
+                val body = connection.inputStream.bufferedReader().use { it.readText() }
+                val address = JsonParser.parseString(body).asJsonObject.getAsJsonObject("address") ?: return@runCatching null
+                fun field(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
+                    address.get(key)?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.takeIf { it.isNotEmpty() }
+                }
+                GeocodedAddress(
+                    barangay = field("suburb", "village", "quarter", "neighbourhood", "hamlet", "city_district"),
+                    cityMunicipality = field("city", "town", "municipality"),
+                    province = field("state", "province", "county"),
+                )
+            } finally {
+                connection.disconnect()
+            }
+        }.onFailure { Log.w(TAG, "online geocoder failed", it) }.getOrNull()
     }
 
     /** Forward geocoding — "Find Location" spec: "the textbox will search a
