@@ -196,6 +196,21 @@
     <string name="monthly_report_remarks">Remarks</string>
     <string name="monthly_report_submission_window_message">Submission for the current month opens 2 days before it ends. To report now, select the previous month instead.</string>
     <string name="monthly_report_submit_button">Submit Report</string>
+    <string name="monthly_report_hours_label">Hours</string>
+    <string name="monthly_report_minutes_label">Minutes</string>
+    <string name="monthly_report_review_button">Review &amp; Send</string>
+    <string name="monthly_report_preview_title">Preview Report</string>
+    <string name="monthly_report_preview_edit_button">Edit Report</string>
+    <string name="monthly_report_preview_copy_button">Copy Text</string>
+    <string name="monthly_report_preview_send_button">Send Report</string>
+    <string name="monthly_report_preview_cancel_button">Back</string>
+    <string name="monthly_report_status_draft">Draft</string>
+    <string name="monthly_report_status_submitted">Submitted</string>
+    <string name="monthly_report_status_posted">Posted</string>
+    <string name="monthly_report_status_returned">Needs Correction</string>
+    <string name="monthly_report_status_corrected">Submitted (Corrected)</string>
+    <string name="monthly_report_success_title">Report Sent</string>
+    <string name="monthly_report_success_message">Your report for %1$s has been submitted.</string>
 
     <string name="my_reports_empty">You haven\'t submitted any Monthly Reports yet.</string>
     <string name="my_reports_bible_studies_conducted">Bible Studies Conducted: %1$d</string>

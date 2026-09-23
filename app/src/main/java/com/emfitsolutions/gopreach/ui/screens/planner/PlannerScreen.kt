@@ -7,7 +7,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,14 +26,18 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.CalendarViewMonth
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,6 +57,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.CreditHourRecord
@@ -189,7 +196,6 @@ internal fun PlannerDayContent(currentPersonId: String, viewModel: PlannerDayVie
     val expansion = rememberPlannerExpansionState(PlannerSectionKey.REPORT, PlannerSectionKey.TIMER)
 
     var showNoteDialog by remember { mutableStateOf(false) }
-    var showMonthlyGoalDialog by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         PlannerDateNavHeader(
@@ -199,94 +205,120 @@ internal fun PlannerDayContent(currentPersonId: String, viewModel: PlannerDayVie
         )
         PlannerLoadingBar(state.isLoading)
 
-        Column(modifier = Modifier.padding(PlannerBodyPadding), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            PlannerActivitySummary(
-                stats = periodStats(
-                    state.totalMinutes, state.creditHoursTotalMinutes, state.returnVisitCount, state.bibleStudyCount,
-                    LocalPlannerVisibility.current, hoursKey = PlannerSectionKey.REPORT,
+        BoxWithConstraints(modifier = Modifier.padding(PlannerBodyPadding)) {
+            // "Maintain a consistent vertical value column... on Small
+            // Android phones, Large Android phones, Android tablets" — one
+            // shared, non-hardcoded column width for every label/value row
+            // on this screen, recomputed from this exact available width
+            // (see [rememberLabelColumnWidth]'s doc comment).
+            val labelColumnWidth = rememberLabelColumnWidth(
+                labels = listOf("Hours Goal for this Day", "Report for this day", "Hours", "Minutes", "Credit Hours", "Return Visits", "Bible Studies", "Notes"),
+                availableWidth = maxWidth,
+            )
+            // "Align the + icon in Report for this Day, Credit Hours, Return
+            // Visit, Bible Studies, Ministry Timer" — the same idea one
+            // column over: every section's own value/summary shares this
+            // width too, so the trailing chevron/Edit action that follows
+            // lines up across every row, not just the label.
+            val valueColumnWidth = rememberLabelColumnWidth(
+                labels = listOf(
+                    formatHoursMinutes(state.totalMinutes),
+                    formatHoursMinutes(state.records.creditRecords.sumOf { it.totalMinutes }),
+                    personCountSummary(state.returnVisitCount),
+                    personCountSummary(state.bibleStudyCount),
+                    state.note?.takeIf { it.isNotBlank() } ?: "Add",
                 ),
-                onStatClick = expansion::expand,
+                availableWidth = maxWidth,
+                style = MaterialTheme.typography.labelLarge,
             )
-
-            // "Make a consistent location of this [Goal/Remaining] in the
-            // entire date range" — the Day Goal now sits right after
-            // Activity Summary, the exact same spot Week/Month/Year's own
-            // [PlannerGoalRow] sits in their views, instead of being buried
-            // inside a collapsed "Goals" section further down the screen.
-            PlannerGoalRow(
-                label = "Day goal",
-                goalHours = state.dailyGoalHours,
-                remainingMinutes = state.remainingMinutes,
-                surplusMinutes = state.surplusMinutes,
-                onSetGoal = { viewModel.setDailyGoalHours(currentPersonId, it) },
-            )
-            ValueEditRow(
-                label = "Month goal",
-                value = "${state.monthlyGoalHours}h · ${formatHoursMinutes(state.monthlyRemainingMinutes)} left",
-                onEdit = { showMonthlyGoalDialog = true },
-            )
-
-            if (LocalPlannerVisibility.current.hours) PlannerExpandableSection(
-                title = "Report for this day",
-                expanded = expansion.isExpanded(PlannerSectionKey.REPORT),
-                onToggle = { expansion.toggle(PlannerSectionKey.REPORT) },
-                summary = formatHoursMinutes(state.totalMinutes),
-            ) {
-                StepperRow(
-                    label = "Hours",
-                    value = state.hours.toString(),
-                    onDecrement = { viewModel.adjustHours(currentPersonId, -1) },
-                    onIncrement = { viewModel.adjustHours(currentPersonId, 1) },
-                    currentValue = state.hours,
-                    onValueEntered = { viewModel.setHours(currentPersonId, it) },
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                PlannerActivitySummary(
+                    stats = periodStats(
+                        state.totalMinutes, state.creditHoursTotalMinutes, state.returnVisitCount, state.bibleStudyCount,
+                        LocalPlannerVisibility.current, hoursKey = PlannerSectionKey.REPORT,
+                    ),
+                    onStatClick = expansion::expand,
                 )
-                StepperRow(
-                    label = "Minutes",
-                    value = state.minutes.toString(),
-                    onDecrement = { viewModel.adjustMinutes(currentPersonId, -1) },
-                    onIncrement = { viewModel.adjustMinutes(currentPersonId, 1) },
-                    currentValue = state.minutes,
-                    onValueEntered = { viewModel.setMinutes(currentPersonId, it) },
+
+                // "Make a consistent location of this [Goal/Remaining] in the
+                // entire date range" — the Day Goal now sits right after
+                // Activity Summary, the exact same spot Week/Month/Year's own
+                // [PlannerGoalRow] sits in their views, instead of being buried
+                // inside a collapsed "Goals" section further down the screen.
+                PlannerGoalRow(
+                    label = "Hours Goal for this Day",
+                    goalHours = state.dailyGoalHours,
+                    remainingMinutes = state.remainingMinutes,
+                    surplusMinutes = state.surplusMinutes,
+                    onSetGoal = { viewModel.setDailyGoalHours(currentPersonId, it) },
+                    labelColumnWidth = labelColumnWidth,
                 )
-            }
 
-            PlannerRecordSections(
-                records = state.records,
-                expansion = expansion,
-                categoryName = categoryName,
-                onOpenCredit = { creditDialogs.detail = it },
-                onAddCredit = { creditDialogs.addingForDay = dayStart },
-                onOpenPerson = { stage, personId -> onNavigate(plannerPersonRoute(stage, personId)) },
-                onOpenPersonList = { onNavigate(plannerPersonListRoute(it)) },
-                onOpenDay = null,
-                showDates = false,
-            )
+                if (LocalPlannerVisibility.current.hours) PlannerExpandableSection(
+                    title = "Report for this day",
+                    expanded = expansion.isExpanded(PlannerSectionKey.REPORT),
+                    onToggle = { expansion.toggle(PlannerSectionKey.REPORT) },
+                    summary = formatHoursMinutes(state.totalMinutes),
+                    labelColumnWidth = labelColumnWidth,
+                    valueColumnWidth = valueColumnWidth,
+                ) {
+                    StepperRow(
+                        label = "Hours",
+                        value = state.hours.toString(),
+                        onDecrement = { viewModel.adjustHours(currentPersonId, -1) },
+                        onIncrement = { viewModel.adjustHours(currentPersonId, 1) },
+                        currentValue = state.hours,
+                        onValueEntered = { viewModel.setHours(currentPersonId, it) },
+                        labelColumnWidth = labelColumnWidth,
+                    )
+                    StepperRow(
+                        label = "Minutes",
+                        value = state.minutes.toString(),
+                        onDecrement = { viewModel.adjustMinutes(currentPersonId, -1) },
+                        onIncrement = { viewModel.adjustMinutes(currentPersonId, 1) },
+                        currentValue = state.minutes,
+                        onValueEntered = { viewModel.setMinutes(currentPersonId, it) },
+                        labelColumnWidth = labelColumnWidth,
+                    )
+                }
 
-            ValueEditRow(
-                label = "Notes",
-                value = state.note?.takeIf { it.isNotBlank() } ?: "Add",
-                onEdit = { showNoteDialog = true },
-            )
+                PlannerRecordSections(
+                    records = state.records,
+                    expansion = expansion,
+                    categoryName = categoryName,
+                    onOpenCredit = { creditDialogs.detail = it },
+                    onAddCredit = { creditDialogs.addingForDay = dayStart },
+                    onOpenPerson = { stage, personId -> onNavigate(plannerPersonRoute(stage, personId)) },
+                    onOpenPersonList = { onNavigate(plannerPersonListRoute(it)) },
+                    onOpenDay = null,
+                    showDates = false,
+                    labelColumnWidth = labelColumnWidth,
+                    valueColumnWidth = valueColumnWidth,
+                )
 
-            PlannerExpandableSection(
-                title = "Ministry Timer",
-                expanded = expansion.isExpanded(PlannerSectionKey.TIMER),
-                onToggle = { expansion.toggle(PlannerSectionKey.TIMER) },
-            ) {
-                MinistryTimerCard(publisherPersonId = currentPersonId, showLabel = false, targetDayMillis = dayStart)
+                ValueEditRow(
+                    label = "Notes",
+                    value = state.note?.takeIf { it.isNotBlank() } ?: "Add",
+                    onEdit = { showNoteDialog = true },
+                    labelColumnWidth = labelColumnWidth,
+                    valueColumnWidth = valueColumnWidth,
+                )
+
+                PlannerExpandableSection(
+                    title = "Ministry Timer",
+                    expanded = expansion.isExpanded(PlannerSectionKey.TIMER),
+                    onToggle = { expansion.toggle(PlannerSectionKey.TIMER) },
+                    labelColumnWidth = labelColumnWidth,
+                    valueColumnWidth = valueColumnWidth,
+                ) {
+                    MinistryTimerCard(publisherPersonId = currentPersonId, showLabel = false, targetDayMillis = dayStart)
+                }
             }
         }
     }
 
     CreditHourDialogsHost(creditDialogs, currentPersonId, creditViewModel)
 
-    if (showMonthlyGoalDialog) {
-        MonthlyGoalEditDialog(
-            initialGoalHours = state.monthlyGoalHours,
-            onDismiss = { showMonthlyGoalDialog = false },
-            onSave = { goalHours -> viewModel.setMonthlyGoalHours(currentPersonId, goalHours); showMonthlyGoalDialog = false },
-        )
-    }
     if (showNoteDialog) {
         NoteDialog(
             initial = state.note.orEmpty(),
@@ -312,7 +344,10 @@ internal fun PlannerMonthContent(
     onOpenPerson: (PipelineStage, String) -> Unit,
     onOpenPersonList: (PipelineStage) -> Unit,
     isPioneer: Boolean,
-    onSendReport: () -> Unit,
+    // "My Planner's selected Month/Year controls the initial Monthly
+    // Report month" — passed the Planner's own currently-displayed
+    // [monthStart] at the moment Send Report is tapped.
+    onSendReport: (periodMonth: Long) -> Unit,
 ) {
     val monthStart by viewModel.monthStart.collectAsStateWithLifecycle()
     // See PlannerDayContent's identical remember(currentPersonId) note above.
@@ -324,25 +359,66 @@ internal fun PlannerMonthContent(
     val categoryName = rememberCategoryNamer(creditViewModel)
     val expansion = rememberPlannerExpansionState(PlannerSectionKey.CALENDAR)
 
+    var showMonthList by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth()) {
         PlannerDateNavHeader(
             label = monthFormat.format(Date(monthStart)),
             onPrevious = viewModel::goToPreviousMonth,
             onNext = viewModel::goToNextMonth,
+            onOpenList = { showMonthList = true },
         )
+        if (showMonthList) {
+            // Item 2 — "Month List View": every month of the currently
+            // viewed year, selectable, one flat list instead of paging with
+            // the arrows one month at a time.
+            val year = remember(monthStart) { Calendar.getInstance().apply { timeInMillis = monthStart }.get(Calendar.YEAR) }
+            val months = remember(year) {
+                (0..11).map { monthIndex ->
+                    val cal = Calendar.getInstance().apply {
+                        set(Calendar.YEAR, year); set(Calendar.MONTH, monthIndex); set(Calendar.DAY_OF_MONTH, 1)
+                        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                    }
+                    monthFormat.format(Date(cal.timeInMillis)) to cal.timeInMillis
+                }
+            }
+            PeriodListDialog(
+                title = "Select a Month",
+                items = months.map { (label, _) -> label to null },
+                onDismiss = { showMonthList = false },
+                onSelect = { index -> viewModel.goToMonth(months[index].second) },
+            )
+        }
         PlannerLoadingBar(state.isLoading)
 
-        Column(modifier = Modifier.padding(PlannerBodyPadding), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        BoxWithConstraints(modifier = Modifier.padding(PlannerBodyPadding)) {
+            // See PlannerDayContent's identical [rememberLabelColumnWidth] note.
+            val labelColumnWidth = rememberLabelColumnWidth(
+                labels = listOf("Hours Goal for this Month", "Calendar", "Hours / Minutes", "Credit Hours", "Return Visits", "Bible Studies"),
+                availableWidth = maxWidth,
+            )
+            // See PlannerDayContent's identical [valueColumnWidth] note.
+            val valueColumnWidth = rememberLabelColumnWidth(
+                labels = listOf(
+                    formatHoursMinutes(state.totalMinutes),
+                    formatHoursMinutes(state.records.creditRecords.sumOf { it.totalMinutes }),
+                    personCountSummary(state.returnVisitCount),
+                    personCountSummary(state.bibleStudyCount),
+                ),
+                availableWidth = maxWidth,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             PlannerActivitySummary(
                 stats = periodStats(state.totalMinutes, state.creditHoursMinutes, state.returnVisitCount, state.bibleStudyCount, LocalPlannerVisibility.current),
                 onStatClick = expansion::expand,
             )
             PlannerGoalRow(
-                label = "Month goal",
+                label = "Hours Goal for this Month",
                 goalHours = state.goalHours,
                 remainingMinutes = state.remainingMinutes,
                 surplusMinutes = state.surplusMinutes,
                 onSetGoal = { viewModel.setGoalHours(currentPersonId, it) },
+                labelColumnWidth = labelColumnWidth,
             )
             // "Fix the Send Report button, put it somewhere visible but not
             // too big or small" — a right-aligned pill button sized to its
@@ -350,6 +426,26 @@ internal fun PlannerMonthContent(
             // it reads as one clear call-to-action beside the month's goal
             // rather than a heavy footer bar competing with everything above it.
             var showSendReportChooser by remember { mutableStateOf(false) }
+            var showSendReportPreview by remember { mutableStateOf(false) }
+            val context = LocalContext.current
+            // Shared by "Preview" and "Send as Text" — the dialog's own
+            // Send button uses this exact same string, so what the Publisher
+            // previews is guaranteed to be what actually goes out.
+            val reportText = remember(state.totalMinutes, state.bibleStudyCount, isPioneer, monthStart) {
+                val hours = state.totalMinutes / 60
+                val minutes = state.totalMinutes % 60
+                if (isPioneer) {
+                    ReportShareText.forPioneer(monthStart, hours, minutes, state.bibleStudyCount)
+                } else {
+                    // A non-Pioneer's Y/N question is "did you take part in
+                    // field ministry at all this month" — approximated here
+                    // from the Planner's own logged ministry minutes (the
+                    // Monthly Report screen's more precise, Preaching-Time-
+                    // Record-derived version is used instead when sharing
+                    // from there).
+                    ReportShareText.forNonPioneer(monthStart, hours, minutes, state.bibleStudyCount, state.totalMinutes > 0)
+                }
+            }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Button(
                     onClick = { showSendReportChooser = true },
@@ -362,27 +458,18 @@ internal fun PlannerMonthContent(
                 }
             }
             if (showSendReportChooser) {
-                val context = LocalContext.current
                 SendReportChooserDialog(
                     onDismiss = { showSendReportChooser = false },
-                    onSendAsText = {
-                        showSendReportChooser = false
-                        val hours = state.totalMinutes / 60
-                        val minutes = state.totalMinutes % 60
-                        val text = if (isPioneer) {
-                            ReportShareText.forPioneer(monthStart, hours, minutes, state.bibleStudyCount)
-                        } else {
-                            // A non-Pioneer's Y/N question is "did you take
-                            // part in field ministry at all this month" —
-                            // approximated here from the Planner's own logged
-                            // ministry minutes (the Monthly Report screen's
-                            // more precise, Preaching-Time-Record-derived
-                            // version is used instead when sharing from there).
-                            ReportShareText.forNonPioneer(monthStart, state.totalMinutes > 0, state.bibleStudyCount)
-                        }
-                        shareReportText(context, text)
-                    },
-                    onOpenMyReport = { showSendReportChooser = false; onSendReport() },
+                    onPreview = { showSendReportChooser = false; showSendReportPreview = true },
+                    onSendAsText = { showSendReportChooser = false; shareReportText(context, reportText) },
+                    onOpenMyReport = { showSendReportChooser = false; onSendReport(monthStart) },
+                )
+            }
+            if (showSendReportPreview) {
+                SendReportPreviewDialog(
+                    text = reportText,
+                    onDismiss = { showSendReportPreview = false },
+                    onSend = { showSendReportPreview = false; shareReportText(context, reportText) },
                 )
             }
 
@@ -392,6 +479,7 @@ internal fun PlannerMonthContent(
                 expanded = expansion.isExpanded(PlannerSectionKey.CALENDAR),
                 onToggle = { expansion.toggle(PlannerSectionKey.CALENDAR) },
                 summary = "${state.activeDayStarts.size} active days",
+                labelColumnWidth = labelColumnWidth,
             ) {
                 MonthViewModeToggle(mode = monthViewMode, onModeChange = { monthViewMode = it })
                 AnimatedContent(targetState = monthViewMode, label = "monthViewMode") { mode ->
@@ -425,7 +513,10 @@ internal fun PlannerMonthContent(
                 onOpenPerson = onOpenPerson,
                 onOpenPersonList = onOpenPersonList,
                 onOpenDay = onOpenDay,
+                labelColumnWidth = labelColumnWidth,
+                valueColumnWidth = valueColumnWidth,
             )
+        }
         }
     }
 
@@ -460,18 +551,97 @@ internal fun PlannerActivitySummary(stats: List<PlannerStat>, onStatClick: (Stri
     }
 }
 
-/** "Send Report → allow the user to select if send it as text or open the
- * My Report App" — a simple two-choice dialog rather than a bare click,
- * since both are legitimate ways to actually get the report to someone. */
+/** Shared shell for [SendReportChooserDialog]/[SendReportPreviewDialog] — a
+ * plain [Dialog] + [Surface] instead of [AlertDialog], so every action is a
+ * full-width, vertically stacked button in one column rather than
+ * AlertDialog's cramped end-aligned confirm/dismiss row (which is what made
+ * the three-choice chooser look lopsided — one button buried in the message
+ * text, two squeezed into the corner). */
 @Composable
-private fun SendReportChooserDialog(onDismiss: () -> Unit, onSendAsText: () -> Unit, onOpenMyReport: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Send Report") },
-        text = { Text("Send this month's report as a text message, or open the Monthly Report form to submit it in the app?") },
-        confirmButton = { TextButton(onClick = onSendAsText) { Text("Send as Text") } },
-        dismissButton = { TextButton(onClick = onOpenMyReport) { Text("Open My Report") } },
-    )
+private fun SendReportDialogShell(onDismiss: () -> Unit, title: String, content: @Composable ColumnScope.() -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(20.dp), tonalElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                content()
+            }
+        }
+    }
+}
+
+/** "Send Report → allow the user to select if send it as text or open the
+ * My Report App" — Open My Report (the complete in-app submission path) is
+ * the primary action, Preview and Send as Text are the two ways to get a
+ * plain-text copy out, Cancel backs out — one clean vertical stack, solid
+ * color-coded per spec (blue for the app path/preview, green for the
+ * outbound send, gray for cancel), instead of three inconsistently-styled
+ * buttons scattered across the dialog. */
+@Composable
+private fun SendReportChooserDialog(
+    onDismiss: () -> Unit,
+    onPreview: () -> Unit,
+    onSendAsText: () -> Unit,
+    onOpenMyReport: () -> Unit,
+) {
+    SendReportDialogShell(onDismiss = onDismiss, title = "Send Report") {
+        Text(
+            "Send this month's report as a text message, preview it first, or open the Monthly Report form to submit it in the app.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Button(
+            onClick = onOpenMyReport,
+            colors = ButtonDefaults.buttonColors(containerColor = PlannerAccent.Hours),
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Open My Report") }
+        OutlinedButton(onClick = onPreview, modifier = Modifier.fillMaxWidth()) { Text("Preview as Text") }
+        Button(
+            onClick = onSendAsText,
+            colors = ButtonDefaults.buttonColors(containerColor = PlannerAccent.ReturnVisits),
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Send as Text") }
+        TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Cancel", color = PlannerAccent.Neutral) }
+    }
+}
+
+/** "Preview as Text" — shows the exact message [onSend] will hand to the
+ * device's share sheet, so the Publisher sees precisely what goes out before
+ * committing to it. Send (the primary action) is its own full-width button;
+ * Copy Text and Back share a row below it since they're equally-weighted
+ * secondary actions, not a professional-looking crowded single row of three. */
+@Composable
+private fun SendReportPreviewDialog(text: String, onDismiss: () -> Unit, onSend: () -> Unit) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var showCopiedConfirmation by remember { mutableStateOf(false) }
+    LaunchedEffect(showCopiedConfirmation) {
+        if (showCopiedConfirmation) {
+            kotlinx.coroutines.delay(1500)
+            showCopiedConfirmation = false
+        }
+    }
+    SendReportDialogShell(onDismiss = onDismiss, title = "Preview Report") {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp))
+        }
+        androidx.compose.animation.AnimatedVisibility(visible = showCopiedConfirmation) {
+            Text("Copied to clipboard", style = MaterialTheme.typography.labelMedium, color = PlannerAccent.ReturnVisits)
+        }
+        Button(
+            onClick = onSend,
+            colors = ButtonDefaults.buttonColors(containerColor = PlannerAccent.ReturnVisits),
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Send as Text") }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+                    showCopiedConfirmation = true
+                },
+                modifier = Modifier.weight(1f),
+            ) { Text("Copy Text") }
+            OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Back") }
+        }
+    }
 }
 
 /** Opens the device's share sheet (SMS, chat apps, email, ...) with
@@ -649,22 +819,38 @@ private fun MonthCalendarGrid(
         }
     }
 
-    Column(modifier = Modifier.padding(bottom = 4.dp)) {
-        Row(modifier = Modifier.fillMaxWidth()) {
+    // "Clear grid structure... visible cell borders, clear rows and
+    // columns... solid, high-contrast borders" — a real table, not just
+    // colored text floating with no structure. [gridLineColor] is a solid,
+    // theme-aware but always-visible line (works the same in light and
+    // dark), used on every cell — including a blank leading/trailing one —
+    // so the grid lines stay continuous across the whole calendar.
+    val gridLineColor = MaterialTheme.colorScheme.outline
+    Column(
+        modifier = Modifier
+            .padding(bottom = 4.dp)
+            .border(1.dp, gridLineColor, RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(4.dp)),
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant)) {
             listOf("S", "M", "T", "W", "T", "F", "S").forEach { label ->
                 Text(
                     label,
                     style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).border(0.5.dp, gridLineColor).padding(vertical = 4.dp),
                 )
             }
         }
         cells.chunked(7).forEach { week ->
             Row(modifier = Modifier.fillMaxWidth()) {
                 week.forEach { dayStart ->
-                    Box(modifier = Modifier.weight(1f).heightIn(min = 48.dp).padding(1.dp), contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp).border(0.5.dp, gridLineColor),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         if (dayStart != null) {
                             val minutes = dailyMinutes[dayStart] ?: 0
                             val hasCredit = (dailyCreditMinutes[dayStart] ?: 0) > 0
@@ -751,25 +937,65 @@ internal fun PlannerYearContent(
     val categoryName = rememberCategoryNamer(creditViewModel)
     val expansion = rememberPlannerExpansionState(PlannerSectionKey.MONTHS)
 
+    var showYearList by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth()) {
         PlannerDateNavHeader(
             label = yearFormat.format(Date(yearStart)),
             onPrevious = viewModel::goToPreviousYear,
             onNext = viewModel::goToNextYear,
+            onOpenList = { showYearList = true },
         )
+        if (showYearList) {
+            // Item 4 — "Year List View": the currently viewed year plus the
+            // 5 before it, selectable, newest last (same "oldest → newest"
+            // convention as every other multi-period list in this file).
+            val years = remember(yearStart) {
+                val currentYear = Calendar.getInstance().apply { timeInMillis = yearStart }.get(Calendar.YEAR)
+                ((currentYear - 5)..currentYear).map { year ->
+                    Calendar.getInstance().apply {
+                        set(Calendar.YEAR, year); set(Calendar.MONTH, Calendar.JANUARY); set(Calendar.DAY_OF_MONTH, 1)
+                        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                    }.timeInMillis
+                }
+            }
+            PeriodListDialog(
+                title = "Select a Year",
+                items = years.map { start -> yearFormat.format(Date(start)) to null },
+                onDismiss = { showYearList = false },
+                onSelect = { index -> viewModel.goToYear(years[index]) },
+            )
+        }
         PlannerLoadingBar(state.isLoading)
 
-        Column(modifier = Modifier.padding(PlannerBodyPadding), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        BoxWithConstraints(modifier = Modifier.padding(PlannerBodyPadding)) {
+            // See PlannerDayContent's identical [rememberLabelColumnWidth] note.
+            val labelColumnWidth = rememberLabelColumnWidth(
+                labels = listOf("Hours Goal for this Year", "Months", "Hours / Minutes", "Credit Hours", "Return Visits", "Bible Studies"),
+                availableWidth = maxWidth,
+            )
+            // See PlannerDayContent's identical [valueColumnWidth] note.
+            val valueColumnWidth = rememberLabelColumnWidth(
+                labels = listOf(
+                    formatHoursMinutes(state.totalMinutes),
+                    formatHoursMinutes(state.records.creditRecords.sumOf { it.totalMinutes }),
+                    personCountSummary(state.returnVisitCount),
+                    personCountSummary(state.bibleStudyCount),
+                ),
+                availableWidth = maxWidth,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             PlannerActivitySummary(
                 stats = periodStats(state.totalMinutes, state.creditHoursMinutes, state.returnVisitCount, state.bibleStudyCount, LocalPlannerVisibility.current),
                 onStatClick = expansion::expand,
             )
             PlannerGoalRow(
-                label = "Year goal",
+                label = "Hours Goal for this Year",
                 goalHours = state.goalHours,
                 remainingMinutes = state.remainingMinutes,
                 surplusMinutes = state.surplusMinutes,
                 onSetGoal = { viewModel.setGoalHours(currentPersonId, it) },
+                labelColumnWidth = labelColumnWidth,
             )
 
             PlannerExpandableSection(
@@ -777,6 +1003,7 @@ internal fun PlannerYearContent(
                 expanded = expansion.isExpanded(PlannerSectionKey.MONTHS),
                 onToggle = { expansion.toggle(PlannerSectionKey.MONTHS) },
                 summary = "${state.monthRows.count { it.totalMinutes > 0 || it.creditMinutes > 0 }} active",
+                labelColumnWidth = labelColumnWidth,
             ) {
                 state.monthRows.forEach { row ->
                     val diff = row.surplusOrMissingMinutes
@@ -806,7 +1033,10 @@ internal fun PlannerYearContent(
                 onOpenPerson = onOpenPerson,
                 onOpenPersonList = onOpenPersonList,
                 onOpenDay = onOpenDay,
+                labelColumnWidth = labelColumnWidth,
+                valueColumnWidth = valueColumnWidth,
             )
+        }
         }
     }
 

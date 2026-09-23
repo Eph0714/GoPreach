@@ -90,6 +90,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -124,6 +125,7 @@ import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 import com.emfitsolutions.gopreach.ui.screens.announcements.ManageAnnouncementsViewModel
 import com.emfitsolutions.gopreach.ui.screens.notifications.NotificationCenterViewModel
+import com.emfitsolutions.gopreach.ui.screens.planner.PlannerComparativeContent
 import com.emfitsolutions.gopreach.ui.screens.planner.PlannerDayContent
 import com.emfitsolutions.gopreach.ui.screens.planner.PlannerDayViewModel
 import com.emfitsolutions.gopreach.ui.screens.planner.PlannerMonthContent
@@ -283,6 +285,26 @@ fun PublisherHomeScreen(
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
+    // "If the publisher opens a form [from the Side Panel] and closes it, do
+    // not close the entire side panel — continue to where it was left" —
+    // tapping a Side Panel tile always closes the drawer to reveal the
+    // screen it opens (normal drawer behavior), but that used to be the end
+    // of it: backing out of that screen left the Publisher on a fully closed
+    // drawer, with no way back to it except reopening and re-navigating from
+    // scratch. [rememberSaveable] survives this composable being disposed
+    // while that screen is on top and restored (via the back stack entry's
+    // own SavedStateRegistry) when the Publisher returns to it, so the
+    // one-shot [LaunchedEffect] below can reopen the drawer automatically —
+    // its scroll position ([rememberScrollState] inside
+    // [SidePanelDrawerContent] is itself already `rememberSaveable`) comes
+    // back exactly where it was, same as the drawer's own open state.
+    var reopenSidePanelOnReturn by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (reopenSidePanelOnReturn) {
+            reopenSidePanelOnReturn = false
+            drawerState.open()
+        }
+    }
     // The module a long-press just targeted, and (once chosen) which panel
     // the Publisher is being asked to confirm moving it to — null/null means
     // no dialog is showing (spec §2's exact two-step flow: action menu,
@@ -303,7 +325,7 @@ fun PublisherHomeScreen(
         drawerContent = {
             SidePanelDrawerContent(
                 tiles = sidePanelTiles,
-                onNavigate = { route -> drawerScope.launch { drawerState.close() }; onNavigate(route) },
+                onNavigate = { route -> reopenSidePanelOnReturn = true; drawerScope.launch { drawerState.close() }; onNavigate(route) },
                 onLongPressModule = onLongPressModule,
                 onResetLayout = { showResetConfirm = true },
             )
@@ -427,6 +449,11 @@ fun PublisherHomeScreen(
                         drillInto(QuickDateRange.TODAY)
                     }
                     var showPlannerSections by remember { mutableStateOf(false) }
+                    // "Compare" is its own selection, independent of the
+                    // Dashboard/Planner shared [plannerDateRange] — see
+                    // [UnifiedPlannerHeader]'s isCompareActive/onSelectCompare
+                    // doc comment for why it can't just be a QuickDateRange.
+                    var showCompareView by remember { mutableStateOf(false) }
                     val plannerVisibility = PlannerVisibility(
                         hours = moduleLayout.isPlannerSectionVisible(PlannerSection.HOURS),
                         creditHours = moduleLayout.isPlannerSectionVisible(PlannerSection.CREDIT_HOURS),
@@ -455,6 +482,7 @@ fun PublisherHomeScreen(
                             onBack = { activePlannerView = plannerTrail.removeAt(plannerTrail.lastIndex) },
                             onOpenSections = { showPlannerSections = true },
                             onSelectPeriod = { option ->
+                                showCompareView = false
                                 dashboardViewModel.setDateRange(
                                     when (option) {
                                         QuickDateRange.THIS_WEEK -> DateRange.thisWeek()
@@ -464,9 +492,13 @@ fun PublisherHomeScreen(
                                     },
                                 )
                             },
+                            isCompareActive = showCompareView,
+                            onSelectCompare = { showCompareView = true },
                         )
                         run {
-                            when (activePlannerView) {
+                            if (showCompareView) {
+                                PlannerComparativeContent(currentPersonId = currentPersonId)
+                            } else when (activePlannerView) {
                                 QuickDateRange.THIS_WEEK -> PlannerWeekContent(
                                     currentPersonId = currentPersonId,
                                     viewModel = plannerWeekViewModel,
@@ -481,7 +513,7 @@ fun PublisherHomeScreen(
                                     onOpenPerson = openPlannerPerson,
                                     onOpenPersonList = openPlannerPersonList,
                                     isPioneer = isPioneer,
-                                    onSendReport = { onNavigate(Destinations.MONTHLY_REPORT) },
+                                    onSendReport = { periodMonth -> onNavigate(Destinations.monthlyReportForMonth(periodMonth)) },
                                 )
                                 QuickDateRange.THIS_YEAR -> PlannerYearContent(
                                     currentPersonId = currentPersonId,

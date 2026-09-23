@@ -56,6 +56,12 @@ internal fun UnifiedPlannerHeader(
     onBack: () -> Unit,
     onOpenSections: () -> Unit,
     onSelectPeriod: (QuickDateRange) -> Unit,
+    // "Add a multi-month Comparative Report" — a 5th pill alongside Today/
+    // Week/Month/Year that does NOT touch the shared Dashboard/Planner
+    // [range] (a Comparative Report isn't a single period), so it's tracked
+    // as its own selection rather than a [QuickDateRange] value.
+    isCompareActive: Boolean = false,
+    onSelectCompare: () -> Unit = {},
 ) {
     val todayLabel = remember { SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()).format(Date()) }
     val periodFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
@@ -106,22 +112,33 @@ internal fun UnifiedPlannerHeader(
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(top = 8.dp, end = 12.dp)) {
             options.forEachIndexed { index, (option, label) ->
                 SegmentedButton(
-                    selected = range.option == option,
+                    selected = !isCompareActive && range.option == option,
                     onClick = { onSelectPeriod(option) },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size + 1),
                     icon = {},
                     modifier = Modifier.heightIn(min = 40.dp),
                 ) {
                     Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
                 }
             }
+            SegmentedButton(
+                selected = isCompareActive,
+                onClick = onSelectCompare,
+                shape = SegmentedButtonDefaults.itemShape(index = options.size, count = options.size + 1),
+                icon = {},
+                modifier = Modifier.heightIn(min = 40.dp),
+            ) {
+                Text("Compare", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            }
         }
-        Text(
-            "Reporting period: $periodLabel",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 6.dp),
-        )
+        if (!isCompareActive) {
+            Text(
+                "Reporting period: $periodLabel",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
     }
 }
 

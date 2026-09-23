@@ -121,6 +121,13 @@ object Destinations {
     // reference organizer.
     const val MY_BIBLE_TEXT_RECORD = "my_bible_text_record"
     const val MONTHLY_REPORT = "monthly_report"
+    // My Planner → Send Report: "My Planner's selected Month/Year controls
+    // the initial Monthly Report month" — the same optional-query-arg shape
+    // MANAGE_PUBLISHER_REPORTS_ROUTE already uses for the same reason.
+    // Every other caller still navigates to the plain MONTHLY_REPORT route
+    // and keeps the screen's own default (current month).
+    const val MONTHLY_REPORT_ROUTE = "monthly_report?periodMonth={periodMonth}"
+    fun monthlyReportForMonth(periodMonth: Long) = "monthly_report?periodMonth=$periodMonth"
     const val EDIT_MONTHLY_REPORT = "edit_monthly_report/{targetPersonId}"
     fun editMonthlyReport(targetPersonId: String) = "edit_monthly_report/$targetPersonId"
     // "Allow the publisher to see all his submitted Report record" — a

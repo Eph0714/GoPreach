@@ -16,16 +16,20 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Remove
@@ -58,15 +62,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.emfitsolutions.gopreach.data.model.CreditHourCategory
 import com.emfitsolutions.gopreach.data.model.CreditHourRecord
@@ -102,7 +110,16 @@ private fun formatFullDate(millis: Long): String = SimpleDateFormat("EEEE, MMMM 
  * a tinted pill rather than a heavy filled bar, so the unified card reads
  * as one surface. */
 @Composable
-internal fun PlannerDateNavHeader(label: String, onPrevious: () -> Unit, onNext: () -> Unit) {
+internal fun PlannerDateNavHeader(
+    label: String,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    // "Improve Month, Week, and Year navigation" — a compact list icon that
+    // opens a jump-to-period picker (see [PeriodListDialog]), so the
+    // Publisher isn't limited to paging one period at a time with the
+    // arrows. Null (Day's own header) keeps the row exactly as before.
+    onOpenList: (() -> Unit)? = null,
+) {
     Surface(
         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.06f),
         contentColor = MaterialTheme.colorScheme.primary,
@@ -127,6 +144,54 @@ internal fun PlannerDateNavHeader(label: String, onPrevious: () -> Unit, onNext:
             )
             IconButton(onClick = onNext) {
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = "Next period")
+            }
+            if (onOpenList != null) {
+                IconButton(onClick = onOpenList) {
+                    Icon(Icons.AutoMirrored.Rounded.ViewList, contentDescription = "Jump to a different period")
+                }
+            }
+        }
+    }
+}
+
+/** One row of [PeriodListDialog] — title, an optional subtitle (e.g. a
+ * week's date range), and a horizontal divider after it, per spec §5's
+ * "consistent list design": compact, no cards, a plain touch target and a
+ * separator, nothing heavier. */
+@Composable
+private fun PeriodListRow(title: String, subtitle: String? = null, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(role = Role.Button, onClickLabel = "Select $title", onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+        if (subtitle != null) {
+            Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    HorizontalDivider()
+}
+
+/** "Jump to a different period" — Month/Week/Year's own List View (spec
+ * §2-§5): a plain scrollable list of periods with a divider between every
+ * row, opened from [PlannerDateNavHeader]'s list icon. Selecting one calls
+ * [onSelect] with an arbitrary millis inside that period and dismisses. */
+@Composable
+internal fun PeriodListDialog(title: String, items: List<Pair<String, String?>>, onDismiss: () -> Unit, onSelect: (Int) -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(20.dp), tonalElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(top = 20.dp, start = 20.dp, end = 20.dp, bottom = 8.dp)) {
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                    items.forEachIndexed { index, (itemTitle, subtitle) ->
+                        PeriodListRow(title = itemTitle, subtitle = subtitle, onClick = { onSelect(index); onDismiss() })
+                    }
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Cancel", color = PlannerAccent.Neutral) }
             }
         }
     }
@@ -170,9 +235,14 @@ internal data class PlannerStat(val key: String, val label: String, val value: S
 internal fun PlannerSummaryStrip(stats: List<PlannerStat>, onStatClick: (String) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         stats.forEach { stat ->
+            // A genuinely solid fill (not a faint tint) — the tint version
+            // read as barely-there gray on some devices/themes; a solid
+            // color block with white (or, for the bright amber Credit
+            // Hours tile, dark) text is unmistakable regardless of theme.
+            val onAccent = PlannerAccent.onAccent(stat.accent)
             Surface(
                 shape = RoundedCornerShape(10.dp),
-                color = stat.accent.copy(alpha = 0.14f),
+                color = stat.accent,
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(10.dp))
@@ -186,14 +256,14 @@ internal fun PlannerSummaryStrip(stats: List<PlannerStat>, onStatClick: (String)
                         stat.value,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = stat.accent,
+                        color = onAccent,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         stat.label,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = onAccent.copy(alpha = 0.85f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -229,7 +299,49 @@ internal object PlannerAccent {
     val Remaining = Color(0xFFEF6C00)
     /** Remaining == 0, or Surplus > 0 — "goal met/exceeded." */
     val GoalMet = Color(0xFF2E7D32)
+
+    /** The readable text/icon color for content sitting on a *solid* fill
+     * of [accent] (see [PlannerSummaryStrip]) — white on every accent
+     * except the bright amber Credit Hours one, which needs a dark color
+     * for real contrast the way [RecordDayColor]'s own text already does. */
+    fun onAccent(accent: Color): Color = if (accent == CreditHours) OnRecordDayColor else Color.White
 }
+
+/**
+ * "Keep each value close enough to its label to clearly belong to it, while
+ * maintaining a consistent vertical value column and comfortable spacing
+ * between rows" (label/value alignment spec) — the shared label-column
+ * width for one visual block of rows (a period view's Goal/Report/Credit
+ * Hours/Return Visits/Bible Studies/Notes rows, say), so every row's value
+ * lines up at the same x no matter how long its own label is.
+ *
+ * "Do not override any label [truncate it]" and "make it one line only" —
+ * this is always the *full, untruncated* natural width of the longest
+ * [labels] string (measured at [style] with [rememberTextMeasurer]; no
+ * ConstraintLayout dependency in this project), plus a few dp of slack
+ * (measured text vs. a rendered `Text` composable never round-trip to the
+ * exact same pixel — without this slack the longest label would clip its
+ * very last character). No fixed dp is ever hard-coded, and there is no
+ * upper cap: every one of this app's actual label sets (short, fixed
+ * strings like "Hours Goal for this Month") comfortably fits real screens
+ * at one line without one, and capping it here is exactly what silently
+ * truncated a label before.
+ */
+@Composable
+internal fun rememberLabelColumnWidth(labels: List<String>, availableWidth: Dp, style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium): Dp {
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    return remember(labels, style) {
+        val naturalMaxPx = labels.maxOfOrNull { textMeasurer.measure(it, style = style, softWrap = false).size.width } ?: 0
+        val slackPx = with(density) { 12.dp.toPx() }
+        with(density) { (naturalMaxPx + slackPx).toDp() }
+    }
+}
+
+/** "1 person" vs "N people" — shared by [PersonSection]'s real summary and
+ * by the value-column-width measurement callers build alongside it, so the
+ * two can never quietly drift into different wording. */
+internal fun personCountSummary(count: Int): String = if (count == 1) "1 person" else "$count people"
 
 internal object PlannerSectionKey {
     const val REPORT = "report"
@@ -291,6 +403,20 @@ internal fun PlannerExpandableSection(
     expanded: Boolean,
     onToggle: () -> Unit,
     summary: String? = null,
+    // "The value column should remain aligned vertically across all rows" —
+    // when this section's header sits alongside other label/value rows
+    // (Goal, Notes, ...) in the same block, the caller passes the shared
+    // width [rememberLabelColumnWidth] computed for that whole block, so
+    // this row's own summary starts at the exact same x as every sibling's
+    // value. Null (the default) keeps the title at its own natural width,
+    // for a section used on its own.
+    labelColumnWidth: Dp? = null,
+    // Same idea one column over — "Align the + icon in Report for this
+    // [period], Credit Hours, Return Visit, Bible Studies, Ministry Timer"
+    // — every section's own trailing expand/collapse glyph lines up at the
+    // same x too, regardless of how long (or absent, e.g. Ministry Timer's
+    // own section has no summary at all) this row's own summary is.
+    valueColumnWidth: Dp? = null,
     content: @Composable () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -304,29 +430,37 @@ internal fun PlannerExpandableSection(
                 .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Title + glyph share the flexible space (glyph stays glued to the
-            // title's end); the summary keeps its natural width at the far right.
-            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                ExpandToggleGlyph(expanded)
-            }
+            // "Keep each value close enough to its label to clearly belong to
+            // it, while maintaining a consistent vertical value column" —
+            // the title sits in a column exactly [labelColumnWidth] wide (so
+            // every row's summary starts at the same x regardless of this
+            // title's own length), summary right after it, then the expand/
+            // collapse chevron right after THAT with a small fixed gap — not
+            // pushed out to the far edge of the screen by a flexible spacer.
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (labelColumnWidth != null) Modifier.width(labelColumnWidth) else Modifier,
+            )
             if (summary != null) {
                 Text(
                     summary,
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    modifier = Modifier.padding(start = 8.dp),
+                    modifier = Modifier.padding(start = 8.dp).then(if (valueColumnWidth != null) Modifier.width(valueColumnWidth) else Modifier),
                 )
+            } else if (valueColumnWidth != null) {
+                // No summary on this row (Ministry Timer) — an empty spacer
+                // the same width as every sibling's value keeps the chevron
+                // that follows lined up with theirs anyway.
+                Spacer(modifier = Modifier.padding(start = 8.dp).width(valueColumnWidth))
             }
+            Spacer(modifier = Modifier.width(12.dp))
+            ExpandToggleGlyph(expanded)
         }
         AnimatedVisibility(
             visible = expanded,
@@ -423,6 +557,10 @@ internal fun PlannerRecordSections(
      * its own steppers instead). */
     onOpenDay: ((Long) -> Unit)?,
     showDates: Boolean = true,
+    // Same shared columns every other row in this period view's block
+    // uses — see [rememberLabelColumnWidth]'s doc comment.
+    labelColumnWidth: Dp? = null,
+    valueColumnWidth: Dp? = null,
 ) {
     val visibility = LocalPlannerVisibility.current
     if (onOpenDay != null && visibility.hours) {
@@ -431,6 +569,8 @@ internal fun PlannerRecordSections(
             expanded = expansion.isExpanded(PlannerSectionKey.HOURS),
             onToggle = { expansion.toggle(PlannerSectionKey.HOURS) },
             summary = formatHoursMinutes(records.hourDays.sumOf { it.totalMinutes }),
+            labelColumnWidth = labelColumnWidth,
+            valueColumnWidth = valueColumnWidth,
         ) {
             if (records.hourDays.isEmpty()) PlannerEmptyHint("No ministry time logged in this period.")
             records.hourDays.forEach { day ->
@@ -450,6 +590,8 @@ internal fun PlannerRecordSections(
         expanded = expansion.isExpanded(PlannerSectionKey.CREDIT),
         onToggle = { expansion.toggle(PlannerSectionKey.CREDIT) },
         summary = formatHoursMinutes(records.creditRecords.sumOf { it.totalMinutes }),
+        labelColumnWidth = labelColumnWidth,
+        valueColumnWidth = valueColumnWidth,
     ) {
         if (records.creditRecords.isEmpty()) PlannerEmptyHint("No Credit Hours in this period.")
         records.creditRecords.forEach { record ->
@@ -482,6 +624,8 @@ internal fun PlannerRecordSections(
         showDates = showDates,
         onOpen = { onOpenPerson(PipelineStage.RETURN_VISIT, it) },
         onOpenList = { onOpenPersonList(PipelineStage.RETURN_VISIT) },
+        labelColumnWidth = labelColumnWidth,
+        valueColumnWidth = valueColumnWidth,
     )
     if (visibility.bibleStudies) PersonSection(
         title = "Bible Studies",
@@ -493,6 +637,8 @@ internal fun PlannerRecordSections(
         showDates = showDates,
         onOpen = { onOpenPerson(PipelineStage.BIBLE_STUDY, it) },
         onOpenList = { onOpenPersonList(PipelineStage.BIBLE_STUDY) },
+        labelColumnWidth = labelColumnWidth,
+        valueColumnWidth = valueColumnWidth,
     )
 }
 
@@ -507,12 +653,16 @@ private fun PersonSection(
     showDates: Boolean,
     onOpen: (String) -> Unit,
     onOpenList: () -> Unit,
+    labelColumnWidth: Dp? = null,
+    valueColumnWidth: Dp? = null,
 ) {
     PlannerExpandableSection(
         title = title,
         expanded = expansion.isExpanded(key),
         onToggle = { expansion.toggle(key) },
-        summary = if (people.size == 1) "1 person" else "${people.size} people",
+        summary = personCountSummary(people.size),
+        labelColumnWidth = labelColumnWidth,
+        valueColumnWidth = valueColumnWidth,
     ) {
         if (people.isEmpty()) PlannerEmptyHint(emptyText)
         people.forEach { person ->
@@ -570,11 +720,39 @@ internal fun StepperRow(
     // Color-codes just the number (e.g. [PlannerAccent.Goal] for a Goal
     // stepper) — null keeps the row's normal, uncolored look.
     valueColor: Color? = null,
+    // Same idea for the label itself (e.g. "Hours Goal for this Month") —
+    // null keeps it the row's normal, unemphasized look.
+    labelColor: Color? = null,
+    // "The value column should remain aligned vertically across all rows" —
+    // see [PlannerExpandableSection]'s identical parameter; passed the same
+    // shared width whenever this stepper sits in a block with other label/
+    // value rows (Goal rows, Hours, Minutes, ...), so the stepper cluster
+    // starts at the same x as every sibling's value rather than being
+    // pushed to the far edge of the screen by [Arrangement.SpaceBetween].
+    labelColumnWidth: Dp? = null,
 ) {
     var showEditDialog by remember { mutableStateOf(false) }
     val editable = onValueEntered != null && currentValue != null
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 4.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (labelColumnWidth != null) Arrangement.Start else Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (labelColor != null) FontWeight.Bold else null,
+            color = labelColor ?: Color.Unspecified,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            // padding BEFORE width: the 4dp inset is taken from the row's
+            // space first, so the Text itself still gets the full
+            // [labelColumnWidth] to render in — reversing the order shrinks
+            // the text's own available width by 4dp, which is exactly what
+            // was quietly forcing "Hours Goal for this Day" onto two lines.
+            modifier = Modifier.padding(start = 4.dp).then(if (labelColumnWidth != null) Modifier.width(labelColumnWidth) else Modifier),
+        )
+        if (labelColumnWidth != null) Spacer(modifier = Modifier.width(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             CircleStepButton(Icons.Rounded.Remove, "Decrease $label", onDecrement)
             Text(
@@ -632,7 +810,14 @@ private fun NumberEntryDialog(label: String, initial: Int, onDismiss: () -> Unit
 
 /** Compact goal line: stepper plus a one-line Remaining/Surplus caption. */
 @Composable
-internal fun PlannerGoalRow(label: String, goalHours: Int, remainingMinutes: Int, surplusMinutes: Int, onSetGoal: (Int) -> Unit) {
+internal fun PlannerGoalRow(
+    label: String,
+    goalHours: Int,
+    remainingMinutes: Int,
+    surplusMinutes: Int,
+    onSetGoal: (Int) -> Unit,
+    labelColumnWidth: Dp? = null,
+) {
     // "Emphasize with color code the Goal Hour, Remaining Hour" — Goal is
     // always [PlannerAccent.Goal]; Remaining/Surplus switches between "not
     // there yet" and "met/exceeded" colors, same rule and same two colors
@@ -648,6 +833,8 @@ internal fun PlannerGoalRow(label: String, goalHours: Int, remainingMinutes: Int
             currentValue = goalHours,
             onValueEntered = onSetGoal,
             valueColor = PlannerAccent.Goal,
+            labelColor = PlannerAccent.Goal,
+            labelColumnWidth = labelColumnWidth,
         )
         Text(
             buildString {
@@ -663,7 +850,7 @@ internal fun PlannerGoalRow(label: String, goalHours: Int, remainingMinutes: Int
 }
 
 @Composable
-internal fun ValueEditRow(label: String, value: String, onEdit: () -> Unit) {
+internal fun ValueEditRow(label: String, value: String, onEdit: () -> Unit, labelColumnWidth: Dp? = null, valueColumnWidth: Dp? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -673,16 +860,29 @@ internal fun ValueEditRow(label: String, value: String, onEdit: () -> Unit) {
             .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
+        // "Keep each value close enough to its label to clearly belong to it,
+        // while maintaining a consistent vertical value column" — see
+        // [PlannerExpandableSection]'s identical [labelColumnWidth] doc
+        // comment; "Edit" (a fixed action, not a value) sits right after the
+        // value with a small fixed gap, not pushed out to the far edge.
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = if (labelColumnWidth != null) Modifier.width(labelColumnWidth) else Modifier,
+        )
         Text(
             value,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+            modifier = Modifier
+                .padding(start = if (labelColumnWidth != null) 12.dp else 8.dp)
+                .then(if (valueColumnWidth != null) Modifier.width(valueColumnWidth) else Modifier),
         )
+        Spacer(modifier = Modifier.width(12.dp))
         Text("Edit", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }

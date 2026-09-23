@@ -16,15 +16,17 @@ import javax.inject.Singleton
  * a default the user didn't choose.
  *
  * Deliberately in-memory only, not persisted to disk/DataStore across a full
- * app restart — every report already defaults to This Month on cold start
- * (spec §4), calculated live from the current date, so there is nothing a
- * disk-backed store would add beyond what a fresh in-memory default already
- * gives for free; the "remembered across navigation" requirement is about
- * moving *between screens in one session*, not surviving a process kill.
+ * app restart — every report defaults to Today on cold start ("Make Today
+ * the default date range in My Planner" — since My Planner and the
+ * Dashboard summary share this one range, that default applies to both),
+ * calculated live from the current date, so there is nothing a disk-backed
+ * store would add beyond what a fresh in-memory default already gives for
+ * free; the "remembered across navigation" requirement is about moving
+ * *between screens in one session*, not surviving a process kill.
  */
 @Singleton
 class DateRangeStore @Inject constructor() {
-    private val _range = MutableStateFlow(DateRange.thisMonth())
+    private val _range = MutableStateFlow(DateRange.today())
     val range: StateFlow<DateRange> = _range.asStateFlow()
 
     fun set(range: DateRange) {

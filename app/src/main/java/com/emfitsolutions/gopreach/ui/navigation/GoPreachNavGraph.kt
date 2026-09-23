@@ -867,9 +867,13 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(Destinations.MONTHLY_REPORT) {
+        composable(
+            route = Destinations.MONTHLY_REPORT_ROUTE,
+            arguments = listOf(navArgument("periodMonth") { type = NavType.StringType; nullable = true; defaultValue = null }),
+        ) { backStackEntry ->
             MonthlyReportScreen(
                 publisherPersonId = currentPersonId,
+                initialPeriodMonth = backStackEntry.arguments?.getString("periodMonth")?.toLongOrNull(),
                 onViewHistory = { navController.navigate(Destinations.MY_SUBMITTED_REPORTS) },
                 onBack = { navController.popBackStack() },
             )
