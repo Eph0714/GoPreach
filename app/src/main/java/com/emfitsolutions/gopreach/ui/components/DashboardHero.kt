@@ -93,11 +93,24 @@ fun DashboardHero(
                     append(" · ")
                     append(if (pendingSyncCount > 0) "$pendingSyncCount pending sync" else "All synced")
                 }
-                Text(
-                    statusCaption,
-                    color = Color.White.copy(alpha = 0.85f),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // "Show the icon if online and the other online users
+                    // just like before" — restores the 🟢/🔴 connectivity
+                    // glyph and the tappable Online Users count next to it,
+                    // same as the old SyncStatusIndicator row.
+                    Text(if (isOnline) "🟢 " else "🔴 ", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        statusCaption,
+                        color = Color.White.copy(alpha = 0.85f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    OnlineUsersIndicator(
+                        modifier = Modifier.padding(start = 12.dp),
+                        textColor = Color.White.copy(alpha = 0.85f),
+                        onlineTint = Color(0xFF69F0AE),
+                        offlineTint = Color(0xFFFF8A80),
+                    )
+                }
             }
 
             if (quickActions.isNotEmpty()) {

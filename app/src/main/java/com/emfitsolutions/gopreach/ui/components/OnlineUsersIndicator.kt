@@ -195,6 +195,13 @@ class OnlineUsersViewModel @Inject constructor(
 @Composable
 fun OnlineUsersIndicator(
     modifier: Modifier = Modifier,
+    // Callers on a light surface (the default) keep the original
+    // onSurfaceVariant/error colors; a caller rendering on a solid dark
+    // header background (e.g. the Publisher/Admin welcome header) passes its
+    // own light colors so the label and glyph stay readable there too.
+    textColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    onlineTint: Color = OnlineUsersGreen,
+    offlineTint: Color = MaterialTheme.colorScheme.error,
     viewModel: OnlineUsersViewModel = hiltViewModel(),
 ) {
     val onlineUsers by viewModel.onlineUsers.collectAsStateWithLifecycle()
@@ -210,13 +217,13 @@ fun OnlineUsersIndicator(
         Icon(
             Icons.Rounded.Person,
             contentDescription = null,
-            tint = if (onlineUsers.isNotEmpty()) OnlineUsersGreen else MaterialTheme.colorScheme.error,
+            tint = if (onlineUsers.isNotEmpty()) onlineTint else offlineTint,
             modifier = Modifier.padding(end = 6.dp).size(18.dp),
         )
         Text(
             "Online Users: ${onlineUsers.size}",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = textColor,
         )
     }
 

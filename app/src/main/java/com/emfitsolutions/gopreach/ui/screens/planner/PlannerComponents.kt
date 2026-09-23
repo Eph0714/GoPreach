@@ -428,15 +428,13 @@ internal fun PlannerExpandableSection(
                 .clickable(role = Role.Button, onClickLabel = if (expanded) "Collapse $title" else "Expand $title", onClick = onToggle)
                 .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
                 .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // "Keep each value close enough to its label to clearly belong to
-            // it, while maintaining a consistent vertical value column" —
-            // the title sits in a column exactly [labelColumnWidth] wide (so
-            // every row's summary starts at the same x regardless of this
-            // title's own length), summary right after it, then the expand/
-            // collapse chevron right after THAT with a small fixed gap — not
-            // pushed out to the far edge of the screen by a flexible spacer.
+            // Title stays on the left; the summary now sits right next to the
+            // expand/collapse glyph at the row's far right edge (same edge
+            // every StepperRow's +/- cluster uses), pushed there by
+            // Arrangement.SpaceBetween rather than hugging the title.
             Text(
                 title,
                 style = MaterialTheme.typography.titleSmall,
@@ -445,22 +443,23 @@ internal fun PlannerExpandableSection(
                 overflow = TextOverflow.Ellipsis,
                 modifier = if (labelColumnWidth != null) Modifier.width(labelColumnWidth) else Modifier,
             )
-            if (summary != null) {
-                Text(
-                    summary,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    modifier = Modifier.padding(start = 8.dp).then(if (valueColumnWidth != null) Modifier.width(valueColumnWidth) else Modifier),
-                )
-            } else if (valueColumnWidth != null) {
-                // No summary on this row (Ministry Timer) — an empty spacer
-                // the same width as every sibling's value keeps the chevron
-                // that follows lined up with theirs anyway.
-                Spacer(modifier = Modifier.padding(start = 8.dp).width(valueColumnWidth))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (summary != null) {
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier.padding(end = 12.dp).then(if (valueColumnWidth != null) Modifier.width(valueColumnWidth) else Modifier),
+                    )
+                } else if (valueColumnWidth != null) {
+                    // No summary on this row (Ministry Timer) — an empty spacer
+                    // the same width as every sibling's value keeps the glyph
+                    // that follows lined up with theirs anyway.
+                    Spacer(modifier = Modifier.padding(end = 12.dp).width(valueColumnWidth))
+                }
+                ExpandToggleGlyph(expanded)
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            ExpandToggleGlyph(expanded)
         }
         AnimatedVisibility(
             visible = expanded,
@@ -735,7 +734,10 @@ internal fun StepperRow(
     val editable = onValueEntered != null && currentValue != null
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (labelColumnWidth != null) Arrangement.Start else Arrangement.SpaceBetween,
+        // Always pin the +/- cluster to the far right edge, same as before
+        // labelColumnWidth existed — the shared label width still keeps
+        // labels lined up, but no longer drags the stepper in from the edge.
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -752,7 +754,6 @@ internal fun StepperRow(
             // was quietly forcing "Hours Goal for this Day" onto two lines.
             modifier = Modifier.padding(start = 4.dp).then(if (labelColumnWidth != null) Modifier.width(labelColumnWidth) else Modifier),
         )
-        if (labelColumnWidth != null) Spacer(modifier = Modifier.width(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             CircleStepButton(Icons.Rounded.Remove, "Decrease $label", onDecrement)
             Text(
@@ -858,13 +859,12 @@ internal fun ValueEditRow(label: String, value: String, onEdit: () -> Unit, labe
             .clip(RoundedCornerShape(8.dp))
             .clickable(role = Role.Button, onClickLabel = "Edit $label", onClick = onEdit)
             .padding(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // "Keep each value close enough to its label to clearly belong to it,
-        // while maintaining a consistent vertical value column" — see
-        // [PlannerExpandableSection]'s identical [labelColumnWidth] doc
-        // comment; "Edit" (a fixed action, not a value) sits right after the
-        // value with a small fixed gap, not pushed out to the far edge.
+        // Label stays on the left; value now sits right next to "Edit" at the
+        // row's far right edge, same edge every stepper's +/- cluster uses,
+        // rather than hugging the label.
         Text(
             label,
             style = MaterialTheme.typography.bodyMedium,
@@ -872,18 +872,19 @@ internal fun ValueEditRow(label: String, value: String, onEdit: () -> Unit, labe
             overflow = TextOverflow.Ellipsis,
             modifier = if (labelColumnWidth != null) Modifier.width(labelColumnWidth) else Modifier,
         )
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .padding(start = if (labelColumnWidth != null) 12.dp else 8.dp)
-                .then(if (valueColumnWidth != null) Modifier.width(valueColumnWidth) else Modifier),
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Text("Edit", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(end = 12.dp)
+                    .then(if (valueColumnWidth != null) Modifier.width(valueColumnWidth) else Modifier),
+            )
+            Text("Edit", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 
