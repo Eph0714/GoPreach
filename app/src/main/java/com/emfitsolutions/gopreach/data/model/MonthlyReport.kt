@@ -10,8 +10,24 @@ import com.google.firebase.firestore.DocumentId
  * a report Posted (see [com.emfitsolutions.gopreach.ui.screens
  * .publisherreports.ManagePublisherReportsViewModel.markPosted]) — Submit
  * itself never sets this, unlike the old DRAFT/SUBMITTED-only model where
- * Submit alone was what locked the Publisher out. */
-enum class ReportStatus { DRAFT, SUBMITTED, POSTED }
+ * Submit alone was what locked the Publisher out.
+ *
+ * My Planner / Reporting upgrade spec §35 — extends this additively with
+ * [RETURNED] and [CORRECTED], mapped onto the spec's own
+ * DRAFT/SUBMITTED/REVIEWED/RETURNED/CORRECTED vocabulary as: [POSTED] is
+ * spec's "REVIEWED" (a report an authorized reviewer has approved and
+ * locked — unchanged name/meaning, since it's already persisted Firestore
+ * data on every existing report; renaming it would break every historical
+ * document's deserialization for zero benefit). [RETURNED] — new — is an
+ * authorized reviewer explicitly sending a SUBMITTED report back with a
+ * reason ([MonthlyReport.correctionReason]), distinct from the older
+ * [com.emfitsolutions.gopreach.ui.screens.publisherreports
+ * .ManagePublisherReportsViewModel.unlock] (POSTED→DRAFT, no reason
+ * recorded, still kept for that simpler "let them re-edit" case). [CORRECTED]
+ * — new — is what the Publisher's own resubmission from RETURNED becomes
+ * (instead of a plain SUBMITTED), so the audit trail shows this was a
+ * correction, not an original submission. */
+enum class ReportStatus { DRAFT, SUBMITTED, POSTED, RETURNED, CORRECTED }
 
 /**
  * One publisher's monthly ministry report (spec §5.2). Required fields differ by
@@ -64,6 +80,14 @@ data class MonthlyReport(
      * free-text field the Publisher types into. */
     val bibleStudiesCount: Int = 0,
 
+    /** My Planner / Ministry Statistics upgrade — same "automatically
+     * calculated, never free-text" treatment as [bibleStudiesCount], via
+     * [com.emfitsolutions.gopreach.domain.MinistryStatisticsService]
+     * .getMonthlyUniqueReturnVisits. `0` for a report saved before this field
+     * existed, same as any other Firestore default on an old document —
+     * never retroactively recalculated for a historical report. */
+    val returnVisitsCount: Int = 0,
+
     // Pioneer-only field — the Publisher's own final, submitted total (what
     // every existing consumer of this field — Dashboard totals, Consolidated
     // Report, ManagePublisherReportsScreen — already reads). May equal
@@ -104,6 +128,21 @@ data class MonthlyReport(
     val status: ReportStatus = ReportStatus.DRAFT,
     val submittedAt: Long? = null,
 
+    /** My Planner / Reporting upgrade spec §35 — set alongside
+     * [ReportStatus.POSTED] (spec's "REVIEWED"), so there's a real record of
+     * who approved/locked the report and when, not just the status value
+     * itself. */
+    val reviewedByPersonId: String? = null,
+    val reviewedAt: Long? = null,
+    /** Set alongside [ReportStatus.RETURNED] — who sent it back, when, and
+     * (required for that action) why. [correctionReason] is intentionally
+     * never cleared once set, even after the Publisher resubmits
+     * ([ReportStatus.CORRECTED]) — it stays as the historical record of what
+     * was wrong the last time this report was returned. */
+    val returnedByPersonId: String? = null,
+    val returnedAt: Long? = null,
+    val correctionReason: String? = null,
+
     /** Optional free-text note the publisher can attach to their own
      * submission — unlike every other field above, never required for any
      * [PublisherCategory]. */
@@ -113,7 +152,11 @@ data class MonthlyReport(
     val lastEditedAt: Long? = null,
 ) {
     /** "Has this publisher actually submitted a report for this period" —
-     * true for both [ReportStatus.SUBMITTED] and [ReportStatus.POSTED].
+     * true for [ReportStatus.SUBMITTED], [ReportStatus.POSTED], and (My
+     * Planner / Reporting upgrade spec §35) [ReportStatus.CORRECTED] — a
+     * corrected resubmission is still a submission, just one with history.
+     * [ReportStatus.RETURNED] is deliberately excluded: a returned report is
+     * *not* currently submitted until the Publisher actually resubmits it.
      * Bug fix: several call sites (ReminderWorker's "already submitted, skip
      * the reminder" check, PublisherAutoStatus's irregular-publisher
      * detection, and the Dashboard/Consolidated Report totals) used to test
@@ -125,7 +168,8 @@ data class MonthlyReport(
      * irregular-publisher flags for someone who very much had). Every one
      * of those now reads this property instead of comparing `status`
      * directly. */
-    val isSubmittedOrPosted: Boolean get() = status == ReportStatus.SUBMITTED || status == ReportStatus.POSTED
+    val isSubmittedOrPosted: Boolean
+        get() = status == ReportStatus.SUBMITTED || status == ReportStatus.POSTED || status == ReportStatus.CORRECTED
 }
 
 /**

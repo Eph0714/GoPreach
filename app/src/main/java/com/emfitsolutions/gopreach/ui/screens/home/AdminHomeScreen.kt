@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Password
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
@@ -94,6 +95,10 @@ fun AdminHomeScreen(
     /** Super-Admin always; an Admin only if explicitly granted MANAGE_USERS
      * (spec §2/§14 — "Admin can manage users only if explicitly authorized"). */
     canManageUsers: Boolean,
+    /** Account Management spec §5 permission matrix — Super-Admin, Admin,
+     * Coordinator Elder, Service Overseer (+ Secretary). Computed once in
+     * GoPreachNavGraph, same as every other role-gating boolean here. */
+    canManageAccountCredentials: Boolean,
     onNavigate: (String) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
     notificationCenterViewModel: NotificationCenterViewModel = hiltViewModel(),
@@ -448,6 +453,7 @@ fun AdminHomeScreen(
                 isSuperAdmin = isSuperAdmin,
                 canViewUserLogs = canViewUserLogs,
                 canManageUsers = canManageUsers,
+                canManageAccountCredentials = canManageAccountCredentials,
                 canViewContactRecord = canViewContactRecord,
                 canViewInterestedPeopleScope = canViewInterestedPeopleScope,
                 onSwitchToPublisher = onSwitchToPublisher?.let { switchAction ->
@@ -625,7 +631,7 @@ fun AdminHomeScreen(
                             }
                         }
 
-                        if (canAccessControlPanel || isSuperAdmin || canViewUserLogs || canManageUsers) {
+                        if (canAccessControlPanel || isSuperAdmin || canViewUserLogs || canManageUsers || canManageAccountCredentials) {
                             DashboardSection(stringResource(R.string.dashboard_section_system)) {
                                 if (canAccessControlPanel) {
                                     DashboardTile(stringResource(R.string.dashboard_tile_control_panel), Icons.Rounded.Tune, { onNavigate(Destinations.CONTROL_PANEL) })
@@ -638,6 +644,12 @@ fun AdminHomeScreen(
                                 }
                                 if (canManageUsers) {
                                     DashboardTile(stringResource(R.string.side_user_management), Icons.Rounded.ManageAccounts, { onNavigate(Destinations.MANAGE_USERS) })
+                                }
+                                if (canManageAccountCredentials) {
+                                    DashboardTile(stringResource(R.string.side_account_management), Icons.Rounded.ManageAccounts, { onNavigate(Destinations.ACCOUNT_MANAGEMENT) })
+                                }
+                                if (canAccessControlPanel) {
+                                    DashboardTile(stringResource(R.string.side_credit_hour_categories), Icons.Rounded.Timer, { onNavigate(Destinations.CREDIT_HOUR_CATEGORIES) })
                                 }
                             }
                         }

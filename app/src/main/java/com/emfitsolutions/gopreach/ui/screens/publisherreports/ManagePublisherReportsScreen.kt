@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Lock
@@ -61,6 +63,7 @@ import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Person
+import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.ReportStatus
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.print.ReportTable
@@ -124,6 +127,7 @@ fun ManagePublisherReportsScreen(
     val context = LocalContext.current
     var pendingEdit by remember { mutableStateOf<PublisherReportRow?>(null) }
     var pendingDelete by remember { mutableStateOf<PublisherReportRow?>(null) }
+    var pendingReturnForCorrection by remember { mutableStateOf<PublisherReportRow?>(null) }
     var showPostAllConfirm by remember { mutableStateOf(false) }
     val showToast = rememberActionToast()
 
@@ -243,6 +247,45 @@ fun ManagePublisherReportsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
+                // Report Summary spec §36 — Classification/Status filters,
+                // alongside Congregation/Year-Month (date range, above)/
+                // Publisher this screen already had.
+                Text(stringResource(R.string.manage_reports_classification_label), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    FilterChip(
+                        selected = uiState.selectedClassification == null,
+                        onClick = { viewModel.selectClassification(null) },
+                        label = { Text(stringResource(R.string.manage_reports_all)) },
+                    )
+                    PublisherCategory.entries.forEach { category ->
+                        FilterChip(
+                            selected = uiState.selectedClassification == category,
+                            onClick = { viewModel.selectClassification(category) },
+                            label = { Text(category.name.replace('_', ' ')) },
+                        )
+                    }
+                }
+
+                Text(stringResource(R.string.manage_reports_status_label), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    FilterChip(
+                        selected = uiState.selectedStatus == null,
+                        onClick = { viewModel.selectStatus(null) },
+                        label = { Text(stringResource(R.string.manage_reports_all)) },
+                    )
+                    ReportStatus.entries.forEach { status ->
+                        FilterChip(
+                            selected = uiState.selectedStatus == status,
+                            onClick = { viewModel.selectStatus(status) },
+                            label = { Text(status.name) },
+                        )
+                    }
+                }
+
+                TextButton(onClick = viewModel::resetFilters, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.manage_reports_reset_filters))
+                }
+
                 // "Select a month, then see all publishers that submitted
                 // their record within that month, then click the POST
                 // button — all the record will now be locked" — one tap
@@ -297,6 +340,14 @@ fun ManagePublisherReportsScreen(
                                                 IconButton(onClick = { viewModel.markPosted(row.report, currentPersonId) }) {
                                                     Icon(Icons.Rounded.Lock, contentDescription = stringResource(R.string.manage_reports_mark_posted_cd))
                                                 }
+                                                // My Planner / Reporting upgrade spec §35 — "Return for
+                                                // Correction," only offered for a SUBMITTED report (never
+                                                // DRAFT, already-RETURNED, or POSTED/locked).
+                                                if (row.report.status == ReportStatus.SUBMITTED) {
+                                                    IconButton(onClick = { pendingReturnForCorrection = row }) {
+                                                        Icon(Icons.AutoMirrored.Rounded.Reply, contentDescription = stringResource(R.string.manage_reports_return_for_correction_cd))
+                                                    }
+                                                }
                                             }
                                         }
                                         if (canPermanentlyDelete && !readOnly) {
@@ -316,12 +367,21 @@ fun ManagePublisherReportsScreen(
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                 )
+                                // My Planner / Reporting upgrade spec §38/§39
+                                // — shown on screen so it matches the export
+                                // exactly, not just present in the CSV/PDF.
+                                Text(
+                                    stringResource(R.string.manage_reports_return_visits_prefix, row.report.returnVisitsCount),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
                                 Text(stringResource(R.string.manage_reports_congregation_prefix, row.congregationName), style = MaterialTheme.typography.bodySmall)
                                 Text(
-                                    when {
-                                        row.isPosted -> stringResource(R.string.manage_reports_posted_locked)
-                                        row.report.status == ReportStatus.SUBMITTED -> stringResource(R.string.manage_reports_submitted_editable)
-                                        else -> stringResource(R.string.manage_reports_draft_editable)
+                                    when (row.report.status) {
+                                        ReportStatus.POSTED -> stringResource(R.string.manage_reports_posted_locked)
+                                        ReportStatus.SUBMITTED -> stringResource(R.string.manage_reports_submitted_editable)
+                                        ReportStatus.RETURNED -> stringResource(R.string.manage_reports_returned_status, row.report.correctionReason.orEmpty())
+                                        ReportStatus.CORRECTED -> stringResource(R.string.manage_reports_corrected_status)
+                                        ReportStatus.DRAFT -> stringResource(R.string.manage_reports_draft_editable)
                                     },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (row.isPosted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.secondary,
@@ -353,6 +413,38 @@ fun ManagePublisherReportsScreen(
                 viewModel.updateReport(toEdit.report, bibleStudies, hours, participated, currentPersonId)
                 showToast(reportSavedToast)
             },
+        )
+    }
+
+    val toReturn = pendingReturnForCorrection
+    if (toReturn != null) {
+        var reason by remember { mutableStateOf("") }
+        AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
+            onDismissRequest = { pendingReturnForCorrection = null },
+            title = { Text(stringResource(R.string.manage_reports_return_for_correction_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.manage_reports_return_for_correction_message, toReturn.person.fullName))
+                    OutlinedTextField(
+                        value = reason,
+                        onValueChange = { reason = it },
+                        label = { Text(stringResource(R.string.manage_reports_return_for_correction_reason_label)) },
+                        visualTransformation = VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = reason.isNotBlank(),
+                    onClick = {
+                        viewModel.returnForCorrection(toReturn.report, reason, currentPersonId)
+                        pendingReturnForCorrection = null
+                    },
+                ) { Text(stringResource(R.string.manage_reports_return_for_correction_confirm)) }
+            },
+            dismissButton = { TextButton(onClick = { pendingReturnForCorrection = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 
@@ -397,23 +489,37 @@ fun ManagePublisherReportsScreen(
  * a "Publisher Report" table actually contains, so the two outputs never
  * drift apart. */
 private fun publisherReportTable(title: String, uiState: ManagePublisherReportsUiState): ReportTable {
+    // My Planner / Reporting upgrade spec §38/§39 — export must exactly
+    // match what's on screen (report §35 status label used here too, not a
+    // re-derived string). Fixes a pre-existing mislabel: this column was
+    // called "Status" but held the publisher's Classification the whole
+    // time — that's its own column now, and "Status" holds the report's
+    // real ReportStatus.
+    val submittedDateFormat = java.text.SimpleDateFormat("MMM d, yyyy", Locale.US)
     val rows = uiState.rows.mapIndexed { index, row ->
         listOf(
             (index + 1).toString(),
             row.person.fullName,
             row.category.name.replace('_', ' '),
             row.report.bibleStudiesCount.toString(),
+            row.report.returnVisitsCount.toString(),
             if (row.isPioneer) formatHoursForExport(row.report.hoursRendered ?: 0.0) else "N/A",
             if (row.isPioneer) "N/A" else if (row.report.participatedInPreaching == true) "YES" else "NO",
             row.congregationName,
+            row.report.status.name,
+            row.report.submittedAt?.let { submittedDateFormat.format(java.util.Date(it)) } ?: "—",
         )
     }
     return ReportTable(
         title = title,
-        columns = listOf("#", "Publisher", "Status", "Bible Study", "Hours", "Participate in Preaching", "Congregation/Group"),
+        columns = listOf(
+            "#", "Publisher", "Classification", "Bible Study", "Return Visits", "Hours",
+            "Participate in Preaching", "Congregation/Group", "Status", "Submission Date",
+        ),
         rows = rows,
         totals = listOf(
             "Total Bible Study" to uiState.totalBibleStudies.toString(),
+            "Total Return Visits" to uiState.totalReturnVisits.toString(),
             "Total Hours by Pioneers" to formatHoursForExport(uiState.totalHoursByPioneers),
         ),
     )

@@ -41,4 +41,6 @@ fun ReportStatus.label(): String = when (this) {
     ReportStatus.DRAFT -> "Draft"
     ReportStatus.SUBMITTED -> "Submitted"
     ReportStatus.POSTED -> "Posted"
+    ReportStatus.RETURNED -> "Returned for Correction"
+    ReportStatus.CORRECTED -> "Corrected"
 }

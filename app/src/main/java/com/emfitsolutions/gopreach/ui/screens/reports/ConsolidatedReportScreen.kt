@@ -239,7 +239,12 @@ private fun consolidatedReportTableFor(uiState: ConsolidatedReportUiState): Repo
     val periodLabel = "${dateFormat.format(Date(uiState.dateRange.startMillis))} - ${dateFormat.format(Date(uiState.dateRange.endMillis))}"
     return ReportTable(
         title = "GoPreach Consolidated Monthly Report ($periodLabel)",
-        columns = listOf("Publisher", "Status", "Congregation/Group", "Bible Studies", "Return Visits", "Preaching Hours", "Participated in Ministry"),
+        // My Planner / Reporting upgrade spec §37 — fixes a pre-existing
+        // mislabel: this column was called "Status" but always held the
+        // publisher's Classification, never a report ReportStatus (this
+        // screen shows a multi-report date-range aggregate per publisher, so
+        // there's no single report status to show here at all).
+        columns = listOf("Publisher", "Classification", "Congregation/Group", "Bible Studies", "Return Visits", "Preaching Hours", "Participated in Ministry"),
         rows = uiState.visibleEntries.map { entry ->
             listOf(
                 entry.person.fullName,

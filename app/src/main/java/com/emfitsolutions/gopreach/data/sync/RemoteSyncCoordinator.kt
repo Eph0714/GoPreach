@@ -7,6 +7,7 @@ import com.emfitsolutions.gopreach.data.repository.BibleTextCategoryRepository
 import com.emfitsolutions.gopreach.data.repository.BibleTextRecordRepository
 import com.emfitsolutions.gopreach.data.repository.CartAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
+import com.emfitsolutions.gopreach.data.repository.CreditHourCategoryRepository
 import com.emfitsolutions.gopreach.data.repository.DashboardModuleLayoutRepository
 import com.emfitsolutions.gopreach.data.repository.ElderTitleRepository
 import com.emfitsolutions.gopreach.data.repository.ForwardRequestRepository
@@ -101,6 +102,7 @@ class RemoteSyncCoordinator @Inject constructor(
     private val publicTalkScheduleRepository: PublicTalkScheduleRepository,
     private val cartAssignmentRepository: CartAssignmentRepository,
     private val dashboardModuleLayoutRepository: DashboardModuleLayoutRepository,
+    private val creditHourCategoryRepository: CreditHourCategoryRepository,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     private var started = false
@@ -179,5 +181,10 @@ class RemoteSyncCoordinator @Inject constructor(
         publicTalkScheduleRepository.startRemoteSync().startTracked(uidChanged)
         cartAssignmentRepository.startRemoteSync().startTracked(uidChanged)
         dashboardModuleLayoutRepository.startRemoteSync().startTracked(uidChanged)
+        // Bug fix ("Credit Hours categories cannot be found in the
+        // dropdown"): categories are managed by an admin on *their* device,
+        // but nothing ever mirrored this collection down to anyone else's —
+        // so every Publisher's My Planner read an empty local cache.
+        creditHourCategoryRepository.startRemoteSync().startTracked(uidChanged)
     }
 }

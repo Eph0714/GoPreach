@@ -1,21 +1,29 @@
 package com.emfitsolutions.gopreach.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -155,10 +163,45 @@ fun SyncToServerButton(
      * only the actual "SYNC TO SERVER" control, never a second copy of the
      * same indicator. */
     showStatusIndicator: Boolean = true,
+    /** "Make the sync to server smaller, put it on the right upper side,
+     * make it simple" — a single small icon button instead of the full
+     * width/title/status-line/progress-bar layout, for placing directly in
+     * a header's icon row. Still the same [viewModel]/dialogs underneath —
+     * only the everyday-visible chrome shrinks, not the actual sync
+     * behavior or its error/summary feedback. */
+    compact: Boolean = false,
+    tint: Color = Color.White,
 ) {
     val pendingCount by viewModel.pendingCount.collectAsStateWithLifecycle()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val syncing = state as? ManualSyncState.Syncing
+
+    if (compact) {
+        Box {
+            IconButton(onClick = viewModel::syncToServer, enabled = syncing == null) {
+                if (syncing != null) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = tint, strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Rounded.CloudUpload, contentDescription = "Sync to Server", tint = tint)
+                }
+            }
+            // A small dot instead of a numeric badge — "make it simple,"
+            // just enough to notice there's something pending without the
+            // full pendingChangesPhrase() sentence this button shows
+            // elsewhere.
+            if (pendingCount > 0 && syncing == null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 6.dp, end = 6.dp)
+                        .size(8.dp)
+                        .background(MaterialTheme.colorScheme.error, CircleShape),
+                )
+            }
+        }
+        SyncFeedbackDialogs(state = state, pendingCount = pendingCount, onDismiss = viewModel::dismissDialog, onRetry = viewModel::syncToServer)
+        return
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         // Real-time 🟢/🔴/🟡/⚠️ status — reflects the sync system as a whole
@@ -211,9 +254,17 @@ fun SyncToServerButton(
         }
     }
 
+    SyncFeedbackDialogs(state = state, pendingCount = pendingCount, onDismiss = viewModel::dismissDialog, onRetry = viewModel::syncToServer)
+}
+
+/** The NoNetwork/Summary feedback dialogs — shared by both the full and
+ * [SyncToServerButton]'s `compact` layout, so shrinking the everyday-visible
+ * button never means losing the error/result feedback underneath it. */
+@Composable
+private fun SyncFeedbackDialogs(state: ManualSyncState, pendingCount: Int, onDismiss: () -> Unit, onRetry: () -> Unit) {
     when (val s = state) {
         ManualSyncState.NoNetwork -> AlertDialog(
-            onDismissRequest = viewModel::dismissDialog,
+            onDismissRequest = onDismiss,
             title = { Text("Sync Failed") },
             text = {
                 Text(
@@ -222,12 +273,12 @@ fun SyncToServerButton(
                         "will sync automatically once you're back online.",
                 )
             },
-            confirmButton = { TextButton(onClick = viewModel::dismissDialog) { Text("OK") } },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
         )
         is ManualSyncState.Syncing -> Unit // reflected in the button/status line above, no blocking dialog
         ManualSyncState.Failed -> Unit // reflected in the status line above
         is ManualSyncState.Summary -> AlertDialog(
-            onDismissRequest = viewModel::dismissDialog,
+            onDismissRequest = onDismiss,
             title = {
                 Text(
                     when {
@@ -247,9 +298,9 @@ fun SyncToServerButton(
                     color = if (s.failed > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                 )
             },
-            confirmButton = { TextButton(onClick = viewModel::dismissDialog) { Text("OK") } },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
             dismissButton = if (s.failed > 0) {
-                { TextButton(onClick = { viewModel.dismissDialog(); viewModel.syncToServer() }) { Text("Retry") } }
+                { TextButton(onClick = { onDismiss(); onRetry() }) { Text("Retry") } }
             } else null,
         )
         ManualSyncState.Idle -> Unit

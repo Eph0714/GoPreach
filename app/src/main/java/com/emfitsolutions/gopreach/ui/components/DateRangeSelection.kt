@@ -1,5 +1,6 @@
 package com.emfitsolutions.gopreach.ui.components
 
+import com.emfitsolutions.gopreach.domain.TimeBounds
 import java.util.Calendar
 
 /** Which quick-select is currently active — [CUSTOM] once the user has
@@ -23,9 +24,9 @@ data class DateRange(
     val startMillis: Long,
     val endMillis: Long,
     val option: QuickDateRange,
-) {
+) : TimeBounds {
     /** Whether [millis] falls within this range, inclusive of both ends. */
-    operator fun contains(millis: Long): Boolean = millis in startMillis..endMillis
+    override operator fun contains(millis: Long): Boolean = millis in startMillis..endMillis
 
     /** Whether a whole month starting at [periodMonthMillis] (the first-of-month
      * shape [com.emfitsolutions.gopreach.data.model.MonthlyReport.periodMonth]

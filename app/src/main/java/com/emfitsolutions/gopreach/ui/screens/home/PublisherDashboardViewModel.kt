@@ -8,8 +8,10 @@ import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
+import com.emfitsolutions.gopreach.data.repository.PublisherDashboardVisibilityRepository
 import com.emfitsolutions.gopreach.data.repository.VisitRepository
 import com.emfitsolutions.gopreach.domain.DateRangeStore
+import com.emfitsolutions.gopreach.domain.MinistryStatisticsService
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
@@ -36,11 +38,10 @@ data class PublisherDashboardStats(
     /** Spec §7/§18 — COUNT DISTINCT Bible Study person, not visit rows. A
      * "Bible Study" is an [com.emfitsolutions.gopreach.data.model
      * .InterestedPerson] whose [PipelineStage] is [PipelineStage.BIBLE_STUDY]
-     * (see the Redesigned Publisher Dashboard's Searching → Return Visit →
-     * Bible Study pipeline) — counted here by when they *entered* that stage
-     * ([com.emfitsolutions.gopreach.data.model.InterestedPerson
-     * .stageEnteredAt] falling in the selected range), not by record
-     * creation date, since a person can spend time in earlier stages first. */
+     * with at least one qualifying [com.emfitsolutions.gopreach.data.model
+     * .Visit] in the selected range — see
+     * [com.emfitsolutions.gopreach.domain.MinistryStatisticsService], the
+     * single shared definition every Bible Study count in this app now uses. */
     val bibleStudiesCount: Int = 0,
     /** Spec §8/§10 — COUNT DISTINCT Return Visit person: every
      * [com.emfitsolutions.gopreach.data.model.Visit] in range, grouped by
@@ -69,10 +70,17 @@ class PublisherDashboardViewModel @Inject constructor(
     private val preachingTimeRecordRepository: PreachingTimeRecordRepository,
     private val monthlyReportRepository: MonthlyReportRepository,
     private val dateRangeStore: DateRangeStore,
+    private val dashboardVisibilityRepository: PublisherDashboardVisibilityRepository,
 ) : ViewModel() {
 
     val dateRange: StateFlow<DateRange> = dateRangeStore.range
     fun setDateRange(range: DateRange) = dateRangeStore.set(range)
+
+    /** "Hide the dashboard (add show or hide dashboard)" — a per-device
+     * toggle for the Date Range + stat-cards section on the Publisher Main
+     * Form. */
+    val showDashboard: StateFlow<Boolean> = dashboardVisibilityRepository.showDashboard
+    fun setShowDashboard(value: Boolean) = dashboardVisibilityRepository.setShowDashboard(value)
 
     /** The collection-group listener for this Publisher's own Return Visits
      * (see [VisitRepository.startRemoteSyncForPublisher]) — started once the
@@ -88,15 +96,6 @@ class PublisherDashboardViewModel @Inject constructor(
         monthlyReportRepository.observeAll(),
         dateRangeStore.range,
     ) { allPeople, visits, preachingRecords, allReports, range ->
-        // Bible Study visits now share the same Visit sub-collection as
-        // Return Visits (see PipelineStage) — restrict this card to visits
-        // against people currently *in* the Return Visit stage, so a Bible
-        // Study conversation doesn't inflate the Return Visits count.
-        val returnVisitPersonIds = allPeople
-            .filter { it.publisherPersonId == publisherPersonId && it.pipelineStage == PipelineStage.RETURN_VISIT }
-            .map { it.id }
-            .toSet()
-        val visitsInRange = visits.filter { range.contains(it.visitDate) && it.interestedPersonId in returnVisitPersonIds }
         // Bug fix: was `status == ReportStatus.SUBMITTED` — a Posted report
         // (see MonthlyReport.isSubmittedOrPosted's doc comment) still
         // counts toward this Publisher's own dashboard totals; it used to
@@ -104,10 +103,18 @@ class PublisherDashboardViewModel @Inject constructor(
         val reportsInRange = allReports.filter {
             it.publisherPersonId == publisherPersonId && it.isSubmittedOrPosted && range.overlapsMonth(it.periodMonth)
         }
-        val bibleStudies = allPeople.filter { it.publisherPersonId == publisherPersonId && it.pipelineStage == PipelineStage.BIBLE_STUDY }
         PublisherDashboardStats(
-            bibleStudiesCount = bibleStudies.count { range.contains(it.stageEnteredAt) },
-            returnVisitsCount = visitsInRange.distinctBy { it.interestedPersonId }.size,
+            // Centralized in MinistryStatisticsService (spec §1-§15/§51 —
+            // "one unique person = one count," never a raw visit-row count,
+            // never duplicated per-screen) — both counts key off qualifying
+            // Visit dates, not InterestedPerson.stageEnteredAt, matching
+            // MonthlyReportCalculator's existing Bible Study definition.
+            bibleStudiesCount = MinistryStatisticsService.uniqueVisitedPersons(
+                publisherPersonId, allPeople, visits, PipelineStage.BIBLE_STUDY, range,
+            ),
+            returnVisitsCount = MinistryStatisticsService.uniqueVisitedPersons(
+                publisherPersonId, allPeople, visits, PipelineStage.RETURN_VISIT, range,
+            ),
             preachingHours = preachingRecords
                 .filter { it.status == com.emfitsolutions.gopreach.data.model.RecordStatus.ACTIVE && range.contains(it.date) }
                 .sumOf { it.hoursConsumed },

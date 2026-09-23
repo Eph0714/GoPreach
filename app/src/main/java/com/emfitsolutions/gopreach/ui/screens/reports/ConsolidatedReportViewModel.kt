@@ -22,6 +22,7 @@ import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.VisitRepository
 import com.emfitsolutions.gopreach.domain.DateRangeStore
+import com.emfitsolutions.gopreach.domain.MinistryStatisticsService
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import com.emfitsolutions.gopreach.ui.screens.home.isPioneerCategory
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -153,20 +154,16 @@ class ConsolidatedReportViewModel @Inject constructor(
             .mapNotNull { (assignment, publisher) ->
                 val person = raw.people.firstOrNull { it.id == assignment.personId } ?: return@mapNotNull null
                 val congregationName = congregationsInScope.firstOrNull { it.id == assignment.congregationId }?.name ?: "—"
-                val bibleStudiesCount = records.pipelinePeople.count {
-                    it.publisherPersonId == person.id && it.pipelineStage == PipelineStage.BIBLE_STUDY && range.contains(it.stageEnteredAt)
-                }
-                // Restrict to people currently in the Return Visit stage —
-                // Bible Study conversations share the same Visit log now
-                // (see PipelineStage) and shouldn't inflate this count.
-                val returnVisitPersonIds = records.pipelinePeople
-                    .filter { it.publisherPersonId == person.id && it.pipelineStage == PipelineStage.RETURN_VISIT }
-                    .map { it.id }
-                    .toSet()
-                val returnVisitsCount = records.visits
-                    .filter { it.publisherPersonId == person.id && range.contains(it.visitDate) && it.interestedPersonId in returnVisitPersonIds }
-                    .distinctBy { it.interestedPersonId }
-                    .size
+                // Centralized in MinistryStatisticsService (spec §1-§15/§51)
+                // — was two slightly-different ad hoc de-duplications here,
+                // duplicating (correctly, but separately) the exact same
+                // logic PublisherDashboardViewModel already had.
+                val bibleStudiesCount = MinistryStatisticsService.uniqueVisitedPersons(
+                    person.id, records.pipelinePeople, records.visits, PipelineStage.BIBLE_STUDY, range,
+                )
+                val returnVisitsCount = MinistryStatisticsService.uniqueVisitedPersons(
+                    person.id, records.pipelinePeople, records.visits, PipelineStage.RETURN_VISIT, range,
+                )
                 val isPioneer = isPioneerCategory(publisher.category)
                 val preachingHours = if (isPioneer) {
                     records.preachingRecords

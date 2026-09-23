@@ -62,10 +62,15 @@ data class ManagePublisherReportsUiState(
     val showMode: ReportShowMode = ReportShowMode.ALL,
     val selectedPublisherId: String? = null,
     val selectedCongregationId: String? = null,
+    /** Report Summary spec §36 — Classification/Status filters, alongside
+     * the congregation/year-month/publisher filters this screen already had. */
+    val selectedClassification: PublisherCategory? = null,
+    val selectedStatus: ReportStatus? = null,
     val searchQuery: String = "",
     val isLoading: Boolean = true,
 ) {
     val totalBibleStudies: Int get() = rows.sumOf { it.report.bibleStudiesCount }
+    val totalReturnVisits: Int get() = rows.sumOf { it.report.returnVisitsCount }
     val totalHoursByPioneers: Double get() = rows.filter { it.isPioneer }.sumOf { it.report.hoursRendered ?: 0.0 }
 }
 
@@ -101,7 +106,25 @@ class ManagePublisherReportsViewModel @Inject constructor(
     private val _showMode = MutableStateFlow(ReportShowMode.ALL)
     private val _selectedPublisherId = MutableStateFlow<String?>(null)
     private val _selectedCongregationId = MutableStateFlow<String?>(null)
+    private val _selectedClassification = MutableStateFlow<PublisherCategory?>(null)
+    private val _selectedStatus = MutableStateFlow<ReportStatus?>(null)
     private val _searchQuery = MutableStateFlow("")
+
+    fun selectClassification(category: PublisherCategory?) = _selectedClassification.update { category }
+    fun selectStatus(status: ReportStatus?) = _selectedStatus.update { status }
+
+    /** Report Summary spec §36 — "Search and Reset." Search is just letting
+     * the already-live filters keep filtering (no separate action needed);
+     * Reset clears every filter back to its default in one action. */
+    fun resetFilters() {
+        _dateRange.update { DateRange.thisMonth() }
+        _showMode.update { ReportShowMode.ALL }
+        _selectedPublisherId.update { null }
+        _selectedCongregationId.update { null }
+        _selectedClassification.update { null }
+        _selectedStatus.update { null }
+        _searchQuery.update { "" }
+    }
 
     fun setDateRange(range: DateRange) = _dateRange.update { range }
     fun setShowMode(mode: ReportShowMode) = _showMode.update {
@@ -132,6 +155,8 @@ class ManagePublisherReportsViewModel @Inject constructor(
         val showMode: ReportShowMode,
         val selectedPublisherId: String?,
         val selectedCongregationId: String?,
+        val selectedClassification: PublisherCategory?,
+        val selectedStatus: ReportStatus?,
         val searchQuery: String,
     )
 
@@ -141,9 +166,18 @@ class ManagePublisherReportsViewModel @Inject constructor(
         congregationRepository.observeAll(),
     ) { reports, people, congregations -> RawData(reports, people, congregations) }
 
-    private val filters = combine(_dateRange, _showMode, _selectedPublisherId, _selectedCongregationId, _searchQuery) {
-            dateRange, showMode, publisherId, congregationId, query ->
-        Filters(dateRange, showMode, publisherId, congregationId, query)
+    private val filters = combine(
+        _dateRange, _showMode, _selectedPublisherId, _selectedCongregationId, _selectedClassification, _selectedStatus, _searchQuery,
+    ) { values ->
+        Filters(
+            dateRange = values[0] as DateRange,
+            showMode = values[1] as ReportShowMode,
+            selectedPublisherId = values[2] as String?,
+            selectedCongregationId = values[3] as String?,
+            selectedClassification = values[4] as PublisherCategory?,
+            selectedStatus = values[5] as ReportStatus?,
+            searchQuery = values[6] as String,
+        )
     }
 
     /** Every active Publisher in scope — feeds the "By Publisher" dropdown.
@@ -170,6 +204,8 @@ class ManagePublisherReportsViewModel @Inject constructor(
             .filter { f.selectedCongregationId == null || it.congregationId == f.selectedCongregationId }
             .filter { f.showMode != ReportShowMode.BY_PUBLISHER || f.selectedPublisherId == null || it.publisherPersonId == f.selectedPublisherId }
             .filter { f.dateRange.overlapsMonth(it.periodMonth) }
+            .filter { f.selectedClassification == null || it.category == f.selectedClassification }
+            .filter { f.selectedStatus == null || it.status == f.selectedStatus }
             .mapNotNull { report ->
                 val person = raw.people.firstOrNull { it.id == report.publisherPersonId } ?: return@mapNotNull null
                 val congregationName = raw.congregations.firstOrNull { it.id == report.congregationId }?.name ?: "—"
@@ -191,6 +227,8 @@ class ManagePublisherReportsViewModel @Inject constructor(
             showMode = f.showMode,
             selectedPublisherId = f.selectedPublisherId,
             selectedCongregationId = f.selectedCongregationId,
+            selectedClassification = f.selectedClassification,
+            selectedStatus = f.selectedStatus,
             searchQuery = f.searchQuery,
             isLoading = false,
         )
@@ -270,8 +308,15 @@ class ManagePublisherReportsViewModel @Inject constructor(
             // app's manual/periodic-sync design — the publisher's copy kept
             // showing SUBMITTED, so their Submit button stayed correctly
             // (per that stale data) enabled.
+            val now = System.currentTimeMillis()
             monthlyReportRepository.saveNow(
-                report.copy(status = ReportStatus.POSTED, lastEditedByPersonId = actorPersonId, lastEditedAt = System.currentTimeMillis()),
+                report.copy(
+                    status = ReportStatus.POSTED,
+                    reviewedByPersonId = actorPersonId,
+                    reviewedAt = now,
+                    lastEditedByPersonId = actorPersonId,
+                    lastEditedAt = now,
+                ),
             )
             auditLogRepository.log(
                 actorPersonId = actorPersonId,
@@ -279,6 +324,40 @@ class ManagePublisherReportsViewModel @Inject constructor(
                 targetType = "MonthlyReport",
                 targetId = report.id,
                 congregationId = report.congregationId,
+            )
+        }
+    }
+
+    /** My Planner / Reporting upgrade spec §35 — "Return for Correction":
+     * distinct from [unlock] (which just flips POSTED back to DRAFT with no
+     * record of why). This is the real workflow step — a SUBMITTED report
+     * that needs fixing before it's ever POSTED, with a required [reason]
+     * the audit trail and the report itself both keep. The Publisher's own
+     * next Submit from [ReportStatus.RETURNED] becomes
+     * [ReportStatus.CORRECTED] (see [com.emfitsolutions.gopreach.ui.screens
+     * .monthlyreport.MonthlyReportViewModel.submit]), not a plain
+     * resubmission, so this history is visible on the report itself. */
+    fun returnForCorrection(report: MonthlyReport, reason: String, actorPersonId: String) {
+        if (reason.isBlank()) return
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            monthlyReportRepository.saveNow(
+                report.copy(
+                    status = ReportStatus.RETURNED,
+                    returnedByPersonId = actorPersonId,
+                    returnedAt = now,
+                    correctionReason = reason.trim(),
+                    lastEditedByPersonId = actorPersonId,
+                    lastEditedAt = now,
+                ),
+            )
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "RETURN_PUBLISHER_REPORT_FOR_CORRECTION",
+                targetType = "MonthlyReport",
+                targetId = report.id,
+                congregationId = report.congregationId,
+                details = reason.trim(),
             )
         }
     }

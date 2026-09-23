@@ -47,61 +47,30 @@ enum class DashboardModuleId {
     // Schedules" link (Account Settings) into a first-class module tile,
     // same PublisherSchedulesScreen/Destinations.PUBLISHER_SCHEDULES route.
     PUBLISHER_SCHEDULES,
+    // My Planner / Ministry Timer / Reporting upgrade — Day/Month/Year
+    // ministry-time planner, Publisher-only, own data (spec §16/§41).
+    MY_PLANNER,
 }
 
 /**
- * Default location for a module a Publisher has never explicitly moved —
- * spec §3/§4's own worked example (My Total Hours/Interested Person/Return
- * Visit/Bible Study/Monthly Report/Territory Map/My Bible Text/Announcements
- * on the Main Form; everything else in the Side Panel). Spec §8: a future
- * module not yet in a Publisher's saved layout always resolves through this
- * same function, so it appears somewhere sensible without silently
- * overwriting anything the Publisher already customized.
+ * Default location for a module a Publisher has never explicitly moved.
+ * Spec §8: a future module not yet in a Publisher's saved layout always
+ * resolves through this same function, so it appears somewhere sensible
+ * without silently overwriting anything the Publisher already customized.
  *
- * [FORWARDED_TO_ME] is kept on the Main Form rather than the spec example's
- * literal list — unlike every other Side-Panel default, it carries a live
- * pending-count badge (an actionable inbox, not a settings-style module),
- * and defaulting it out of sight read as "I cannot see the forwarded to me"
- * the moment this feature shipped, for every Publisher who had never
- * customized their layout yet.
- *
- * "Update the Main Dashboard Navigation" — [MY_SUBMITTED_REPORTS] (My
- * Reports), [HOUSEHOLDER_VISIT_HISTORY], [SHARE_MY_LOCATION],
- * [FIND_LOCATION], [MEETING_CART_ASSIGNMENT], [MY_ASSIGNMENTS], and
- * [GROUP_CHAT] moved back to the Main Form as their default/initial
- * location, restoring where they originally were. This only changes what a
- * *never-customized* layout resolves to (see this function's own doc
- * comment above and [DashboardModuleLayout]'s "deliberately NOT storing
- * every module" note) — a Publisher who already explicitly moved any of
- * these to the Side Panel keeps that choice untouched, since their id is
- * already present in [DashboardModuleLayout.sidePanelModuleIds] and this
- * function is never consulted for it. [MY_CALENDAR] is the one former
- * Side-Panel default left as-is; it wasn't named in this request.
+ * "Move all the icon from main form to side panel" — every module now
+ * defaults to the Side Panel, full stop, including [FORWARDED_TO_ME]/
+ * [INCOMING_HOUSEHOLDER_ASSIGNMENTS] (previously kept on the Main Form for
+ * their live badge — an explicit, unconditional request overrides that
+ * earlier call). This only changes what a *never-customized* layout
+ * resolves to (see [DashboardModuleLayout]'s "deliberately NOT storing every
+ * module" note) — a Publisher who already explicitly placed a module on the
+ * Main Form keeps that choice untouched, since their id is already present
+ * in [DashboardModuleLayout.mainFormModuleIds] and this function is never
+ * consulted for it; "Reset Dashboard Layout" (spec §9) is what actually
+ * clears an existing customization back to this all-Side-Panel default.
  */
-fun DashboardModuleId.defaultLocation(): DashboardModuleLocation = when (this) {
-    DashboardModuleId.MY_TOTAL_HOURS,
-    DashboardModuleId.SEARCHING,
-    DashboardModuleId.RETURN_VISIT,
-    DashboardModuleId.BIBLE_STUDY,
-    DashboardModuleId.MONTHLY_REPORT,
-    DashboardModuleId.TERRITORY_MAP,
-    DashboardModuleId.MY_BIBLE_TEXT_RECORD,
-    DashboardModuleId.ANNOUNCEMENT,
-    DashboardModuleId.FORWARDED_TO_ME,
-    DashboardModuleId.INCOMING_HOUSEHOLDER_ASSIGNMENTS,
-    DashboardModuleId.MY_SUBMITTED_REPORTS,
-    DashboardModuleId.HOUSEHOLDER_VISIT_HISTORY,
-    DashboardModuleId.SHARE_MY_LOCATION,
-    DashboardModuleId.FIND_LOCATION,
-    DashboardModuleId.MEETING_CART_ASSIGNMENT,
-    DashboardModuleId.MY_ASSIGNMENTS,
-    DashboardModuleId.GROUP_CHAT,
-    DashboardModuleId.PUBLISHER_SCHEDULES,
-    -> DashboardModuleLocation.MAIN_FORM
-
-    DashboardModuleId.MY_CALENDAR,
-    -> DashboardModuleLocation.SIDE_PANEL
-}
+fun DashboardModuleId.defaultLocation(): DashboardModuleLocation = DashboardModuleLocation.SIDE_PANEL
 
 /**
  * "Publishers App – Customizable Module Navigation Redesign" spec §5/§6/§21
@@ -129,6 +98,10 @@ data class DashboardModuleLayout(
     @DocumentId val personId: String = "",
     val mainFormModuleIds: List<String> = emptyList(),
     val sidePanelModuleIds: List<String> = emptyList(),
+    /** My Planner sections this Publisher has switched off (see
+     * [PlannerSection]). Display preference only — hiding a section never
+     * touches the records behind it; switching it back on shows them again. */
+    val hiddenPlannerSections: List<String> = emptyList(),
     val updatedAt: Long = 0L,
 )
 
@@ -170,3 +143,18 @@ fun DashboardModuleLayout.moved(moduleId: DashboardModuleId, to: DashboardModule
  * module. */
 fun DashboardModuleLayout.reset(): DashboardModuleLayout =
     copy(mainFormModuleIds = emptyList(), sidePanelModuleIds = emptyList(), updatedAt = System.currentTimeMillis())
+
+/** The My Planner sections a Publisher can show or hide for themselves. */
+enum class PlannerSection(val label: String) {
+    HOURS("Hours / Minutes"),
+    CREDIT_HOURS("Credit Hours"),
+    RETURN_VISITS("Return Visits"),
+    BIBLE_STUDIES("Bible Studies"),
+}
+
+fun DashboardModuleLayout.isPlannerSectionVisible(section: PlannerSection): Boolean = section.name !in hiddenPlannerSections
+
+fun DashboardModuleLayout.withPlannerSectionVisible(section: PlannerSection, visible: Boolean): DashboardModuleLayout {
+    val hidden = hiddenPlannerSections.filterNot { it == section.name }.let { if (visible) it else it + section.name }
+    return copy(hiddenPlannerSections = hidden, updatedAt = System.currentTimeMillis())
+}

@@ -3,7 +3,6 @@ package com.emfitsolutions.gopreach.ui.screens.monthlyreport
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.MonthlyReport
-import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.ReportStatus
 import com.emfitsolutions.gopreach.data.model.RoleType
@@ -50,10 +49,14 @@ data class MonthlyReportUiState(
     val existingReport: MonthlyReport? = null,
     val selectedPeriodMonth: Long = currentMonthStart(),
 
-    /** Pre-filled from [MonthlyReportCalculator.countBibleStudiesConducted]
-     * but, per the simplified report form, still Publisher-editable — same
-     * "automatic but can be edited" treatment as [hoursRendered]. */
+    /** Pre-filled from [MonthlyReportCalculator.calculate] but, per the
+     * simplified report form, still Publisher-editable — same "automatic but
+     * can be edited" treatment as [hoursRendered]. */
     val bibleStudiesRendered: String = "0",
+    /** My Planner / Reporting upgrade spec §30 — same "automatic but
+     * editable" treatment as [bibleStudiesRendered], now that
+     * [MonthlyReport.returnVisitsCount] exists to save it into. */
+    val returnVisitsRendered: String = "0",
     /** Spec §24 — `false` means the calculation genuinely failed (a source
      * Flow error), not "zero qualifying records"; the screen shows a retry
      * affordance instead of a bare `0`/`No` in that case. */
@@ -182,22 +185,22 @@ class MonthlyReportViewModel @Inject constructor(
                 }
 
                 // Spec §5/§6 — ownership + congregation scoping, applied once
-                // here before anything is handed to the pure calculator: only
-                // this Publisher's own Bible Study people, in their own
-                // congregation.
-                val ownBibleStudyPeople = interestedPeople.filter {
-                    it.publisherPersonId == publisherPersonId &&
-                        (congregationId == null || it.congregationId == congregationId) &&
-                        it.pipelineStage == PipelineStage.BIBLE_STUDY
+                // here before anything is handed to the pure calculator:
+                // every one of this Publisher's own pipeline people (not just
+                // Bible Study stage — MinistryStatisticsService does its own
+                // per-stage filtering for both Bible Studies and Return
+                // Visits), in their own congregation.
+                val ownPeople = interestedPeople.filter {
+                    it.publisherPersonId == publisherPersonId && (congregationId == null || it.congregationId == congregationId)
                 }
                 val ownPreachingTimeRecords = preachingTimeRecords.filter {
                     congregationId == null || it.congregationId == congregationId
                 }
 
                 val calc = MonthlyReportCalculator.calculate(
+                    publisherPersonId = publisherPersonId,
                     category = category,
-                    ownBibleStudyPeople = ownBibleStudyPeople,
-                    bibleStudyVisits = visits,
+                    ownPeople = ownPeople,
                     allVisitsForPublisher = visits,
                     preachingTimeRecords = ownPreachingTimeRecords,
                     periodMonthStart = selectedPeriodMonth,
@@ -216,6 +219,7 @@ class MonthlyReportViewModel @Inject constructor(
                     existingReport = existing,
                     selectedPeriodMonth = selectedPeriodMonth,
                     bibleStudiesRendered = (existing?.bibleStudiesCount ?: calc.bibleStudiesConducted).toString(),
+                    returnVisitsRendered = (existing?.returnVisitsCount ?: calc.returnVisitsConducted).toString(),
                     calculationFailed = false,
                     isCalculating = false,
                     participatedInPreaching = existing?.participatedInPreaching ?: calc.participatedInPreaching,
@@ -242,6 +246,7 @@ class MonthlyReportViewModel @Inject constructor(
 
     fun onHoursChange(value: String) = update { it.copy(hoursRendered = value.filter { c -> c.isDigit() || c == '.' }) }
     fun onBibleStudiesChange(value: String) = update { it.copy(bibleStudiesRendered = value.filter { c -> c.isDigit() }) }
+    fun onReturnVisitsChange(value: String) = update { it.copy(returnVisitsRendered = value.filter { c -> c.isDigit() }) }
     fun onParticipatedChange(value: Boolean) = update { it.copy(participatedInPreaching = value) }
     fun onRemarksChange(value: String) = update { it.copy(remarks = value) }
 
@@ -281,6 +286,7 @@ class MonthlyReportViewModel @Inject constructor(
                 category = state.category ?: PublisherCategory.REGULAR_PUBLISHER,
                 periodMonth = state.selectedPeriodMonth,
                 bibleStudiesCount = state.bibleStudiesRendered.toIntOrNull() ?: 0,
+                returnVisitsCount = state.returnVisitsRendered.toIntOrNull() ?: 0,
                 hoursRendered = if (state.isPioneer) state.hoursRendered.toDoubleOrNull() ?: 0.0 else null,
                 systemCalculatedHours = if (state.isPioneer) state.systemCalculatedHours else null,
                 hoursConfirmed = state.isPioneer && state.hoursDifferFromSystem,
@@ -290,8 +296,18 @@ class MonthlyReportViewModel @Inject constructor(
                     null
                 },
                 participatedInPreaching = if (state.isPioneer) null else state.participatedInPreaching,
-                status = ReportStatus.SUBMITTED,
+                // My Planner / Reporting upgrade spec §35 — a report the
+                // Publisher is resubmitting after it was RETURNED becomes
+                // CORRECTED instead of a plain SUBMITTED, so the report's own
+                // status shows this was a correction. correctionReason/
+                // returnedBy/returnedAt are carried forward, never cleared —
+                // they're the historical record of what was wrong last time,
+                // not a live "currently returned" flag once status moves on.
+                status = if (state.existingReport?.status == ReportStatus.RETURNED) ReportStatus.CORRECTED else ReportStatus.SUBMITTED,
                 submittedAt = System.currentTimeMillis(),
+                returnedByPersonId = state.existingReport?.returnedByPersonId,
+                returnedAt = state.existingReport?.returnedAt,
+                correctionReason = state.existingReport?.correctionReason,
                 remarks = state.remarks.trim().ifBlank { null },
             )
             monthlyReportRepository.save(report)

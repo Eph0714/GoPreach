@@ -16,8 +16,8 @@ import java.util.Calendar
  * §1/§4/§11's "handle 28/29/30/31-day months correctly" is exactly what
  * [Calendar.MONTH] arithmetic (not a hand-rolled day count) already does for
  * free. */
-data class MonthBounds(val startInclusive: Long, val endExclusive: Long) {
-    operator fun contains(millis: Long): Boolean = millis >= startInclusive && millis < endExclusive
+data class MonthBounds(val startInclusive: Long, val endExclusive: Long) : TimeBounds {
+    override fun contains(millis: Long): Boolean = millis >= startInclusive && millis < endExclusive
 
     companion object {
         fun of(periodMonthStart: Long): MonthBounds {
@@ -39,6 +39,11 @@ data class MonthBounds(val startInclusive: Long, val endExclusive: Long) {
  * [dataAvailable] is what a caller checks before trusting a `0`/`false`). */
 data class MonthlyReportCalculation(
     val bibleStudiesConducted: Int,
+    /** My Planner / Reporting upgrade spec §30 — auto-filled the same way
+     * [bibleStudiesConducted] already was, via [MinistryStatisticsService
+     * .getMonthlyUniqueReturnVisits]; feeds [com.emfitsolutions.gopreach
+     * .data.model.MonthlyReport.returnVisitsCount]. */
+    val returnVisitsConducted: Int,
     val participatedInPreaching: Boolean,
     /** Pioneer categories only — `null` for every other [PublisherCategory],
      * same as [com.emfitsolutions.gopreach.data.model.MonthlyReport
@@ -64,33 +69,6 @@ data class MonthlyReportCalculation(
  * before handing them to a pure calculation).
  */
 object MonthlyReportCalculator {
-
-    /**
-     * Spec §3/§16 — "count Bible Studies by person, not by visit": every
-     * [InterestedPerson] currently in [PipelineStage.BIBLE_STUDY] that has at
-     * least one [Visit] whose [Visit.visitDate] falls in [bounds], counted
-     * once no matter how many qualifying visits it actually has. Spec §4 —
-     * deleted ([RecordStatus.INACTIVE]) Bible Study people are excluded
-     * before visits are even considered, same as any other qualifying-record
-     * rule in this app.
-     */
-    fun countBibleStudiesConducted(
-        bibleStudyPeople: List<InterestedPerson>,
-        visits: List<Visit>,
-        bounds: MonthBounds,
-    ): Int {
-        val qualifyingPersonIds = bibleStudyPeople
-            .asSequence()
-            .filter { it.pipelineStage == PipelineStage.BIBLE_STUDY && it.status == RecordStatus.ACTIVE }
-            .map { it.id }
-            .toSet()
-        return visits
-            .asSequence()
-            .filter { it.interestedPersonId in qualifyingPersonIds && it.visitDate in bounds }
-            .map { it.interestedPersonId }
-            .toSet()
-            .size
-    }
 
     /**
      * Spec §18 — "at least one qualifying preaching record exists during the
@@ -151,9 +129,12 @@ object MonthlyReportCalculator {
      * own doc comment on [MonthlyReportCalculation.dataAvailable] for where a
      * caller would set it `false` instead, e.g. if the underlying Flow threw). */
     fun calculate(
+        publisherPersonId: String,
         category: PublisherCategory?,
-        ownBibleStudyPeople: List<InterestedPerson>,
-        bibleStudyVisits: List<Visit>,
+        /** All of this Publisher's own pipeline people, already congregation-
+         * scoped (spec §5/§6) — not just Bible Study stage; [MinistryStatisticsService]
+         * does its own stage filtering for both Bible Studies and Return Visits. */
+        ownPeople: List<InterestedPerson>,
         allVisitsForPublisher: List<Visit>,
         preachingTimeRecords: List<PreachingTimeRecord>,
         periodMonthStart: Long,
@@ -161,7 +142,15 @@ object MonthlyReportCalculator {
         val bounds = MonthBounds.of(periodMonthStart)
         val isPioneer = isPioneerCategory(category)
         return MonthlyReportCalculation(
-            bibleStudiesConducted = countBibleStudiesConducted(ownBibleStudyPeople, bibleStudyVisits, bounds),
+            // Centralized in MinistryStatisticsService (spec §15) — this used
+            // to be this class's own bespoke countBibleStudiesConducted();
+            // same definition, one shared implementation now.
+            bibleStudiesConducted = MinistryStatisticsService.getMonthlyUniqueBibleStudies(
+                publisherPersonId, ownPeople, allVisitsForPublisher, periodMonthStart,
+            ),
+            returnVisitsConducted = MinistryStatisticsService.getMonthlyUniqueReturnVisits(
+                publisherPersonId, ownPeople, allVisitsForPublisher, periodMonthStart,
+            ),
             participatedInPreaching = didParticipateInPreaching(isPioneer, allVisitsForPublisher, preachingTimeRecords, bounds),
             systemCalculatedHours = if (isPioneer) sumPreachingHours(preachingTimeRecords, bounds) else null,
             dataAvailable = true,

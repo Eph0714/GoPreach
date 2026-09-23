@@ -396,6 +396,44 @@ class AuthRepository @Inject constructor(
         }
     }
 
+    /** Account Management spec §7 — an authorized admin changing *someone
+     * else's* username. No [reauthenticate] (the acting admin's own signed-in
+     * session already proves who they are; only a person changing their own
+     * credentials needs to re-prove their password, same distinction
+     * [changeUsername] above draws for self-service). The caller (the
+     * ViewModel behind Account Management) is responsible for having already
+     * checked [com.emfitsolutions.gopreach.domain.PermissionChecker.canManageCredentialsFor]
+     * — this method itself never signs anyone out, matching spec §7's steps
+     * (validate, check uniqueness, save, audit-log) with no forced re-login. */
+    suspend fun adminChangeUsername(
+        targetPersonId: String,
+        newUsername: String,
+        actingPersonId: String,
+    ): AuthResult {
+        val trimmed = newUsername.trim()
+        if (trimmed.isBlank()) return AuthResult.Error("Username cannot be blank.")
+        val target = personRepository.get(targetPersonId) ?: return AuthResult.Error("Account not found.")
+        val existing = findPersonByUsername(trimmed)
+        if (existing != null && existing.id != targetPersonId) return AuthResult.Error("That username is already taken.")
+        return try {
+            val previousUsername = target.username
+            val updated = target.copy(username = trimmed)
+            personRepository.save(updated)
+            firestore.collection("people").document(targetPersonId).set(updated).await()
+            auditLogRepository.log(
+                actorPersonId = actingPersonId,
+                action = "ACCOUNT_MGMT_USERNAME_CHANGE",
+                targetType = "Person",
+                targetId = targetPersonId,
+                congregationId = target.activeCongregationId,
+                details = "username: \"$previousUsername\" -> \"$trimmed\"",
+            )
+            AuthResult.Success(updated, requiresPasswordChange = false)
+        } catch (e: Exception) {
+            AuthResult.Error(e.localizedMessage ?: "Couldn't update that account's username.")
+        }
+    }
+
     /** Spec §4.5 step 4: lost credentials are recovered from whoever enrolled the
      * person, not a self-service email link (email is optional on [Person]). */
     suspend fun requestPasswordReset(username: String) {

@@ -17,7 +17,9 @@ import com.emfitsolutions.gopreach.data.model.RoleType
 import com.emfitsolutions.gopreach.data.model.displayLabel
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.screens.about.AboutScreen
+import com.emfitsolutions.gopreach.ui.screens.accountmanagement.AccountManagementScreen
 import com.emfitsolutions.gopreach.ui.screens.account.AccountSettingsScreen
+import com.emfitsolutions.gopreach.ui.screens.credithours.CreditHourCategoriesScreen
 import com.emfitsolutions.gopreach.ui.screens.account.PublisherSchedulesScreen
 import com.emfitsolutions.gopreach.ui.screens.auth.ForcedPasswordChangeScreen
 import com.emfitsolutions.gopreach.ui.screens.auth.ForgotPasswordScreen
@@ -176,6 +178,17 @@ fun GoPreachNavGraph(
     val grant = session.grant
     val canManageUsers = currentRole == AdminRole.SUPER_ADMIN ||
         (grant?.resolvedPermissions?.contains(Permission.MANAGE_USERS) == true)
+    // Account Management spec §5 permission matrix — same four (well, five,
+    // counting SECRETARY alongside SERVICE_OVERSEER per this app's existing
+    // convention) built-in roles the spec's own §10 tree lists; Regular
+    // Elder/Ministerial Servant/Publisher/Circuit Overseer never see this
+    // tile, matching the spec's explicit account-type table.
+    val canManageCreditHourCategories = currentRole == AdminRole.SUPER_ADMIN || currentRole == AdminRole.ADMIN_PER_CONGREGATION
+    val canManageAccountCredentials =currentRole == AdminRole.SUPER_ADMIN ||
+        currentRole == AdminRole.ADMIN_PER_CONGREGATION ||
+        currentRole == AdminRole.COORDINATOR_ELDER ||
+        currentRole == AdminRole.SERVICE_OVERSEER ||
+        currentRole == AdminRole.SECRETARY
 
     NavHost(navController = navController, startDestination = Destinations.LOGIN) {
         composable(Destinations.LOGIN) {
@@ -214,6 +227,7 @@ fun GoPreachNavGraph(
                 // sign-out + sign-in + re-selecting, per spec §11.
                 onSwitchToPublisher = null,
                 canManageUsers = canManageUsers,
+                canManageAccountCredentials = canManageAccountCredentials,
                 // Side panel/dashboard-tile navigation always sits directly on
                 // top of the Main Form, never chained onto whichever menu
                 // screen happened to be open before it — tapping Groups then
@@ -238,6 +252,7 @@ fun GoPreachNavGraph(
                 // the same way, for the same reason.
                 onSwitchToAdmin = null,
                 onNavigate = { route -> navController.navigate(route) },
+                canManageCreditHourCategories = canManageCreditHourCategories,
             )
         }
 
@@ -340,6 +355,24 @@ fun GoPreachNavGraph(
                 canDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
             )
+        }
+        composable(Destinations.ACCOUNT_MANAGEMENT) {
+            AccountManagementScreen(
+                actingRole = currentRole,
+                actingCongregationId = ownCongregationId,
+                currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.CREDIT_HOUR_CATEGORIES) {
+            // Super-Admin / Admin only (same pair the Side Panel/Admin tile
+            // already gated the link on) — enforced here too so a Publisher
+            // can never reach the management CRUD, even by a direct route.
+            if (canManageCreditHourCategories) {
+                CreditHourCategoriesScreen(onBack = { navController.popBackStack() })
+            } else {
+                LaunchedEffect(Unit) { navController.popBackStack() }
+            }
         }
         composable(Destinations.CONTACT_RECORD) {
             // Super-Admin sees every congregation; Coordinator Elder is
@@ -732,23 +765,31 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(Destinations.RETURN_VISIT) {
+        composable(
+            route = Destinations.RETURN_VISIT_ROUTE,
+            arguments = listOf(navArgument("personId") { type = NavType.StringType; nullable = true; defaultValue = null }),
+        ) { backStackEntry ->
             PipelineScreen(
                 publisherPersonId = currentPersonId,
                 currentPersonId = currentPersonId,
                 congregationId = ownPublisherAssignment?.congregationId.orEmpty(),
                 stage = PipelineStage.RETURN_VISIT,
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN || ownPublisherAssignment != null,
+                initialPersonId = backStackEntry.arguments?.getString("personId"),
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(Destinations.BIBLE_STUDY) {
+        composable(
+            route = Destinations.BIBLE_STUDY_ROUTE,
+            arguments = listOf(navArgument("personId") { type = NavType.StringType; nullable = true; defaultValue = null }),
+        ) { backStackEntry ->
             PipelineScreen(
                 publisherPersonId = currentPersonId,
                 currentPersonId = currentPersonId,
                 congregationId = ownPublisherAssignment?.congregationId.orEmpty(),
                 stage = PipelineStage.BIBLE_STUDY,
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN || ownPublisherAssignment != null,
+                initialPersonId = backStackEntry.arguments?.getString("personId"),
                 onBack = { navController.popBackStack() },
             )
         }

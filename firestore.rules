@@ -128,8 +128,49 @@ function canManageRoleAssignmentsFor(db, congregationId) {
 // Overseer/Secretary could otherwise write a RoleAssignment naming either of
 // these two roles for their own congregation and it would pass that check
 // outright.
+// Credit Hour Categories management — Super-Admin, or an Admin Per
+// Congregation acting in that role this session (same pair the app gates the
+// management screen on).
+function canManageCreditHourCategories(db) {
+  return isSignedIn() && exists(/databases/$(db)/documents/people/$(personIdFromToken())) && (
+    isSuperAdmin(db) || myPerson(db).get('activeAdminRole', null) == 'ADMIN_PER_CONGREGATION'
+  );
+}
+
 function isPrivilegedRoleType(roleType) {
   return roleType == 'ADMIN:SUPER_ADMIN' || roleType == 'ADMIN:CIRCUIT_OVERSEER';
+}
+
+// Account Management spec §5/§6/§11 — "do not simply hide unauthorized
+// account-management menus... all permission checks must also be performed
+// by the server/API/database authorization layer." [targetPersonId]'s own
+// `people` document is read directly (rather than [congregationId] being
+// passed in, unlike the helpers above) because the caller here is always
+// `people/{personId}` itself, where `resource`/`request.resource` describe
+// the target being written, not the caller — reading the target fresh via
+// `get()` keeps this helper usable from both the `update` rule below and any
+// future collection that needs "can I manage this specific person's
+// credentials" rather than "can I manage this congregation." Same
+// `activeCongregationId`/`activeAdminRole` denormalized-field trade-off as
+// every other helper in this file (see [canManageGroupChatsFor]'s own doc
+// comment) — a target's own `activeAdminRole` reflects whichever of their
+// roles they last signed in as, same as everywhere else this pattern is used.
+function canManageCredentialsFor(db, targetPersonId) {
+  return isSignedIn() && exists(/databases/$(db)/documents/people/$(personIdFromToken())) && (
+    isSuperAdmin(db) || (
+      exists(/databases/$(db)/documents/people/$(targetPersonId)) &&
+      myPerson(db).get('activeCongregationId', null) != null &&
+      myPerson(db).get('activeCongregationId', null) ==
+        get(/databases/$(db)/documents/people/$(targetPersonId)).data.get('activeCongregationId', null) &&
+      (
+        (myPerson(db).get('activeAdminRole', null) == 'ADMIN_PER_CONGREGATION' &&
+          get(/databases/$(db)/documents/people/$(targetPersonId)).data.get('activeAdminRole', null) in
+            [null, 'REGULAR_ELDER', 'MINISTERIAL_SERVANT']) ||
+        (myPerson(db).get('activeAdminRole', null) in ['COORDINATOR_ELDER', 'SERVICE_OVERSEER', 'SECRETARY'] &&
+          get(/databases/$(db)/documents/people/$(targetPersonId)).data.get('activeAdminRole', null) == null)
+      )
+    )
+  );
 }
 
 // Spec §10/§19/§26 — a Pioneer's manually-adjusted preaching hours must carry
@@ -231,8 +272,29 @@ service cloud.firestore {
       // self-escalation path completely without touching a single
       // legitimate write this app's own code makes.
       allow create: if isSignedIn() && request.resource.data.get('isSuperAdmin', false) == false;
+      // Account Management spec §6/§11 — until this pass, this was plain
+      // `isSignedIn()` (the isSuperAdmin-immutability guard above was the
+      // only real check): ANY signed-in account could overwrite ANY OTHER
+      // person's `username`/`accountStatus`/every other field, with no
+      // congregation or role check at all — the Android app's own UI gating
+      // was the *only* thing stopping, say, a Regular Elder from directly
+      // writing another congregation's Admin's username via a raw Firestore
+      // call. Self-editing (every existing self-service flow — username/
+      // password change, profile edits, forced first-login change) is
+      // unrestricted, same as before; a write to someone else's document is
+      // now allowed only when [canManageCredentialsFor] authorizes the actor
+      // for that specific target AND the write touches only the two fields
+      // Account Management ever changes on someone else's behalf — never a
+      // general "any admin can edit any field of any person" hole.
       allow update: if isSignedIn() &&
-        request.resource.data.get('isSuperAdmin', false) == resource.data.get('isSuperAdmin', false);
+        request.resource.data.get('isSuperAdmin', false) == resource.data.get('isSuperAdmin', false) &&
+        (
+          personId == personIdFromToken() ||
+          (
+            canManageCredentialsFor(database, personId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['username', 'accountStatus'])
+          )
+        );
       allow delete: if isSignedIn();
     }
 
@@ -697,6 +759,19 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && personIdFromToken() == personId;
     }
 
+    // Credit Hour Categories: every signed-in user reads the list (the
+    // Credit Hours dropdown); only Super-Admin / Admin manage it. The one
+    // exception is first-run seeding of the fixed-id starting list
+    // (`default_*`, see CreditHourCategoryRepository.DEFAULT_CATEGORIES),
+    // which any signed-in device may *create* — never update or delete —
+    // so the list exists even before an admin ever opens the screen.
+    match /creditHourCategories/{categoryId} {
+      allow read: if isSignedIn();
+      allow create: if canManageCreditHourCategories(database) ||
+        (isSignedIn() && categoryId.matches('^default_[a-z_]+$'));
+      allow update, delete: if canManageCreditHourCategories(database);
+    }
+
     // Bug fix (2026-09-12, "the exact same collections the 'document.matches()
     // threw an error' bug used to hit are STILL denied for real on a real
     // device, even after that fix, even after a full uninstall+reinstall+
@@ -803,7 +878,8 @@ service cloud.firestore {
         'groupChats', 'preachingTimeRecords', 'presence', 'dashboardModuleLayouts',
         'forwardRequests', 'publisherForwardRequests', 'houseHolderAssignments', 'territories', 'schedules', 'elderTitles',
         'appSettings', 'auditLog', 'sharedLocations', 'savedLocations', 'cartAssignments',
-        'locationSharingSettings', 'midweekMeetingSchedules', 'publicTalkSchedules', 'announcements'
+        'locationSharingSettings', 'midweekMeetingSchedules', 'publicTalkSchedules', 'announcements',
+        'creditHourCategories'
       ]);
     }
   }

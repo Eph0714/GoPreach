@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -88,7 +89,9 @@ import com.emfitsolutions.gopreach.data.model.VisitOutcome
 import com.emfitsolutions.gopreach.ui.components.CoordinatesValue
 import com.emfitsolutions.gopreach.ui.components.ClickableCoordinatesText
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
+import com.emfitsolutions.gopreach.ui.components.DateOnlyField
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
+import com.emfitsolutions.gopreach.ui.components.TimeOnlyField
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
@@ -171,10 +174,27 @@ fun PipelineScreen(
     // (default false) rather than re-deriving a role here, same pattern as
     // [canPermanentlyDelete].
     canManageAllVisitHistory: Boolean = false,
+    // My Planner record rows deep-link straight to one person's detail
+    // (see Destinations.returnVisitPerson/bibleStudyPerson). Back from that
+    // detail returns to wherever the user came from (the planner), not to
+    // this screen's list they never saw.
+    initialPersonId: String? = null,
     onBack: () -> Unit,
     viewModel: PipelineViewModel = hiltViewModel(),
 ) {
     var selectedPerson by remember { mutableStateOf<InterestedPerson?>(null) }
+    var initialPersonResolved by remember { mutableStateOf(initialPersonId == null) }
+    if (!initialPersonResolved) {
+        val people by remember(publisherPersonId, stage) { viewModel.peopleFor(publisherPersonId, stage) }
+            .collectAsStateWithLifecycle(initialValue = null)
+        LaunchedEffect(people) {
+            val loaded = people ?: return@LaunchedEffect
+            selectedPerson = loaded.firstOrNull { it.id == initialPersonId }
+            initialPersonResolved = true
+        }
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
     val current = selectedPerson
     if (current == null) {
         PipelineListScreen(
@@ -195,7 +215,7 @@ fun PipelineScreen(
             congregationName = congregationName ?: "—",
             stage = stage,
             canManageAllVisitHistory = canManageAllVisitHistory,
-            onBack = { selectedPerson = null },
+            onBack = { if (initialPersonId != null && current.id == initialPersonId) onBack() else selectedPerson = null },
             viewModel = viewModel,
         )
     }
@@ -792,6 +812,9 @@ internal fun PipelinePersonDetailScreen(
     // confirmation dialog below (see [pendingStageChange]'s own AlertDialog).
     var pendingStageChange by remember { mutableStateOf<PipelineStage?>(null) }
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
+    // Spec §44 — Visit History rows show the recorded date and time
+    // together, compactly, e.g. "Sep 23, 2026 · 5:55 PM".
+    val visitDateTimeFormat = remember { SimpleDateFormat("MMM d, yyyy · h:mm a", Locale.getDefault()) }
     val sortedVisits = remember(visits) { visits.sortedByDescending { it.visitDate } }
     val createdByName by remember(livePerson.createdByPersonId) { viewModel.personName(livePerson.createdByPersonId) }.collectAsStateWithLifecycle(initialValue = null)
     val assignedPublisherName by remember(livePerson.publisherPersonId) { viewModel.personName(livePerson.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
@@ -958,7 +981,7 @@ internal fun PipelinePersonDetailScreen(
                         Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(dateFormat.format(Date(visit.visitDate)), style = MaterialTheme.typography.titleSmall)
+                                    Text(visitDateTimeFormat.format(Date(visit.visitDate)), style = MaterialTheme.typography.titleSmall)
                                     if (index == 0) Text("  •  Latest", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
                                 Text(visit.outcome.name.replace('_', ' '), style = MaterialTheme.typography.bodySmall)
@@ -1008,7 +1031,24 @@ internal fun PipelinePersonDetailScreen(
         }
     }
 
-    selectedVisit?.let { visit -> VisitDetailDialog(visit = visit, stage = stage, dateFormat = dateFormat, onDismiss = { selectedVisit = null }, viewModel = viewModel) }
+    selectedVisit?.let { visit ->
+        // Same per-entry ownership rule as the row's own Edit/Delete icons
+        // (see their own comment above): a Bible Study's entire visit
+        // history is owner-only, a Return Visit's is per-entry-creator-only,
+        // and the Super-Admin override always wins either way.
+        val canManageThisVisit = canManageAllVisitHistory ||
+            if (stage == PipelineStage.BIBLE_STUDY) isOwner else visit.createdByPersonId == currentPersonId
+        VisitDetailDialog(
+            visit = visit,
+            stage = stage,
+            dateFormat = dateFormat,
+            canEdit = canManageThisVisit,
+            onEdit = { selectedVisit = null; pendingEditVisit = visit },
+            onDelete = { selectedVisit = null; pendingDeleteVisit = visit },
+            onDismiss = { selectedVisit = null },
+            viewModel = viewModel,
+        )
+    }
 
     if (showAddVisit) {
         AddVisitDialog(
@@ -1533,24 +1573,18 @@ private fun AddVisitDialog(
     onSave: (Visit) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var visitDate by remember { mutableStateOf(existingVisit?.visitDate) }
+    // "Visit Date"/"Visit Time" — two separate editable fields over one
+    // underlying timestamp (spec §40/§47), defaulting to the device's
+    // current date and time for a new entry (spec §41), or the existing
+    // visit's own saved moment when editing (spec §49) — never a fixed
+    // application date/time.
+    var visitDateTime by remember { mutableStateOf(existingVisit?.visitDate ?: System.currentTimeMillis()) }
     var topic by remember { mutableStateOf(existingVisit?.topicDiscussed.orEmpty()) }
     var outcome by remember { mutableStateOf(existingVisit?.outcome ?: VisitOutcome.NOT_AT_HOME) }
-    var minutesText by remember { mutableStateOf(existingVisit?.timeConsumedMinutes?.toString().orEmpty()) }
     var followUpDate by remember { mutableStateOf(existingVisit?.followUpDate) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val initialVisitDateTime = remember { existingVisit?.visitDate ?: visitDateTime }
 
     fun submit() {
-        val date = visitDate
-        val minutes = minutesText.toIntOrNull()
-        val message = requiredFieldsMessage(
-            "Visit Date/Time" to (date != null),
-            "Time Consumed" to (minutes != null),
-        )
-        if (message != null) {
-            errorMessage = message
-            return
-        }
         val base = existingVisit ?: Visit(
             interestedPersonId = interestedPersonId,
             publisherPersonId = publisherPersonId,
@@ -1559,11 +1593,14 @@ private fun AddVisitDialog(
         )
         onSave(
             base.copy(
-                visitDate = date!!,
-                visitTime = date,
+                visitDate = visitDateTime,
+                visitTime = visitDateTime,
                 topicDiscussed = topic.trim().ifBlank { null },
                 outcome = outcome,
-                timeConsumedMinutes = minutes!!,
+                // "Time Consumed" is retired (spec §43) — never entered or
+                // shown again, but an older entry's own already-stored value
+                // (if any) is preserved rather than silently zeroed out.
+                timeConsumedMinutes = existingVisit?.timeConsumedMinutes ?: 0,
                 followUpDate = followUpDate,
             )
         )
@@ -1575,34 +1612,53 @@ private fun AddVisitDialog(
         title = if (existingVisit == null) "Log Visit" else "Edit Visit",
         onConfirm = ::submit,
         confirmLabel = if (existingVisit == null) "Save" else "Save Changes",
-        errorMessage = errorMessage,
         maxContentHeight = 480.dp,
-        hasUnsavedChanges = visitDate != existingVisit?.visitDate || topic != existingVisit?.topicDiscussed.orEmpty() ||
-            outcome != (existingVisit?.outcome ?: VisitOutcome.NOT_AT_HOME) ||
-            minutesText != existingVisit?.timeConsumedMinutes?.toString().orEmpty() || followUpDate != existingVisit?.followUpDate,
+        hasUnsavedChanges = visitDateTime != initialVisitDateTime || topic != existingVisit?.topicDiscussed.orEmpty() ||
+            outcome != (existingVisit?.outcome ?: VisitOutcome.NOT_AT_HOME) || followUpDate != existingVisit?.followUpDate,
     ) {
-                DateTimeField(label = "Visit Date/Time", valueMillis = visitDate, onValueChange = { visitDate = it })
+                DateOnlyField(label = "Visit Date", valueMillis = visitDateTime, onValueChange = { visitDateTime = it })
+                TimeOnlyField(label = "Visit Time", valueMillis = visitDateTime, onValueChange = { visitDateTime = it })
                 OutlinedTextField(value = topic, onValueChange = { topic = it.uppercase() }, label = { Text("Remarks / Topic Discussed (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 VisitOutcomeDropdown(selected = outcome, onSelected = { outcome = it })
-                OutlinedTextField(value = minutesText, onValueChange = { minutesText = it.filter { c -> c.isDigit() } }, label = { Text("Time Consumed (minutes)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 DateTimeField(label = "Follow-up Date (optional)", valueMillis = followUpDate, onValueChange = { followUpDate = it })
                 if (followUpDate != null) TextButton(onClick = { followUpDate = null }) { Text("Clear Follow-up Date") }
     }
 }
 
 @Composable
-private fun VisitDetailDialog(visit: Visit, stage: PipelineStage, dateFormat: SimpleDateFormat, onDismiss: () -> Unit, viewModel: PipelineViewModel) {
+private fun VisitDetailDialog(
+    visit: Visit,
+    stage: PipelineStage,
+    dateFormat: SimpleDateFormat,
+    // Whether the signed-in Publisher may edit/delete this specific visit —
+    // same rule the row's own Edit/Delete icons already use (see the call
+    // site); false hides both actions here too, a disabled button is never
+    // the real enforcement (see saveVisit/deleteVisit's own doc comments for
+    // the backstop check, firestore.rules for the actual one).
+    canEdit: Boolean,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+    viewModel: PipelineViewModel,
+) {
     val visitorName by remember(visit.publisherPersonId) { viewModel.personName(visit.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
     val recordedByName by remember(visit.createdByPersonId) { viewModel.personName(visit.createdByPersonId) }.collectAsStateWithLifecycle(initialValue = null)
+    val visitDateFormat = remember { SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()) }
+    val visitTimeFormat = remember { SimpleDateFormat("h:mm a", Locale.getDefault()) }
     AlertDialog(
         properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
         onDismissRequest = onDismiss,
         title = { Text("Visit Details") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ReadOnlyField("Visit Date", dateFormat.format(Date(visit.visitDate)))
+                // Spec §44 — Visit Date and Visit Time shown as their own
+                // separate lines (matching the two separate fields they're
+                // edited as), even though both read from the one
+                // [Visit.visitDate] timestamp. Time Consumed is retired
+                // (spec §43) — never shown here or anywhere else.
+                ReadOnlyField("Visit Date", visitDateFormat.format(Date(visit.visitDate)))
+                ReadOnlyField("Visit Time", visitTimeFormat.format(Date(visit.visitDate)))
                 ReadOnlyField("Status", visit.outcome.name.replace('_', ' '))
-                ReadOnlyField("Time Consumed", "${visit.timeConsumedMinutes / 60}h ${visit.timeConsumedMinutes % 60}m")
                 ReadOnlyField("Remarks / Topic Discussed", visit.topicDiscussed ?: "—")
                 ReadOnlyField(stage.visitorLabel(), visitorName ?: "—")
                 ReadOnlyField("Follow-up Date", visit.followUpDate?.let { dateFormat.format(Date(it)) } ?: "—")
@@ -1623,7 +1679,15 @@ private fun VisitDetailDialog(visit: Visit, stage: PipelineStage, dateFormat: Si
                 ReadOnlyField("Logged", formatRecordTimestamp(visit.createdAt))
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = {
+            Row {
+                if (canEdit) {
+                    TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                    TextButton(onClick = onEdit) { Text("Edit") }
+                }
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        },
     )
 }
 

@@ -135,6 +135,14 @@ object Destinations {
     const val SEARCHING = "searching"
     const val RETURN_VISIT = "return_visit"
     const val BIBLE_STUDY = "bible_study"
+    // My Planner record rows open one specific person's existing detail
+    // screen directly (visit history, edit, add visit) via this optional
+    // query arg; every other caller keeps navigating to the plain routes
+    // above and lands on the list, unchanged.
+    const val RETURN_VISIT_ROUTE = "$RETURN_VISIT?personId={personId}"
+    const val BIBLE_STUDY_ROUTE = "$BIBLE_STUDY?personId={personId}"
+    fun returnVisitPerson(personId: String) = "$RETURN_VISIT?personId=$personId"
+    fun bibleStudyPerson(personId: String) = "$BIBLE_STUDY?personId=$personId"
     // Service Overseer's incoming "Forward to Other Congregation" review queue.
     const val FORWARD_REQUESTS = "forward_requests"
     // A Publisher's own incoming "FORWARD TO OTHER PUBLISHER" review queue.
@@ -165,6 +173,19 @@ object Destinations {
     const val ADD_USER = "add_user"
     const val EDIT_USER = "edit_user/{targetPersonId}"
     fun editUser(targetPersonId: String) = "edit_user/$targetPersonId"
+
+    // Account / Credential Management — congregation- and role-scoped
+    // username changes + account status for Publishers/Elders/Ministerial
+    // Servants/Coordinator Elders/Service Overseers/Admins (spec §1-§5).
+    const val ACCOUNT_MANAGEMENT = "account_management"
+
+    // My Planner / Ministry Timer / Reporting upgrade (Phase B onward) —
+    // Credit Hour Categories CRUD, same "authorized admin" gating as every
+    // other lookup-table management screen.
+    const val CREDIT_HOUR_CATEGORIES = "credit_hour_categories"
+    // My Planner (spec §16-§27) is embedded directly on the Publisher Main
+    // Form (PublisherHomeScreen), synced to the Dashboard's date range —
+    // never a separate destination to navigate to.
 
     // Role-Based Dashboard, Side Panel & Graphical Reports
     const val DASHBOARD_REPORTS = "dashboard_reports"

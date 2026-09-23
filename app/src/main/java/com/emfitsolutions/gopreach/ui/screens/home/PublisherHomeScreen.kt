@@ -4,6 +4,25 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.runtime.mutableStateListOf
+import com.emfitsolutions.gopreach.data.model.PipelineStage
+import com.emfitsolutions.gopreach.ui.screens.planner.plannerPersonListRoute
+import com.emfitsolutions.gopreach.ui.screens.planner.plannerPersonRoute
+import com.emfitsolutions.gopreach.ui.screens.planner.LocalOpenCreditCategoryManager
+import com.emfitsolutions.gopreach.ui.screens.planner.LocalPlannerVisibility
+import com.emfitsolutions.gopreach.ui.screens.planner.PlannerSectionsDialog
+import com.emfitsolutions.gopreach.ui.screens.planner.PlannerVisibility
+import com.emfitsolutions.gopreach.ui.screens.planner.UnifiedPlannerHeader
+import com.emfitsolutions.gopreach.data.model.PlannerSection
+import com.emfitsolutions.gopreach.data.model.isPlannerSectionVisible
+import com.emfitsolutions.gopreach.ui.components.DateRange
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -37,7 +56,6 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Menu
@@ -99,12 +117,21 @@ import com.emfitsolutions.gopreach.data.model.sidePanelModules
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.NotificationBell
 import com.emfitsolutions.gopreach.ui.components.ProfileMenuButton
+import com.emfitsolutions.gopreach.ui.components.QuickDateRange
 import com.emfitsolutions.gopreach.ui.components.RoundIconActionButton
 import com.emfitsolutions.gopreach.ui.components.SyncToServerButton
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 import com.emfitsolutions.gopreach.ui.screens.announcements.ManageAnnouncementsViewModel
 import com.emfitsolutions.gopreach.ui.screens.notifications.NotificationCenterViewModel
+import com.emfitsolutions.gopreach.ui.screens.planner.PlannerDayContent
+import com.emfitsolutions.gopreach.ui.screens.planner.PlannerDayViewModel
+import com.emfitsolutions.gopreach.ui.screens.planner.PlannerMonthContent
+import com.emfitsolutions.gopreach.ui.screens.planner.PlannerMonthViewModel
+import com.emfitsolutions.gopreach.ui.screens.planner.PlannerWeekContent
+import com.emfitsolutions.gopreach.ui.screens.planner.PlannerWeekViewModel
+import com.emfitsolutions.gopreach.ui.screens.planner.PlannerYearContent
+import com.emfitsolutions.gopreach.ui.screens.planner.PlannerYearViewModel
 import androidx.compose.ui.window.DialogProperties
 
 /**
@@ -132,6 +159,10 @@ import androidx.compose.ui.window.DialogProperties
 fun PublisherHomeScreen(
     onSwitchToAdmin: (() -> Unit)?,
     onNavigate: (String) -> Unit,
+    // Super-Admin / Admin — lets the Credit Hours form's empty state link
+    // straight to category management; Publishers get a "contact an
+    // administrator" message instead.
+    canManageCreditHourCategories: Boolean = false,
     viewModel: HomeViewModel = hiltViewModel(),
     dashboardViewModel: PublisherDashboardViewModel = hiltViewModel(),
     announcementsViewModel: ManageAnnouncementsViewModel = hiltViewModel(),
@@ -278,8 +309,13 @@ fun PublisherHomeScreen(
             )
         },
     ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+    // "Remove the Home, Reports, Calendar, Bible Study from main form" — the
+    // bottom navigation bar those four (plus Profile, moved into the profile
+    // menu above) used to live in is gone; every one of those destinations
+    // remains reachable from the Side Panel exactly as before, this only
+    // removes the second, redundant path to them. No more weight(1f) split
+    // with a bottom bar below it — the scrolling content is the whole screen.
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             com.emfitsolutions.gopreach.ui.components.AlarmRingingBanner()
             PublisherWelcomeHeader(
                 greetingName = session.person?.firstName?.takeIf { it.isNotBlank() } ?: "there",
@@ -313,44 +349,171 @@ fun PublisherHomeScreen(
                 modifier = Modifier.fillMaxSize().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // "Move it more upward. it must be outside the square panel"
-                // — above and outside the "Keep Your Data Safe" card
-                // entirely now, the first thing the Publisher sees below the
-                // header, not tucked inside the card's own colored box.
-                com.emfitsolutions.gopreach.ui.components.SyncStatusIndicator(modifier = Modifier.padding(horizontal = 4.dp))
-
-                // "Sync to Server" moved to the top of the form (was at the
-                // bottom, past the stats/tiles/switch-account content, where
-                // it was easy to miss) — now the first thing the Publisher
-                // sees below the header.
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            stringResource(R.string.home_sync_card_title),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                        Text(
-                            stringResource(R.string.home_sync_card_message),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                        SyncToServerButton(showStatusIndicator = false)
-                    }
-                }
-
+                // "Make the sync to server smaller, put it on the right
+                // upper side, make it simple. Hide 'Keep Your Data Safe' and
+                // 'Sync your data regularly...'" — that whole card (title,
+                // message, status indicator, full-width button) is gone; the
+                // actual sync control is now the compact icon button in the
+                // header above (see PublisherWelcomeHeader), and the header's
+                // own Online/Offline status caption already covers what
+                // SyncStatusIndicator showed here.
                 if (currentPersonId.isNotBlank()) {
-                    PublisherStatsSection(
-                        publisherPersonId = currentPersonId,
-                        isPioneer = isPioneer,
-                        onNavigate = onNavigate,
-                        viewModel = dashboardViewModel,
+                    // "Merge the Dashboard and My Planner" — one unified card:
+                    // header (today's date, reporting period, Planner Sections
+                    // settings), the Today/Week/Month/Year selector (still the
+                    // shared DateRangeStore every report screen uses), then the
+                    // matching planner view. The old separate Dashboard card
+                    // (date-range picker + Show/Hide toggle) is gone.
+                    val plannerDateRange by dashboardViewModel.dateRange.collectAsStateWithLifecycle()
+                    val plannerDayViewModel: PlannerDayViewModel = hiltViewModel()
+                    val plannerWeekViewModel: PlannerWeekViewModel = hiltViewModel()
+                    val plannerMonthViewModel: PlannerMonthViewModel = hiltViewModel()
+                    val plannerYearViewModel: PlannerYearViewModel = hiltViewModel()
+
+                    // "Dashboard Date Range = My Planner Date Range" (Final
+                    // Integration Rule) — every time the Dashboard's range
+                    // actually changes to one of the four quick presets, snap
+                    // the matching planner view to that exact period, even if
+                    // the Publisher had previously paged forward/back inside
+                    // it, and remember which view that was. Custom isn't one
+                    // of the spec's four named planner views, so it's left
+                    // alone — whichever view was already showing just stays.
+                    var activePlannerView by remember { mutableStateOf(QuickDateRange.TODAY) }
+                    // Drill-down trail (Year → Month → Day, Week → Day):
+                    // tapping a month/day inside a planner view opens that
+                    // period in the finer view and remembers where it came
+                    // from, so "Back to …" (or system Back) returns there.
+                    // Any Dashboard range change resets it — the Dashboard
+                    // stays the one source of truth for the planner period.
+                    val plannerTrail = remember { mutableStateListOf<QuickDateRange>() }
+                    fun drillInto(target: QuickDateRange) {
+                        plannerTrail.add(activePlannerView)
+                        activePlannerView = target
+                    }
+                    BackHandler(enabled = plannerTrail.isNotEmpty()) {
+                        activePlannerView = plannerTrail.removeAt(plannerTrail.lastIndex)
+                    }
+                    val openPlannerPerson: (PipelineStage, String) -> Unit = { stage, personId -> onNavigate(plannerPersonRoute(stage, personId)) }
+                    val openPlannerPersonList: (PipelineStage) -> Unit = { onNavigate(plannerPersonListRoute(it)) }
+                    LaunchedEffect(plannerDateRange) {
+                        plannerTrail.clear()
+                        when (plannerDateRange.option) {
+                            QuickDateRange.TODAY -> {
+                                plannerDayViewModel.goToDate(plannerDateRange.startMillis)
+                                activePlannerView = QuickDateRange.TODAY
+                            }
+                            QuickDateRange.THIS_WEEK -> {
+                                plannerWeekViewModel.goToWeek(plannerDateRange.startMillis)
+                                activePlannerView = QuickDateRange.THIS_WEEK
+                            }
+                            QuickDateRange.THIS_MONTH -> {
+                                plannerMonthViewModel.goToMonth(plannerDateRange.startMillis)
+                                activePlannerView = QuickDateRange.THIS_MONTH
+                            }
+                            QuickDateRange.THIS_YEAR -> {
+                                plannerYearViewModel.goToYear(plannerDateRange.startMillis)
+                                activePlannerView = QuickDateRange.THIS_YEAR
+                            }
+                            QuickDateRange.CUSTOM -> Unit
+                        }
+                    }
+
+                    // Bug fix: tapping a calendar day (Month) or a month (Year)
+                    // used to only re-point the *hidden* Day/Month view model
+                    // without ever switching to it, so the tap did nothing
+                    // visible. Every drill-down now switches views too.
+                    val openPlannerDay: (Long) -> Unit = { dayStart ->
+                        plannerDayViewModel.goToDate(dayStart)
+                        drillInto(QuickDateRange.TODAY)
+                    }
+                    var showPlannerSections by remember { mutableStateOf(false) }
+                    val plannerVisibility = PlannerVisibility(
+                        hours = moduleLayout.isPlannerSectionVisible(PlannerSection.HOURS),
+                        creditHours = moduleLayout.isPlannerSectionVisible(PlannerSection.CREDIT_HOURS),
+                        returnVisits = moduleLayout.isPlannerSectionVisible(PlannerSection.RETURN_VISITS),
+                        bibleStudies = moduleLayout.isPlannerSectionVisible(PlannerSection.BIBLE_STUDIES),
                     )
+                    CompositionLocalProvider(
+                        LocalPlannerVisibility provides plannerVisibility,
+                        LocalOpenCreditCategoryManager provides
+                            if (canManageCreditHourCategories) ({ onNavigate(Destinations.CREDIT_HOUR_CATEGORIES) }) else null,
+                    ) {
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.fillMaxWidth().animateContentSize(),
+                    ) {
+                        UnifiedPlannerHeader(
+                            range = plannerDateRange,
+                            backLabel = plannerTrail.lastOrNull()?.let { previous ->
+                                when (previous) {
+                                    QuickDateRange.THIS_WEEK -> "Weekly"
+                                    QuickDateRange.THIS_MONTH -> "Monthly"
+                                    QuickDateRange.THIS_YEAR -> "Yearly"
+                                    else -> "Today"
+                                }
+                            },
+                            onBack = { activePlannerView = plannerTrail.removeAt(plannerTrail.lastIndex) },
+                            onOpenSections = { showPlannerSections = true },
+                            onSelectPeriod = { option ->
+                                dashboardViewModel.setDateRange(
+                                    when (option) {
+                                        QuickDateRange.THIS_WEEK -> DateRange.thisWeek()
+                                        QuickDateRange.THIS_MONTH -> DateRange.thisMonth()
+                                        QuickDateRange.THIS_YEAR -> DateRange.thisYear()
+                                        else -> DateRange.today()
+                                    },
+                                )
+                            },
+                        )
+                        run {
+                            when (activePlannerView) {
+                                QuickDateRange.THIS_WEEK -> PlannerWeekContent(
+                                    currentPersonId = currentPersonId,
+                                    viewModel = plannerWeekViewModel,
+                                    onOpenDay = openPlannerDay,
+                                    onOpenPerson = openPlannerPerson,
+                                    onOpenPersonList = openPlannerPersonList,
+                                )
+                                QuickDateRange.THIS_MONTH -> PlannerMonthContent(
+                                    currentPersonId = currentPersonId,
+                                    viewModel = plannerMonthViewModel,
+                                    onOpenDay = openPlannerDay,
+                                    onOpenPerson = openPlannerPerson,
+                                    onOpenPersonList = openPlannerPersonList,
+                                    isPioneer = isPioneer,
+                                    onSendReport = { onNavigate(Destinations.MONTHLY_REPORT) },
+                                )
+                                QuickDateRange.THIS_YEAR -> PlannerYearContent(
+                                    currentPersonId = currentPersonId,
+                                    viewModel = plannerYearViewModel,
+                                    onOpenMonth = { monthStart ->
+                                        plannerMonthViewModel.goToMonth(monthStart)
+                                        drillInto(QuickDateRange.THIS_MONTH)
+                                    },
+                                    onOpenDay = openPlannerDay,
+                                    onOpenPerson = openPlannerPerson,
+                                    onOpenPersonList = openPlannerPersonList,
+                                )
+                                else -> PlannerDayContent(currentPersonId, plannerDayViewModel, onNavigate)
+                            }
+                        }
+                        Spacer(modifier = Modifier.heightIn(min = 4.dp))
+                    }
+                    }
+                    if (showPlannerSections) {
+                        PlannerSectionsDialog(
+                            visibility = plannerVisibility,
+                            onToggle = { section, visible -> layoutViewModel.setPlannerSectionVisible(section, visible) },
+                            onDismiss = { showPlannerSections = false },
+                        )
+                    }
+                    // "Do not show duplicate timer. Remove the other one." —
+                    // the standalone Ministry Timer card that used to render
+                    // here unconditionally is gone; the one embedded inside
+                    // My Planner → Today (see PlannerDayContent) is the only
+                    // one now, so it only shows while Today is the active
+                    // view — same underlying Firestore-backed session either
+                    // way, this just stops it appearing twice at once.
                 }
 
                 FeatureTileGrid(
@@ -372,9 +535,6 @@ fun PublisherHomeScreen(
                     }
                 }
             }
-        }
-
-        PublisherBottomNavBar(activeRoute = Destinations.PUBLISHER_HOME, onNavigate = onNavigate)
     }
     } // ModalNavigationDrawer content
 
@@ -525,12 +685,15 @@ private fun PublisherWelcomeHeader(
                     onOpenGroupChat = onOpenGroupChat,
                     onViewAll = onViewAllGroupChats,
                 )
-                IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
-                }
-                // Folds Sign Out into the profile menu (name + role, View/
-                // Update Profile Image, Log Out) — replaces the old
-                // standalone logout icon rather than duplicating it.
+                // "Make the sync to server smaller, put it on the right
+                // upper side, make it simple" — the compact icon variant,
+                // right in the header's own icon row.
+                SyncToServerButton(compact = true)
+                // "Move the Profile next to Account Settings" — the standalone
+                // top-bar Settings gear (used to sit here) moved into the
+                // profile dropdown, right next to Account Settings, instead
+                // of its own icon. Folds Sign Out into the same menu (name +
+                // role, View/Update Profile Image, Log Out) too.
                 ProfileMenuButton(
                     fullName = fullName,
                     roleLabel = categoryLabel ?: stringResource(R.string.role_label_publisher),
@@ -538,6 +701,7 @@ private fun PublisherWelcomeHeader(
                     onImagePicked = onImagePicked,
                     onSignOut = onSignOut,
                     onOpenAccountSettings = onOpenAccountSettings,
+                    onOpenSettings = onOpenSettings,
                 )
             }
 
@@ -743,6 +907,9 @@ private fun publisherModuleTiles(
     // reachable as its own Main Form tile; congregation-scoped by the
     // Destinations.PUBLISHER_SCHEDULES composable itself, not this tile.
     add(PublisherModuleTile(DashboardModuleId.PUBLISHER_SCHEDULES, stringResource(R.string.home_tile_publisher_schedules_title), stringResource(R.string.home_tile_publisher_schedules_subtitle), Icons.Rounded.Schedule, Destinations.PUBLISHER_SCHEDULES))
+    // My Planner is no longer a movable module (see this function's other
+    // callers) — it's a fixed card directly on the Main Form now, so it's
+    // deliberately absent from this customizable catalog.
 }
 
 /** The Main Form grid — [tiles] is already the resolved, ordered set for
@@ -867,130 +1034,9 @@ private fun SidePanelDrawerContent(
     }
 }
 
-/** Bottom navigation bar — Home/Reports/Calendar/Bible Study/Profile, the
- * app's first (Publisher-only) use of persistent bottom navigation; every
- * tab routes through the same [onNavigate] callback the rest of the Main
- * Form already uses, so it needs no separate nav-graph wiring. "Profile"
- * routes to Settings — the closest existing equivalent (there's no separate
- * Profile screen). */
-@Composable
-private fun PublisherBottomNavBar(activeRoute: String, onNavigate: (String) -> Unit) {
-    data class NavTab(val label: String, val icon: ImageVector, val route: String)
-
-    val tabs = listOf(
-        NavTab(stringResource(R.string.home_nav_home), Icons.Rounded.Home, Destinations.PUBLISHER_HOME),
-        NavTab(stringResource(R.string.home_nav_reports), Icons.Rounded.Assignment, Destinations.MONTHLY_REPORT),
-        NavTab(stringResource(R.string.home_nav_calendar), Icons.Rounded.CalendarMonth, Destinations.CALENDAR),
-        NavTab(stringResource(R.string.home_tile_bible_study_title), Icons.AutoMirrored.Rounded.MenuBook, Destinations.BIBLE_STUDY),
-        NavTab(stringResource(R.string.home_nav_profile), Icons.Rounded.Person, Destinations.SETTINGS),
-    )
-
-    NavigationBar {
-        tabs.forEach { tab ->
-            NavigationBarItem(
-                selected = tab.route == activeRoute,
-                onClick = { if (tab.route != activeRoute) onNavigate(tab.route) },
-                icon = { Icon(tab.icon, contentDescription = tab.label) },
-                label = { Text(tab.label) },
-            )
-        }
-    }
-}
-
 private fun PublisherCategory.displayLabel(): String =
     name.split('_').joinToString(" ") { it.lowercase().replaceFirstChar(Char::uppercase) }
 
-/**
- * "Role-Based Publisher Dashboard" spec §2/§17/§20-§22 — the date range
- * picker plus the category-appropriate square stat cards. Pioneer gets three
- * (My Bible Studies / My Return Visits / Preaching Hours); Regular and
- * Unbaptized both get exactly two (My Bible Studies / Attended Preaching) —
- * same layout, same underlying "unique person" logic (spec §25: identical
- * counting used everywhere), just a different subset of cards.
- *
- * Each card's `onClick` reuses an existing Main Form destination
- * (Bible Study Record / Interested People / Monthly Report) or the new
- * Preaching Time Record screen — never a bare duplicate of a Main Form nav
- * button with no added value (spec §4/§23): every card here also carries a
- * live, current statistic the plain nav button doesn't.
- */
-@Composable
-private fun PublisherStatsSection(
-    publisherPersonId: String,
-    isPioneer: Boolean,
-    onNavigate: (String) -> Unit,
-    viewModel: PublisherDashboardViewModel,
-) {
-    LaunchedEffect(publisherPersonId) {
-        // "My Return Visit" is shown to every Publisher now, not just
-        // Pioneers (see below) — so this listener needs to start
-        // unconditionally too, or a Regular/Unbaptized Publisher's card
-        // would just show a stuck 0. Also a pre-existing bug fix:
-        // startVisitSync() returns a cold Flow — must be collected, or the
-        // underlying Firestore listener never actually registers, so a
-        // Return Visit logged on another device would never show up here.
-        viewModel.startVisitSync(publisherPersonId).collect {}
-    }
-    val statsFlow = remember(publisherPersonId) { viewModel.statsFor(publisherPersonId) }
-    val stats by statsFlow.collectAsStateWithLifecycle()
-    val dateRange by viewModel.dateRange.collectAsStateWithLifecycle()
-
-    Card(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Rounded.Assignment, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text(stringResource(R.string.home_dashboard_header), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            }
-            DateRangeFilterBar(range = dateRange, onRangeChange = viewModel::setDateRange)
-        }
-    }
-
-    // "My Bible Study" / "My Return Visit" / "Preaching Hours" — small,
-    // colorless round icon buttons (only the icon is tinted) with the label
-    // below the circle; each live count/value is shown right next to its
-    // label, per request, rather than inside the circle. Each button gets
-    // weight(1f) so its label is actually width-constrained to its own share
-    // of the row — without it, a longer label (e.g. "Attended Preaching")
-    // has no width to wrap/ellipsize against and just pushes the row wider
-    // than the screen.
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-        RoundIconActionButton(
-            label = stringResource(R.string.home_stat_my_bible_study),
-            value = stats.bibleStudiesCount.toString(),
-            icon = Icons.AutoMirrored.Rounded.MenuBook,
-            onClick = { onNavigate(Destinations.BIBLE_STUDY) },
-            modifier = Modifier.weight(1f),
-        )
-        // "My Return Visit" — shown to every Publisher, not just Pioneers
-        // (a Return Visit record isn't Pioneer-exclusive; any Publisher can
-        // have one). This used to be gated behind `isPioneer`, which is why
-        // a Regular/Unbaptized Publisher never saw it at all.
-        RoundIconActionButton(
-            label = stringResource(R.string.home_stat_my_return_visit),
-            value = stats.returnVisitsCount.toString(),
-            icon = Icons.Rounded.PeopleAlt,
-            onClick = { onNavigate(Destinations.RETURN_VISIT) },
-            modifier = Modifier.weight(1f),
-        )
-        if (isPioneer) {
-            RoundIconActionButton(
-                label = stringResource(R.string.home_stat_preaching_hours),
-                value = "%.1f".format(stats.preachingHours),
-                icon = Icons.Rounded.Timer,
-                onClick = { onNavigate(Destinations.PREACHING_TIME_RECORD) },
-                modifier = Modifier.weight(1f),
-            )
-        } else {
-            RoundIconActionButton(
-                label = stringResource(R.string.home_stat_attended_preaching),
-                value = if (stats.attendedPreaching) stringResource(R.string.home_yes) else stringResource(R.string.home_no),
-                icon = Icons.Rounded.Assignment,
-                onClick = { onNavigate(Destinations.MONTHLY_REPORT) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
 
 // "Fix the Notification Sound system" — the two notifiers that used to live
 // here (PublisherForwardNotifier, ForwardToCongregationSenderNotifier) are

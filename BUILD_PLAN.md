@@ -1618,7 +1618,742 @@ User request: replace the old "Chat Schedule" module (never a real chat — a ca
 - `Destinations.kt`/`GoPreachNavGraph.kt`/`AdminHomeScreen.kt`/`SidePanel.kt`/`PublisherHomeScreen.kt` — `MANAGE_CHAT_SCHEDULES` route and every "Chat Schedule" label/menu entry replaced with `GROUP_CHAT_SETTING`/`GROUP_CHAT_DETAIL` and "Group Chat Setting"; old `ManageChatSchedulesScreen.kt`/`ManageChatSchedulesViewModel.kt` deleted. `ScheduleKind.CHAT_SCHEDULE` itself was left in place (harmless, avoids touching `CalendarAlarmRescheduler`'s filter or risking any legacy data).
 - Verified via `./gradlew :app:compileDebugKotlin` and a full `:app:assembleDebug` (both clean) plus a full-repo search confirming no remaining `MANAGE_CHAT_SCHEDULES`/`ManageChatSchedules` references. Not yet live-tested on-device — in particular, the new Firestore/Storage rules (real congregation/participant enforcement, a first for this app beyond Super-Admin/restricted-role checks) should be exercised live before relying on them: a Coordinator Elder creating a group in their own congregation, confirming only same-congregation participants are selectable, an Admin from a *different* congregation being denied, a removed participant losing access, and an attachment upload/download round-trip for each of image/PDF/Word/Excel.
 
+## Phase 55 — Account / Credential Management ✅ done, one disclosed gap
+
+User request: a congregation- and role-scoped Account Management feature —
+Super-Admin manages usernames/account status for every account type in every
+congregation (via a Congregation Selector); Admin manages Publishers/Elders/
+Ministerial Servants in their own congregation; Coordinator Elder and Service
+Overseer manage only Publishers in their own congregation — enforced both in
+the UI and server-side, with a full audit trail. Distinct from the existing
+User Management module (Phase 11's `ManageUsersScreen`), which is exclusively
+for `CIRCUIT_OVERSEER`/custom grant-based accounts; this is the four built-in
+admin-track roles instead.
+
+- New `domain/PermissionChecker.canManageCredentialsFor(...)` — one pure
+  function encoding the spec's permission matrix, reused for (a) which
+  Account Type buckets a role's tile grid ever shows, (b) which specific rows
+  the browse/search list returns, and (c) firestore.rules' matching
+  server-side check (see below) — one source of truth, not three that could
+  drift, matching this app's existing convention for role-gating booleans.
+- New `ui/screens/accountmanagement/` — `AccountManagementViewModel`/
+  `AccountManagementScreen`: Congregation Selector (Super-Admin only) →
+  Account Type filter chips (Publishers/Elders/Ministerial Servants/
+  Coordinator Elders/Service Overseers/Admins, narrowed per role) → search by
+  name/username/role/congregation → a list of accounts, each with Change
+  Username (current username shown read-only, new-username field, uniqueness
+  check, confirmation, audit-logged), a three-state Active/Inactive/Suspended
+  control (same UX as the existing User Management screen's), and a Reset
+  Password action.
+- `AuthRepository.adminChangeUsername(...)` — new method alongside the
+  existing self-service `changeUsername`/`changePassword`: admin-initiated,
+  no reauthentication (the acting admin's own session already proves who
+  they are), same validation/uniqueness/audit-log shape as the self-service
+  version.
+- `firestore.rules` — new `canManageCredentialsFor(db, targetPersonId)`
+  helper (same `activeCongregationId`/`activeAdminRole` denormalized-field
+  pattern every other real per-congregation rule in this file already uses —
+  see `canManageGroupChatsFor`'s own doc comment for that trade-off). Closes
+  a real, pre-existing gap this feature's own spec called out by name ("do
+  not simply hide unauthorized menus"): the `people/{personId}` `update` rule
+  used to be `isSignedIn()`-only, meaning any signed-in account could already
+  overwrite any other person's `username`/`accountStatus`/every other field
+  with a raw Firestore write, no congregation or role check at all. Now: a
+  write to someone else's document is allowed only when
+  `canManageCredentialsFor` authorizes the actor for that specific target,
+  and only when the write touches exactly `username`/`accountStatus` — never
+  a general "any admin can edit any field of any person" hole. Self-editing
+  (every existing self-service credential/profile flow) is unrestricted, same
+  as before.
+- New audit actions, same convention as every existing one (`CHANGE_OWN_USERNAME`,
+  `CHANGE_USER_STATUS`, ...): `ACCOUNT_MGMT_USERNAME_CHANGE` and
+  `ACCOUNT_MGMT_STATUS_CHANGE`, both with a human-readable before/after
+  `details` string and no password ever written to any log entry — they
+  surface for free in the existing User Logs screen with no changes needed
+  there.
+- `Destinations.kt`/`GoPreachNavGraph.kt`/`AdminHomeScreen.kt`/`SidePanel.kt` —
+  new `ACCOUNT_MANAGEMENT` route and "Account Management" tile/drawer item in
+  the System/Control Panel section, gated by the same `canManageAccountCredentials`
+  boolean (Super-Admin/Admin/Coordinator Elder/Service Overseer, +Secretary
+  per this app's existing "treat it exactly like Service Overseer" convention)
+  everywhere that section already computes its other role-gating booleans.
+
+**Disclosed gap, not silently skipped**: Reset Password is visibly present
+but shows an explanatory dialog instead of actually resetting anything.
+Firebase's client SDK can only ever change the password of the *currently
+signed-in* account — resetting an *existing* other user's password needs the
+Firebase Admin SDK in a trusted backend (a Cloud Function), which needs the
+Blaze plan this project isn't on yet (same blocker SETUP.md already flags for
+Storage). Building that backend was judged out of scope for this pass (see
+the client's own explicit choice to scope this down rather than add
+infrastructure); every other part of this feature — username changes,
+congregation/role-scoped browsing and search, activate/deactivate, and the
+full audit trail — works end-to-end today. Verified via a clean
+`./gradlew :app:assembleDebug`; not yet live-tested on-device (no test
+credentials for Admin/Coordinator Elder/Service Overseer available in this
+session — same disclosed gap as several earlier phases) or with
+`firestore.rules` actually deployed.
+
+## Phase 56 — Publisher Main Form: every module now defaults to the Side Panel ✅ done
+
+User request: "move all the icon from main form to side panel" for the
+Publisher context. `DashboardModuleId.defaultLocation()` (the resolution
+rule every never-customized module falls back to — see
+`data/model/DashboardModuleLayout.kt`) previously split modules across both
+panels; it now unconditionally returns `SIDE_PANEL` for every module,
+including `FORWARDED_TO_ME`/`INCOMING_HOUSEHOLDER_ASSIGNMENTS` (previously
+kept on the Main Form for their live badge — this explicit, unconditional
+request overrides that earlier call). The Main Form's tile grid itself is
+untouched code-wise — it still renders whatever `mainFormModules()` resolves
+to, exactly like before — so a Publisher who already explicitly moved a
+module onto the Main Form keeps that placement; this only changes the
+default a *never-customized* (or freshly reset) layout resolves to, same
+"deliberately NOT storing every module" mechanism this feature has always
+used for this exact kind of request (see that function's own doc comment
+history). Verified via a clean `compileDebugKotlin` + `assembleDebug`; not
+live-tested on-device (no Publisher test credentials available in this
+session, same disclosed gap as several earlier phases).
+
+## Phase 57 — Centralized Ministry Statistics Service (Phase A of the My Planner / Ministry Timer / Reporting upgrade) ✅ done
+
+User request: a large enhancement (My Planner, Ministry Timer, Credit Hours,
+and a reporting overhaul) built around one non-negotiable rule — Return Visit
+and Bible Study statistics must count **unique persons**, independently per
+Day/Month/Year, never summed from a smaller period. This is Phase A of that
+larger request (8 phases total, per the approved plan) — the foundational,
+non-UI piece everything else builds on.
+
+Investigation first (two background research passes) found the important
+thing *already true*: `PublisherDashboardViewModel.statsFor()` and
+`MonthlyReportCalculator.countBibleStudiesConducted()` already counted unique
+persons (`.distinctBy`/`.toSet()` on `Visit.interestedPersonId`), not raw
+visit rows — no legacy per-visit counting existed to rip out. What was
+actually missing:
+
+- **New `domain/MinistryStatisticsService.kt`** — the six functions the
+  spec names exactly (`getDailyUniqueReturnVisits`/`getMonthlyUniqueReturnVisits`/
+  `getYearlyUniqueReturnVisits`/`getDailyUniqueBibleStudies`/
+  `getMonthlyUniqueBibleStudies`/`getYearlyUniqueBibleStudies`), all built on
+  one shared `uniqueVisitedPersons()` primitive: a person in the given
+  `PipelineStage` with ≥1 qualifying `Visit` in the given period, counted once
+  regardless of how many qualifying visits they have. New `DayBounds`/
+  `YearBounds` (alongside the existing `MonthBounds`, which now implements a
+  new shared `TimeBounds` interface) give each function its own independently
+  re-scanned period — a Yearly count is never a sum of 12 Monthly counts.
+  `DateRange` (the app-wide Today/This Week/This Month/This Year/custom
+  selector) also implements `TimeBounds`, so screens using that flexible
+  selector share the exact same counting primitive too, not just the three
+  calendar-aligned functions.
+- **Unified the Bible Study definition**: `PublisherDashboardViewModel`'s
+  dashboard card used to count by `InterestedPerson.stageEnteredAt` (when
+  someone *entered* the Bible Study stage); `MonthlyReportCalculator` counted
+  by qualifying *visit* dates instead — two different numbers for the same
+  label. The spec's own worked examples (§9-§11) are visit-date-based, so
+  that's the definition the centralized service uses everywhere now; the
+  dashboard card was updated to match (a real behavior change for that one
+  card, disclosed here rather than silently shipped).
+- **`PublisherDashboardViewModel`/`ConsolidatedReportViewModel`** both
+  refactored to call the shared service instead of their own separate (and,
+  for return visits, slightly differently-shaped) inline logic — closes the
+  "one report could show a different number than another" risk the spec's
+  §15 calls out by name.
+- **`MonthlyReport.returnVisitsCount: Int`** — new field (didn't exist before;
+  only `bibleStudiesCount` did), defaults to `0` for every historical report,
+  ready for Phase E's "Send Report" auto-fill to populate via the new service.
+
+**Deliberately out of scope for this phase** (per the approved 8-phase plan):
+`MonthlyReportCalculator.countBibleStudiesConducted()`'s own call site
+(`MonthlyReportViewModel`'s report-submission auto-fill) is untouched — it
+already used the same correct definition independently, and wiring Return
+Visit auto-fill into Send Report is Phase E's job, not Phase A's. Credit
+Hours, My Planner (Day/Month/Year), the Ministry Timer, and the report status
+workflow extension are all still ahead (Phases B-H).
+
+Verified via a clean `compileDebugKotlin` + `assembleDebug`. No new
+Firestore rule changes needed (the `monthlyReports` write rule has no
+field-allowlist to extend for the new column). Not yet live-tested on-device
+— this phase has no new UI; its correctness was checked by hand against the
+spec's own §48/§49/§50 worked examples (multiple visits same day → 1, same
+person across months → 1 per month but still re-derived, not summed, for the
+year; same display name with different Person IDs → 2, never merged).
+
+## Phase 58 — Credit Hour Categories/Records + My Planner Day tab + Ministry Timer (Phases B/C/D) ✅ done, verified live on-device
+
+Continuation of the My Planner / Ministry Timer / Reporting upgrade (Phase 57
+was Phase A — the centralized statistics service). This pass builds Phases
+B, C, and D together since Credit Hours and the Ministry Timer are both
+things the Day tab embeds directly.
+
+- **Phase B — Credit Hour Categories + Records**: `data/model/CreditHour.kt`
+  (`CreditHourCategory`/`CreditHourRecord`), `data/repository
+  /CreditHourRepository.kt` (same CRUD shape as the existing
+  `ElderTitleRepository`), `ui/screens/credithours/CreditHourCategoriesScreen`
+  — a name/description/Active-switch lookup table, seeded once with spec
+  §28's own 10 default categories the first time it's opened on a
+  congregation with none yet, fully editable afterward. Reachable from the
+  System/Control Panel section for Super-Admin/Admin (`canAccessControlPanel`
+  — same gate every other lookup-table screen in this app already uses).
+- **Phase C — My Planner: Day tab**: new `plannerDays/{personId_yyyyMMdd}`
+  collection (`data/model/PlannerDay.kt`, deterministic id so a
+  `CreditHourRecord` can reference "today's planner day" before that day's
+  document has ever actually been saved) + `ui/screens/planner/
+  PlannerScreen`/`PlannerDayViewModel`. Date navigation, Hours/Minutes
+  steppers (single internal `totalMinutes` field — normalization is free
+  arithmetic, never two fields that could drift), Return Visit/Bible
+  Studies/Credit Hours rows each with an "Edit" drill-down (spec §21/§22's
+  exact shape: unique person + total Visits/Activities + "Counted: 1" +
+  "Unique Persons: N" footer, via a new `MinistryStatisticsService
+  .personActivitySummaries()`), a Note field, and a Daily Goal card
+  (Goal/Consumed/Remaining/Surplus, Remaining never negative). Month/Year
+  tabs are reachable (no dead nav) but show a "coming soon" placeholder —
+  that's Phases E/F, still ahead.
+- **Phase D — Ministry Timer**: `ministryTimerSessions` collection
+  (`MinistryTimerSession`, `MinistryTimerSessionRepository`) +
+  `MinistryTimerViewModel`/`MinistryTimerCard`, reused identically on both
+  the Publisher Main Interface and My Planner → Day (spec's own placement
+  requirement). Survives navigation with no foreground service: START writes
+  a `RUNNING` session with a `startTime`; the card just renders `now -
+  startTime` on a 1-second ticking effect, so navigating away and back
+  re-reads the same still-`RUNNING` document rather than losing anything.
+  STOP computes the exact duration and adds it into that day's
+  `PlannerDay.totalMinutes` via a new shared `PlannerDayRepository
+  .addMinutes()` (also now used by the Day tab's own steppers, so there's
+  one write path, not two that could disagree). RESET discards a running
+  session with nothing saved. At most one `RUNNING` session per Publisher
+  (checked before START) satisfies spec §20's "prevent duplicate/overlapping
+  saves."
+- New `DashboardModuleId.MY_PLANNER` — a Publisher's customizable Main
+  Form/Side Panel tile like every other module (defaults to Side Panel per
+  Phase 56).
+
+**Verified live on-device** (the connected Huawei device, not just a clean
+build): signed in as the existing Regular Publisher test account, confirmed
+the Ministry Timer renders and counts correctly on the Main Interface (START
+→ ticking `00:00:03` → STOP/RESET appear → STOP silently adds the elapsed
+minutes), opened My Planner from the Side Panel, confirmed the Day tab
+matches the spec's own wireframe exactly, exercised the Hours/Minutes
+steppers (persisted correctly, Daily Goal's Consumed/Surplus updated live),
+and opened the Credit Hours "Edit" dialog (empty-state copy + "+ Add Entry"
+rendered correctly). No crashes in logcat throughout. Also a clean
+`compileDebugKotlin` + `assembleDebug` before installing.
+
+## Phase 59 — My Planner Month tab + Send Report (Phase E) ✅ done, verified live on-device, one real bug found and fixed
+
+- `data/model/PlannerGoals.kt` (`MonthlyPlannerGoal`/`YearlyPlannerGoal`,
+  deterministic `personId_yyyyMM`/`personId_yyyy` ids — "do not overwrite
+  historical monthly goals" (spec §25) is true by construction, a different
+  month is always a different document) + matching repositories.
+- `ui/screens/planner/PlannerMonthViewModel`/Month tab UI: month navigation,
+  a plain-Compose 7-column calendar grid (no library — same "build it from
+  primitives" convention the Dashboard's own `SimpleBarChart`/`DonutChart`
+  already use) highlighting any day with Ministry Time, a Credit Hour entry,
+  or a qualifying Return Visit/Bible Study, tap-through to that date on the
+  Day tab. Monthly Report card + Hour Goal card
+  (Goal/Consumed/Remaining/Surplus) — every figure independently computed
+  for the whole month via `MinistryStatisticsService` (spec §24 — never
+  summed from the Day tab's own numbers).
+- **Closed the last auto-fill gap from Phase 57**: `MonthlyReportCalculator
+  .calculate()` now also computes `returnVisitsConducted` (via the same
+  centralized service), and its one duplicate implementation of Bible-Study
+  counting was deleted in favor of calling the shared service directly —
+  finishing the "one function, no drift" consolidation Phase 57 started.
+  `MonthlyReport.returnVisitsCount` (added in Phase 57 but unused until now)
+  is wired all the way through: `MonthlyReportViewModel`/`Screen` gained a
+  "Number of Return Visits" field, pre-filled and Publisher-editable exactly
+  like the existing Bible Studies field.
+- "SEND REPORT" on the Month tab navigates to the existing
+  `MonthlyReportScreen` (reused as-is, not rebuilt) rather than duplicating
+  its category/window/lock logic — spec §30's "must not manually re-enter
+  existing information" is satisfied because that screen already auto-fills
+  from the same underlying data this Planner also reads.
+
+**Real bug found and fixed during live-device testing**: the Month (and Day)
+tab's own `state` was built by calling `viewModel.stateFor(personId)` inline
+inside the composable body, with no `remember` — Compose evaluated that call
+fresh on *every* recomposition, each time starting a brand-new
+`combine(...).stateIn(...)` pipeline back at its all-zero initial value
+before the real data caught back up. It was intermittent (fast enough to be
+invisible most of the time, but reproducible: correctly showed "Hours: 4h,
+Return Visit: 1" once, then flashed back to all zeros after the very next
+tap). Fixed by wrapping every such call in `remember(personId) { ... }`
+(`PlannerDayContent`, `PlannerMonthContent`, the Return Visit/Bible Study
+`PersonActivityDialog`, and `MinistryTimerCard`'s own
+`runningSessionFor(...)` call, which had the identical pattern) so the same
+live `StateFlow` is reused across recompositions instead of recreated. This
+is worth flagging for the Year tab (Phase F) and any future screen built the
+same way — the pattern to use from now on is always `remember(key) {
+viewModel.xFor(key) }.collectAsStateWithLifecycle()`, never the bare call.
+
+**Verified live on-device**, twice — once to catch the bug, once after the
+fix to confirm it: Month tab correctly shows real computed values on first
+load (no zero-flash), calendar correctly bold-highlights the two active days
+(23rd — Ministry Time; 28th — a Return Visit), and SEND REPORT correctly
+opens the real Monthly Report screen with Category/Bible Studies/**Return
+Visits** all pre-filled from live data. No crashes in logcat throughout.
+Clean `compileDebugKotlin` before and after the fix.
+
+## Phase 60 — My Planner Year tab (Phase F) ✅ done, verified live on-device
+
+- `data/model/PlannerGoals.kt`'s `YearlyPlannerGoal` (already added in Phase
+  59 but unused until now) + `YearlyPlannerGoalRepository`.
+- `ui/screens/planner/PlannerYearViewModel`/Year tab UI: year navigation,
+  Yearly Report card + Year Goal card (Goal/Consumed/Remaining/Surplus),
+  every figure independently computed for the whole year via
+  `MinistryStatisticsService` (spec §26 — never summed from the 12 monthly
+  values), and the 12-month table (Month | Goal | Surplus/Missing, spec §27)
+  reusing the exact same `remember(currentPersonId) { viewModel.stateFor(...) }`
+  pattern Phase 59's bug fix established, so this tab never had the zero-flash
+  bug to begin with. Tapping a month row calls a new
+  `PlannerMonthViewModel.goToMonth(...)` and switches the tab selection,
+  landing on that exact month's Month tab.
+
+**Verified live on-device**: Year tab showed correct real data on first load
+(no zero-flash) — "Hours/Minutes: 3h 1m," "Return Visit: 1," September's row
+correctly showing "+3h 1m" while every other (untouched) month correctly
+shows "+0h" — confirming the yearly/monthly figures are genuinely
+independent per-period computations, not a sum-of-months in disguise.
+Tapping a month row correctly switched to the Month tab showing that exact
+month's own (accurately empty) data. No crashes in logcat. Clean
+`compileDebugKotlin` + `assembleDebug` before installing.
+
+## Phase 61 — Report status workflow extension + Report Summary filters (Phase G) ✅ done, one real gap disclosed
+
+- **`ReportStatus` extended additively**: `DRAFT, SUBMITTED, POSTED, RETURNED, CORRECTED`
+  — `POSTED` keeps its exact existing name/meaning (spec's "REVIEWED"),
+  since it's already persisted on every historical report; renaming it would
+  break deserialization for zero benefit. `MonthlyReport` gained
+  `reviewedByPersonId`/`reviewedAt` (set alongside `POSTED`) and
+  `returnedByPersonId`/`returnedAt`/`correctionReason` (set alongside
+  `RETURNED`, and — deliberately — never cleared afterward, so a corrected
+  report still carries the history of what was wrong).
+  `isSubmittedOrPosted` now also covers `CORRECTED` (a corrected resubmission
+  is still a submission) but not `RETURNED` (not currently submitted until
+  the Publisher actually resubmits).
+- **`ManagePublisherReportsViewModel.returnForCorrection(...)`** — new,
+  distinct from the pre-existing `unlock()` (POSTED→DRAFT, no reason kept):
+  this is the real "Return for Correction" workflow step, requires a
+  non-blank reason, sets `RETURNED` + the new fields, and audit-logs
+  `RETURN_PUBLISHER_REPORT_FOR_CORRECTION` with the reason as `details`. New
+  "Return for Correction" icon + reason dialog on `ManagePublisherReportsScreen`,
+  shown only for a `SUBMITTED` row. `markPosted` now also stamps
+  `reviewedByPersonId`/`reviewedAt`.
+- **`MonthlyReportViewModel.submit()`** — a Publisher resubmitting from
+  `RETURNED` now saves as `CORRECTED` instead of a plain `SUBMITTED`, and
+  `MonthlyReportScreen` shows the reason back to them (a "Returned for
+  Correction" card, right above the form) so they know exactly what to fix
+  before they start editing.
+- **Report Summary filters (spec §36)**: rather than building a near-
+  duplicate screen, extended the existing `ManagePublisherReportsScreen`
+  (which already had Congregation/Year-Month/Publisher filters + Search)
+  with the two it was missing — Classification and Status filter-chip rows —
+  plus a single "Reset Filters" action that clears all of them at once.
+
+**Disclosed gap**: the admin-side pieces (Return for Correction dialog, the
+two new filter rows) could not be live-tested on-device this pass — this
+session's only test account is a Regular Publisher, with no
+Admin/Coordinator Elder/Service Overseer/Super-Admin credentials available
+(same disclosed gap several earlier phases already carry). What *was*
+verified live: the Publisher-facing `MonthlyReportScreen` still renders and
+functions correctly after these changes (no regression), and the new
+"Returned for Correction" banner code path is present and correctly stays
+dormant when a report was never actually returned. Clean `compileDebugKotlin`
++ `assembleDebug`.
+
+## Phase 62 — Consolidated/Publisher Report export parity (Phase H, final phase of this upgrade) ✅ done
+
+Phase H's first half — swapping `ConsolidatedReportViewModel`'s ad hoc Return
+Visit/Bible Study counting for the centralized `MinistryStatisticsService` —
+was actually already done back in Phase 57 (Phase A); investigating this
+phase confirmed that refactor was correct and complete, so there was nothing
+left to redo there. What remained:
+
+- **`ManagePublisherReportsScreen`'s export table** ("Publisher Report,"
+  spec §38/§39) gained the columns it was missing: **Return Visits**
+  (`MonthlyReport.returnVisitsCount`, added in Phase 57 but never exported
+  until now), a real **Status** column (the report's actual `ReportStatus`),
+  and **Submission Date**. Also shown on-screen, not just in the export —
+  spec §39's "exported values must exactly match the values displayed"
+  applies to what's added here too, not just what already existed.
+- **Fixed a real pre-existing bug found along the way**: both this screen's
+  and `ConsolidatedReportScreen`'s export tables had a column literally
+  labeled "Status" that had always held the publisher's *Classification*
+  (category), never an actual report status — a leftover mislabel from
+  before either screen tracked real per-report status. Renamed to
+  "Classification" in both; `ManagePublisherReportsScreen` now has a
+  genuine, separate Status column alongside it.
+- **Consolidated Report** intentionally does *not* get its own Status
+  column — that screen aggregates potentially many reports per publisher
+  across an arbitrary date range, so there's no single report's status to
+  show truthfully; adding one would mean inventing a rule the spec never
+  asked for.
+
+This completes all 8 phases of the My Planner / Ministry Timer / Reporting
+upgrade (Phases 57-62 in this log). Verified via clean `compileDebugKotlin`
++ `assembleDebug`; the two changed export screens are both admin-only and
+share the same disclosed live-testing gap as Phase 61 (no
+Admin/Coordinator Elder/Service Overseer credentials available this
+session) — the underlying `ReportTable`/`CsvExporter`/`ReportPrinter`
+mechanism itself was already verified working in earlier phases of this
+app, this pass only changed which columns feed into it.
+
+## Phase 63 — Publisher Main Form restructuring ✅ done, verified live on-device
+
+Four related user requests to `PublisherHomeScreen.kt`, all Publisher-side:
+
+- **"Move the My Planner directly in the main form"** — the My Planner tile
+  is now a fixed `Card` rendered directly in the Main Form body (above the
+  Dashboard), not one of the movable/hideable module tiles anymore; removed
+  its `MY_PLANNER` entry from `publisherModuleTiles()`'s catalog (the enum
+  value itself stays in `DashboardModuleId` so any already-stored layout
+  referencing it just gets filtered out harmlessly, same
+  `mapNotNull`/`runCatching` tolerance every other removed-tile case in this
+  app already relies on).
+- **"Hide the dashboard (add show or hide dashboard)"** — new
+  `PublisherDashboardVisibilityRepository` (SharedPreferences-backed,
+  per-device, same shape as `ThemePreferenceRepository`), wired through
+  `PublisherDashboardViewModel.showDashboard`/`setShowDashboard()`. The
+  Dashboard card's header now has a Show/Hide `TextButton`; hiding it
+  collapses the card down to just that header row.
+- **"Remove the Home, Reports, Calendar, Bible Study[,] from main form"** —
+  deleted `PublisherBottomNavBar` entirely (and its call site); those
+  destinations remain reachable from the Side Panel/drawer, same as every
+  other module.
+- **"Move the Profile next to Account Settings"** — removed the standalone
+  header Settings `IconButton`; `ProfileMenuButton` now takes
+  `onOpenSettings`, so "Settings" appears directly under "Account Settings"
+  in the profile dropdown instead of as a separate header icon.
+
+Mid-turn follow-up, same screen:
+
+- **"Make the sync to server smaller, put it on the right upper side, make
+  it simple"** — `SyncToServerButton` gained a `compact: Boolean` mode (a
+  plain `IconButton` with a small pending-count dot, reusing the existing
+  sync dialogs via an extracted `SyncFeedbackDialogs` composable instead of
+  duplicating them); placed in the header's icon row next to the chat and
+  profile icons.
+- **"Hide the 'Keep your data safe' / 'Sync your data regularly...' text"**
+  — removed that entire card (title, message, old full-size sync button)
+  now that the compact header icon covers the same action.
+- **"Hide the 'My Bible Study', 'My Return Visit' and 'Attended Preaching'
+  buttons from main form"** — removed the `RoundIconActionButton` row
+  (including the Pioneer "Preaching Hours" variant of the third slot) from
+  `PublisherStatsSection`. Since that row was the only consumer of
+  `PublisherDashboardViewModel.statsFor()`/`startVisitSync()`,
+  `isPioneer`, and `onNavigate` in that composable, removed all of them
+  too rather than leaving dead code — `PublisherStatsSection` now just
+  takes `viewModel` and renders the Dashboard header/toggle + optional
+  `DateRangeFilterBar`.
+
+Verified via clean `compileDebugKotlin` + `assembleDebug`, then installed
+and live-checked on the connected device (Regular Publisher login): header
+now shows bell/chat/compact-sync-icon/profile only; My Planner and Ministry
+Timer are fixed cards at the top of the Main Form; Dashboard's "Hide
+Dashboard" toggle collapses the Date Range picker with no stat-button row
+underneath it either way; no bottom nav bar; profile dropdown shows Account
+Settings directly above Settings.
+
+## Phase 64 — My Planner Day/Month/Year redesign to match "Pioneer Planner" reference ✅ done, verified live on-device
+
+User request: "make the design like this. use motion to do it" with a
+reference screenshot of a similarly-purposed third-party app ("Pioneer
+Planner"). Motion MCP is still not exposed as a tool in this environment
+(re-checked via `ToolSearch`, same result as earlier this session), so this
+was implemented directly rather than through it.
+
+Redesigned `PlannerScreen.kt`'s Day/Month/Year tabs to match the reference's
+layout and interaction style, while keeping the app's own purple theme
+(`MaterialTheme.colorScheme.primary`) rather than adopting the reference's
+teal, and keeping every existing field (Return Visit alongside Bible
+Studies — the reference only shows the latter):
+
+- **`PlannerDateNavHeader`** — the "`<< label >>`" colored date-navigation
+  bar from the reference, shared by all three tabs; paired with a
+  same-colored `TopAppBar` above it so the two read as one header block.
+- **Circular stepper buttons** (`CircleStepButton`) replace the old plain
+  `IconButton` +/- pairs for every Hours/Minutes/Goal stepper.
+- **Flat, divider-separated sections** (`SectionLabel`) replace the old
+  `Card`-wrapped "REPORT"/"DAILY GOAL" blocks — Return Visit/Bible
+  Studies/Credit Hours/Notes now show inline with an "Edit"/"Add" link, no
+  card border, matching the reference's flat list look.
+- **Ministry Timer redesigned as a circular dial** (`MinistryTimerCard.kt`)
+  — a filled play/pause circle button plus a ring with a small marker that
+  sweeps once per minute of elapsed time (cosmetic — there's no fixed
+  duration to track progress toward), replacing the old plain digital
+  readout + Start/Stop/Reset button row. A small Reset icon appears under
+  the play button only while running (Reset's semantics — discard without
+  saving — only make sense then). Added a `showLabel` parameter so My
+  Planner → Day (which already has its own "Ministry timer" section
+  heading) doesn't get a duplicate "MINISTRY TIMER" label; every other call
+  site (Publisher Main Form) keeps it.
+- **New "Hours goal for this month" footer on the Day tab** — the reference
+  shows this even while looking at a single day. `PlannerDayViewModel`
+  gained `monthlyGoalHours`/`monthlyConsumedMinutes` (independently sourced
+  from `MonthlyPlannerGoalRepository` + the month's own `PlannerDay` totals
+  for whatever month contains the day being viewed — not derived from
+  anything else already on the Day tab) and `setMonthlyGoalHours()`, backing
+  a small Edit dialog that writes the same `MonthlyPlannerGoal` document the
+  Month tab's own goal stepper does.
+- **Bottom `NavigationBar`** (Day/Month/Year, icon + label) replaces the old
+  `FilterChip` row at the top — closer to the reference's bottom tab bar,
+  though the reference's extra Notes/Settings tabs were left out since
+  there's no dedicated screen behind either one yet.
+
+Mid-turn follow-up, same session: **"Hide the dashboard. Put it above the
+My Planner"** — reordered `PublisherHomeScreen.kt`'s Main Form so
+`PublisherStatsSection` (Dashboard) now renders before the My Planner card
+(previously after it), and changed `PublisherDashboardVisibilityRepository`'s
+default from shown to hidden, so a fresh install/device starts collapsed.
+
+Verified via clean `compileDebugKotlin` + `assembleDebug`, then installed
+and live-walked on the connected device: Dashboard now sits above My
+Planner and collapses/expands via its toggle; My Planner → Day matches the
+reference almost field-for-field (colored header, circular steppers, flat
+sections with dividers, circular Ministry Timer); actually started, watched
+the sweep marker move and the digital time tick up, then Reset and
+confirmed it cleanly discarded back to 00:00; Month and Year tabs render
+with the same header/section style; bottom nav switches all three tabs
+correctly.
+
+## Phase 65 — Ministry Timer real Play/Pause/Stop; My Planner Edit wired to existing Return Visit/Bible Study flow ✅ done, verified live on-device
+
+Two related requests, same session:
+
+**"Add a Play, Pause and Stop feature to the timer"** — the Ministry Timer
+only ever had Start (→ running) and a button that looked like Pause but
+actually behaved like Stop (ended the session and saved it). Real pause
+needed a data-model change, not just a new button:
+
+- `MinistryTimerSession` gained `TimerSessionStatus.PAUSED` and a new
+  `accumulatedSeconds: Long` field — elapsed time banked from every RUNNING
+  segment before the current one. While RUNNING, true elapsed is
+  `accumulatedSeconds + (now - startTime)`; while PAUSED, it's just the
+  frozen `accumulatedSeconds`.
+- `MinistryTimerSessionRepository.observeRunning()` now treats RUNNING and
+  PAUSED as the one active session (still blocks a second START either way).
+- `MinistryTimerViewModel` gained `pause()` (banks the current segment,
+  flips to PAUSED) and `resume()` (starts a fresh RUNNING segment from a new
+  `startTime` without touching the banked total); `stop()` now sums
+  `accumulatedSeconds` + any still-running segment for the final duration,
+  and now attributes the day using the session's `createdAt` instead of its
+  `startTime` — `startTime` gets overwritten on every RESUME, so using it
+  would have misattributed a session that started before midnight, was
+  paused, and resumed after it.
+- `MinistryTimerCard` now shows Play/Pause as one toggle button plus a
+  separate small Stop icon (only Stop actually ends and saves the session;
+  Pause just freezes it) and Reset, matching the request's three named
+  actions instead of collapsing Pause and Stop into the same button. The
+  cosmetic sweep marker freezes in place while paused instead of continuing
+  to move.
+- Live-verified the full cycle on-device on a session left running from
+  earlier testing: paused at 03:55 and confirmed it stayed frozen there
+  after several seconds, resumed and watched it continue from 03:55 (not
+  reset to 0), then Stopped and confirmed it saved and returned to a clean
+  00:00 with just the Play button — and confirmed the Day tab's Consumed
+  total actually increased afterward.
+
+**My Planner "Edit" for Return Visit / Bible Studies** — a large spec
+arrived asking for a full assign → list → details → Add Visit → visit-
+history flow with Day/Month/Year unique-person counting. Research (Explore
+agent) found this already exists in full: `PipelineScreen.kt` already
+provides exactly this (list with location/status, tap-through to a details
+screen with full Visit History and a "Log Visit" FAB capturing date/time/
+outcome/topic/duration/follow-up/GPS), reachable today via the existing
+`Destinations.RETURN_VISIT`/`BIBLE_STUDY` routes; and
+`MinistryStatisticsService` (built in Phase 57) already does correct unique-
+person Day/Month/Year counting, never summing lower periods. The only real
+gap was that My Planner's Return Visit/Bible Studies "Edit" buttons opened a
+read-only `PersonActivityDialog` (name + count, no navigation, no add-visit)
+instead of this existing screen. Fixed by wiring those two `ValueEditRow`
+`onEdit` handlers to `onNavigate(Destinations.RETURN_VISIT)` /
+`onNavigate(Destinations.BIBLE_STUDY)` (the callback `PlannerScreen` already
+receives from the nav graph); removed the now-dead `PersonActivityDialog`
+composable and `PlannerDayViewModel.personActivitySummaries()` wrapper
+rather than leaving them unused. No new screens, models, or repositories —
+this was purely a wiring fix once the research confirmed everything else
+already existed and was correct.
+
+Live-verified on-device: My Planner → Day → Return Visit → Edit opens the
+real "Return Visit" list (all 4 of this Publisher's assigned persons, with
+location and one forward-status badge shown correctly); tapping a person
+(JAMES) opens the full details screen (personal info, current address, GPS,
+Notes, stage-advance/forward actions, System Information) with its "Log
+Visit" FAB visible and ready.
+
+Verified via clean `compileDebugKotlin` + `assembleDebug`, then installed
+and live-walked as above.
+
+## Phase 66 — Ministry Timer Stop now asks before saving/overwriting ✅ done, verified live on-device
+
+User request: Stop should confirm before touching the day's saved Ministry
+Time, never silently apply it, and always add — never overwrite — an
+existing record. Phase 65 had already made Stop end the session
+immediately; this phase adds the save decision on top of that split:
+
+- `MinistryTimerViewModel.stop()` replaced by two plain suspend functions
+  (no internal `viewModelScope.launch`, so the composable can `await` them):
+  `stopAndFinalize(publisherPersonId, targetDayMillis)` — ends the session
+  (marks it COMPLETED with its final duration) and returns a
+  `MinistryTimerStopResult(elapsedMinutes, existingMinutesForTargetDay)`
+  without touching `PlannerDay.totalMinutes` yet; and
+  `confirmSaveElapsedMinutes(publisherPersonId, targetDayMillis,
+  elapsedMinutes)` — the only thing that actually calls
+  `PlannerDayRepository.addMinutes`, and only once the Publisher has said
+  Yes. Since `addMinutes` already adds rather than overwrites, the same
+  call correctly covers both "no existing record" (0 + elapsed) and "add to
+  existing" (existing + elapsed) — the two confirmation dialogs only decide
+  *whether* to call it, never how.
+- `MinistryTimerCard` now shows, after Stop: **"Do you want to save today's
+  {H/M} ministry?"** (Yes/No) — No leaves any existing record untouched (the
+  session itself is still finalized/history-preserved either way, just
+  never applied to the day). Yes with an existing record `> 0` for the
+  target day shows a second dialog, **"There is already {H/M} saved for
+  this day. Do you want to add {H/M} to the record?"** (Yes/No) — matching
+  the request's exact wording and button labels. Yes with no existing
+  record (`0`) skips straight to saving — the request's own examples never
+  show that prompt when there's nothing to conflict with.
+- **Selected Day Rule**: added a `targetDayMillis` parameter to
+  `MinistryTimerCard` (defaults to today, via `DayBounds.of(now)`) so the
+  Stop dialogs — and what they save to — are driven by whichever day is
+  actually relevant. My Planner → Day passes its own `dayStart` (the date
+  the Publisher is currently viewing there, same target every other Day-tab
+  field already writes to via its steppers) instead of the default; the
+  Publisher Main Form call site has no date picker, so it keeps "today."
+- `PlannerDay.totalMinutes` was already stored as total minutes internally
+  (not separate hours/minutes fields) since it was first built in Phase 58
+  — the request's "store as total minutes, display as H/M" recommendation
+  was already this schema's actual shape; `formatHoursMinutes()` (already
+  used throughout My Planner) is the H⁠/M display conversion.
+- Per-session history: already covered by the existing
+  `MinistryTimerSession` Firestore documents (one per Start→Stop, each with
+  its own `durationSeconds`) — `stopAndFinalize` finalizes one of these
+  regardless of the Publisher's save choice, so nothing about individual
+  sessions is lost; no new History screen was requested or built this pass.
+
+Live-verified the full cycle on-device: started the timer, stopped it at
+00:05 (5 seconds → floors to 0m, matching the app's existing whole-minute
+storage), got the exact "Do you want to save today's 0m ministry?" prompt;
+tapped Yes and — since the day already had 3h 9m saved from earlier testing
+— got the exact "There is already 3h 9m saved for this day. Do you want to
+add 0m to the record?" second prompt; tapped No and confirmed the dialog
+closed cleanly with the existing record left untouched and the timer back
+at 00:00.
+
+Verified via clean `compileDebugKotlin` + `assembleDebug`, then installed
+and live-walked as above.
+
+## Phase 67 — Dashboard/My Planner integration: My Planner embedded inline, new Weekly Planner ✅ done, one real crash found and fixed, verified live on-device
+
+User request: the Publisher Main Form's Dashboard date-range selector
+(Today/This Week/This Month/This Year — already fully built,
+`DateRange`/`QuickDateRange`/`DateRangeFilterBar`) should drive which
+planner view renders directly underneath it, inline, replacing the old
+"My Planner" card that just navigated away to a separate screen. Planned in
+plan mode first (research via two Explore agents, one clarifying question:
+retire the standalone screen vs. keep it as a fallback — user chose retire).
+
+- **Retired the standalone My Planner screen** — `PlannerScreen()`'s own
+  `Scaffold`/`TopAppBar`/bottom `NavigationBar`/`PlannerTab` enum are gone,
+  along with `Destinations.MY_PLANNER` and its nav-graph registration.
+  `PlannerDayContent`/`PlannerMonthContent`/`PlannerYearContent` (the actual
+  view logic) survive unchanged, just made `internal` so
+  `PublisherHomeScreen.kt` can call them directly.
+- **Extracted shared Planner UI helpers** (`formatHoursMinutes`,
+  `SectionLabel`, `StepperRow`, `ValueEditRow`, `CircleStepButton`,
+  `PlannerDateNavHeader`, `MonthCalendarGrid`'s dialogs, etc.) out of the old
+  `PlannerScreen.kt` into a new `PlannerComponents.kt` so both the reused
+  Day/Month/Year content and the brand-new Weekly content share one
+  implementation instead of duplicating every stepper/dialog.
+- **New Weekly Planner**, mirroring the Month/Year pattern exactly: a
+  `WeekBounds` (Monday-start `TimeBounds`) and
+  `getWeeklyUniqueReturnVisits`/`getWeeklyUniqueBibleStudies` added to
+  `MinistryStatisticsService.kt`; a new `WeeklyPlannerGoal` model +
+  `WeeklyPlannerGoalRepository`; a new `PlannerWeekViewModel`
+  (`PlannerWeekUiState`, per-day `PlannerWeekDayRow` list, week totals —
+  Return Visit/Bible Studies independently computed for the whole week via
+  the new service functions, **never** summed from the 7 days, matching the
+  same "distinct person" rule Day/Month/Year already follow) and a new
+  `PlannerWeekContent.kt` (weekly report, "Hours goal for this week" with a
+  **Remaining that also subtracts Credit Hours** — the one place this
+  request's formula explicitly differs from Day/Month/Year's goal calc,
+  which only subtracts ministry minutes — and a horizontally-scrollable
+  7-day table, Monday..Sunday, with today visually marked).
+- **`PublisherHomeScreen.kt`**: the old navigate-away "My Planner" `Card` is
+  now an inline section — a `LaunchedEffect(dashboardDateRange)` snaps the
+  matching Day/Week/Month/Year view's `goTo...` to the Dashboard's exact
+  selected period whenever it changes (added `PlannerYearViewModel.goToYear`
+  to complete that set), and a `when` renders whichever view is active;
+  Custom (not one of the four named planner views) just leaves whichever
+  view was already showing, tracked via a small `activePlannerView` state
+  rather than defaulting to any one view.
+- **Real bug found and fixed during live verification**: the app crashed on
+  launch with `IllegalStateException: Vertically scrollable component was
+  measured with an infinity maximum height constraints` — each Planner
+  content composable wrapped itself in its own
+  `Column(fillMaxSize().verticalScroll(...))`, which was fine inside the old
+  standalone screen's bounded `Scaffold` body but broke once nested inside
+  the Main Form's own already-vertically-scrolling outer `Column`. Fixed by
+  changing all four content composables' root `Column` to plain
+  `fillMaxWidth()` (no `fillMaxSize()`/own scroll), since they're now always
+  embedded in an already-scrollable parent.
+
+Verified via clean `compileDebugKotlin` + `assembleDebug`, installed, hit
+and fixed the crash above, then fully live-walked on the connected device:
+Main Form opens straight to Dashboard + inline My Planner; This Week
+correctly swapped in the new Weekly Planner (header "Sep 21 – Sep 27",
+weekly totals, goal stepper with Remaining/Surplus, 7-day table with
+Wednesday the 23rd — today — visibly highlighted, matching live Return
+Visit/credit/hours data); Today/This Month/This Year all switch correctly
+and stay in sync with the Dashboard's selector; Return Visit "Edit" still
+navigates to the real Return Visit list from the inline view; hiding the
+Dashboard leaves My Planner visible underneath it, unaffected.
+
+## Phase 68 — Main Form polish: Dashboard visible by default, smaller My Planner header, duplicate Ministry Timer removed ✅ done, verified live on-device
+
+Three quick follow-ups to Phase 67, same session:
+
+- **"Show the dashboard at initial launch"** —
+  `PublisherDashboardVisibilityRepository`'s default flipped back from
+  hidden to shown (Phase 66 had set it to hidden per an earlier, since-
+  superseded request), so a fresh install/device/login now opens with the
+  Dashboard — and, driven by it, My Planner — visible immediately, no extra
+  tap needed.
+- **"Make the My Planner text smaller and spacing smaller"** — the "My
+  Planner" header in `PublisherHomeScreen.kt` shrank from an 18dp icon +
+  `titleMedium` text to a 16dp icon + `labelMedium` text with tighter
+  padding, so more of the actual planner content is visible on screen right
+  after logging in, without needing to scroll past a large header first.
+- **"Do not show duplicate timer. Remove the other one"** — the Main Form
+  used to always render a standalone `MinistryTimerCard` right after the My
+  Planner section regardless of which planner view was showing, which
+  duplicated the one already embedded inside My Planner → Today
+  (`PlannerDayContent`) whenever Today was the active view. Removed the
+  standalone one entirely; the embedded one (same underlying Firestore-
+  backed session either way) is now the only Ministry Timer on the Main
+  Form, visible only while Today is the active planner view.
+
+Verified via clean `compileDebugKotlin` + `assembleDebug`, then installed
+and live-walked: app now opens straight to a visible Dashboard; "My
+Planner" reads as a small, compact label; switching to Today shows exactly
+one Ministry Timer (confirmed by scrolling the full length of the Day view
+— no second one anywhere below it).
+
 ## What's next (not blocking, tracked for a future pass)
+- Live-verify the full My Planner / Ministry Timer / Reporting upgrade's
+  remaining admin-only surfaces (Return for Correction, Report Summary
+  filters, the newly-added Publisher/Consolidated Report export columns)
+  with a real Admin/Coordinator Elder/Service Overseer/Super-Admin account —
+  no such credentials were available in this session for any phase of this
+  upgrade; everything reachable from a Regular Publisher account (My
+  Planner Day/Month/Year, Ministry Timer, Send Report, Monthly Report) was
+  verified live and worked correctly, including one real bug found and
+  fixed (Phase 58's `remember()` recomposition issue).
+- Add a Cloud Function (Firebase Admin SDK) for real admin-initiated password
+  resets on someone else's account — needs the Blaze plan first (same
+  blocker as Storage). See Phase 55's own disclosed gap for the full reasoning.
+- Live-verify Phase 55's Account Management module (Congregation Selector,
+  Account Type filters, username change, status control) and its tightened
+  `people` Firestore rule with real Admin/Coordinator Elder/Service Overseer
+  accounts, and deploy the updated `firestore.rules`.
 - Live-verify Phase 54's Group Chat Setting module end-to-end (see its own
   scope note above) — this is the first module in the app with real,
   non-`isSignedIn()`-only Firestore/Storage rules enforcement, so it's worth

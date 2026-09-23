@@ -249,6 +249,82 @@ async function run() {
     record("Publisher still CANNOT self-grant via userAccessGrants (catch-all correctly excludes it)", true);
   })().catch((e) => record("Publisher still CANNOT self-grant via userAccessGrants (catch-all correctly excludes it)", false, e.message));
 
+  // ============ TEST 7b: creditHourCategories ============
+  await (async () => {
+    // Any signed-in user (Publisher included) can READ the category list —
+    // this is the exact bug being fixed ("categories cannot be found in
+    // the dropdown"): a Publisher must be able to see it to pick one.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "creditHourCategories", "ldc1"), { name: "LDC", active: true });
+    });
+    const ref = doc(asPubA, "creditHourCategories", "ldc1");
+    await assertSucceeds(getDoc(ref));
+    record("Publisher CAN read Credit Hour Categories", true);
+  })().catch((e) => record("Publisher CAN read Credit Hour Categories", false, e.message));
+
+  await (async () => {
+    // A Publisher cannot create/edit an arbitrary (non-seed) category.
+    const ref = doc(asPubA, "creditHourCategories", "hacked1");
+    await assertFails(setDoc(ref, { name: "Hacked", active: true }));
+    record("Publisher CANNOT create a Credit Hour Category", true);
+  })().catch((e) => record("Publisher CANNOT create a Credit Hour Category", false, e.message));
+
+  await (async () => {
+    // A Publisher cannot update an existing category (e.g. rename/deactivate).
+    const ref = doc(asPubA, "creditHourCategories", "ldc1");
+    await assertFails(updateDoc(ref, { active: false }));
+    record("Publisher CANNOT update a Credit Hour Category", true);
+  })().catch((e) => record("Publisher CANNOT update a Credit Hour Category", false, e.message));
+
+  await (async () => {
+    // A Publisher CAN create one of the fixed-id starting categories —
+    // first-run seeding must work even before any admin has signed in.
+    const ref = doc(asPubA, "creditHourCategories", "default_ldc");
+    await assertSucceeds(setDoc(ref, { name: "LDC", active: true }));
+    record("Publisher CAN create the fixed-id default seed categories", true);
+  })().catch((e) => record("Publisher CAN create the fixed-id default seed categories", false, e.message));
+
+  await (async () => {
+    // But a Publisher cannot then UPDATE that seeded default category.
+    const ref = doc(asPubA, "creditHourCategories", "default_ldc");
+    await assertFails(updateDoc(ref, { active: false }));
+    record("Publisher CANNOT update a seeded default Credit Hour Category", true);
+  })().catch((e) => record("Publisher CANNOT update a seeded default Credit Hour Category", false, e.message));
+
+  await (async () => {
+    // Congregation Admin CAN manage categories (add/edit/deactivate).
+    const ref = doc(asAdminA, "creditHourCategories", "newCat1");
+    await assertSucceeds(setDoc(ref, { name: "Community Construction", active: true }));
+    record("Admin Per Congregation CAN create a Credit Hour Category", true);
+  })().catch((e) => record("Admin Per Congregation CAN create a Credit Hour Category", false, e.message));
+
+  await (async () => {
+    const ref = doc(asAdminA, "creditHourCategories", "ldc1");
+    await assertSucceeds(updateDoc(ref, { active: false }));
+    record("Admin Per Congregation CAN deactivate a Credit Hour Category", true);
+  })().catch((e) => record("Admin Per Congregation CAN deactivate a Credit Hour Category", false, e.message));
+
+  await (async () => {
+    // A Regular Elder (not Admin/Super-Admin) cannot manage categories.
+    const ref = doc(asElderRegA, "creditHourCategories", "newCat2");
+    await assertFails(setDoc(ref, { name: "Should Fail", active: true }));
+    record("Regular Elder CANNOT create a Credit Hour Category", true);
+  })().catch((e) => record("Regular Elder CANNOT create a Credit Hour Category", false, e.message));
+
+  await (async () => {
+    const ref = doc(asSuperAdmin, "creditHourCategories", "newCat3");
+    await assertSucceeds(setDoc(ref, { name: "Super Admin Added", active: true }));
+    record("Super Admin CAN create a Credit Hour Category", true);
+  })().catch((e) => record("Super Admin CAN create a Credit Hour Category", false, e.message));
+
+  await (async () => {
+    // Confirms the catch-all's exclusion list update didn't leave this
+    // reachable through the blanket isSignedIn() clause too.
+    const ref = doc(asPubA, "creditHourCategories", "viaCatchAll");
+    await assertFails(setDoc(ref, { name: "Should still fail", active: true }));
+    record("Publisher still CANNOT write Credit Hour Categories via the catch-all block", true);
+  })().catch((e) => record("Publisher still CANNOT write Credit Hour Categories via the catch-all block", false, e.message));
+
   // ============ TEST 8: presence (Online Users Indicator) ============
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore();

@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.DashboardModuleId
 import com.emfitsolutions.gopreach.data.model.DashboardModuleLayout
 import com.emfitsolutions.gopreach.data.model.DashboardModuleLocation
+import com.emfitsolutions.gopreach.data.model.PlannerSection
+import com.emfitsolutions.gopreach.data.model.withPlannerSectionVisible
 import com.emfitsolutions.gopreach.data.model.moved
 import com.emfitsolutions.gopreach.data.model.reset
 import com.emfitsolutions.gopreach.data.model.sidePanelModules
@@ -57,6 +59,14 @@ class PublisherDashboardLayoutViewModel @Inject constructor(
         val id = personId.value ?: return
         val current = layout.value.copy(personId = id)
         viewModelScope.launch { repository.save(current.moved(moduleId, to)) }
+    }
+
+    /** My Planner → Planner Sections: show/hide one section for this
+     * Publisher. Saved on their own layout document (synced per account);
+     * display-only — no records are ever touched. */
+    fun setPlannerSectionVisible(section: PlannerSection, visible: Boolean) {
+        val id = personId.value ?: return
+        viewModelScope.launch { repository.save(layout.value.copy(personId = id).withPlannerSectionVisible(section, visible)) }
     }
 
     /** "Reset Dashboard Layout" (spec §9). */

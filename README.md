@@ -61,3 +61,7 @@ feature set from the original spec is implemented. Known scoped-down spots
   creating a Group/Territory *as* Super-Admin (rather than viewing) currently
   needs a congregation picker that isn't wired up yet — Admin/Coordinator
   Elder, who are always scoped to one congregation, are unaffected.
+- **Account Management's Reset Password** is visible but disabled — Firebase's
+  client SDK can only change the *signed-in* account's own password;
+  resetting someone else's needs a Cloud Function (Firebase Admin SDK), which
+  needs the Blaze plan this project isn't on yet (see BUILD_PLAN.md's Phase 55).

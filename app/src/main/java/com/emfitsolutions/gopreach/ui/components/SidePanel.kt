@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.AssignmentInd
 import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -106,6 +107,9 @@ fun GoPreachSidePanelContent(
     isSuperAdmin: Boolean,
     canViewUserLogs: Boolean,
     canManageUsers: Boolean,
+    /** Account Management spec §5 — Super-Admin, Admin, Coordinator Elder,
+     * Service Overseer (+ Secretary). See AdminHomeScreen's own derivation. */
+    canManageAccountCredentials: Boolean,
     /** "Contact Record" module — Super-Admin, Coordinator Elder, and Regular
      * Elder only (not Admin, not Service Overseer/Ministerial Servant). */
     canViewContactRecord: Boolean,
@@ -256,6 +260,8 @@ fun GoPreachSidePanelContent(
             // reach it (spec §34).
             add(SideItem(stringResource(R.string.side_theme_color_settings), Icons.Rounded.Palette, Destinations.THEME_COLOR_SETTINGS))
             if (canManageUsers) add(SideItem(stringResource(R.string.side_user_management), Icons.Rounded.ManageAccounts, Destinations.MANAGE_USERS))
+            if (canManageAccountCredentials) add(SideItem(stringResource(R.string.side_account_management), Icons.Rounded.ManageAccounts, Destinations.ACCOUNT_MANAGEMENT))
+            if (canAccessControlPanel) add(SideItem(stringResource(R.string.side_credit_hour_categories), Icons.Rounded.Timer, Destinations.CREDIT_HOUR_CATEGORIES))
         }
         if (controlPanelItems.isNotEmpty()) add(SideSection(stringResource(R.string.side_section_control_panel), controlPanelItems))
     }

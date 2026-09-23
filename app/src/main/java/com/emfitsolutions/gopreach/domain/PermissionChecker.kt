@@ -123,4 +123,36 @@ object PermissionChecker {
             .mapNotNull { (it.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category }
         return activeCategories.isEmpty() || activeCategories.any { it != PublisherCategory.REMOVED_PUBLISHER }
     }
+
+    /** Account Management spec's permission matrix (§5): who may change another
+     * person's username/account status, and whose accounts they may act on.
+     * Not wired through [hasPermission]/[UserAccessGrant] — like every other
+     * Coordinator Elder/Service Overseer capability in this app, it's a direct
+     * [AdminRole] check (see [com.emfitsolutions.gopreach.ui.screens.home
+     * .AdminHomeScreen]'s own `canViewUserLogs`-style booleans), not a second
+     * permission mechanism alongside the grant-based one CIRCUIT_OVERSEER uses.
+     *
+     * [targetAdminRole] is null when the target's only active role is
+     * Publisher. [SECRETARY] is treated exactly like [AdminRole.SERVICE_OVERSEER]
+     * everywhere else in this codebase (see that enum constant's own doc
+     * comment), so it is here too. Mirrored server-side by
+     * `canManageCredentialsFor` in firestore.rules — this function only ever
+     * decides what the UI *offers*; the rule is what actually enforces it. */
+    fun canManageCredentialsFor(
+        actingRole: AdminRole,
+        actingCongregationId: String?,
+        targetIsPublisher: Boolean,
+        targetAdminRole: AdminRole?,
+        targetCongregationId: String?,
+    ): Boolean {
+        if (actingRole == AdminRole.SUPER_ADMIN) return true
+        if (actingCongregationId == null || actingCongregationId != targetCongregationId) return false
+        return when (actingRole) {
+            AdminRole.ADMIN_PER_CONGREGATION ->
+                targetIsPublisher || targetAdminRole == AdminRole.REGULAR_ELDER || targetAdminRole == AdminRole.MINISTERIAL_SERVANT
+            AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY ->
+                targetIsPublisher
+            else -> false
+        }
+    }
 }

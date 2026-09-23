@@ -84,6 +84,8 @@
     <string name="home_tile_group_chat_subtitle">Congregation Chats</string>
     <string name="home_tile_publisher_schedules_title">Publisher Schedules</string>
     <string name="home_tile_publisher_schedules_subtitle">Preaching Availability</string>
+    <string name="home_tile_my_planner_title">My Planner</string>
+    <string name="home_tile_my_planner_subtitle">Day / Month / Year Ministry Time</string>
 
     <!-- "Publishers App – Customizable Module Navigation Redesign" —
          long-press-to-move Main Form/Side Panel dialogs. -->
@@ -106,6 +108,8 @@
     <string name="home_nav_profile">Profile</string>
 
     <string name="home_dashboard_header">Dashboard</string>
+    <string name="home_show_dashboard">Show Dashboard</string>
+    <string name="home_hide_dashboard">Hide Dashboard</string>
     <string name="home_stat_my_bible_study">My Bible Study</string>
     <string name="home_stat_my_return_visit">My Return Visit</string>
     <string name="home_stat_preaching_hours">Preaching Hours</string>
@@ -152,6 +156,8 @@
     <string name="side_householder_visit_history">House Holder Visit History</string>
     <string name="side_preaching_time_records_all_congregations">Preaching Time Records (All Congregations)</string>
     <string name="side_user_management">User Management</string>
+    <string name="side_account_management">Account Management</string>
+    <string name="side_credit_hour_categories">Credit Hour Categories</string>
     <string name="side_account_settings">Account Settings</string>
     <string name="side_ministry_report_app">Ministry Report App</string>
     <string name="side_sign_out">Sign Out</string>
@@ -177,6 +183,8 @@
     <string name="monthly_report_select_month">Select Month to Report</string>
     <string name="monthly_report_posted_locked">This report has been posted and can now only be changed by your Service Overseer, Admin, or Super-Admin.</string>
     <string name="monthly_report_bible_studies_label">Number of Bible Studies Conducted</string>
+    <string name="monthly_report_return_visits_label">Number of Return Visits</string>
+    <string name="monthly_report_returned_for_correction_title">Returned for Correction</string>
     <string name="monthly_report_calculation_failed">Unable to calculate your report data for %1$s. Please try again.</string>
     <string name="monthly_report_calculation_retry">Retry</string>
     <string name="monthly_report_accumulated_hours_label">Accumulated Hours</string>
@@ -346,6 +354,9 @@
     <string name="manage_reports_by_publisher">By Publisher</string>
     <string name="manage_reports_by_congregation">By Congregation/Group</string>
     <string name="manage_reports_search_label">Search: Name, Status</string>
+    <string name="manage_reports_classification_label">Classification</string>
+    <string name="manage_reports_status_label">Status</string>
+    <string name="manage_reports_reset_filters">Reset Filters</string>
     <string name="manage_reports_search_label_with_congregation">Search: Name, Status, Congregation/Group</string>
     <string name="manage_reports_post_button">POST %1$d Submitted Report%2$s</string>
     <string name="manage_reports_no_reports">No reports for this period.</string>
@@ -357,9 +368,17 @@
     <string name="manage_reports_bible_study_hours">Bible Study: %1$d    Hours: %2$s</string>
     <string name="manage_reports_bible_study_participate">Bible Study: %1$d    Participate in Preaching: %2$s</string>
     <string name="manage_reports_congregation_prefix">Congregation/Group: %1$s</string>
+    <string name="manage_reports_return_visits_prefix">Return Visits: %1$d</string>
     <string name="manage_reports_posted_locked">Posted — locked for the publisher</string>
     <string name="manage_reports_submitted_editable">Submitted — still editable by the publisher</string>
     <string name="manage_reports_draft_editable">Draft — editable by the publisher</string>
+    <string name="manage_reports_returned_status">Returned for correction — %1$s</string>
+    <string name="manage_reports_corrected_status">Corrected and resubmitted</string>
+    <string name="manage_reports_return_for_correction_cd">Return for Correction</string>
+    <string name="manage_reports_return_for_correction_title">Return for Correction</string>
+    <string name="manage_reports_return_for_correction_message">Send %1$s\'s report back for correction. They\'ll see the reason and can resubmit once fixed.</string>
+    <string name="manage_reports_return_for_correction_reason_label">Reason</string>
+    <string name="manage_reports_return_for_correction_confirm">Return</string>
     <string name="manage_reports_total_bible_study">Total Bible Study: %1$d</string>
     <string name="manage_reports_total_hours_pioneers">Total Hours by Pioneers: %1$s</string>
     <string name="manage_reports_report_saved">Report saved.</string>

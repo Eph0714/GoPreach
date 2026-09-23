@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import android.content.Intent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -37,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
@@ -44,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.R
+import com.emfitsolutions.gopreach.domain.ReportShareText
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -91,6 +95,40 @@ fun MonthlyReportScreen(
     // submit flow — an Elder editing on someone's behalf (allowEditWhenLocked)
     // isn't restricted to the last-2-days window.
     val submitBlockedByWindow = !uiState.canSubmitWindow && !allowEditWhenLocked && !uiState.isLocked
+    val context = LocalContext.current
+
+    // "Allow the user to select if send it as text or open the My Report
+    // App... apply also the logic in 'Monthly Report' page submission" —
+    // this screen IS the "My Report App" side of that choice, so its own
+    // equivalent is a "Share as Text" action (available anytime, from the
+    // current form values) plus a one-off prompt right after a successful
+    // Submit. Both build the exact same message [ReportShareText] does for
+    // the Planner's own Send Report shortcut.
+    fun shareAsText() {
+        val hoursDecimal = uiState.hoursRendered.toDoubleOrNull() ?: 0.0
+        val hours = hoursDecimal.toInt()
+        val minutes = ((hoursDecimal - hours) * 60).toInt()
+        val bibleStudies = uiState.bibleStudiesRendered.toIntOrNull() ?: 0
+        val text = if (isPioneer) {
+            ReportShareText.forPioneer(uiState.selectedPeriodMonth, hours, minutes, bibleStudies)
+        } else {
+            ReportShareText.forNonPioneer(uiState.selectedPeriodMonth, uiState.participatedInPreaching, bibleStudies)
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(Intent.createChooser(intent, "Send Report"))
+    }
+
+    var showPostSubmitSharePrompt by remember { mutableStateOf(false) }
+    // Only the transition into "just submitted" (not an already-submitted
+    // report simply being reopened) triggers the prompt.
+    var wasSaved by remember { mutableStateOf(uiState.saved) }
+    LaunchedEffect(uiState.saved) {
+        if (uiState.saved && !wasSaved) showPostSubmitSharePrompt = true
+        wasSaved = uiState.saved
+    }
 
     Scaffold(
         topBar = {
@@ -102,6 +140,13 @@ fun MonthlyReportScreen(
                     }
                 },
                 actions = {
+                    // Available any time the form has real values to send,
+                    // not gated behind Submit — a Publisher may want to text
+                    // it to someone before/without ever using this form to
+                    // officially submit.
+                    IconButton(onClick = ::shareAsText) {
+                        Icon(Icons.Rounded.Share, contentDescription = "Share as Text")
+                    }
                     if (onViewHistory != null) {
                         IconButton(onClick = onViewHistory) {
                             Icon(Icons.AutoMirrored.Rounded.ListAlt, contentDescription = stringResource(R.string.home_tile_my_reports_title))
@@ -143,6 +188,23 @@ fun MonthlyReportScreen(
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                 )
+            }
+
+            // My Planner / Reporting upgrade spec §35 — "Return for
+            // Correction" shows the Publisher exactly why, right where
+            // they'll see it before they start editing.
+            val correctionReason = uiState.existingReport?.correctionReason
+            if (uiState.existingReport?.status == com.emfitsolutions.gopreach.data.model.ReportStatus.RETURNED && !correctionReason.isNullOrBlank()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            stringResource(R.string.monthly_report_returned_for_correction_title),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Text(correctionReason, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
             }
 
             // Spec §24 — a genuine calculation failure shows a retry, not a
@@ -218,6 +280,19 @@ fun MonthlyReportScreen(
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // My Planner / Reporting upgrade spec §30 — same auto-filled-
+                // but-editable treatment, now that a Return Visit count is
+                // part of this report too.
+                OutlinedTextField(
+                    value = uiState.returnVisitsRendered,
+                    onValueChange = viewModel::onReturnVisitsChange,
+                    label = { Text(stringResource(R.string.monthly_report_return_visits_label)) },
+                    singleLine = true,
+                    enabled = !effectivelyLocked,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
 
             OutlinedTextField(
@@ -284,6 +359,18 @@ fun MonthlyReportScreen(
                             Text(stringResource(R.string.monthly_report_hours_confirm_dialog_cancel))
                         }
                     },
+                )
+            }
+
+            if (showPostSubmitSharePrompt) {
+                AlertDialog(
+                    onDismissRequest = { showPostSubmitSharePrompt = false },
+                    title = { Text("Report Submitted") },
+                    text = { Text("Would you also like to send this report as a text message?") },
+                    confirmButton = {
+                        TextButton(onClick = { showPostSubmitSharePrompt = false; shareAsText() }) { Text("Send as Text") }
+                    },
+                    dismissButton = { TextButton(onClick = { showPostSubmitSharePrompt = false }) { Text("Done") } },
                 )
             }
         }
