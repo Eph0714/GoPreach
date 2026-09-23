@@ -162,10 +162,20 @@ class UpdateViewModel @Inject constructor(
                 }
                 .onFailure { e ->
                     Log.w(TAG, "Update check failed: ${e.message}")
-                    // A failed *check* (e.g. offline) isn't the "Update Failed" flow —
-                    // that's reserved for a failed download/install. Silently drop back
-                    // to Idle so the app just proceeds as normal.
-                    _state.value = UpdateCheckState.Idle
+                    // A *silent* (automatic) check failing — e.g. offline, or a
+                    // transient network blip — isn't the "Update Failed" flow;
+                    // that's reserved for a failed download/install, so it drops
+                    // back to Idle with no UI. But an explicit "Check for
+                    // Updates" tap (silent = false) is the user directly asking
+                    // for a result — leaving it at Idle silently swallowed the
+                    // failure with the button visibly doing nothing (bug: a
+                    // rate-limited or offline manual check showed no feedback
+                    // at all).
+                    _state.value = if (silent) {
+                        UpdateCheckState.Idle
+                    } else {
+                        UpdateCheckState.Failed(null, e.message ?: "Couldn't check for updates. Check your connection and try again.")
+                    }
                 }
             if (silent && _state.value is UpdateCheckState.UpToDate) {
                 _state.value = UpdateCheckState.Idle
@@ -270,7 +280,16 @@ class UpdateViewModel @Inject constructor(
 
     fun retry() {
         val info = (_state.value as? UpdateCheckState.Failed)?.info
-        _state.value = if (info != null) UpdateCheckState.Available(info, currentVersion) else UpdateCheckState.Idle
+        if (info != null) {
+            // A failed download/install already knows which release it was
+            // trying to install — re-offer that one instead of a fresh check.
+            _state.value = UpdateCheckState.Available(info, currentVersion)
+        } else {
+            // A failed *check* (see [check]'s `silent = false` branch) has no
+            // release to re-offer yet — re-run the check itself instead of
+            // just going back to Idle, which used to make "TRY AGAIN" a no-op.
+            check(silent = false)
+        }
     }
 
     /** The text handed to Android's native share sheet — always the *current*

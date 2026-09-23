@@ -423,7 +423,15 @@ private fun AppVersionSection(updateViewModel: UpdateViewModel) {
                     coroutineScope.launch {
                         updateViewModel.fetchLatestForShare()
                             .onSuccess { info -> launchAppShare(context, updateViewModel.shareText(info), shareChooserTitle) }
-                            .onFailure { shareError = shareFetchError }
+                            // The underlying failure (e.g. "GitHub download
+                            // limit reached for this network") is far more
+                            // actionable than a generic connectivity message
+                            // when it's actually available — that message
+                            // used to always say "check your connection"
+                            // even when the real cause was a shared-network
+                            // rate limit that had nothing to do with this
+                            // device's own connectivity.
+                            .onFailure { e -> shareError = e.message ?: shareFetchError }
                         isSharing = false
                     }
                 },

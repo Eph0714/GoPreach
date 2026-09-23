@@ -29,6 +29,7 @@ private const val TAG = "UpdateManifest"
 @Singleton
 class UpdateManifestRepository @Inject constructor(
     private val gson: Gson,
+    private val cache: UpdateManifestCache,
 ) {
     /** Public GitHub repo — no auth token needed for read access. */
     private val manifestUrl = "https://api.github.com/repos/Eph0714/GoPreach/releases/latest"
@@ -61,10 +62,23 @@ class UpdateManifestRepository @Inject constructor(
             // user's side (nothing is shown either way; see [Idle]'s
             // handling below for why a failed *check* stays silent).
             connection.setRequestProperty("User-Agent", "GoPreach-Android")
+            // A conditional request GitHub answers with 304 Not Modified
+            // does NOT count against the 60-requests/hour-per-IP limit —
+            // see [UpdateManifestCache]'s doc comment for why this is the
+            // actual fix for devices sharing a network with others.
+            cache.etag?.let { connection.setRequestProperty("If-None-Match", it) }
             connection.connectTimeout = 15_000
             connection.readTimeout = 15_000
 
             val responseCode = connection.responseCode
+
+            if (responseCode == HttpURLConnection.HTTP_NOT_MODIFIED) {
+                val cached = cache.read()
+                if (cached != null) return@withContext Result.success(cached)
+                // No local cache to serve (cleared data, etc.) despite the
+                // ETag matching — fall through to a normal, uncached retry.
+            }
+
             if (responseCode !in 200..299) {
                 // GitHub's unauthenticated REST API is capped at 60
                 // requests/hour per IP; exceeding it returns 403 with
@@ -73,8 +87,18 @@ class UpdateManifestRepository @Inject constructor(
                 // it's diagnosable from a logcat capture instead of looking
                 // identical to every other kind of failure.
                 val rateLimited = responseCode == 403 && connection.getHeaderField("X-RateLimit-Remaining") == "0"
+                // Several devices behind the same router (a Kingdom Hall
+                // Wi-Fi, say) can exhaust that shared limit even though this
+                // device made few or no requests itself — degrade to the
+                // last known-good release instead of a hard failure so
+                // "Share App"/"Check for Updates" still works from cache.
+                val cached = cache.read()
+                if (rateLimited && cached != null) {
+                    Log.w(TAG, "GitHub rate limit hit — serving cached release ${cached.version} instead")
+                    return@withContext Result.success(cached)
+                }
                 val message = if (rateLimited) {
-                    "Update check failed: GitHub API rate limit exceeded (resets hourly)"
+                    "GitHub download limit reached for this network — please try again in a few minutes"
                 } else {
                     val errorBody = runCatching { connection.errorStream?.bufferedReader()?.use { it.readText() } }.getOrNull()
                     "Update check failed (HTTP $responseCode)${errorBody?.let { ": $it" } ?: ""}"
@@ -83,6 +107,7 @@ class UpdateManifestRepository @Inject constructor(
                 return@withContext Result.failure(Exception(message))
             }
 
+            val newEtag = connection.getHeaderField("ETag")
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val release = gson.fromJson(body, GithubRelease::class.java)
             // The APK asset — the one non-source-code file GitHub attaches to the release.
@@ -90,18 +115,18 @@ class UpdateManifestRepository @Inject constructor(
                 ?: return@withContext Result.failure(Exception("Latest release has no APK asset").also { Log.e(TAG, it.message ?: "") })
 
             val notes = release.body?.trim().takeUnless { it.isNullOrBlank() } ?: "Bug fixes and improvements."
-            Result.success(
-                UpdateInfo(
-                    version = release.tagName.removePrefix("v"),
-                    apkUrl = asset.browserDownloadUrl,
-                    releaseNotes = notes,
-                    releaseDate = release.publishedAt?.substringBefore("T") ?: "",
-                    sha256 = asset.digest?.removePrefix("sha256:"),
-                    // "Required/Critical Update" — see UpdateInfo.isCritical's
-                    // own doc comment for the `[CRITICAL]` marker convention.
-                    isCritical = notes.contains("[CRITICAL]", ignoreCase = true),
-                )
+            val info = UpdateInfo(
+                version = release.tagName.removePrefix("v"),
+                apkUrl = asset.browserDownloadUrl,
+                releaseNotes = notes,
+                releaseDate = release.publishedAt?.substringBefore("T") ?: "",
+                sha256 = asset.digest?.removePrefix("sha256:"),
+                // "Required/Critical Update" — see UpdateInfo.isCritical's
+                // own doc comment for the `[CRITICAL]` marker convention.
+                isCritical = notes.contains("[CRITICAL]", ignoreCase = true),
             )
+            cache.save(newEtag, info)
+            Result.success(info)
         } catch (e: Exception) {
             // Log.e, not Log.w — a silent [UpdateViewModel.check] drops this
             // straight to Idle with no UI of any kind (by design: don't
@@ -111,7 +136,12 @@ class UpdateManifestRepository @Inject constructor(
             // out of a real logcat capture while diagnosing exactly this
             // "not working" report.
             Log.e(TAG, "Update check failed", e)
-            Result.failure(e)
+            // A genuine network failure (no connection, DNS, timeout) still
+            // leaves a stale-but-usable cached link on the table — better
+            // than a hard failure for "Share App" in particular, which just
+            // needs *a* working download link, not necessarily the newest.
+            val cached = cache.read()
+            if (cached != null) Result.success(cached) else Result.failure(e)
         }
     }
 
