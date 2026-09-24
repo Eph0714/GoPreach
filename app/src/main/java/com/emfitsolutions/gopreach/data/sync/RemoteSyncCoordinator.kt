@@ -16,12 +16,18 @@ import com.emfitsolutions.gopreach.data.repository.HouseholderAssignmentReposito
 import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.LocationSharingSettingsRepository
 import com.emfitsolutions.gopreach.data.repository.MidweekMeetingScheduleRepository
+import com.emfitsolutions.gopreach.data.repository.MinistryTimerSessionRepository
+import com.emfitsolutions.gopreach.data.repository.MonthlyPlannerGoalRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
 import com.emfitsolutions.gopreach.data.repository.PublicTalkScheduleRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
+import com.emfitsolutions.gopreach.data.repository.PlannerDayRepository
 import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
+import com.emfitsolutions.gopreach.data.repository.CreditHourRecordRepository
 import com.emfitsolutions.gopreach.data.repository.PublisherForwardRequestRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
+import com.emfitsolutions.gopreach.data.repository.WeeklyPlannerGoalRepository
+import com.emfitsolutions.gopreach.data.repository.YearlyPlannerGoalRepository
 import com.emfitsolutions.gopreach.data.repository.SavedLocationRepository
 import com.emfitsolutions.gopreach.data.repository.ScheduleRepository
 import com.emfitsolutions.gopreach.data.repository.SharedLocationRepository
@@ -103,6 +109,22 @@ class RemoteSyncCoordinator @Inject constructor(
     private val cartAssignmentRepository: CartAssignmentRepository,
     private val dashboardModuleLayoutRepository: DashboardModuleLayoutRepository,
     private val creditHourCategoryRepository: CreditHourCategoryRepository,
+    // "I cannot see the same data to other phone" — these six repositories
+    // each define their own startRemoteSync(), but nothing ever called it:
+    // this class is the *only* place that happens, and none of them were
+    // wired in here. Every document any of them ever wrote reached
+    // Firestore fine (writes never depend on this), but no *other* device
+    // ever pulled those documents back down — each device's Room cache only
+    // ever contained what it had written itself. My Planner in particular
+    // is built entirely from these six collections, so this is the reason
+    // "everything" in My Planner looked empty on a second device even
+    // though the first device showed "Online, all synced".
+    private val plannerDayRepository: PlannerDayRepository,
+    private val monthlyPlannerGoalRepository: MonthlyPlannerGoalRepository,
+    private val weeklyPlannerGoalRepository: WeeklyPlannerGoalRepository,
+    private val yearlyPlannerGoalRepository: YearlyPlannerGoalRepository,
+    private val creditHourRecordRepository: CreditHourRecordRepository,
+    private val ministryTimerSessionRepository: MinistryTimerSessionRepository,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     private var started = false
@@ -186,5 +208,15 @@ class RemoteSyncCoordinator @Inject constructor(
         // but nothing ever mirrored this collection down to anyone else's —
         // so every Publisher's My Planner read an empty local cache.
         creditHourCategoryRepository.startRemoteSync().startTracked(uidChanged)
+        // Bug fix ("I cannot see the same data to other phone" — My Planner
+        // in particular): see this class's own constructor doc comment
+        // above these six repositories for why they were silently never
+        // syncing down to any device but the one that wrote them.
+        plannerDayRepository.startRemoteSync().startTracked(uidChanged)
+        monthlyPlannerGoalRepository.startRemoteSync().startTracked(uidChanged)
+        weeklyPlannerGoalRepository.startRemoteSync().startTracked(uidChanged)
+        yearlyPlannerGoalRepository.startRemoteSync().startTracked(uidChanged)
+        creditHourRecordRepository.startRemoteSync().startTracked(uidChanged)
+        ministryTimerSessionRepository.startRemoteSync().startTracked(uidChanged)
     }
 }
