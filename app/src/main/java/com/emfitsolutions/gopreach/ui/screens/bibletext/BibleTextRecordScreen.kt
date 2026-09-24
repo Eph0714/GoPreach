@@ -1,14 +1,19 @@
 package com.emfitsolutions.gopreach.ui.screens.bibletext
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -21,6 +26,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Schedule
@@ -39,6 +45,7 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -79,11 +86,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.export.BibleTextExporter
+import com.emfitsolutions.gopreach.data.export.IncomingBibleTextImportHolder
 import com.emfitsolutions.gopreach.data.model.BibleTextCategory
 import com.emfitsolutions.gopreach.data.model.BibleTextRecord
+import com.emfitsolutions.gopreach.data.model.BibleTextSubtopic
 import com.emfitsolutions.gopreach.data.model.LEGACY_EVENT_PLACEHOLDER
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
+import com.emfitsolutions.gopreach.data.repository.BibleTextLanguagePreference
 import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.domain.NwtBibleReferenceData
 import com.emfitsolutions.gopreach.ui.components.FormDialog
@@ -201,22 +211,36 @@ private fun EventListScreen(
     val referenceBooks = remember { NwtBibleReferenceData.booksFor(NwtBibleReferenceData.defaultVersion.id, "en") }
     val referenceBookChapterCount = referenceBooks.firstOrNull { it.id == referenceBookId }?.chapterCount ?: 0
 
-    // "The receiving Publisher can import the data" — a plain file picker,
-    // same mechanism as before, updated for the Event-shaped export file.
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val json = runCatching {
-            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+    // "The receiving Publisher can import the data" — shared by the manual
+    // file picker below and by a tapped shared export file arriving via
+    // [IncomingBibleTextImportHolder] (see that file's own doc comment).
+    fun importFromUri(uri: Uri) {
+        val file = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { BibleTextExporter.parseExportFile(it) }
         }.getOrNull()
-        val file = json?.let { BibleTextExporter.parseExportJson(it) }
         if (file == null) {
             showToast("That file isn't a valid Bible Text Record export.")
-            return@rememberLauncherForActivityResult
+            return
         }
         coroutineScope.launch {
             val result = viewModel.importRecords(publisherPersonId, file, eventsWithTexts.map { it.event })
             val eventNote = if (result.newEvents > 0) " and ${result.newEvents} new event${if (result.newEvents == 1) "" else "s"}" else ""
             showToast("Imported ${result.newRecords} record${if (result.newRecords == 1) "" else "s"}$eventNote.")
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importFromUri(uri)
+    }
+    // "If the receiving Publisher downloads and clicks it, it will
+    // automatically import to his device" — no picker, no extra tap once
+    // this screen is reached; the file was already chosen the moment the
+    // Publisher opened it from Downloads/Gmail/Messenger/....
+    LaunchedEffect(Unit) {
+        IncomingBibleTextImportHolder.uri.collect { uri ->
+            if (uri != null) {
+                importFromUri(uri)
+                IncomingBibleTextImportHolder.consume()
+            }
         }
     }
 
@@ -249,6 +273,13 @@ private fun EventListScreen(
                 title = { Text("My Bible Text Record") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
                 actions = {
+                    // "Move the Add record button to the upper right of the
+                    // Record list, make it smaller" — a compact icon button
+                    // here instead of the previous full-width button below
+                    // the list.
+                    IconButton(onClick = { showAddEvent = true }) {
+                        Icon(Icons.Rounded.Add, contentDescription = "Add Record")
+                    }
                     IconButton(onClick = { showFilters = !showFilters }) {
                         Icon(Icons.Rounded.FilterList, contentDescription = "Filters")
                     }
@@ -275,7 +306,7 @@ private fun EventListScreen(
                             DropdownMenuItem(
                                 text = { Text("Import") },
                                 leadingIcon = { Icon(Icons.Rounded.Upload, contentDescription = null) },
-                                onClick = { showMoreMenu = false; importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                                onClick = { showMoreMenu = false; importLauncher.launch(arrayOf("application/zip", "application/json", "text/plain", "*/*")) },
                             )
                         }
                     }
@@ -335,7 +366,7 @@ private fun EventListScreen(
                 if (filtered.isEmpty()) {
                     item {
                         Text(
-                            if (eventsWithTexts.isEmpty()) "No Events saved yet. Tap Add Record to add one." else "No Events found for the selected search/filter.",
+                            if (eventsWithTexts.isEmpty()) "No Events saved yet. Tap + above to add one." else "No Events found for the selected search/filter.",
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(vertical = 16.dp),
                         )
@@ -343,14 +374,6 @@ private fun EventListScreen(
                 } else {
                     items(filtered, key = { it.event.id }) { item ->
                         EventCard(item = item, onClick = { onOpenEvent(item.event.id) }, onDelete = { pendingDeleteEvent = item })
-                    }
-                }
-                // The add action sits just below the list of events (it used to be
-                // a floating "+" in the corner of the screen).
-                item {
-                    Button(onClick = { showAddEvent = true }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text("Add Record")
                     }
                 }
             }
@@ -426,19 +449,19 @@ private fun bibleTextReportTable(items: List<EventWithTexts>): ReportTable {
 
 /**
  * The heading colours for one Event, taken from the app's own theme (so they
- * follow whichever theme colour the user picked, light or dark): each Event is
- * given a solid primary, secondary or tertiary colour and its matching "on"
- * colour for text, chosen from the Event's id so an Event keeps the same
- * colour in the list and on its own page, and no matter how the list is sorted.
+ * follow whichever theme colour the user picked, light or dark). Always the
+ * theme's primary/onPrimary pair — this used to rotate between primary,
+ * secondary and tertiary per Event (picked from the Event's id), but
+ * secondary/tertiary read visibly "faded" next to primary in this app's own
+ * colour schemes (a lighter, less saturated tone by design in most Material 3
+ * palettes), so some Event titles looked washed out compared to others with
+ * no way to tell that was ever intentional. Every Event now gets the exact
+ * same colour code and the exact same (full) opacity.
  */
 @Composable
-private fun eventAccent(eventId: String): Pair<Color, Color> {
+private fun eventAccent(@Suppress("UNUSED_PARAMETER") eventId: String): Pair<Color, Color> {
     val scheme = MaterialTheme.colorScheme
-    return when (Math.floorMod(eventId.hashCode(), 3)) {
-        0 -> scheme.primary to scheme.onPrimary
-        1 -> scheme.secondary to scheme.onSecondary
-        else -> scheme.tertiary to scheme.onTertiary
-    }
+    return scheme.primary to scheme.onPrimary
 }
 
 /** A line of text led by a small icon — the icon says at a glance what the line
@@ -472,7 +495,7 @@ private fun EventCard(item: EventWithTexts, onClick: () -> Unit, onDelete: () ->
             ) {
                 Text(
                     item.event.name.ifBlank { item.event.eventLabel }.uppercase(),
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = headingText,
                     modifier = Modifier.weight(1f),
@@ -484,15 +507,15 @@ private fun EventCard(item: EventWithTexts, onClick: () -> Unit, onDelete: () ->
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    IconLine(Icons.Rounded.Event, item.event.eventLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, tint = MaterialTheme.colorScheme.primary)
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconLine(Icons.Rounded.Event, item.event.eventLabel, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, tint = MaterialTheme.colorScheme.primary)
                     if (item.event.speaker?.isNotBlank() == true) {
-                        IconLine(Icons.Rounded.Person, "Speaker: ${item.event.speaker}", tint = MaterialTheme.colorScheme.primary)
+                        IconLine(Icons.Rounded.Person, "Speaker: ${item.event.speaker}", style = MaterialTheme.typography.bodySmall, tint = MaterialTheme.colorScheme.primary)
                     }
                     IconLine(
                         Icons.AutoMirrored.Rounded.MenuBook,
                         "${item.texts.size} Bible Text${if (item.texts.size == 1) "" else "s"}",
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelMedium,
                         tint = MaterialTheme.colorScheme.primary,
                     )
                 }
@@ -523,10 +546,57 @@ private fun EventDetailScreen(
     val event = eventWithTexts.event
     var showEditEvent by remember { mutableStateOf(false) }
     var showAddText by remember { mutableStateOf(false) }
+    // Which subtopic (null = directly under the Event) a just-opened "Add
+    // Bible Text" dialog will save into — set right before showAddText is
+    // flipped on, by whichever "+" the Publisher tapped (the Event-level one
+    // at the top of the Bible Texts section, or one specific subtopic's own).
+    var addTextSubtopicId by remember { mutableStateOf<String?>(null) }
     var showAddVideo by remember { mutableStateOf(false) }
     var pendingEditText by remember { mutableStateOf<BibleTextRecord?>(null) }
     var pendingDeleteText by remember { mutableStateOf<BibleTextRecord?>(null) }
     var pendingDeleteEvent by remember { mutableStateOf(false) }
+    var showAddSubtopic by remember { mutableStateOf(false) }
+    // The subtopic a new subtopic is created under — null for a top-level one
+    // (the Bible Texts section's own "+"), or a subtopic's id when it comes
+    // from that subtopic's own "Add Sub Topic Inside" menu item (nesting).
+    var addSubtopicParentId by remember { mutableStateOf<String?>(null) }
+    var pendingEditSubtopic by remember { mutableStateOf<BibleTextSubtopic?>(null) }
+    var pendingDeleteSubtopic by remember { mutableStateOf<BibleTextSubtopic?>(null) }
+    // "Allow to select multiple and move to a particular sub topic" — a
+    // Bible Text is long-pressed to enter selection mode, tapped again to
+    // toggle it in/out, and a "Move" action bulk-reassigns subtopicId for
+    // everything selected. True cross-list drag-and-drop is fragile across
+    // grouped/nested sections in Compose; tap-select + Move achieves the
+    // same outcome reliably.
+    var selectedTextIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showMoveToSubtopic by remember { mutableStateOf(false) }
+    val selectionMode = selectedTextIds.isNotEmpty()
+    fun toggleTextSelection(id: String) {
+        selectedTextIds = if (id in selectedTextIds) selectedTextIds - id else selectedTextIds + id
+    }
+    // "Allow the user to rearrange the subtopic manually" — Move Up/Down
+    // swaps [BibleTextSubtopic.order] between two adjacent siblings (same
+    // parentId); works the same for top-level subtopics and for ones nested
+    // inside another, since both just compare siblings by parentId.
+    fun moveSubtopic(subtopic: BibleTextSubtopic, up: Boolean) {
+        val siblings = event.subtopics.filter { it.parentId == subtopic.parentId }.sortedWith(compareBy({ it.order }, { it.createdAt }))
+        val index = siblings.indexOfFirst { it.id == subtopic.id }
+        val swapIndex = if (up) index - 1 else index + 1
+        if (index < 0 || swapIndex < 0 || swapIndex >= siblings.size) return
+        val other = siblings[swapIndex]
+        viewModel.saveEvent(
+            event.copy(
+                subtopics = event.subtopics.map {
+                    when (it.id) {
+                        subtopic.id -> it.copy(order = other.order)
+                        other.id -> it.copy(order = subtopic.order)
+                        else -> it
+                    }
+                },
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+    }
 
     // The event's own videos, plus any attached to one of its Bible Texts before
     // events had their own gallery (each removed from wherever it is kept).
@@ -581,38 +651,92 @@ private fun EventDetailScreen(
                 }
             }
             // Bible Texts and Videos are two separate groups, each with its own
-            // Add button.
+            // small "+" in its own header row instead of a full-width button
+            // below it (spec: "move the add button to the upper right...
+            // make it smaller").
             item {
-                GroupCard(
-                    icon = Icons.AutoMirrored.Rounded.MenuBook,
-                    title = "Bible Texts",
-                    count = eventWithTexts.texts.size,
-                    addLabel = "Add Bible Text",
-                    addIcon = Icons.Rounded.Add,
-                    onAdd = { showAddText = true },
-                ) {
-                    if (eventWithTexts.texts.isEmpty()) {
-                        Text("No Bible texts yet. Tap Add Bible Text to add one.", style = MaterialTheme.typography.bodySmall)
-                    } else {
-                        eventWithTexts.texts.sortedByDescending { it.createdAt }.forEach { text ->
-                            BibleTextCard(text = text, onEdit = { pendingEditText = text }, onDelete = { pendingDeleteText = text })
+                val textsBySubtopic = remember(eventWithTexts.texts) { eventWithTexts.texts.groupBy { it.subtopicId } }
+                val uncategorized = textsBySubtopic[null].orEmpty().sortedByDescending { it.createdAt }
+                val topLevelSubtopics = remember(event.subtopics) { event.subtopics.filter { it.parentId == null }.sortedWith(compareBy({ it.order }, { it.createdAt })) }
+                OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (selectionMode) {
+                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "${selectedTextIds.size} selected",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                IconButton(onClick = { showMoveToSubtopic = true }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = "Move to Sub Topic", modifier = Modifier.size(20.dp))
+                                }
+                                TextButton(onClick = { selectedTextIds = emptySet() }) { Text("Cancel") }
+                            }
+                        } else {
+                            SectionHeader(icon = Icons.AutoMirrored.Rounded.MenuBook, title = "Bible Texts", count = eventWithTexts.texts.size) {
+                                IconButton(onClick = { addSubtopicParentId = null; showAddSubtopic = true }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Rounded.CreateNewFolder, contentDescription = "Add Sub Topic", modifier = Modifier.size(20.dp))
+                                }
+                                IconButton(onClick = { addTextSubtopicId = null; showAddText = true }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Rounded.Add, contentDescription = "Add Bible Text", modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                        if (eventWithTexts.texts.isEmpty() && event.subtopics.isEmpty()) {
+                            Text("No Bible texts yet. Tap + to add one.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (uncategorized.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                uncategorized.forEach { text ->
+                                    BibleTextCard(
+                                        text = text,
+                                        selectionMode = selectionMode,
+                                        selected = text.id in selectedTextIds,
+                                        onEdit = { pendingEditText = text },
+                                        onDelete = { pendingDeleteText = text },
+                                        onToggleSelect = { toggleTextSelection(text.id) },
+                                        onEnterSelection = { selectedTextIds = setOf(text.id) },
+                                    )
+                                }
+                            }
+                        }
+                        topLevelSubtopics.forEach { subtopic ->
+                            SubtopicGroup(
+                                subtopic = subtopic,
+                                allSubtopics = event.subtopics,
+                                textsBySubtopic = textsBySubtopic,
+                                depth = 0,
+                                selectionMode = selectionMode,
+                                selectedTextIds = selectedTextIds,
+                                onAddText = { addTextSubtopicId = it; showAddText = true },
+                                onAddChildSubtopic = { addSubtopicParentId = it; showAddSubtopic = true },
+                                onRename = { pendingEditSubtopic = it },
+                                onDelete = { pendingDeleteSubtopic = it },
+                                onEditText = { pendingEditText = it },
+                                onDeleteText = { pendingDeleteText = it },
+                                onToggleSelect = ::toggleTextSelection,
+                                onEnterSelection = { selectedTextIds = setOf(it) },
+                                onMoveUp = { moveSubtopic(it, up = true) },
+                                onMoveDown = { moveSubtopic(it, up = false) },
+                            )
                         }
                     }
                 }
             }
             item {
-                GroupCard(
-                    icon = Icons.Rounded.VideoLibrary,
-                    title = "Videos",
-                    count = galleryVideos.size,
-                    addLabel = "Add Video",
-                    addIcon = Icons.Rounded.VideoLibrary,
-                    onAdd = { showAddVideo = true },
-                ) {
-                    if (galleryVideos.isEmpty()) {
-                        Text("No videos yet. Tap Add Video to add one from JW Library.", style = MaterialTheme.typography.bodySmall)
-                    } else {
-                        VideoGallery(galleryVideos)
+                OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SectionHeader(icon = Icons.Rounded.VideoLibrary, title = "Videos", count = galleryVideos.size) {
+                            IconButton(onClick = { showAddVideo = true }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Rounded.VideoLibrary, contentDescription = "Add Video", modifier = Modifier.size(20.dp))
+                            }
+                        }
+                        if (galleryVideos.isEmpty()) {
+                            Text("No videos yet. Tap + to add one from JW Library.", style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            VideoGallery(galleryVideos)
+                        }
                     }
                 }
             }
@@ -641,6 +765,7 @@ private fun EventDetailScreen(
         BibleTextRecordDialog(
             existing = null,
             eventId = event.id,
+            subtopicId = addTextSubtopicId,
             publisherPersonId = publisherPersonId,
             onSave = { viewModel.saveRecord(it); showToast("Bible text added successfully."); showAddText = false },
             onDismiss = { showAddText = false },
@@ -699,31 +824,309 @@ private fun EventDetailScreen(
             dismissButton = { TextButton(onClick = { pendingDeleteEvent = false }) { Text("Cancel") } },
         )
     }
+
+    if (showAddSubtopic) {
+        AddEditSubtopicDialog(
+            existing = null,
+            onSave = { name ->
+                val now = System.currentTimeMillis()
+                val subtopic = BibleTextSubtopic(id = java.util.UUID.randomUUID().toString(), name = name, parentId = addSubtopicParentId, order = now, createdAt = now)
+                viewModel.saveEvent(event.copy(subtopics = event.subtopics + subtopic, updatedAt = now))
+                showToast("Sub Topic added successfully.")
+                showAddSubtopic = false
+            },
+            onDismiss = { showAddSubtopic = false },
+        )
+    }
+    val toEditSubtopic = pendingEditSubtopic
+    if (toEditSubtopic != null) {
+        AddEditSubtopicDialog(
+            existing = toEditSubtopic,
+            onSave = { name ->
+                viewModel.saveEvent(
+                    event.copy(
+                        subtopics = event.subtopics.map { if (it.id == toEditSubtopic.id) it.copy(name = name) else it },
+                        updatedAt = System.currentTimeMillis(),
+                    ),
+                )
+                showToast("Sub Topic renamed successfully.")
+                pendingEditSubtopic = null
+            },
+            onDismiss = { pendingEditSubtopic = null },
+        )
+    }
+    val toDeleteSubtopic = pendingDeleteSubtopic
+    if (toDeleteSubtopic != null) {
+        // Deleting a subtopic that has subtopics of its own (nesting) must
+        // also remove those descendants — otherwise they'd be left pointing
+        // at a parent that no longer exists.
+        val affectedIds = subtopicAndDescendantIds(event.subtopics, toDeleteSubtopic.id)
+        val affectedCount = eventWithTexts.texts.count { it.subtopicId in affectedIds }
+        AlertDialog(
+            properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
+            onDismissRequest = { pendingDeleteSubtopic = null },
+            title = { Text("Delete Sub Topic?") },
+            text = {
+                Text(
+                    if (affectedCount == 0) {
+                        "Are you sure you want to delete \"${toDeleteSubtopic.name}\"?"
+                    } else {
+                        "\"${toDeleteSubtopic.name}\" has $affectedCount Bible Text${if (affectedCount == 1) "" else "s"} (including inside its own sub topics, if any). " +
+                            "They will be moved out, not deleted, and will show directly under this Event instead."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val now = System.currentTimeMillis()
+                    // "Never accidentally destroy saved Bible Text" — every
+                    // affected text (from this subtopic and any nested under
+                    // it) moves back to directly-under-the-Event (null)
+                    // rather than being deleted along with it.
+                    eventWithTexts.texts.filter { it.subtopicId in affectedIds }.forEach { text ->
+                        viewModel.saveRecord(text.copy(subtopicId = null, updatedAt = now))
+                    }
+                    viewModel.saveEvent(event.copy(subtopics = event.subtopics.filterNot { it.id in affectedIds }, updatedAt = now))
+                    showToast("Sub Topic deleted successfully.")
+                    pendingDeleteSubtopic = null
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDeleteSubtopic = null }) { Text("Cancel") } },
+        )
+    }
+
+    if (showMoveToSubtopic) {
+        MoveToSubtopicDialog(
+            subtopics = event.subtopics,
+            onMove = { targetSubtopicId ->
+                val now = System.currentTimeMillis()
+                eventWithTexts.texts.filter { it.id in selectedTextIds }.forEach { text ->
+                    viewModel.saveRecord(text.copy(subtopicId = targetSubtopicId, updatedAt = now))
+                }
+                showToast("Moved ${selectedTextIds.size} Bible Text${if (selectedTextIds.size == 1) "" else "s"}.")
+                selectedTextIds = emptySet()
+                showMoveToSubtopic = false
+            },
+            onDismiss = { showMoveToSubtopic = false },
+        )
+    }
 }
 
-/** A titled group on the event page — a heading with its count, that group's own
- * Add button, then its content. Bible Texts and Videos each get one so they read
- * as two separate sections. */
+/** [rootId] plus every subtopic nested under it, to any depth — used so
+ * deleting one subtopic also removes its own nested subtopics rather than
+ * leaving them pointing at a parent that no longer exists. */
+private fun subtopicAndDescendantIds(subtopics: List<BibleTextSubtopic>, rootId: String): Set<String> {
+    val ids = mutableSetOf(rootId)
+    var added = true
+    while (added) {
+        added = false
+        subtopics.forEach { st ->
+            if (st.parentId != null && st.parentId in ids && st.id !in ids) {
+                ids += st.id
+                added = true
+            }
+        }
+    }
+    return ids
+}
+
+/** [subtopics] in display order, each paired with its nesting depth (0 =
+ * top-level) — used by [MoveToSubtopicDialog] so a deeply-nested subtopic's
+ * place in the hierarchy is still clear in a flat picker list. */
+private fun flattenSubtopics(subtopics: List<BibleTextSubtopic>, parentId: String? = null, depth: Int = 0): List<Pair<BibleTextSubtopic, Int>> =
+    subtopics.filter { it.parentId == parentId }.sortedWith(compareBy({ it.order }, { it.createdAt })).flatMap { st ->
+        listOf(st to depth) + flattenSubtopics(subtopics, st.id, depth + 1)
+    }
+
+/** Bulk-move every selected Bible Text into one chosen Sub Topic (or back to
+ * directly-under-the-Event) — see [EventDetailScreen]'s selection-mode doc
+ * comment for why this replaces literal drag-and-drop. */
 @Composable
-private fun GroupCard(
-    icon: ImageVector,
-    title: String,
-    count: Int,
-    addLabel: String,
-    addIcon: ImageVector,
-    onAdd: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
+private fun MoveToSubtopicDialog(subtopics: List<BibleTextSubtopic>, onMove: (String?) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        properties = DialogProperties(dismissOnClickOutside = true, dismissOnBackPress = true),
+        onDismissRequest = onDismiss,
+        title = { Text("Move to Sub Topic") },
+        text = {
+            LazyColumn(modifier = Modifier.heightIn(max = 400.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                item {
+                    TextButton(onClick = { onMove(null) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("No Sub Topic (directly under Event)", modifier = Modifier.weight(1f))
+                    }
+                }
+                items(flattenSubtopics(subtopics)) { (subtopic, depth) ->
+                    TextButton(onClick = { onMove(subtopic.id) }, modifier = Modifier.fillMaxWidth().padding(start = (depth * 16).dp)) {
+                        Text(subtopic.name, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Add/rename a Sub Topic — just a name, no other fields (spec: "allow the
+ * publisher to add a sub topic"). */
+@Composable
+private fun AddEditSubtopicDialog(existing: BibleTextSubtopic?, onSave: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf(existing?.name.orEmpty()) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    FormDialog(
+        onDismissRequest = onDismiss,
+        title = if (existing == null) "Add Sub Topic" else "Rename Sub Topic",
+        onConfirm = {
+            if (name.isBlank()) {
+                errorMessage = "Sub Topic name is required."
+            } else {
+                onSave(name.trim())
+            }
+        },
+        confirmLabel = if (existing == null) "Save" else "Rename",
+        hasUnsavedChanges = name != existing?.name.orEmpty(),
+        errorMessage = errorMessage,
+    ) {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it; errorMessage = null },
+            label = { Text("Sub Topic Name *") },
+            placeholder = { Text("e.g. Introduction, Main Point 1, Conclusion") },
+            singleLine = true,
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/** A section's own title row — icon + "Title (N)" on the left, one or more
+ * small icon-only actions on the right (spec: "move the add button to the
+ * upper right... make it smaller" — every section-level "add" action on
+ * this screen now lives here instead of a full-width button below). */
+@Composable
+private fun SectionHeader(icon: ImageVector, title: String, count: Int, actions: @Composable RowScope.() -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        IconLine(
+            icon, "$title ($count)",
+            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp), content = actions)
+    }
+}
+
+/** One Sub Topic's own group within the Bible Texts section — a compact
+ * header (name, count, a scoped "+" that adds a Bible Text directly into
+ * *this* subtopic, and a ⋮ menu for Rename/Delete/Add Sub Topic Inside)
+ * followed by its own Bible Texts, then any subtopics nested under it
+ * (rendered recursively, indented one step further each level — "theme
+ * inside a sub theme, and so on"). */
+@Composable
+private fun SubtopicGroup(
+    subtopic: BibleTextSubtopic,
+    allSubtopics: List<BibleTextSubtopic>,
+    textsBySubtopic: Map<String?, List<BibleTextRecord>>,
+    depth: Int,
+    selectionMode: Boolean,
+    selectedTextIds: Set<String>,
+    onAddText: (subtopicId: String) -> Unit,
+    onAddChildSubtopic: (parentId: String) -> Unit,
+    onRename: (BibleTextSubtopic) -> Unit,
+    onDelete: (BibleTextSubtopic) -> Unit,
+    onEditText: (BibleTextRecord) -> Unit,
+    onDeleteText: (BibleTextRecord) -> Unit,
+    onToggleSelect: (String) -> Unit,
+    onEnterSelection: (String) -> Unit,
+    onMoveUp: (BibleTextSubtopic) -> Unit,
+    onMoveDown: (BibleTextSubtopic) -> Unit,
 ) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            IconLine(icon, "$title ($count)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, tint = MaterialTheme.colorScheme.primary)
-            Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) {
-                Icon(addIcon, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                Text(addLabel)
+    var showMenu by remember { mutableStateOf(false) }
+    val texts = textsBySubtopic[subtopic.id].orEmpty().sortedByDescending { it.createdAt }
+    val children = remember(allSubtopics, subtopic.id) { allSubtopics.filter { it.parentId == subtopic.id }.sortedWith(compareBy({ it.order }, { it.createdAt })) }
+    val siblings = remember(allSubtopics, subtopic.parentId) { allSubtopics.filter { it.parentId == subtopic.parentId }.sortedWith(compareBy({ it.order }, { it.createdAt })) }
+    val siblingIndex = siblings.indexOfFirst { it.id == subtopic.id }
+    val canMoveUp = siblingIndex > 0
+    val canMoveDown = siblingIndex in 0 until siblings.size - 1
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(start = (8 + depth * 12).dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${subtopic.name} (${texts.size})",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            // "Do not hide the icons — Add Sub Topic Inside, Rename and
+            // Delete must be shown on top of the Sub Topic" — these three
+            // (plus Add Bible Text) are now their own icon buttons in the
+            // header row instead of sitting inside a "⋮" menu; only the
+            // less-common Move Up/Down stay in an overflow menu.
+            IconButton(onClick = { onAddText(subtopic.id) }, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Rounded.Add, contentDescription = "Add Bible Text to ${subtopic.name}", modifier = Modifier.size(18.dp))
             }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                content()
+            IconButton(onClick = { onAddChildSubtopic(subtopic.id) }, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Rounded.CreateNewFolder, contentDescription = "Add Sub Topic Inside ${subtopic.name}", modifier = Modifier.size(18.dp))
             }
+            IconButton(onClick = { onRename(subtopic) }, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Rounded.Edit, contentDescription = "Rename ${subtopic.name}", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            }
+            IconButton(onClick = { onDelete(subtopic) }, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Rounded.Delete, contentDescription = "Delete ${subtopic.name}", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+            }
+            if (canMoveUp || canMoveDown) {
+                Box {
+                    IconButton(onClick = { showMenu = true }, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "More Sub Topic options", modifier = Modifier.size(18.dp))
+                    }
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        if (canMoveUp) {
+                            DropdownMenuItem(text = { Text("Move Up") }, onClick = { showMenu = false; onMoveUp(subtopic) })
+                        }
+                        if (canMoveDown) {
+                            DropdownMenuItem(text = { Text("Move Down") }, onClick = { showMenu = false; onMoveDown(subtopic) })
+                        }
+                    }
+                }
+            }
+        }
+        if (texts.isEmpty() && children.isEmpty()) {
+            Text("No Bible texts yet.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            texts.forEach { text ->
+                BibleTextCard(
+                    text = text,
+                    selectionMode = selectionMode,
+                    selected = text.id in selectedTextIds,
+                    onEdit = { onEditText(text) },
+                    onDelete = { onDeleteText(text) },
+                    onToggleSelect = { onToggleSelect(text.id) },
+                    onEnterSelection = { onEnterSelection(text.id) },
+                )
+            }
+        }
+        children.forEach { child ->
+            SubtopicGroup(
+                subtopic = child,
+                allSubtopics = allSubtopics,
+                textsBySubtopic = textsBySubtopic,
+                depth = depth + 1,
+                selectionMode = selectionMode,
+                selectedTextIds = selectedTextIds,
+                onAddText = onAddText,
+                onAddChildSubtopic = onAddChildSubtopic,
+                onRename = onRename,
+                onDelete = onDelete,
+                onEditText = onEditText,
+                onDeleteText = onDeleteText,
+                onToggleSelect = onToggleSelect,
+                onEnterSelection = onEnterSelection,
+                onMoveUp = onMoveUp,
+                onMoveDown = onMoveDown,
+            )
         }
     }
 }
@@ -733,15 +1136,32 @@ private fun GroupCard(
  * Edit/Delete/JW Library actions collapsed into a single icon-only row so
  * more Bible Texts are visible on screen at once without scrolling past
  * mostly-empty space between them. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun BibleTextCard(text: BibleTextRecord, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun BibleTextCard(
+    text: BibleTextRecord,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onToggleSelect: () -> Unit = {},
+    onEnterSelection: () -> Unit = {},
+) {
     val context = LocalContext.current
     val showToast = rememberActionToast()
     val bookNumber = NwtBibleReferenceData.book(text.bibleVersionId, text.languageId, text.bibleBookId)?.order
     val jwLocale = NwtBibleReferenceData.language(text.languageId)?.jwLocale
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth().combinedClickable(
+            onClick = { if (selectionMode) onToggleSelect() },
+            onLongClick = { if (!selectionMode) onEnterSelection() },
+        ),
+    ) {
         Column(modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, end = 4.dp, bottom = 4.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (selectionMode) {
+                    Checkbox(checked = selected, onCheckedChange = { onToggleSelect() })
+                }
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(15.dp))
@@ -931,13 +1351,29 @@ private fun BibleTextRecordDialog(
     publisherPersonId: String,
     onSave: (BibleTextRecord) -> Unit,
     onDismiss: () -> Unit,
+    // Which Sub Topic (if any) a brand-new record is created into — see
+    // this screen's own "+" placement (the Event-level one passes null,
+    // each Sub Topic's own scoped one passes its id). Irrelevant when
+    // [existing] is non-null: an edit always keeps that record's own
+    // already-saved subtopicId, never moves it.
+    subtopicId: String? = null,
 ) {
     val version = NwtBibleReferenceData.defaultVersion
-    // Bible Language — English by default (spec §6), now with a picker again so a
-    // record can be kept in another language the New World Translation is
-    // published in. An existing record starts on whatever language it already
-    // had (spec §7: never silently change saved data).
-    var languageId by remember { mutableStateOf(existing?.languageId?.ifBlank { null } ?: NwtBibleReferenceData.languages.first().id) }
+    val context = LocalContext.current
+    // Bible Language — now with a picker so a record can be kept in another
+    // language the New World Translation is published in. An existing record
+    // starts on whatever language it already had (spec §7: never silently
+    // change saved data); a brand-new record starts on whichever language the
+    // publisher picked last time ("make it permanent except the publisher
+    // will change it" — see [BibleTextLanguagePreference]), falling back to
+    // the first language only the very first time this dialog is ever used.
+    var languageId by remember {
+        mutableStateOf(
+            existing?.languageId?.ifBlank { null }
+                ?: BibleTextLanguagePreference.get(context)
+                ?: NwtBibleReferenceData.languages.first().id,
+        )
+    }
     val language = NwtBibleReferenceData.language(languageId)
     val books = remember(languageId) { NwtBibleReferenceData.booksFor(version.id, languageId) }
     var bookId by remember { mutableStateOf(existing?.bibleBookId?.ifBlank { null }) }
@@ -983,7 +1419,6 @@ private fun BibleTextRecordDialog(
     // verse text" button is the explicit way to replace it. A failed lookup
     // just leaves Remarks to be typed; nothing here blocks saving.
     val verseTextViewModel: BibleVerseTextViewModel = hiltViewModel()
-    val context = LocalContext.current
     val showToast = rememberActionToast()
     val clipboardManager = LocalClipboardManager.current
     val verseScope = rememberCoroutineScope()
@@ -1043,7 +1478,7 @@ private fun BibleTextRecordDialog(
             return
         }
         val now = System.currentTimeMillis()
-        val base = existing ?: BibleTextRecord(publisherPersonId = publisherPersonId, categoryId = eventId, createdAt = now)
+        val base = existing ?: BibleTextRecord(publisherPersonId = publisherPersonId, categoryId = eventId, subtopicId = subtopicId, createdAt = now)
         onSave(
             base.copy(
                 bibleVersionId = version.id,
@@ -1077,7 +1512,12 @@ private fun BibleTextRecordDialog(
             label = "Bible Language",
             selectedLabel = language?.name ?: languageId,
             options = NwtBibleReferenceData.languages.map { it.id to it.name },
-            onSelected = { newId -> if (newId != null) languageId = newId },
+            onSelected = { newId ->
+                if (newId != null) {
+                    languageId = newId
+                    BibleTextLanguagePreference.set(context, newId)
+                }
+            },
         )
         Text("Bible Book *", style = MaterialTheme.typography.labelMedium)
         if (showingBookList) {
@@ -1101,13 +1541,29 @@ private fun BibleTextRecordDialog(
                     Text("Back to Bible Books")
                 }
             }
-            Text(selectedBook.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Text("Select Chapter *", style = MaterialTheme.typography.labelMedium)
-            ChapterGrid(
-                chapterCount = selectedBook.chapterCount,
-                selectedChapter = chapter,
-                onSelect = { chapter = it },
-            )
+            if (chapter == null) {
+                Text(selectedBook.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text("Select Chapter *", style = MaterialTheme.typography.labelMedium)
+                ChapterGrid(
+                    chapterCount = selectedBook.chapterCount,
+                    selectedChapter = chapter,
+                    onSelect = { chapter = it },
+                )
+            } else {
+                // "Hide the chapter after selecting, show only the verse
+                // textbox" — once a chapter is picked, collapse the grid down
+                // to a one-line summary with a "Change" link back to it,
+                // instead of leaving the whole 1-50 grid on screen.
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${selectedBook.name} Chapter $chapter",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { chapter = null }) { Text("Change") }
+                }
+            }
         } else {
             // Spec §7 — an old record's [bookId] that no longer matches any
             // current Bible book (e.g. a removed/renamed id) is preserved

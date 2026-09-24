@@ -1,5 +1,6 @@
 package com.emfitsolutions.gopreach
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
@@ -17,6 +18,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.emfitsolutions.gopreach.data.export.IncomingBibleTextImportHolder
 import com.emfitsolutions.gopreach.data.repository.ThemePreference
 import com.emfitsolutions.gopreach.data.repository.ThemePreferenceRepository
 import com.emfitsolutions.gopreach.data.sync.RemoteSyncCoordinator
@@ -52,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleIncomingIntent(intent)
         setContent {
             val preference by themePreferenceRepository.preference.collectAsStateWithLifecycle()
             val colorOption by themePreferenceRepository.colorOption.collectAsStateWithLifecycle()
@@ -139,6 +142,27 @@ class MainActivity : AppCompatActivity() {
                     SyncMessageHost()
                 }
             }
+        }
+    }
+
+    // singleTask (see AndroidManifest.xml) — an already-running instance is
+    // handed a new "tap the shared file to import it" intent here instead of
+    // a fresh Activity being created for it.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    /** "If the receiving Publisher downloads and taps the exported file, it
+     * must import automatically" — stashes the incoming file's Uri where
+     * [com.emfitsolutions.gopreach.ui.screens.bibletext.BibleTextRecordScreen]
+     * (the only place with both a signed-in Publisher id and their existing
+     * Events) picks it up and runs the exact same import path as its own
+     * manual "Import" menu item. */
+    private fun handleIncomingIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW) {
+            intent.data?.let { IncomingBibleTextImportHolder.set(it) }
         }
     }
 }

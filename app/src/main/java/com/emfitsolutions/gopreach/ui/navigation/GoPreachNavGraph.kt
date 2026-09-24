@@ -11,6 +11,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.emfitsolutions.gopreach.data.export.IncomingBibleTextImportHolder
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.RoleType
@@ -157,6 +158,22 @@ fun GoPreachNavGraph(
     // actually end that session, not just block their *next* sign-in attempt.
     LaunchedEffect(session.isAccountBlocked) {
         if (session.isAccountBlocked) sessionViewModel.signOut()
+    }
+
+    // "If the receiving Publisher downloads and taps the exported file, it
+    // will automatically import to his device" — once a Publisher is signed
+    // in, jump straight to My Bible Text Record so
+    // [com.emfitsolutions.gopreach.ui.screens.bibletext.BibleTextRecordScreen]
+    // (the only place with both the Publisher's id and their existing
+    // Events) can pick up and run the import. Re-armed on every sign-in
+    // (not just app cold start), so a file tapped while already logged out
+    // still imports right after the Publisher logs in.
+    LaunchedEffect(currentPersonId) {
+        if (currentPersonId.isNotBlank()) {
+            IncomingBibleTextImportHolder.uri.collect { uri ->
+                if (uri != null) navController.navigate(Destinations.MY_BIBLE_TEXT_RECORD)
+            }
+        }
     }
 
     // Spec §14 system messages — each keyed on the signed-in person's own id,

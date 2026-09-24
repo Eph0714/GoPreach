@@ -96,11 +96,26 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.GoPreach"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- "If the receiving Publisher downloads and taps the exported
+                 My Bible Text Record file, it must import automatically" —
+                 tapping a file/attachment carrying this app's own distinctive
+                 export MIME type (see BibleTextExporter.BIBLE_TEXT_EXPORT_MIME_TYPE)
+                 opens straight into GoPreach instead of a generic zip/archive
+                 app or a cluttered chooser. singleTask above so an already-
+                 running instance receives it via onNewIntent rather than a
+                 second Activity instance being created. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/vnd.gopreach.bibletext+zip" />
             </intent-filter>
         </activity>
 

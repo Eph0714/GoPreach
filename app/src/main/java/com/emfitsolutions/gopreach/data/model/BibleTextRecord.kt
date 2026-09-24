@@ -54,8 +54,41 @@ data class BibleTextCategory(
      * attached to an individual [BibleTextRecord.videos] before this existed are
      * still shown in the same gallery. */
     val videos: List<SavedVideo> = emptyList(),
+    /** "Allow the publisher to add a sub topic and add a bible text inside
+     * it" — an Event's own Bible Texts can optionally be grouped under one
+     * of these (e.g. "Introduction", "Main Point 1", "Conclusion") instead
+     * of sitting directly under the Event. Kept as a plain embedded list on
+     * the Event itself rather than its own synced Firestore collection —
+     * one Event's subtopics are never read/written independently of that
+     * Event, so this needs no new collection, security rule, or sync
+     * plumbing of its own; it rides along with the Event's existing one.
+     * A subtopic can itself contain subtopics (see [BibleTextSubtopic.parentId]),
+     * to any depth. A Bible Text's own [BibleTextRecord.subtopicId] is what
+     * actually places it under one specific subtopic, or leaves it directly
+     * under the Event when null. */
+    val subtopics: List<BibleTextSubtopic> = emptyList(),
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
+)
+
+/** One sub-grouping within a single [BibleTextCategory] (Event) — see that
+ * class's own [BibleTextCategory.subtopics] doc comment. [id] only needs to
+ * be unique within its own Event (a client-generated random string is
+ * enough; it's never looked up across Events). [parentId] is another
+ * subtopic's [id] within the same Event, or null for a top-level subtopic —
+ * a subtopic can itself contain subtopics, to any depth ("theme inside a
+ * sub theme, and so on"). */
+data class BibleTextSubtopic(
+    val id: String = "",
+    val name: String = "",
+    val parentId: String? = null,
+    /** Manual display order among siblings (same [parentId]) — "allow the
+     * user to rearrange the subtopic manually" via Move Up/Down, which swaps
+     * this value between two adjacent siblings rather than reordering by
+     * [createdAt]. Defaults to [createdAt] at creation time so a subtopic
+     * saved before this field existed sorts exactly where it already did. */
+    val order: Long = 0L,
+    val createdAt: Long = 0L,
 )
 
 /**
@@ -97,6 +130,14 @@ data class BibleTextRecord(
      * Firestore backward compatibility; every existing record's value here
      * is already exactly this relationship (spec §17's `MyBibleEventID`). */
     val categoryId: String = "",
+    /** One of the parent Event's own [BibleTextCategory.subtopics] ids, or
+     * null when this Bible Text sits directly under the Event instead of
+     * any subtopic — see that field's own doc comment. Never validated
+     * against the parent's current subtopic list at read time: a subtopic
+     * deleted out from under this record (see the delete-subtopic flow,
+     * which moves its texts back to null rather than deleting them) simply
+     * leaves this pointing at nothing, which reads the exact same as null. */
+    val subtopicId: String? = null,
     /** Optional (spec §3/§20) — the Publisher's own personal note; multi-line
      * free text. */
     val remarks: String = "",
