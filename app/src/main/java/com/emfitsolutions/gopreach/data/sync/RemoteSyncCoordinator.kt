@@ -25,6 +25,7 @@ import com.emfitsolutions.gopreach.data.repository.PlannerDayRepository
 import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
 import com.emfitsolutions.gopreach.data.repository.CreditHourRecordRepository
 import com.emfitsolutions.gopreach.data.repository.PublisherForwardRequestRepository
+import com.emfitsolutions.gopreach.data.repository.personIdFromAuthEmail
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.WeeklyPlannerGoalRepository
 import com.emfitsolutions.gopreach.data.repository.YearlyPlannerGoalRepository
@@ -174,6 +175,21 @@ class RemoteSyncCoordinator @Inject constructor(
         awaitClose { firebaseAuth.removeAuthStateListener(listener) }
     }.debounce(1_500).distinctUntilChanged().stateIn(appScope, SharingStarted.Eagerly, firebaseAuth.currentUser?.uid)
 
+    /** Same idea as [uidChanged], but resolved to the app's own personId
+     * (the email-local-part identifier every document's `publisherPersonId`
+     * field and firestore.rules' own `personIdFromToken()` actually use) —
+     * `uidChanged`'s Firebase Auth UID is a different, unrelated string. Used
+     * by [startTrackedForPublisher] to build the per-publisher-scoped
+     * `.whereEqualTo("publisherPersonId", personId)` query each of those
+     * collections' security rules require (see [PlannerDayRepository
+     * .startRemoteSync]'s doc comment for the bug this fixes). */
+    private val personIdChanged: StateFlow<String?> = callbackFlow {
+        val listener = FirebaseAuth.AuthStateListener { auth -> trySend(personIdFromAuthEmail(auth.currentUser?.email)) }
+        firebaseAuth.addAuthStateListener(listener)
+        awaitClose { firebaseAuth.removeAuthStateListener(listener) }
+    }.debounce(1_500).distinctUntilChanged()
+        .stateIn(appScope, SharingStarted.Eagerly, personIdFromAuthEmail(firebaseAuth.currentUser?.email))
+
     /** Bug fix ("I cannot see the same data to other phone" — reproduced live
      * on a real device): [FirestoreMirror]'s retry budget is built to recover
      * from a *momentary* "token not attached yet" window at the exact instant
@@ -203,6 +219,19 @@ class RemoteSyncCoordinator @Inject constructor(
      * [retryIfNeeded] call. */
     private fun Flow<Unit>.startTracked(uidChanged: Flow<String?>): Unit {
         combine(uidChanged, retryGeneration) { uid, _ -> uid }.flatMapLatest { this }.launchIn(appScope)
+    }
+
+    /** [startTracked]'s counterpart for a collection whose `startRemoteSync`
+     * needs the current Publisher's own personId to build its
+     * ownership-scoped query (see [personIdChanged]'s doc comment) — [flowFor]
+     * is called fresh with whatever personId is currently signed in every
+     * time it changes or [retryIfNeeded] bumps [retryGeneration], exactly
+     * like [startTracked] does for the plain uid-keyed case. No personId
+     * (signed out) means nothing to scope to, so nothing is subscribed. */
+    private fun startTrackedForPublisher(flowFor: (String) -> Flow<Unit>) {
+        combine(personIdChanged, retryGeneration) { personId, _ -> personId }
+            .flatMapLatest { personId -> if (personId != null) flowFor(personId) else kotlinx.coroutines.flow.emptyFlow() }
+            .launchIn(appScope)
     }
 
     /** Called from every point the app already suspects a session might need
@@ -268,8 +297,8 @@ class RemoteSyncCoordinator @Inject constructor(
         announcementRepository.startRemoteSync().startTracked(uidChanged)
         locationSharingSettingsRepository.startRemoteSync().startTracked(uidChanged)
         savedLocationRepository.startRemoteSync().startTracked(uidChanged)
-        bibleTextCategoryRepository.startRemoteSync().startTracked(uidChanged)
-        bibleTextRecordRepository.startRemoteSync().startTracked(uidChanged)
+        startTrackedForPublisher { pid -> bibleTextCategoryRepository.startRemoteSync(pid) }
+        startTrackedForPublisher { pid -> bibleTextRecordRepository.startRemoteSync(pid) }
         midweekMeetingScheduleRepository.startRemoteSync().startTracked(uidChanged)
         publicTalkScheduleRepository.startRemoteSync().startTracked(uidChanged)
         cartAssignmentRepository.startRemoteSync().startTracked(uidChanged)
@@ -283,11 +312,11 @@ class RemoteSyncCoordinator @Inject constructor(
         // in particular): see this class's own constructor doc comment
         // above these six repositories for why they were silently never
         // syncing down to any device but the one that wrote them.
-        plannerDayRepository.startRemoteSync().startTracked(uidChanged)
-        monthlyPlannerGoalRepository.startRemoteSync().startTracked(uidChanged)
-        weeklyPlannerGoalRepository.startRemoteSync().startTracked(uidChanged)
-        yearlyPlannerGoalRepository.startRemoteSync().startTracked(uidChanged)
-        creditHourRecordRepository.startRemoteSync().startTracked(uidChanged)
-        ministryTimerSessionRepository.startRemoteSync().startTracked(uidChanged)
+        startTrackedForPublisher { pid -> plannerDayRepository.startRemoteSync(pid) }
+        startTrackedForPublisher { pid -> monthlyPlannerGoalRepository.startRemoteSync(pid) }
+        startTrackedForPublisher { pid -> weeklyPlannerGoalRepository.startRemoteSync(pid) }
+        startTrackedForPublisher { pid -> yearlyPlannerGoalRepository.startRemoteSync(pid) }
+        startTrackedForPublisher { pid -> creditHourRecordRepository.startRemoteSync(pid) }
+        startTrackedForPublisher { pid -> ministryTimerSessionRepository.startRemoteSync(pid) }
     }
 }

@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.data.repository
 import com.emfitsolutions.gopreach.data.model.BibleTextCategory
 import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
 import com.emfitsolutions.gopreach.data.sync.mirrorFirestoreCollection
+import com.emfitsolutions.gopreach.data.sync.pullFirestoreCollectionOnce
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +40,16 @@ class BibleTextCategoryRepository @Inject constructor(
 
     suspend fun delete(categoryId: String) = offline.delete(COLLECTION, categoryId)
 
-    fun startRemoteSync(): Flow<Unit> =
-        mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, BibleTextCategory::class.java) { it.id }
+    /** Same fix as [BibleTextRecordRepository.startRemoteSync] — the query
+     * now actually matches what firestore.rules already required. */
+    fun startRemoteSync(publisherPersonId: String): Flow<Unit> =
+        mirrorFirestoreCollection(
+            firestore, offline, appScope, COLLECTION, BibleTextCategory::class.java,
+            query = firestore.collection(COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+        ) { it.id }
+
+    suspend fun pullOnce(publisherPersonId: String) = pullFirestoreCollectionOnce(
+        firestore, offline, COLLECTION, BibleTextCategory::class.java,
+        query = firestore.collection(COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+    ) { it.id }
 }

@@ -128,8 +128,14 @@ class CreditHourRecordRepository @Inject constructor(
 
     suspend fun delete(recordId: String) = offline.delete(RECORDS_COLLECTION, recordId)
 
-    fun startRemoteSync(): Flow<Unit> =
-        mirrorFirestoreCollection(firestore, offline, appScope, RECORDS_COLLECTION, CreditHourRecord::class.java) { it.id }
+    fun startRemoteSync(publisherPersonId: String): Flow<Unit> =
+        mirrorFirestoreCollection(
+            firestore, offline, appScope, RECORDS_COLLECTION, CreditHourRecord::class.java,
+            query = firestore.collection(RECORDS_COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+        ) { it.id }
 
-    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, RECORDS_COLLECTION, CreditHourRecord::class.java) { it.id }
+    suspend fun pullOnce(publisherPersonId: String) = pullFirestoreCollectionOnce(
+        firestore, offline, RECORDS_COLLECTION, CreditHourRecord::class.java,
+        query = firestore.collection(RECORDS_COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+    ) { it.id }
 }

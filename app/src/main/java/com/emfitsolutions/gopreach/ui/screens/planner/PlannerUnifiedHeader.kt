@@ -109,6 +109,24 @@ internal fun UnifiedPlannerHeader(
             QuickDateRange.THIS_MONTH to "Month",
             QuickDateRange.THIS_YEAR to "Year",
         )
+        // "Selected: 100% theme color. Not selected: slightly transparent
+        // version of the same theme color" — Material3's own default
+        // SegmentedButton colors lean on secondaryContainer for the
+        // selected state, which doesn't read as "the app's theme color" the
+        // way a solid `primary` fill does, and its own unselected state is
+        // a flat surface tint rather than a translucent tint of that same
+        // color. Both overridden explicitly here so this always tracks
+        // whatever accent color the Publisher has picked (colorScheme.primary
+        // already does, live, via GoPreachTheme) rather than a separate,
+        // hard-coded pair of colors.
+        val segmentedColors = SegmentedButtonDefaults.colors(
+            activeContainerColor = MaterialTheme.colorScheme.primary,
+            activeContentColor = MaterialTheme.colorScheme.onPrimary,
+            activeBorderColor = MaterialTheme.colorScheme.primary,
+            inactiveContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+            inactiveContentColor = MaterialTheme.colorScheme.primary,
+            inactiveBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+        )
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(top = 8.dp, end = 12.dp)) {
             options.forEachIndexed { index, (option, label) ->
                 SegmentedButton(
@@ -116,6 +134,7 @@ internal fun UnifiedPlannerHeader(
                     onClick = { onSelectPeriod(option) },
                     shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size + 1),
                     icon = {},
+                    colors = segmentedColors,
                     modifier = Modifier.heightIn(min = 40.dp),
                 ) {
                     Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
@@ -126,6 +145,7 @@ internal fun UnifiedPlannerHeader(
                 onClick = onSelectCompare,
                 shape = SegmentedButtonDefaults.itemShape(index = options.size, count = options.size + 1),
                 icon = {},
+                colors = segmentedColors,
                 modifier = Modifier.heightIn(min = 40.dp),
             ) {
                 Text("Compare", style = MaterialTheme.typography.labelLarge, maxLines = 1)

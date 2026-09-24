@@ -63,10 +63,24 @@ class PlannerDayRepository @Inject constructor(
         save(base.copy(totalMinutes = newTotal))
     }
 
-    fun startRemoteSync(): Flow<Unit> =
-        mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, PlannerDay::class.java) { it.id }
+    /** Scoped to just this Publisher's own documents — matching
+     * firestore.rules' own `resource.data.publisherPersonId ==
+     * personIdFromToken()` check on this collection is what makes an
+     * unconstrained `list` even *legal* server-side; without this filter,
+     * Firestore can't statically prove the query only returns documents the
+     * rule allows and rejects the whole listener with PERMISSION_DENIED for
+     * every Publisher, on every device, every time — not a per-device bug,
+     * a query/rule mismatch that was silently breaking this for everyone. */
+    fun startRemoteSync(publisherPersonId: String): Flow<Unit> =
+        mirrorFirestoreCollection(
+            firestore, offline, appScope, COLLECTION, PlannerDay::class.java,
+            query = firestore.collection(COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+        ) { it.id }
 
     /** See [pullFirestoreCollectionOnce]'s doc comment — a one-shot fallback
      * for a device whose live listener can't sustain a connection. */
-    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, COLLECTION, PlannerDay::class.java) { it.id }
+    suspend fun pullOnce(publisherPersonId: String) = pullFirestoreCollectionOnce(
+        firestore, offline, COLLECTION, PlannerDay::class.java,
+        query = firestore.collection(COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+    ) { it.id }
 }

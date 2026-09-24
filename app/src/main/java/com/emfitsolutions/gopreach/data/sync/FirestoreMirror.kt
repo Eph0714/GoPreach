@@ -4,6 +4,7 @@ import android.util.Log
 import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.Source
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
@@ -60,11 +61,22 @@ private const val MAX_RETRY_ATTEMPTS = 5
 private const val RETRY_BASE_DELAY_MS = 2_000L
 
 /**
- * Attaches a live Firestore snapshot listener on [collectionPath] and mirrors every
+ * Attaches a live Firestore snapshot listener on [query] and mirrors every
  * change into the offline cache via [offline], so every domain repository gets the
  * same "cache is always current when online, always available when offline"
  * behavior without re-implementing the listener each time (see e.g.
  * [com.emfitsolutions.gopreach.data.repository.PersonRepository.startRemoteSync]).
+ *
+ * [collectionPath] is used only for the local cache's own bookkeeping
+ * (registration dedup, cache/delete keys) — the actual data fetched is
+ * whatever [query] describes, which callers needing every publisher's own
+ * data scoped to just their own records (see [com.emfitsolutions.gopreach
+ * .data.repository.PlannerDayRepository.startRemoteSync] for why: this app's
+ * "My Planner" collections deliberately restrict both the security rule and
+ * the query to `publisherPersonId == <the signed-in Publisher>`, not "every
+ * signed-in Publisher's data") build with `.whereEqualTo(...)` before passing
+ * it in; a caller with no such restriction just passes the plain
+ * `firestore.collection(collectionPath)`.
  */
 fun <T : Any> mirrorFirestoreCollection(
     firestore: FirebaseFirestore,
@@ -72,6 +84,7 @@ fun <T : Any> mirrorFirestoreCollection(
     appScope: CoroutineScope,
     collectionPath: String,
     clazz: Class<T>,
+    query: Query = firestore.collection(collectionPath),
     idOf: (T) -> String,
 ): Flow<Unit> = callbackFlow {
     var retryCount = 0
@@ -80,7 +93,7 @@ fun <T : Any> mirrorFirestoreCollection(
         // Synchronously supersede any prior registration for this exact
         // collection path — see this file's own top-of-file doc comment.
         activeRegistrations.remove(collectionPath)?.remove()
-        val registration = firestore.collection(collectionPath).addSnapshotListener { snapshot, error ->
+        val registration = query.addSnapshotListener { snapshot, error ->
             if (error != null || snapshot == null) {
                 if (error != null) {
                     Log.w(TAG, "Listener for '$collectionPath' failed (attempt ${retryCount + 1}): ${error.message}")
@@ -157,9 +170,10 @@ suspend fun <T : Any> pullFirestoreCollectionOnce(
     offline: OfflineFirestoreRepository,
     collectionPath: String,
     clazz: Class<T>,
+    query: Query = firestore.collection(collectionPath),
     idOf: (T) -> String,
 ) {
-    val snapshot = firestore.collection(collectionPath).get(Source.SERVER).await()
+    val snapshot = query.get(Source.SERVER).await()
     for (document in snapshot.documents) {
         try {
             val model = document.toObject(clazz) ?: continue

@@ -1,11 +1,15 @@
 package com.emfitsolutions.gopreach.ui.screens.planner
 
 import android.app.DatePickerDialog
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -106,9 +110,11 @@ internal fun formatRecordDate(millis: Long): String = SimpleDateFormat("EEE, MMM
 
 private fun formatFullDate(millis: Long): String = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()).format(Date(millis))
 
-/** Light "‹ label ›" period stepper at the top of every Planner view —
- * a tinted pill rather than a heavy filled bar, so the unified card reads
- * as one surface. */
+/** "‹ label ›" period stepper at the top of every Planner view — a solid
+ * theme-color pill (spec: "solid theme-color fill... readable contrasting
+ * text"), always [MaterialTheme.colorScheme.primary] itself so it follows
+ * whatever accent color the Publisher has picked, never a separate
+ * hard-coded color. */
 @Composable
 internal fun PlannerDateNavHeader(
     label: String,
@@ -121,8 +127,8 @@ internal fun PlannerDateNavHeader(
     onOpenList: (() -> Unit)? = null,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.06f),
-        contentColor = MaterialTheme.colorScheme.primary,
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
     ) {
@@ -133,15 +139,29 @@ internal fun PlannerDateNavHeader(
             IconButton(onClick = onPrevious) {
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, contentDescription = "Previous period")
             }
-            Text(
-                label,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            // "Smooth Motion when changing dates" — a brief cross-fade/slide
+            // keyed on the label itself, so paging to the next/previous
+            // period (or jumping via the list picker) never just hard-cuts
+            // the text in place.
+            AnimatedContent(
+                targetState = label,
+                transitionSpec = {
+                    (fadeIn(animationSpec = tween(150)) + slideInVertically(animationSpec = tween(150)) { it / 4 })
+                        .togetherWith(fadeOut(animationSpec = tween(100)))
+                },
                 modifier = Modifier.weight(1f),
-            )
+                label = "PlannerDateNavHeaderLabel",
+            ) { animatedLabel ->
+                Text(
+                    animatedLabel,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             IconButton(onClick = onNext) {
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = "Next period")
             }
@@ -837,15 +857,55 @@ internal fun PlannerGoalRow(
             labelColor = PlannerAccent.Goal,
             labelColumnWidth = labelColumnWidth,
         )
+        // "Remaining Hours must have the same visual size and importance as
+        // Hours Goal" — same label-left/value-right row shape, same
+        // titleSmall/bold value styling as every stepper's own value, not a
+        // small caption underneath it. Surplus (goal already met/exceeded)
+        // gets its own second line the same way, rather than being crammed
+        // onto Remaining's line with a separator.
+        PlannerStaticValueRow(
+            label = "Remaining Hours",
+            value = formatHoursMinutes(remainingMinutes),
+            valueColor = if (goalMet) PlannerAccent.GoalMet else PlannerAccent.Remaining,
+            labelColumnWidth = labelColumnWidth,
+        )
+        if (surplusMinutes > 0) {
+            PlannerStaticValueRow(
+                label = "Surplus",
+                value = formatHoursMinutes(surplusMinutes),
+                valueColor = PlannerAccent.GoalMet,
+                labelColumnWidth = labelColumnWidth,
+            )
+        }
+    }
+}
+
+/** A plain, non-interactive label-left/value-right line — "Remaining Hours,"
+ * "Surplus," and any other read-only figure that needs the exact same
+ * visual weight as a [StepperRow]'s own value (titleSmall/bold), just
+ * without a stepper. Kept separate from [StepperRow] itself rather than
+ * calling it with no-op callbacks, since there's no +/- cluster to reserve
+ * space for here — the value sits flush at the row's right edge on its own. */
+@Composable
+internal fun PlannerStaticValueRow(label: String, value: String, valueColor: Color? = null, labelColumnWidth: Dp? = null) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
-            buildString {
-                append("Remaining ${formatHoursMinutes(remainingMinutes)}")
-                if (surplusMinutes > 0) append(" · Surplus ${formatHoursMinutes(surplusMinutes)}")
-            },
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Medium,
-            color = if (goalMet) PlannerAccent.GoalMet else PlannerAccent.Remaining,
-            modifier = Modifier.padding(start = 4.dp),
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 4.dp).then(if (labelColumnWidth != null) Modifier.width(labelColumnWidth) else Modifier),
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = valueColor ?: Color.Unspecified,
+            modifier = Modifier.padding(end = 4.dp),
         )
     }
 }

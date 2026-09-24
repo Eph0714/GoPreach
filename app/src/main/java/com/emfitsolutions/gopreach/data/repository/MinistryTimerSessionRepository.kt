@@ -47,8 +47,14 @@ class MinistryTimerSessionRepository @Inject constructor(
 
     suspend fun delete(sessionId: String) = offline.delete(COLLECTION, sessionId)
 
-    fun startRemoteSync(): Flow<Unit> =
-        mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, MinistryTimerSession::class.java) { it.id }
+    fun startRemoteSync(publisherPersonId: String): Flow<Unit> =
+        mirrorFirestoreCollection(
+            firestore, offline, appScope, COLLECTION, MinistryTimerSession::class.java,
+            query = firestore.collection(COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+        ) { it.id }
 
-    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, COLLECTION, MinistryTimerSession::class.java) { it.id }
+    suspend fun pullOnce(publisherPersonId: String) = pullFirestoreCollectionOnce(
+        firestore, offline, COLLECTION, MinistryTimerSession::class.java,
+        query = firestore.collection(COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+    ) { it.id }
 }

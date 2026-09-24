@@ -484,6 +484,40 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.resource.data.publisherPersonId == personIdFromToken();
     }
 
+    // My Planner's own data — same real ownership check as bibleTextRecords/
+    // bibleTextCategories above, not the plain isSignedIn()-only catch-all
+    // every one of these six collections fell back to before: any signed-in
+    // Publisher could otherwise read or overwrite *any other* Publisher's
+    // daily records, Hours Goals, Credit Hours, or Ministry Timer sessions.
+    // The Android app's own query for each of these is now scoped to match
+    // (`.whereEqualTo("publisherPersonId", ...)`, see PlannerDayRepository
+    // .startRemoteSync's doc comment) — an unconstrained list() query is
+    // what a resource.data-based rule like this can never satisfy.
+    match /plannerDays/{id} {
+      allow read, update, delete: if isSignedIn() && resource.data.publisherPersonId == personIdFromToken();
+      allow create: if isSignedIn() && request.resource.data.publisherPersonId == personIdFromToken();
+    }
+    match /monthlyPlannerGoals/{id} {
+      allow read, update, delete: if isSignedIn() && resource.data.publisherPersonId == personIdFromToken();
+      allow create: if isSignedIn() && request.resource.data.publisherPersonId == personIdFromToken();
+    }
+    match /weeklyPlannerGoals/{id} {
+      allow read, update, delete: if isSignedIn() && resource.data.publisherPersonId == personIdFromToken();
+      allow create: if isSignedIn() && request.resource.data.publisherPersonId == personIdFromToken();
+    }
+    match /yearlyPlannerGoals/{id} {
+      allow read, update, delete: if isSignedIn() && resource.data.publisherPersonId == personIdFromToken();
+      allow create: if isSignedIn() && request.resource.data.publisherPersonId == personIdFromToken();
+    }
+    match /creditHourRecords/{id} {
+      allow read, update, delete: if isSignedIn() && resource.data.publisherPersonId == personIdFromToken();
+      allow create: if isSignedIn() && request.resource.data.publisherPersonId == personIdFromToken();
+    }
+    match /ministryTimerSessions/{id} {
+      allow read, update, delete: if isSignedIn() && resource.data.publisherPersonId == personIdFromToken();
+      allow create: if isSignedIn() && request.resource.data.publisherPersonId == personIdFromToken();
+    }
+
     // "Group Chat Setting" module (spec §2-13). Every rule below reads from
     // `resource.data`/`request.resource.data` directly — cheap field
     // equality plus the one `get()` on the caller's own Person doc (see
@@ -879,7 +913,8 @@ service cloud.firestore {
         'forwardRequests', 'publisherForwardRequests', 'houseHolderAssignments', 'territories', 'schedules', 'elderTitles',
         'appSettings', 'auditLog', 'sharedLocations', 'savedLocations', 'cartAssignments',
         'locationSharingSettings', 'midweekMeetingSchedules', 'publicTalkSchedules', 'announcements',
-        'creditHourCategories'
+        'creditHourCategories', 'plannerDays', 'monthlyPlannerGoals', 'weeklyPlannerGoals',
+        'yearlyPlannerGoals', 'creditHourRecords', 'ministryTimerSessions'
       ]);
     }
   }

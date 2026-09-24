@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.data.repository
 import com.emfitsolutions.gopreach.data.model.BibleTextRecord
 import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
 import com.emfitsolutions.gopreach.data.sync.mirrorFirestoreCollection
+import com.emfitsolutions.gopreach.data.sync.pullFirestoreCollectionOnce
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +40,23 @@ class BibleTextRecordRepository @Inject constructor(
 
     suspend fun delete(recordId: String) = offline.delete(COLLECTION, recordId)
 
-    fun startRemoteSync(): Flow<Unit> =
-        mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, BibleTextRecord::class.java) { it.id }
+    /** Bug fix: firestore.rules' own `bibleTextRecords` match block already
+     * required `resource.data.publisherPersonId == personIdFromToken()` —
+     * this query never actually matched that (it fetched the *whole*
+     * collection, every Publisher's records), which means Firestore could
+     * never prove the unconstrained query only returns documents the rule
+     * allows and rejected the entire listener with PERMISSION_DENIED. Not a
+     * one-device problem — this affected every Publisher, on every device,
+     * every time. Scoping the query itself to just this Publisher's own
+     * records is what actually makes the existing rule satisfiable. */
+    fun startRemoteSync(publisherPersonId: String): Flow<Unit> =
+        mirrorFirestoreCollection(
+            firestore, offline, appScope, COLLECTION, BibleTextRecord::class.java,
+            query = firestore.collection(COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+        ) { it.id }
+
+    suspend fun pullOnce(publisherPersonId: String) = pullFirestoreCollectionOnce(
+        firestore, offline, COLLECTION, BibleTextRecord::class.java,
+        query = firestore.collection(COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+    ) { it.id }
 }

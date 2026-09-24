@@ -35,10 +35,16 @@ class MonthlyPlannerGoalRepository @Inject constructor(
         return withId
     }
 
-    fun startRemoteSync(): Flow<Unit> =
-        mirrorFirestoreCollection(firestore, offline, appScope, MONTHLY_COLLECTION, MonthlyPlannerGoal::class.java) { it.id }
+    fun startRemoteSync(publisherPersonId: String): Flow<Unit> =
+        mirrorFirestoreCollection(
+            firestore, offline, appScope, MONTHLY_COLLECTION, MonthlyPlannerGoal::class.java,
+            query = firestore.collection(MONTHLY_COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+        ) { it.id }
 
-    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, MONTHLY_COLLECTION, MonthlyPlannerGoal::class.java) { it.id }
+    suspend fun pullOnce(publisherPersonId: String) = pullFirestoreCollectionOnce(
+        firestore, offline, MONTHLY_COLLECTION, MonthlyPlannerGoal::class.java,
+        query = firestore.collection(MONTHLY_COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+    ) { it.id }
 }
 
 private const val WEEKLY_COLLECTION = "weeklyPlannerGoals"
@@ -62,10 +68,16 @@ class WeeklyPlannerGoalRepository @Inject constructor(
         return withId
     }
 
-    fun startRemoteSync(): Flow<Unit> =
-        mirrorFirestoreCollection(firestore, offline, appScope, WEEKLY_COLLECTION, WeeklyPlannerGoal::class.java) { it.id }
+    fun startRemoteSync(publisherPersonId: String): Flow<Unit> =
+        mirrorFirestoreCollection(
+            firestore, offline, appScope, WEEKLY_COLLECTION, WeeklyPlannerGoal::class.java,
+            query = firestore.collection(WEEKLY_COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+        ) { it.id }
 
-    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, WEEKLY_COLLECTION, WeeklyPlannerGoal::class.java) { it.id }
+    suspend fun pullOnce(publisherPersonId: String) = pullFirestoreCollectionOnce(
+        firestore, offline, WEEKLY_COLLECTION, WeeklyPlannerGoal::class.java,
+        query = firestore.collection(WEEKLY_COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+    ) { it.id }
 }
 
 private const val YEARLY_COLLECTION = "yearlyPlannerGoals"
@@ -89,8 +101,14 @@ class YearlyPlannerGoalRepository @Inject constructor(
         return withId
     }
 
-    fun startRemoteSync(): Flow<Unit> =
-        mirrorFirestoreCollection(firestore, offline, appScope, YEARLY_COLLECTION, YearlyPlannerGoal::class.java) { it.id }
+    fun startRemoteSync(publisherPersonId: String): Flow<Unit> =
+        mirrorFirestoreCollection(
+            firestore, offline, appScope, YEARLY_COLLECTION, YearlyPlannerGoal::class.java,
+            query = firestore.collection(YEARLY_COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+        ) { it.id }
 
-    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, YEARLY_COLLECTION, YearlyPlannerGoal::class.java) { it.id }
+    suspend fun pullOnce(publisherPersonId: String) = pullFirestoreCollectionOnce(
+        firestore, offline, YEARLY_COLLECTION, YearlyPlannerGoal::class.java,
+        query = firestore.collection(YEARLY_COLLECTION).whereEqualTo("publisherPersonId", publisherPersonId),
+    ) { it.id }
 }

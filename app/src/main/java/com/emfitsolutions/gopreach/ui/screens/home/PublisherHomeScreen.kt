@@ -718,6 +718,11 @@ private fun PublisherWelcomeHeader(
                     onOpenGroupChat = onOpenGroupChat,
                     onViewAll = onViewAllGroupChats,
                 )
+                // "Add a refresh button only not sync" — a plain re-fetch
+                // from the server, deliberately separate from "Sync to
+                // Server" right next to it: this one never touches the
+                // local pending-upload queue.
+                com.emfitsolutions.gopreach.ui.components.RefreshButton()
                 // "Make the sync to server smaller, put it on the right
                 // upper side, make it simple" — the compact icon variant,
                 // right in the header's own icon row.

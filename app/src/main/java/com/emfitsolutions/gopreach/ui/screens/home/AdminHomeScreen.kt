@@ -523,6 +523,10 @@ fun AdminHomeScreen(
                             onOpenGroupChat = { chatId -> onNavigate(Destinations.groupChatDetail(chatId)) },
                             onViewAll = { onNavigate(Destinations.GROUP_CHAT_SETTING) },
                         )
+                        // "Add a refresh button only not sync" — a plain
+                        // re-fetch from the server, separate from the full
+                        // "Sync to Server" button below.
+                        com.emfitsolutions.gopreach.ui.components.RefreshButton()
                         ProfileMenuButton(
                             fullName = session.person?.fullName ?: "—",
                             roleLabel = role?.name?.replace('_', ' ') ?: stringResource(R.string.role_label_admin_fallback),
