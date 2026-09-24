@@ -15,8 +15,8 @@ android {
         applicationId = "com.emfitsolutions.gopreach"
         minSdk = 24
         targetSdk = 35
-        versionCode = 189
-        versionName = "1.128.0"
+        versionCode = 190
+        versionName = "1.129.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -57,7 +57,9 @@ android {
         }
         debug {
             isMinifyEnabled = false
-            applicationIdSuffix = ".debug"
+            // No applicationIdSuffix: debug and release share one package ID
+            // (and one signing key) so installing either build updates the
+            // existing app instead of adding a second copy on the phone.
         }
     }
 
