@@ -715,17 +715,24 @@ private fun GroupCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             IconLine(icon, "$title ($count)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, tint = MaterialTheme.colorScheme.primary)
             Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) {
                 Icon(addIcon, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                 Text(addLabel)
             }
-            content()
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                content()
+            }
         }
     }
 }
 
+/** "Make the record smaller" — a compact row instead of the previous
+ * generously-padded card: smaller icons/text, tighter spacing, and the
+ * Edit/Delete/JW Library actions collapsed into a single icon-only row so
+ * more Bible Texts are visible on screen at once without scrolling past
+ * mostly-empty space between them. */
 @Composable
 private fun BibleTextCard(text: BibleTextRecord, onEdit: () -> Unit, onDelete: () -> Unit) {
     val context = LocalContext.current
@@ -733,36 +740,34 @@ private fun BibleTextCard(text: BibleTextRecord, onEdit: () -> Unit, onDelete: (
     val bookNumber = NwtBibleReferenceData.book(text.bibleVersionId, text.languageId, text.bibleBookId)?.order
     val jwLocale = NwtBibleReferenceData.language(text.languageId)?.jwLocale
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 16.dp, end = 8.dp, bottom = 4.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    IconLine(Icons.AutoMirrored.Rounded.MenuBook, text.referenceLabel(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, tint = MaterialTheme.colorScheme.primary)
-                    NwtBibleReferenceData.version(text.bibleVersionId)?.let {
-                        Text(it.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        Column(modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, end = 4.dp, bottom = 4.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(15.dp))
+                        Text(text.referenceLabel(), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        NwtBibleReferenceData.version(text.bibleVersionId)?.let {
+                            Text("· ${it.name}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     if (text.remarks.isNotBlank()) {
-                        Text(text.remarks, style = MaterialTheme.typography.bodySmall)
+                        Text(text.remarks, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     }
+                    Text("Added: ${formatRecordTimestamp(text.createdAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Row {
-                    IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, contentDescription = "Edit Bible text", tint = MaterialTheme.colorScheme.primary) }
-                    IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, contentDescription = "Delete Bible text", tint = MaterialTheme.colorScheme.error) }
-                }
-            }
-            // Bottom row: when it was added on the left, and — at the lower right
-            // — the button that opens this verse in the JW Library app (offline if
-            // that Bible is downloaded there).
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                IconLine(Icons.Rounded.Schedule, "Added: ${formatRecordTimestamp(text.createdAt)}", style = MaterialTheme.typography.labelSmall)
                 if (bookNumber != null && jwLocale != null) {
-                    TextButton(
-                        onClick = {
-                            if (!openInJwLibrary(context, jwLocale, bookNumber, text.chapter, text.verses)) showToast("Couldn't open JW Library.")
-                        },
+                    IconButton(
+                        onClick = { if (!openInJwLibrary(context, jwLocale, bookNumber, text.chapter, text.verses)) showToast("Couldn't open JW Library.") },
+                        modifier = Modifier.size(36.dp),
                     ) {
-                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 6.dp).size(18.dp))
-                        Text("Open verse in JW Library")
+                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = "Open verse in JW Library", modifier = Modifier.size(18.dp))
                     }
+                }
+                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Rounded.Edit, contentDescription = "Edit Bible text", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                }
+                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Rounded.Delete, contentDescription = "Delete Bible text", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                 }
             }
         }
