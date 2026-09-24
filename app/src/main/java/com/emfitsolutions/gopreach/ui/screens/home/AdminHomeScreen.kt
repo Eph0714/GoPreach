@@ -490,6 +490,7 @@ fun AdminHomeScreen(
         ) {
             Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 com.emfitsolutions.gopreach.ui.components.AlarmRingingBanner()
+                com.emfitsolutions.gopreach.ui.components.OfflineSessionBanner()
                 DashboardHero(
                     greetingName = session.person?.firstName?.takeIf { it.isNotBlank() } ?: stringResource(R.string.greeting_fallback_name),
                     roleLabel = role?.name?.replace('_', ' ') ?: stringResource(R.string.role_label_admin_fallback),

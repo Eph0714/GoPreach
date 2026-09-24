@@ -339,6 +339,7 @@ fun PublisherHomeScreen(
     // with a bottom bar below it — the scrolling content is the whole screen.
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             com.emfitsolutions.gopreach.ui.components.AlarmRingingBanner()
+            com.emfitsolutions.gopreach.ui.components.OfflineSessionBanner()
             PublisherWelcomeHeader(
                 greetingName = session.person?.firstName?.takeIf { it.isNotBlank() } ?: "there",
                 fullName = session.person?.fullName ?: "—",

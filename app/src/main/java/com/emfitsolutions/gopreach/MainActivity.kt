@@ -19,6 +19,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.repository.ThemePreference
 import com.emfitsolutions.gopreach.data.repository.ThemePreferenceRepository
+import com.emfitsolutions.gopreach.data.sync.RemoteSyncCoordinator
+import com.emfitsolutions.gopreach.data.sync.SyncScheduler
 import com.emfitsolutions.gopreach.ui.components.SyncMessageHost
 import com.emfitsolutions.gopreach.ui.components.update.UpdateHost
 import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
@@ -40,6 +42,12 @@ class MainActivity : AppCompatActivity() {
 
     @Inject
     lateinit var themePreferenceRepository: ThemePreferenceRepository
+
+    @Inject
+    lateinit var syncScheduler: SyncScheduler
+
+    @Inject
+    lateinit var remoteSyncCoordinator: RemoteSyncCoordinator
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,6 +83,24 @@ class MainActivity : AppCompatActivity() {
                     val updateViewModel: UpdateViewModel = hiltViewModel(this@MainActivity)
                     LaunchedEffect(Unit) { updateViewModel.checkOnAppStart() }
 
+                    // "Automatically start synchronization when the application
+                    // opens and a reliable Internet connection is available" —
+                    // SyncScheduler's own automatic triggers (an offline→online
+                    // *transition*, or a write happening while already online)
+                    // don't cover a cold start that's already online with
+                    // pending items left over from a previous session (nothing
+                    // transitions, and nothing new is being written) — this is
+                    // the same gap [checkOnAppStart]/[checkOnAppForeground]
+                    // above already exist to close for update checks.
+                    // triggerSyncIfOnline() is a cheap, idempotent no-op when
+                    // there's nothing pending or the device is offline, so
+                    // calling it unconditionally here (and again on every
+                    // foreground below) is safe.
+                    LaunchedEffect(Unit) {
+                        remoteSyncCoordinator.retryIfNeeded()
+                        syncScheduler.triggerSyncIfOnline()
+                    }
+
                     // Bug fix ("auto update available is not working"): a
                     // process staying alive across many background/
                     // foreground cycles (by far the most common way this app
@@ -90,7 +116,15 @@ class MainActivity : AppCompatActivity() {
                     val lifecycleOwner = LocalLifecycleOwner.current
                     DisposableEffect(lifecycleOwner) {
                         val observer = LifecycleEventObserver { _, event ->
-                            if (event == Lifecycle.Event.ON_START) updateViewModel.checkOnAppForeground()
+                            if (event == Lifecycle.Event.ON_START) {
+                                updateViewModel.checkOnAppForeground()
+                                // Same "app returns from background to
+                                // foreground" trigger, for pending sync
+                                // instead of app updates — see this file's
+                                // own comment on the LaunchedEffect above.
+                                remoteSyncCoordinator.retryIfNeeded()
+                                syncScheduler.triggerSyncIfOnline()
+                            }
                         }
                         lifecycleOwner.lifecycle.addObserver(observer)
                         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }

@@ -38,14 +38,19 @@ import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -82,6 +87,7 @@ import javax.inject.Singleton
 @OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class RemoteSyncCoordinator @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
+    private val connectivityObserver: ConnectivityObserver,
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val congregationRepository: CongregationRepository,
@@ -168,15 +174,80 @@ class RemoteSyncCoordinator @Inject constructor(
         awaitClose { firebaseAuth.removeAuthStateListener(listener) }
     }.debounce(1_500).distinctUntilChanged().stateIn(appScope, SharingStarted.Eagerly, firebaseAuth.currentUser?.uid)
 
+    /** Bug fix ("I cannot see the same data to other phone" — reproduced live
+     * on a real device): [FirestoreMirror]'s retry budget is built to recover
+     * from a *momentary* "token not attached yet" window at the exact instant
+     * a listener first registers, not from an ID token that stays genuinely
+     * stale for the device's entire session — which does happen in practice,
+     * since Firebase Auth's own *automatic* background token refresh is a
+     * scheduled task some OEMs' aggressive battery/task management (Huawei in
+     * particular) are well known for silently killing. When that happens,
+     * `firebaseAuth.currentUser` still exists locally (the app looks and acts
+     * signed in — Person/RoleAssignments load fine from the Room cache) but
+     * every request Firestore's *server* sees genuinely has `request.auth ==
+     * null`, since the token attached to it has expired: every collection
+     * gated on `isSignedIn()` (nearly all of them, including every My Planner
+     * one) permanently fails PERMISSION_DENIED for the rest of the process,
+     * confirmed by a live device stuck exactly this way for 6 straight
+     * attempts across multiple full app relaunches.
+     *
+     * Bumped by [retryIfNeeded] alongside a forced token refresh — combined
+     * into the same key every `startTracked` flow already re-subscribes on,
+     * so a bump has the exact same effect a real uid change already does
+     * (cancel the dead listener, attach a fresh one), just without requiring
+     * an actual sign-out/sign-in to trigger it. */
+    private val retryGeneration = MutableStateFlow(0)
+
     /** Wires one collection's listener into [appScope], re-subscribing fresh
-     * on every auth-state change (see the class doc for why that matters). */
+     * on every auth-state change (see the class doc for why that matters) or
+     * [retryIfNeeded] call. */
     private fun Flow<Unit>.startTracked(uidChanged: Flow<String?>): Unit {
-        uidChanged.flatMapLatest { this }.launchIn(appScope)
+        combine(uidChanged, retryGeneration) { uid, _ -> uid }.flatMapLatest { this }.launchIn(appScope)
+    }
+
+    /** Called from every point the app already suspects a session might need
+     * a fresh look — cold start, foreground resume, right after a fresh
+     * login (see call sites) — cheap and safe to call unconditionally even
+     * when nothing was actually wrong: [FirebaseAuth.getIdToken] is a no-op
+     * network call when the cached token is still valid, and re-attaching an
+     * already-healthy listener is harmless. */
+    fun retryIfNeeded() {
+        val user = firebaseAuth.currentUser
+        appScope.launch {
+            // `true` forces a real refresh rather than trusting whatever's
+            // cached — trusting the cache is exactly what leaves this stuck
+            // in the first place. Failure (e.g. genuinely offline right now)
+            // is fine to swallow: the listeners below will just see the same
+            // token they already had and behave exactly as before this call.
+            val result = runCatching { user?.getIdToken(true)?.await() }
+            if (result.isFailure) {
+                android.util.Log.w("RemoteSyncCoordinator", "retryIfNeeded: token refresh failed", result.exceptionOrNull())
+            }
+            retryGeneration.value++
+        }
     }
 
     fun startAll() {
         if (started) return
         started = true
+        // Force a fresh token before every collection's very first attempt —
+        // closes the gap for a cold start whose cached token was already
+        // stale the moment the process launched (see [retryIfNeeded]'s doc
+        // comment), rather than only recovering on the next explicit trigger.
+        retryIfNeeded()
+        // Same idea on every offline→online transition — a device that was
+        // offline for a while (its own OS having killed Firebase Auth's
+        // background refresh in the meantime, on the OEMs this affects) gets
+        // a real chance to self-heal the moment it reconnects, not just on
+        // the next cold start/login/foreground.
+        var wasOnline: Boolean? = null
+        connectivityObserver.observe()
+            .onEach { online ->
+                val previouslyOffline = wasOnline == false
+                wasOnline = online
+                if (online && previouslyOffline) retryIfNeeded()
+            }
+            .launchIn(appScope)
         personRepository.startRemoteSync().startTracked(uidChanged)
         roleAssignmentRepository.startRemoteSync().startTracked(uidChanged)
         congregationRepository.startRemoteSync().startTracked(uidChanged)

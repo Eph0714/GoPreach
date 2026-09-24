@@ -54,6 +54,29 @@ data class SessionState(
      * [roleOptions] has more than one entry — a single-role account never
      * needs this to resolve [activeRoleAssignment]. */
     val selectedRoleAssignmentId: String? = null,
+    /** True when this session exists only because
+     * [com.emfitsolutions.gopreach.data.repository.AuthRepository
+     * .offlineSignIn] verified a cached password hash *locally*, with no
+     * real `FirebaseAuth.currentUser` behind it — Firebase's SDK has no
+     * offline path to populate that itself (see that function's own doc
+     * comment). The app-level session looks and behaves like a normal
+     * sign-in (Person/RoleAssignments load from the local cache exactly the
+     * same way), but every Firestore security rule keyed on
+     * `request.auth != null` denies this device outright, *forever*, even
+     * once it reconnects — nothing here ever transparently "upgrades" to a
+     * real Firebase session, since only [AuthRepository.signIn] (which
+     * needs the actual plaintext password, deliberately never stored) can
+     * do that. Root cause of "I cannot see the same data on other phone"
+     * for a session that started this way: reads/writes needing
+     * `isSignedIn()` (nearly everything, including every My Planner
+     * collection) fail with PERMISSION_DENIED indefinitely, while
+     * publicly-readable collections (`people`, congregations) keep working
+     * fine, so the header still shows the right name/congregation and gives
+     * no visual sign anything is wrong. See
+     * [com.emfitsolutions.gopreach.ui.components.OfflineSessionBanner] for
+     * the UI this drives — the only way out is signing out and back in
+     * *with* an internet connection. */
+    val isOfflineOnlySession: Boolean = false,
 ) {
     val isSignedIn: Boolean get() = person != null
 
@@ -266,6 +289,14 @@ class UserSession @Inject constructor(
                             roleAssignments = roles,
                             grant = grant,
                             selectedRoleAssignmentId = selectedRoleAssignmentId,
+                            // See this field's own doc comment — re-checked on
+                            // every emission (not just once at sign-in) so a
+                            // session that started offline-only is correctly
+                            // still flagged even much later, and would clear
+                            // automatically if something else in the app ever
+                            // did complete a real Firebase sign-in in the
+                            // background.
+                            isOfflineOnlySession = firebaseAuth.currentUser == null,
                         )
                     }
                 }

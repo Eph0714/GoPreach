@@ -10,6 +10,8 @@ import com.emfitsolutions.gopreach.data.repository.AuthRepository
 import com.emfitsolutions.gopreach.data.repository.AuthResult
 import com.emfitsolutions.gopreach.data.repository.CredentialStore
 import com.emfitsolutions.gopreach.data.sync.ConnectivityObserver
+import com.emfitsolutions.gopreach.data.sync.RemoteSyncCoordinator
+import com.emfitsolutions.gopreach.data.sync.SyncScheduler
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +44,8 @@ class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val credentialStore: CredentialStore,
     private val connectivityObserver: ConnectivityObserver,
+    private val syncScheduler: SyncScheduler,
+    private val remoteSyncCoordinator: RemoteSyncCoordinator,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -167,6 +171,15 @@ class LoginViewModel @Inject constructor(
                         runCatching {
                             if (_uiState.value.rememberMe) credentialStore.save(username, password) else credentialStore.clear()
                         }.onFailure { Log.e(TAG, "Failed to update saved credential: ${it::class.simpleName}") }
+                        // "Automatically start synchronization when... the user
+                        // logs in" — this device may have pending writes queued
+                        // from a previous session (or simply hasn't had a
+                        // connectivity transition since launch, so
+                        // SyncScheduler's own automatic triggers never fired
+                        // yet); a fresh login is a natural moment to flush
+                        // rather than waiting on the 15-minute periodic floor.
+                        remoteSyncCoordinator.retryIfNeeded()
+                        syncScheduler.triggerSyncIfOnline()
                         _uiState.update {
                             it.copy(isLoading = false, signedIn = true, requiresPasswordChange = result.requiresPasswordChange)
                         }
