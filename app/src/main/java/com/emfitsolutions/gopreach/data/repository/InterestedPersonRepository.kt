@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.data.repository
 import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
 import com.emfitsolutions.gopreach.data.sync.mirrorFirestoreCollection
+import com.emfitsolutions.gopreach.data.sync.pullFirestoreCollectionOnce
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
@@ -35,4 +36,6 @@ class InterestedPersonRepository @Inject constructor(
 
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, InterestedPerson::class.java) { it.id }
+
+    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, COLLECTION, InterestedPerson::class.java) { it.id }
 }

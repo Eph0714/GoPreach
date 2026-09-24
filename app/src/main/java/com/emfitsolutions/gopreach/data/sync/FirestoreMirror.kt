@@ -4,6 +4,7 @@ import android.util.Log
 import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Source
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
@@ -11,6 +12,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 private const val TAG = "FirestoreMirror"
 
@@ -131,4 +133,41 @@ fun <T : Any> mirrorFirestoreCollection(
     }
     attach()
     awaitClose { activeRegistrations.remove(collectionPath)?.remove() }
+}
+
+/**
+ * A one-shot counterpart to [mirrorFirestoreCollection] — fetches
+ * [collectionPath] with a single `get()` instead of a persistent
+ * `addSnapshotListener()`. "Make sync also pull the latest data down, the
+ * same way it already pushes local changes up": a live listener is a
+ * long-running streamed connection, held open and re-authenticated behind
+ * the scenes by Firestore's SDK for as long as it's subscribed — on a device
+ * whose Google Play Services install can't sustain that (see
+ * [RemoteSyncCoordinator.retryIfNeeded]'s doc comment for a real one found
+ * this way), it can fail indefinitely even with a perfectly valid, freshly
+ * refreshed sign-in. A single `get()` is a plain request/response call, not
+ * a held-open stream, so it doesn't depend on whatever keeps failing to
+ * *sustain* one — worth trying as a fallback specifically because it is a
+ * meaningfully different code path, not just "try the same thing again."
+ * [Source.SERVER] deliberately skips Firestore's local result cache, since
+ * the whole point is finding out what the *server* actually has.
+ */
+suspend fun <T : Any> pullFirestoreCollectionOnce(
+    firestore: FirebaseFirestore,
+    offline: OfflineFirestoreRepository,
+    collectionPath: String,
+    clazz: Class<T>,
+    idOf: (T) -> String,
+) {
+    val snapshot = firestore.collection(collectionPath).get(Source.SERVER).await()
+    for (document in snapshot.documents) {
+        try {
+            val model = document.toObject(clazz) ?: continue
+            offline.cacheFromServer(collectionPath, idOf(model), model)
+        } catch (e: Exception) {
+            // Same "one bad document must never take down the rest" rule as
+            // the live-listener path above.
+            Log.e(TAG, "Skipping malformed document ${document.id} in '$collectionPath' during one-shot pull", e)
+        }
+    }
 }

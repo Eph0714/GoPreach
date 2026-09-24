@@ -5,6 +5,7 @@ import com.emfitsolutions.gopreach.data.model.WeeklyPlannerGoal
 import com.emfitsolutions.gopreach.data.model.YearlyPlannerGoal
 import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
 import com.emfitsolutions.gopreach.data.sync.mirrorFirestoreCollection
+import com.emfitsolutions.gopreach.data.sync.pullFirestoreCollectionOnce
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +37,8 @@ class MonthlyPlannerGoalRepository @Inject constructor(
 
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, MONTHLY_COLLECTION, MonthlyPlannerGoal::class.java) { it.id }
+
+    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, MONTHLY_COLLECTION, MonthlyPlannerGoal::class.java) { it.id }
 }
 
 private const val WEEKLY_COLLECTION = "weeklyPlannerGoals"
@@ -61,6 +64,8 @@ class WeeklyPlannerGoalRepository @Inject constructor(
 
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, WEEKLY_COLLECTION, WeeklyPlannerGoal::class.java) { it.id }
+
+    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, WEEKLY_COLLECTION, WeeklyPlannerGoal::class.java) { it.id }
 }
 
 private const val YEARLY_COLLECTION = "yearlyPlannerGoals"
@@ -86,4 +91,6 @@ class YearlyPlannerGoalRepository @Inject constructor(
 
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, YEARLY_COLLECTION, YearlyPlannerGoal::class.java) { it.id }
+
+    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, YEARLY_COLLECTION, YearlyPlannerGoal::class.java) { it.id }
 }

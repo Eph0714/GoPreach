@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.data.sync
 
 import android.content.Context
+import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -10,6 +11,14 @@ import com.emfitsolutions.gopreach.data.local.dao.CacheDao
 import com.emfitsolutions.gopreach.data.local.dao.SyncQueueDao
 import com.emfitsolutions.gopreach.data.model.SyncOperationType
 import com.emfitsolutions.gopreach.data.model.SyncState
+import com.emfitsolutions.gopreach.data.repository.CreditHourCategoryRepository
+import com.emfitsolutions.gopreach.data.repository.CreditHourRecordRepository
+import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
+import com.emfitsolutions.gopreach.data.repository.MinistryTimerSessionRepository
+import com.emfitsolutions.gopreach.data.repository.MonthlyPlannerGoalRepository
+import com.emfitsolutions.gopreach.data.repository.PlannerDayRepository
+import com.emfitsolutions.gopreach.data.repository.WeeklyPlannerGoalRepository
+import com.emfitsolutions.gopreach.data.repository.YearlyPlannerGoalRepository
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.gson.Gson
@@ -40,6 +49,24 @@ class SyncWorker @AssistedInject constructor(
     private val gson: Gson,
     private val syncStatusCenter: SyncStatusCenter,
     private val connectivityObserver: ConnectivityObserver,
+    // "Make sync also pull the latest data down" — a device whose live
+    // listener can't sustain a connection (see [RemoteSyncCoordinator
+    // .retryIfNeeded]'s doc comment for a real one found this way) never
+    // receives anyone else's My Planner/Credit Hours/Return Visits data no
+    // matter how many times its own upload succeeds. Every sync run — manual
+    // or automatic — now also does a one-shot [pullFirestoreCollectionOnce]
+    // of exactly these collections (a plain request/response call, not a
+    // held-open stream, so it doesn't depend on whatever keeps failing to
+    // *sustain* one) as a fallback path alongside the live listeners
+    // [RemoteSyncCoordinator] already keeps running.
+    private val plannerDayRepository: PlannerDayRepository,
+    private val monthlyPlannerGoalRepository: MonthlyPlannerGoalRepository,
+    private val weeklyPlannerGoalRepository: WeeklyPlannerGoalRepository,
+    private val yearlyPlannerGoalRepository: YearlyPlannerGoalRepository,
+    private val creditHourCategoryRepository: CreditHourCategoryRepository,
+    private val creditHourRecordRepository: CreditHourRecordRepository,
+    private val ministryTimerSessionRepository: MinistryTimerSessionRepository,
+    private val interestedPersonRepository: InterestedPersonRepository,
 ) : CoroutineWorker(context, params) {
 
     companion object {
@@ -96,6 +123,11 @@ class SyncWorker @AssistedInject constructor(
             setProgress(workDataOf(KEY_UPLOADED to 0, KEY_FAILED to 0, KEY_TOTAL to 0, KEY_FINISHED to true, KEY_SKIPPED_OFFLINE to true))
             return Result.success()
         }
+
+        // Runs even when there's nothing local to upload below — this is the
+        // "download" half, entirely independent of the pending-queue check
+        // that follows. See this class's own constructor comment.
+        pullLatestData()
 
         // Recovers on its own from an app/device crash mid-sync (spec's "Sync
         // Queue Recovery") without needing a separate SYNCING status to reset:
@@ -182,6 +214,31 @@ class SyncWorker @AssistedInject constructor(
         // attempt can't fix until the device is actually back online, which
         // the app's own reconnect trigger already handles.
         return if (failed > 0 && !lostConnectivityMidRun) Result.retry() else Result.success()
+    }
+
+    /** The "download" fallback described in this class's own constructor
+     * comment — a plain one-shot `get()` per collection, run on every sync
+     * (manual or automatic), independent of and in addition to the
+     * continuous live listeners [RemoteSyncCoordinator] keeps running for
+     * the same collections. Each pull is wrapped individually: one
+     * collection failing (still offline for that specific call, a
+     * genuinely denied one, whatever) must never stop the others from
+     * running, and never turns into a failed sync run of its own — this is
+     * a best-effort supplement to the upload logic below, not something the
+     * caller's success/failure result depends on. */
+    private suspend fun pullLatestData() {
+        listOf(
+            "plannerDays" to suspend { plannerDayRepository.pullOnce() },
+            "monthlyPlannerGoals" to suspend { monthlyPlannerGoalRepository.pullOnce() },
+            "weeklyPlannerGoals" to suspend { weeklyPlannerGoalRepository.pullOnce() },
+            "yearlyPlannerGoals" to suspend { yearlyPlannerGoalRepository.pullOnce() },
+            "creditHourCategories" to suspend { creditHourCategoryRepository.pullOnce() },
+            "creditHourRecords" to suspend { creditHourRecordRepository.pullOnce() },
+            "ministryTimerSessions" to suspend { ministryTimerSessionRepository.pullOnce() },
+            "interestedPeople" to suspend { interestedPersonRepository.pullOnce() },
+        ).forEach { (name, pull) ->
+            runCatching { pull() }.onFailure { Log.w("SyncWorker", "One-shot pull of '$name' failed: ${it.message}") }
+        }
     }
 
     /** Spec §9 — "classify errors": a temporary network/server problem should

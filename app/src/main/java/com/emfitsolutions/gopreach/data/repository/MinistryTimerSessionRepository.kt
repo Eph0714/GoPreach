@@ -4,6 +4,7 @@ import com.emfitsolutions.gopreach.data.model.MinistryTimerSession
 import com.emfitsolutions.gopreach.data.model.TimerSessionStatus
 import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
 import com.emfitsolutions.gopreach.data.sync.mirrorFirestoreCollection
+import com.emfitsolutions.gopreach.data.sync.pullFirestoreCollectionOnce
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
@@ -48,4 +49,6 @@ class MinistryTimerSessionRepository @Inject constructor(
 
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, MinistryTimerSession::class.java) { it.id }
+
+    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, COLLECTION, MinistryTimerSession::class.java) { it.id }
 }

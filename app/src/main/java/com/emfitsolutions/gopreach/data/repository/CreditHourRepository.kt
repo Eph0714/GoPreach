@@ -4,6 +4,7 @@ import com.emfitsolutions.gopreach.data.model.CreditHourCategory
 import com.emfitsolutions.gopreach.data.model.CreditHourRecord
 import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
 import com.emfitsolutions.gopreach.data.sync.mirrorFirestoreCollection
+import com.emfitsolutions.gopreach.data.sync.pullFirestoreCollectionOnce
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
@@ -59,6 +60,8 @@ class CreditHourCategoryRepository @Inject constructor(
 
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, CATEGORIES_COLLECTION, CreditHourCategory::class.java) { it.id }
+
+    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, CATEGORIES_COLLECTION, CreditHourCategory::class.java) { it.id }
 
     private val seedLock = Mutex()
     private var seedChecked = false
@@ -127,4 +130,6 @@ class CreditHourRecordRepository @Inject constructor(
 
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, RECORDS_COLLECTION, CreditHourRecord::class.java) { it.id }
+
+    suspend fun pullOnce() = pullFirestoreCollectionOnce(firestore, offline, RECORDS_COLLECTION, CreditHourRecord::class.java) { it.id }
 }
