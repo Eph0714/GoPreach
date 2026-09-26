@@ -95,74 +95,80 @@ class MinisterialServantEnrollmentViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
         viewModelScope.launch {
-            val enrollerAssignments = roleAssignmentRepository.observeForPerson(enrollingPersonId).first()
-            val congregationId = if (PermissionChecker.hasAdminRole(enrollerAssignments, AdminRole.SUPER_ADMIN)) {
-                state.selectedCongregationId
-            } else {
-                // Unlike Coordinator Elder enrollment (Admin only), this
-                // screen is also reachable by a Coordinator Elder — so both
-                // of their own-congregation roles need checking here.
-                enrollerAssignments.firstOrNull {
-                    val role = (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role
-                    role == AdminRole.ADMIN_PER_CONGREGATION || role == AdminRole.COORDINATOR_ELDER
-                }?.congregationId
-            }
-            if (congregationId == null) {
-                _uiState.update { it.copy(isSaving = false, errorMessage = "Select a congregation.") }
-                return@launch
-            }
-            val now = System.currentTimeMillis()
-            val credentials = authRepository.createAccountWithTempCredentials(
-                person = Person(
-                    firstName = state.firstName.trim(),
-                    lastName = state.lastName.trim(),
-                    address = state.address.trim(),
-                    email = state.email.trim().ifBlank { null },
-                    contact = state.contact.trim(),
-                ),
-                roleAssignment = { personId ->
-                    RoleAssignment(
-                        personId = personId,
-                        roleType = RoleType.serialize(RoleType.Admin(AdminRole.MINISTERIAL_SERVANT)),
-                        congregationId = congregationId,
-                        status = RoleAssignmentStatus.ACTIVE,
-                        dateAssigned = now,
-                        assignedByPersonId = enrollingPersonId,
-                    )
-                },
-                enrollingPersonId = enrollingPersonId,
-            )
-            // saveNow, not save — same reasoning as the primary role
-            // assignment in AuthRepository.createAccountWithTempCredentials:
-            // this new account may sign in on a different device before this
-            // one's next manual sync, and their role should already be
-            // correct the moment they do.
-            state.groupRole?.let { role ->
-                roleAssignmentRepository.saveNow(
-                    RoleAssignment(
-                        personId = credentials.personId,
-                        roleType = RoleType.serialize(RoleType.Admin(AdminRole.REGULAR_ELDER)),
-                        congregationId = congregationId,
-                        regularElderRole = role,
-                        status = RoleAssignmentStatus.ACTIVE,
-                        dateAssigned = now,
-                        assignedByPersonId = enrollingPersonId,
-                    )
+            try {
+                val enrollerAssignments = roleAssignmentRepository.observeForPerson(enrollingPersonId).first()
+                val congregationId = if (PermissionChecker.hasAdminRole(enrollerAssignments, AdminRole.SUPER_ADMIN)) {
+                    state.selectedCongregationId
+                } else {
+                    // Unlike Coordinator Elder enrollment (Admin only), this
+                    // screen is also reachable by a Coordinator Elder — so both
+                    // of their own-congregation roles need checking here.
+                    enrollerAssignments.firstOrNull {
+                        val role = (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role
+                        role == AdminRole.ADMIN_PER_CONGREGATION || role == AdminRole.COORDINATOR_ELDER
+                    }?.congregationId
+                }
+                if (congregationId == null) {
+                    _uiState.update { it.copy(isSaving = false, errorMessage = "Select a congregation.") }
+                    return@launch
+                }
+                val now = System.currentTimeMillis()
+                val credentials = authRepository.createAccountWithTempCredentials(
+                    person = Person(
+                        firstName = state.firstName.trim(),
+                        lastName = state.lastName.trim(),
+                        address = state.address.trim(),
+                        email = state.email.trim().ifBlank { null },
+                        contact = state.contact.trim(),
+                    ),
+                    roleAssignment = { personId ->
+                        RoleAssignment(
+                            personId = personId,
+                            roleType = RoleType.serialize(RoleType.Admin(AdminRole.MINISTERIAL_SERVANT)),
+                            congregationId = congregationId,
+                            status = RoleAssignmentStatus.ACTIVE,
+                            dateAssigned = now,
+                            assignedByPersonId = enrollingPersonId,
+                        )
+                    },
+                    enrollingPersonId = enrollingPersonId,
                 )
-            }
-            state.publisherCategory?.let { category ->
-                roleAssignmentRepository.saveNow(
-                    RoleAssignment(
-                        personId = credentials.personId,
-                        roleType = RoleType.serialize(RoleType.Publisher(category)),
-                        congregationId = congregationId,
-                        status = RoleAssignmentStatus.ACTIVE,
-                        dateAssigned = now,
-                        assignedByPersonId = enrollingPersonId,
+                // saveNow, not save — same reasoning as the primary role
+                // assignment in AuthRepository.createAccountWithTempCredentials:
+                // this new account may sign in on a different device before this
+                // one's next manual sync, and their role should already be
+                // correct the moment they do.
+                state.groupRole?.let { role ->
+                    roleAssignmentRepository.saveNow(
+                        RoleAssignment(
+                            personId = credentials.personId,
+                            roleType = RoleType.serialize(RoleType.Admin(AdminRole.REGULAR_ELDER)),
+                            congregationId = congregationId,
+                            regularElderRole = role,
+                            status = RoleAssignmentStatus.ACTIVE,
+                            dateAssigned = now,
+                            assignedByPersonId = enrollingPersonId,
+                        )
                     )
-                )
+                }
+                state.publisherCategory?.let { category ->
+                    roleAssignmentRepository.saveNow(
+                        RoleAssignment(
+                            personId = credentials.personId,
+                            roleType = RoleType.serialize(RoleType.Publisher(category)),
+                            congregationId = congregationId,
+                            status = RoleAssignmentStatus.ACTIVE,
+                            dateAssigned = now,
+                            assignedByPersonId = enrollingPersonId,
+                        )
+                    )
+                }
+                _uiState.update { it.copy(isSaving = false, result = credentials) }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isSaving = false, errorMessage = e.localizedMessage ?: "Couldn't enroll this ministerial servant. Please try again.")
+                }
             }
-            _uiState.update { it.copy(isSaving = false, result = credentials) }
         }
     }
 }

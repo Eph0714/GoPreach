@@ -123,6 +123,7 @@ class EldersEnrollmentViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
         viewModelScope.launch {
+          try {
             val enrollerAssignments = roleAssignmentRepository.observeForPerson(enrollingPersonId).first()
             val congregationId = if (PermissionChecker.hasAdminRole(enrollerAssignments, AdminRole.SUPER_ADMIN)) {
                 state.selectedCongregationId
@@ -233,6 +234,11 @@ class EldersEnrollmentViewModel @Inject constructor(
                 )
             }
             _uiState.update { it.copy(isSaving = false, result = credentials) }
+          } catch (e: Exception) {
+            _uiState.update {
+                it.copy(isSaving = false, errorMessage = e.localizedMessage ?: "Couldn't enroll this person. Please try again.")
+            }
+          }
         }
     }
 }

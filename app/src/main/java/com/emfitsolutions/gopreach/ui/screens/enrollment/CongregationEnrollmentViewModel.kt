@@ -99,33 +99,39 @@ class CongregationEnrollmentViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
         viewModelScope.launch {
-            if (!congregationRepository.isCodeAvailable(state.code.trim())) {
-                _uiState.update { it.copy(isSaving = false, errorMessage = "That congregation code is already in use.") }
-                return@launch
-            }
-            val congregation = congregationRepository.save(
-                Congregation(
-                    name = state.name.trim(),
-                    // Derived, human-readable fallback — see Congregation
-                    // .address's own doc comment.
-                    address = listOfNotNull(state.barangay, state.cityMunicipality, state.province).joinToString(", "),
-                    province = state.province,
-                    cityMunicipality = state.cityMunicipality,
-                    barangay = state.barangay,
-                    code = state.code.trim(),
-                    languages = state.languages,
-                    createdAt = System.currentTimeMillis(),
-                    createdByPersonId = createdByPersonId,
+            try {
+                if (!congregationRepository.isCodeAvailable(state.code.trim())) {
+                    _uiState.update { it.copy(isSaving = false, errorMessage = "That congregation code is already in use.") }
+                    return@launch
+                }
+                val congregation = congregationRepository.save(
+                    Congregation(
+                        name = state.name.trim(),
+                        // Derived, human-readable fallback — see Congregation
+                        // .address's own doc comment.
+                        address = listOfNotNull(state.barangay, state.cityMunicipality, state.province).joinToString(", "),
+                        province = state.province,
+                        cityMunicipality = state.cityMunicipality,
+                        barangay = state.barangay,
+                        code = state.code.trim(),
+                        languages = state.languages,
+                        createdAt = System.currentTimeMillis(),
+                        createdByPersonId = createdByPersonId,
+                    )
                 )
-            )
-            auditLogRepository.log(
-                actorPersonId = createdByPersonId,
-                action = "CREATE_CONGREGATION",
-                targetType = "Congregation",
-                targetId = congregation.id,
-                congregationId = congregation.id,
-            )
-            _uiState.update { it.copy(isSaving = false, saved = true) }
+                auditLogRepository.log(
+                    actorPersonId = createdByPersonId,
+                    action = "CREATE_CONGREGATION",
+                    targetType = "Congregation",
+                    targetId = congregation.id,
+                    congregationId = congregation.id,
+                )
+                _uiState.update { it.copy(isSaving = false, saved = true) }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isSaving = false, errorMessage = e.localizedMessage ?: "Couldn't create this congregation. Please try again.")
+                }
+            }
         }
     }
 }

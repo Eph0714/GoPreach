@@ -199,33 +199,39 @@ class PublisherEnrollmentViewModel @Inject constructor(
         val category = state.category
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
         viewModelScope.launch {
-            val credentials = authRepository.createAccountWithTempCredentials(
-                person = Person(
-                    lastName = state.lastName.trim(),
-                    firstName = state.firstName.trim(),
-                    address = state.address.trim(),
-                    province = state.province,
-                    cityMunicipality = state.cityMunicipality,
-                    barangay = state.barangay,
-                    gpsLat = state.gpsLat,
-                    gpsLng = state.gpsLng,
-                    contact = state.contact.trim(),
-                    email = state.email.trim().ifBlank { null },
-                ),
-                roleAssignment = { personId ->
-                    RoleAssignment(
-                        personId = personId,
-                        roleType = RoleType.serialize(RoleType.Publisher(category)),
-                        congregationId = group.congregationId,
-                        groupId = group.id,
-                        status = RoleAssignmentStatus.ACTIVE,
-                        dateAssigned = System.currentTimeMillis(),
-                        assignedByPersonId = enrollingPersonId,
-                    )
-                },
-                enrollingPersonId = enrollingPersonId,
-            )
-            _uiState.update { it.copy(isSaving = false, result = credentials) }
+            try {
+                val credentials = authRepository.createAccountWithTempCredentials(
+                    person = Person(
+                        lastName = state.lastName.trim(),
+                        firstName = state.firstName.trim(),
+                        address = state.address.trim(),
+                        province = state.province,
+                        cityMunicipality = state.cityMunicipality,
+                        barangay = state.barangay,
+                        gpsLat = state.gpsLat,
+                        gpsLng = state.gpsLng,
+                        contact = state.contact.trim(),
+                        email = state.email.trim().ifBlank { null },
+                    ),
+                    roleAssignment = { personId ->
+                        RoleAssignment(
+                            personId = personId,
+                            roleType = RoleType.serialize(RoleType.Publisher(category)),
+                            congregationId = group.congregationId,
+                            groupId = group.id,
+                            status = RoleAssignmentStatus.ACTIVE,
+                            dateAssigned = System.currentTimeMillis(),
+                            assignedByPersonId = enrollingPersonId,
+                        )
+                    },
+                    enrollingPersonId = enrollingPersonId,
+                )
+                _uiState.update { it.copy(isSaving = false, result = credentials) }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isSaving = false, errorMessage = e.localizedMessage ?: "Couldn't enroll this publisher. Please try again.")
+                }
+            }
         }
     }
 }

@@ -172,29 +172,35 @@ class AddEditUserViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
         viewModelScope.launch {
-            val (firstName, lastName) = splitName(state.fullName)
-            val credentials = authRepository.createAccountWithTempCredentials(
-                person = Person(firstName = firstName, lastName = lastName),
-                roleAssignment = { personId ->
-                    RoleAssignment(
-                        personId = personId,
-                        roleType = RoleType.serialize(RoleType.Admin(AdminRole.CIRCUIT_OVERSEER)),
-                        status = RoleAssignmentStatus.ACTIVE,
-                        dateAssigned = System.currentTimeMillis(),
-                        assignedByPersonId = enrollingPersonId,
-                    )
-                },
-                enrollingPersonId = enrollingPersonId,
-            )
-            userAccessGrantRepository.save(buildGrant(credentials.personId, enrollingPersonId, previous = null))
-            auditLogRepository.log(
-                actorPersonId = enrollingPersonId,
-                action = "SET_USER_PERMISSIONS",
-                targetType = "Person",
-                targetId = credentials.personId,
-                details = "permissions: ${state.selectedPermissions} scope: ${state.scopeType}",
-            )
-            _uiState.update { it.copy(isSaving = false, savedResult = credentials, saveCompleted = true) }
+            try {
+                val (firstName, lastName) = splitName(state.fullName)
+                val credentials = authRepository.createAccountWithTempCredentials(
+                    person = Person(firstName = firstName, lastName = lastName),
+                    roleAssignment = { personId ->
+                        RoleAssignment(
+                            personId = personId,
+                            roleType = RoleType.serialize(RoleType.Admin(AdminRole.CIRCUIT_OVERSEER)),
+                            status = RoleAssignmentStatus.ACTIVE,
+                            dateAssigned = System.currentTimeMillis(),
+                            assignedByPersonId = enrollingPersonId,
+                        )
+                    },
+                    enrollingPersonId = enrollingPersonId,
+                )
+                userAccessGrantRepository.save(buildGrant(credentials.personId, enrollingPersonId, previous = null))
+                auditLogRepository.log(
+                    actorPersonId = enrollingPersonId,
+                    action = "SET_USER_PERMISSIONS",
+                    targetType = "Person",
+                    targetId = credentials.personId,
+                    details = "permissions: ${state.selectedPermissions} scope: ${state.scopeType}",
+                )
+                _uiState.update { it.copy(isSaving = false, savedResult = credentials, saveCompleted = true) }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isSaving = false, errorMessage = e.localizedMessage ?: "Couldn't create this user. Please try again.")
+                }
+            }
         }
     }
 
@@ -205,47 +211,53 @@ class AddEditUserViewModel @Inject constructor(
         val personId = editingPersonId ?: return
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
         viewModelScope.launch {
-            val previousGrant = userAccessGrantRepository.get(personId)
-            val newGrant = buildGrant(personId, actingPersonId, previousGrant)
-            userAccessGrantRepository.save(newGrant)
-            if (previousGrant?.resolvedPermissions != newGrant.resolvedPermissions ||
-                previousGrant.resolvedScopeType != newGrant.resolvedScopeType ||
-                previousGrant.scopeCongregationIds.toSet() != newGrant.scopeCongregationIds.toSet() ||
-                previousGrant.scopeGroupIds.toSet() != newGrant.scopeGroupIds.toSet()
-            ) {
-                auditLogRepository.log(
-                    actorPersonId = actingPersonId,
-                    action = "CHANGE_USER_PERMISSIONS",
-                    targetType = "Person",
-                    targetId = personId,
-                    details = "permissions: ${previousGrant?.resolvedPermissions.orEmpty()} -> ${newGrant.resolvedPermissions}; " +
-                        "scope: ${previousGrant?.resolvedScopeType} ${previousGrant?.scopeCongregationIds.orEmpty()} -> " +
-                        "${newGrant.resolvedScopeType} ${newGrant.scopeCongregationIds}",
-                )
-            }
-            val person = personRepository.get(personId)
-            if (person != null) {
-                val state = _uiState.value
-                val updated = person.copy(
-                    firstName = state.firstName.trim().ifBlank { person.firstName },
-                    lastName = state.lastName.trim().ifBlank { person.lastName },
-                    address = state.address.trim(),
-                    contact = state.contact.trim(),
-                    email = state.email.trim().ifBlank { null },
-                    accountStatus = state.status,
-                )
-                if (updated != person) personRepository.save(updated)
-                if (person.accountStatus != state.status) {
+            try {
+                val previousGrant = userAccessGrantRepository.get(personId)
+                val newGrant = buildGrant(personId, actingPersonId, previousGrant)
+                userAccessGrantRepository.save(newGrant)
+                if (previousGrant?.resolvedPermissions != newGrant.resolvedPermissions ||
+                    previousGrant.resolvedScopeType != newGrant.resolvedScopeType ||
+                    previousGrant.scopeCongregationIds.toSet() != newGrant.scopeCongregationIds.toSet() ||
+                    previousGrant.scopeGroupIds.toSet() != newGrant.scopeGroupIds.toSet()
+                ) {
                     auditLogRepository.log(
                         actorPersonId = actingPersonId,
-                        action = "CHANGE_USER_STATUS",
+                        action = "CHANGE_USER_PERMISSIONS",
                         targetType = "Person",
                         targetId = personId,
-                        details = "status: ${person.accountStatus} -> ${state.status}",
+                        details = "permissions: ${previousGrant?.resolvedPermissions.orEmpty()} -> ${newGrant.resolvedPermissions}; " +
+                            "scope: ${previousGrant?.resolvedScopeType} ${previousGrant?.scopeCongregationIds.orEmpty()} -> " +
+                            "${newGrant.resolvedScopeType} ${newGrant.scopeCongregationIds}",
                     )
                 }
+                val person = personRepository.get(personId)
+                if (person != null) {
+                    val state = _uiState.value
+                    val updated = person.copy(
+                        firstName = state.firstName.trim().ifBlank { person.firstName },
+                        lastName = state.lastName.trim().ifBlank { person.lastName },
+                        address = state.address.trim(),
+                        contact = state.contact.trim(),
+                        email = state.email.trim().ifBlank { null },
+                        accountStatus = state.status,
+                    )
+                    if (updated != person) personRepository.save(updated)
+                    if (person.accountStatus != state.status) {
+                        auditLogRepository.log(
+                            actorPersonId = actingPersonId,
+                            action = "CHANGE_USER_STATUS",
+                            targetType = "Person",
+                            targetId = personId,
+                            details = "status: ${person.accountStatus} -> ${state.status}",
+                        )
+                    }
+                }
+                _uiState.update { it.copy(isSaving = false, saveCompleted = true) }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isSaving = false, errorMessage = e.localizedMessage ?: "Couldn't save changes. Please try again.")
+                }
             }
-            _uiState.update { it.copy(isSaving = false, saveCompleted = true) }
         }
     }
 }

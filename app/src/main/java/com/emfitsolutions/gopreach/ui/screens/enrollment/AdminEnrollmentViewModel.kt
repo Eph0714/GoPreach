@@ -59,28 +59,34 @@ class AdminEnrollmentViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
         viewModelScope.launch {
-            val (firstName, lastName) = splitName(state.name)
-            val credentials = authRepository.createAccountWithTempCredentials(
-                person = Person(
-                    firstName = firstName,
-                    lastName = lastName,
-                    address = state.address.trim(),
-                    email = state.email.trim().ifBlank { null },
-                    contact = state.contact.trim(),
-                ),
-                roleAssignment = { personId ->
-                    RoleAssignment(
-                        personId = personId,
-                        roleType = RoleType.serialize(RoleType.Admin(AdminRole.ADMIN_PER_CONGREGATION)),
-                        congregationId = state.selectedCongregationId,
-                        status = RoleAssignmentStatus.ACTIVE,
-                        dateAssigned = System.currentTimeMillis(),
-                        assignedByPersonId = enrollingPersonId,
-                    )
-                },
-                enrollingPersonId = enrollingPersonId,
-            )
-            _uiState.update { it.copy(isSaving = false, result = credentials) }
+            try {
+                val (firstName, lastName) = splitName(state.name)
+                val credentials = authRepository.createAccountWithTempCredentials(
+                    person = Person(
+                        firstName = firstName,
+                        lastName = lastName,
+                        address = state.address.trim(),
+                        email = state.email.trim().ifBlank { null },
+                        contact = state.contact.trim(),
+                    ),
+                    roleAssignment = { personId ->
+                        RoleAssignment(
+                            personId = personId,
+                            roleType = RoleType.serialize(RoleType.Admin(AdminRole.ADMIN_PER_CONGREGATION)),
+                            congregationId = state.selectedCongregationId,
+                            status = RoleAssignmentStatus.ACTIVE,
+                            dateAssigned = System.currentTimeMillis(),
+                            assignedByPersonId = enrollingPersonId,
+                        )
+                    },
+                    enrollingPersonId = enrollingPersonId,
+                )
+                _uiState.update { it.copy(isSaving = false, result = credentials) }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isSaving = false, errorMessage = e.localizedMessage ?: "Couldn't enroll this admin. Please try again.")
+                }
+            }
         }
     }
 }

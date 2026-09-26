@@ -267,9 +267,11 @@ class AuthRepository @Inject constructor(
         val appName = "temp-account-$personId"
         val secondaryApp = FirebaseApp.initializeApp(appContext, FirebaseApp.getInstance().options, appName)
         try {
-            val secondaryAuth = FirebaseAuth.getInstance(secondaryApp)
-            secondaryAuth.createUserWithEmailAndPassword(authEmailFor(personId), tempPassword).await()
-            secondaryAuth.signOut()
+            withTimeout(SIGN_IN_TIMEOUT_MS) {
+                val secondaryAuth = FirebaseAuth.getInstance(secondaryApp)
+                secondaryAuth.createUserWithEmailAndPassword(authEmailFor(personId), tempPassword).await()
+                secondaryAuth.signOut()
+            }
         } finally {
             secondaryApp.delete()
         }
