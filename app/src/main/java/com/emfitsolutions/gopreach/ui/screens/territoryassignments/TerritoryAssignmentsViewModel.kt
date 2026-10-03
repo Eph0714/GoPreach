@@ -21,14 +21,39 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** One dashboard row — [barangays] already sorted by name, [group] carried
- * whole (not just its name/color) so the row can keep reading more of it
- * later without a second lookup. */
-data class TerritoryAssignmentRow(
+/** One municipality within a [GroupTerritoryRow] — [barangays] already sorted
+ * by name. */
+data class MunicipalityAssignment(
     val assignment: TerritoryAssignment,
-    val group: Group?,
     val barangays: List<TerritoryAssignmentBarangay>,
 )
+
+/** One dashboard card — a Field Service Group's whole territory **within one
+ * province** ([municipalities] already sorted by name; every entry shares
+ * the same [provinceId]/[provinceName], carried once at this level rather
+ * than per-municipality). [group] carried whole (not just its name/color) so
+ * the card can keep reading more of it later without a second lookup. A
+ * Group with assignments in two different provinces shows as two separate
+ * cards — see [TerritoryAssignmentRepository.saveGroupTerritoryForProvince]'s
+ * own doc comment for why a save session (and therefore a card) is scoped to
+ * one province. */
+data class GroupTerritoryRow(
+    val congregationId: String,
+    val groupId: String,
+    val group: Group?,
+    val provinceId: Int,
+    val provinceName: String,
+    val municipalities: List<MunicipalityAssignment>,
+) {
+    val totalBarangays: Int get() = municipalities.sumOf { it.barangays.size }
+}
+
+enum class TerritorySortOption(val label: String) {
+    GROUP_NAME("Field Service Group"),
+    MUNICIPALITY_COUNT("Municipality count"),
+    BARANGAY_COUNT("Barangay count"),
+    PROVINCE("Province"),
+}
 
 @HiltViewModel
 class TerritoryAssignmentsViewModel @Inject constructor(
@@ -44,9 +69,18 @@ class TerritoryAssignmentsViewModel @Inject constructor(
      * .groups.ManageGroupsViewModel.congregations]. */
     val congregations: Flow<List<Congregation>> = congregationRepository.observeAll()
 
-    /** [searchQuery] matches Group name, municipality name, or any assigned
-     * barangay's name — "Search by FS Group, municipality, or barangay". */
-    fun rowsFor(congregationId: String?, searchQuery: String): Flow<List<TerritoryAssignmentRow>> =
+    /** [searchQuery] matches Group name, any assigned municipality's name, or
+     * any assigned barangay's name — "Search by FS Group, municipality, or
+     * barangay". [provinceFilter] keeps only cards in that province;
+     * [sortOption] controls ordering — see [TerritorySortOption]. One card
+     * per (congregation, Group, province) — a Group with territory in two
+     * provinces shows as two cards, each independently searchable/sortable. */
+    fun rowsFor(
+        congregationId: String?,
+        searchQuery: String,
+        provinceFilter: Int? = null,
+        sortOption: TerritorySortOption = TerritorySortOption.GROUP_NAME,
+    ): Flow<List<GroupTerritoryRow>> =
         combine(
             territoryAssignmentRepository.observeAssignments(),
             territoryAssignmentRepository.observeBarangayClaims(),
@@ -54,20 +88,40 @@ class TerritoryAssignmentsViewModel @Inject constructor(
         ) { assignments, claims, groups ->
             assignments
                 .filter { congregationId == null || it.congregationId == congregationId }
-                .map { assignment ->
-                    TerritoryAssignmentRow(
-                        assignment = assignment,
-                        group = groups.firstOrNull { it.id == assignment.groupId },
-                        barangays = claims.filter { it.assignmentId == assignment.id }.sortedBy { it.barangayName },
+                .groupBy { Triple(it.congregationId, it.groupId, it.provinceId) }
+                .map { (key, groupAssignments) ->
+                    val (rowCongregationId, groupId, provinceId) = key
+                    GroupTerritoryRow(
+                        congregationId = rowCongregationId,
+                        groupId = groupId,
+                        group = groups.firstOrNull { it.id == groupId },
+                        provinceId = provinceId,
+                        provinceName = groupAssignments.first().provinceName,
+                        municipalities = groupAssignments
+                            .map { assignment ->
+                                MunicipalityAssignment(
+                                    assignment = assignment,
+                                    barangays = claims.filter { it.assignmentId == assignment.id }.sortedBy { it.barangayName },
+                                )
+                            }
+                            .sortedBy { it.assignment.muncityName },
                     )
                 }
+                .filter { provinceFilter == null || it.provinceId == provinceFilter }
                 .filter { row ->
                     searchQuery.isBlank() ||
                         row.group?.name?.contains(searchQuery, ignoreCase = true) == true ||
-                        row.assignment.muncityName.contains(searchQuery, ignoreCase = true) ||
-                        row.barangays.any { it.barangayName.contains(searchQuery, ignoreCase = true) }
+                        row.municipalities.any { it.assignment.muncityName.contains(searchQuery, ignoreCase = true) } ||
+                        row.municipalities.any { m -> m.barangays.any { it.barangayName.contains(searchQuery, ignoreCase = true) } }
                 }
-                .sortedWith(compareBy({ it.group?.name ?: "" }, { it.assignment.muncityName }))
+                .let { rows ->
+                    when (sortOption) {
+                        TerritorySortOption.GROUP_NAME -> rows.sortedBy { it.group?.name ?: "" }
+                        TerritorySortOption.MUNICIPALITY_COUNT -> rows.sortedByDescending { it.municipalities.size }
+                        TerritorySortOption.BARANGAY_COUNT -> rows.sortedByDescending { it.totalBarangays }
+                        TerritorySortOption.PROVINCE -> rows.sortedBy { it.provinceName }
+                    }
+                }
         }
 
     /** Real polygon boundary for one claimed barangay, for the "tap a
@@ -104,9 +158,20 @@ class TerritoryAssignmentsViewModel @Inject constructor(
         _removeResult.value = null
     }
 
+    /** Removes just one municipality from a Group's territory — the
+     * expanded-card per-municipality action. */
     fun remove(assignmentId: String, congregationId: String, actorPersonId: String) {
         viewModelScope.launch {
             _removeResult.value = territoryAssignmentRepository.removeAssignment(assignmentId, congregationId, actorPersonId)
+        }
+    }
+
+    /** Removes a whole [GroupTerritoryRow] — every municipality this Group
+     * holds in this province — the card-level "remove entire assignment"
+     * action. */
+    fun removeGroup(congregationId: String, groupId: String, provinceId: Int, actorPersonId: String) {
+        viewModelScope.launch {
+            _removeResult.value = territoryAssignmentRepository.removeGroupTerritory(congregationId, groupId, provinceId, actorPersonId)
         }
     }
 }

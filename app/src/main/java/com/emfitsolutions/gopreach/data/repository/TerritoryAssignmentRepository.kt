@@ -6,6 +6,7 @@ import com.emfitsolutions.gopreach.data.sync.ConnectivityObserver
 import com.emfitsolutions.gopreach.data.sync.OfflineFirestoreRepository
 import com.emfitsolutions.gopreach.data.sync.mirrorFirestoreCollection
 import com.emfitsolutions.gopreach.di.ApplicationScope
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +24,16 @@ private const val BARANGAYS_COLLECTION = "territoryAssignmentBarangays"
  * hits a cryptic Firestore-side limit error; the caller gets this app's own
  * clear message instead (see [TerritoryAssignmentResult.Error] callers). */
 const val MAX_BARANGAYS_PER_SAVE = 400
+
+/** One municipality's desired barangay set within a [saveGroupTerritoryForProvince]
+ * session — see that function's own doc comment. */
+data class MunicipalitySelection(
+    val provinceId: Int,
+    val provinceName: String,
+    val muncityId: Int,
+    val muncityName: String,
+    val barangays: List<PsgcOption>,
+)
 
 sealed class TerritoryAssignmentResult {
     data class Success(val assignmentId: String) : TerritoryAssignmentResult()
@@ -44,6 +55,19 @@ sealed class TerritoryAssignmentResult {
  * try/catch can turn it into a typed [TerritoryAssignmentResult.Conflict] —
  * this exception never escapes [TerritoryAssignmentRepository] itself. */
 private class TerritoryConflictException(val barangayName: String, val takenByGroupName: String) : Exception()
+
+/** One municipality's plan inside a [TerritoryAssignmentRepository.saveGroupTerritoryForProvince]
+ * transaction — which assignment doc to write to (existing or freshly
+ * minted), and the add/remove/unchanged barangay diff for it. */
+private data class MuncityPlan(
+    val selection: MunicipalitySelection,
+    val assignmentRef: DocumentReference,
+    val isNew: Boolean,
+    val existingAssignment: TerritoryAssignment?,
+    val toAdd: List<PsgcOption>,
+    val toRemoveIds: Set<Int>,
+    val unchanged: List<PsgcOption>,
+)
 
 /**
  * Territory Assignment module — assigns every barangay of one municipality to
@@ -84,89 +108,180 @@ class TerritoryAssignmentRepository @Inject constructor(
 
     private fun claimId(congregationId: String, barangayId: Int) = "${congregationId}_$barangayId"
 
-    suspend fun createAssignment(
+    /**
+     * "A single Field Service Group may cover multiple municipalities" — the
+     * group-level save. Takes the full desired barangay set for every
+     * municipality this Group should hold **within one province**
+     * ([municipalities] is a declarative end-state, not a delta) and commits
+     * every create/update/delete — assignment headers *and* barangay claims,
+     * across every affected municipality — in one transaction. Scoped to a
+     * single province per call so a save can never touch (or accidentally
+     * delete) this Group's municipalities in a *different* province; those
+     * are never fetched. Same per-barangay conflict guarantee as the old
+     * single-municipality path this supersedes: every newly-claimed barangay
+     * is re-checked via `txn.get()` on its deterministic id before any write,
+     * so a race with another admin is still caught server-side.
+     */
+    suspend fun saveGroupTerritoryForProvince(
         congregationId: String,
         groupId: String,
         groupName: String,
         provinceId: Int,
         provinceName: String,
-        muncityId: Int,
-        muncityName: String,
-        barangays: List<PsgcOption>,
+        municipalities: List<MunicipalitySelection>,
         actorPersonId: String,
     ): TerritoryAssignmentResult {
         if (!connectivityObserver.isOnline()) return TerritoryAssignmentResult.Offline()
-        if (barangays.isEmpty()) return TerritoryAssignmentResult.Error("Select at least one barangay.")
-        if (barangays.size > MAX_BARANGAYS_PER_SAVE) {
+        val selections = municipalities.filter { it.barangays.isNotEmpty() }
+        if (selections.isEmpty()) return TerritoryAssignmentResult.Error("Select at least one barangay.")
+        val totalBarangays = selections.sumOf { it.barangays.size }
+        if (totalBarangays > MAX_BARANGAYS_PER_SAVE) {
             return TerritoryAssignmentResult.Error(
                 "You can assign at most $MAX_BARANGAYS_PER_SAVE barangays in one save. Split this into two assignments.",
             )
         }
-        val assignmentRef = firestore.collection(ASSIGNMENTS_COLLECTION).document()
+
+        val existingAssignments = observeAssignments().first()
+            .filter { it.congregationId == congregationId && it.groupId == groupId && it.provinceId == provinceId }
+        val existingAssignmentIds = existingAssignments.map { it.id }.toSet()
+        val existingClaims = observeBarangayClaims().first().filter { it.assignmentId in existingAssignmentIds }
+        val existingByMuncity = existingAssignments.associateBy { it.muncityId }
+        val selectedMuncityIds = selections.map { it.muncityId }.toSet()
         val now = System.currentTimeMillis()
-        val assignment = TerritoryAssignment(
-            id = assignmentRef.id,
-            congregationId = congregationId,
-            groupId = groupId,
-            provinceId = provinceId,
-            provinceName = provinceName,
-            muncityId = muncityId,
-            muncityName = muncityName,
-            createdAt = now,
-            createdByPersonId = actorPersonId,
-            updatedAt = now,
-            updatedByPersonId = actorPersonId,
-        )
-        val claims = barangays.map { b ->
-            TerritoryAssignmentBarangay(
-                id = claimId(congregationId, b.id),
-                congregationId = congregationId,
-                assignmentId = assignmentRef.id,
-                groupId = groupId,
-                groupName = groupName,
-                provinceId = provinceId,
-                muncityId = muncityId,
-                muncityName = muncityName,
-                barangayId = b.id,
-                barangayName = b.name,
-                createdAt = now,
-                createdByPersonId = actorPersonId,
+
+        // Every assignment ref (existing or a freshly minted id) is known
+        // before the transaction opens — a Firestore transaction requirement.
+        val plans = selections.map { selection ->
+            val existing = existingByMuncity[selection.muncityId]
+            val existingIds = existingClaims.filter { it.muncityId == selection.muncityId }.map { it.barangayId }.toSet()
+            val newIds = selection.barangays.map { it.id }.toSet()
+            MuncityPlan(
+                selection = selection,
+                assignmentRef = existing?.let { firestore.collection(ASSIGNMENTS_COLLECTION).document(it.id) }
+                    ?: firestore.collection(ASSIGNMENTS_COLLECTION).document(),
+                isNew = existing == null,
+                existingAssignment = existing,
+                toAdd = selection.barangays.filter { it.id !in existingIds },
+                toRemoveIds = existingIds - newIds,
+                unchanged = selection.barangays.filter { it.id in existingIds },
             )
         }
+        // Municipalities this Group held in this province before, but that
+        // aren't in this session's selection at all — dropped entirely.
+        val droppedAssignments = existingAssignments.filter { it.muncityId !in selectedMuncityIds }
+        val droppedAssignmentIds = droppedAssignments.map { it.id }.toSet()
+        val droppedClaims = existingClaims.filter { it.assignmentId in droppedAssignmentIds }
+
         return try {
             firestore.runTransaction { txn ->
-                // All reads before any write — a Firestore transaction
-                // requirement, and also exactly what makes this check atomic
-                // with the claim below: nothing can slip in between this get
-                // and this transaction's eventual commit.
-                for (claim in claims) {
-                    val ref = firestore.collection(BARANGAYS_COLLECTION).document(claim.id)
-                    val snap = txn.get(ref)
-                    if (snap.exists()) {
-                        throw TerritoryConflictException(claim.barangayName, snap.getString("groupName") ?: "another group")
+                // All reads before any write — every barangay newly claimed
+                // across every municipality in this save, checked against the
+                // one global per-congregation uniqueness constraint.
+                for (plan in plans) {
+                    for (b in plan.toAdd) {
+                        val ref = firestore.collection(BARANGAYS_COLLECTION).document(claimId(congregationId, b.id))
+                        val snap = txn.get(ref)
+                        if (snap.exists()) {
+                            throw TerritoryConflictException(b.name, snap.getString("groupName") ?: "another group")
+                        }
                     }
                 }
-                txn.set(assignmentRef, assignment)
-                for (claim in claims) {
-                    txn.set(firestore.collection(BARANGAYS_COLLECTION).document(claim.id), claim)
+                for (plan in plans) {
+                    val selection = plan.selection
+                    if (plan.isNew) {
+                        txn.set(
+                            plan.assignmentRef,
+                            TerritoryAssignment(
+                                id = plan.assignmentRef.id, congregationId = congregationId, groupId = groupId,
+                                provinceId = provinceId, provinceName = provinceName,
+                                muncityId = selection.muncityId, muncityName = selection.muncityName,
+                                createdAt = now, createdByPersonId = actorPersonId,
+                                updatedAt = now, updatedByPersonId = actorPersonId,
+                            ),
+                        )
+                    } else {
+                        txn.update(
+                            plan.assignmentRef,
+                            mapOf(
+                                "groupId" to groupId, "provinceName" to provinceName, "muncityName" to selection.muncityName,
+                                "updatedAt" to now, "updatedByPersonId" to actorPersonId,
+                            ),
+                        )
+                    }
+                    for (barangayId in plan.toRemoveIds) {
+                        txn.delete(firestore.collection(BARANGAYS_COLLECTION).document(claimId(congregationId, barangayId)))
+                    }
+                    for (b in plan.toAdd) {
+                        txn.set(
+                            firestore.collection(BARANGAYS_COLLECTION).document(claimId(congregationId, b.id)),
+                            TerritoryAssignmentBarangay(
+                                id = claimId(congregationId, b.id), congregationId = congregationId, assignmentId = plan.assignmentRef.id,
+                                groupId = groupId, groupName = groupName, provinceId = provinceId,
+                                muncityId = selection.muncityId, muncityName = selection.muncityName,
+                                barangayId = b.id, barangayName = b.name, createdAt = now, createdByPersonId = actorPersonId,
+                            ),
+                        )
+                    }
+                    // Group/municipality display fields on an unchanged claim
+                    // only need rewriting if the Group itself changed — cheap
+                    // to always do, keeps denormalized groupName correct even
+                    // if only the Group was edited on this save.
+                    for (b in plan.unchanged) {
+                        txn.update(
+                            firestore.collection(BARANGAYS_COLLECTION).document(claimId(congregationId, b.id)),
+                            mapOf("groupId" to groupId, "groupName" to groupName, "muncityName" to selection.muncityName),
+                        )
+                    }
+                }
+                for (claim in droppedClaims) {
+                    txn.delete(firestore.collection(BARANGAYS_COLLECTION).document(claim.id))
+                }
+                for (assignment in droppedAssignments) {
+                    txn.delete(firestore.collection(ASSIGNMENTS_COLLECTION).document(assignment.id))
                 }
             }.await()
-            // Write straight into the local cache now that the server has
-            // confirmed it — same reasoning as OfflineFirestoreRepository
-            // .saveNow's own doc comment: this screen needs the result
-            // immediately, not whenever the next mirror snapshot happens to
-            // arrive.
-            offline.cacheFromServer(ASSIGNMENTS_COLLECTION, assignment.id, assignment)
-            claims.forEach { offline.cacheFromServer(BARANGAYS_COLLECTION, it.id, it) }
+
+            // Same "write straight into the local cache now that the server
+            // has confirmed it" reasoning as every other write in this
+            // repository — this screen needs the result immediately.
+            plans.forEach { plan ->
+                val selection = plan.selection
+                offline.cacheFromServer(
+                    ASSIGNMENTS_COLLECTION, plan.assignmentRef.id,
+                    TerritoryAssignment(
+                        id = plan.assignmentRef.id, congregationId = congregationId, groupId = groupId,
+                        provinceId = provinceId, provinceName = provinceName,
+                        muncityId = selection.muncityId, muncityName = selection.muncityName,
+                        createdAt = plan.existingAssignment?.createdAt ?: now,
+                        createdByPersonId = plan.existingAssignment?.createdByPersonId ?: actorPersonId,
+                        updatedAt = now, updatedByPersonId = actorPersonId,
+                    ),
+                )
+                plan.toRemoveIds.forEach { offline.deleteFromServer(BARANGAYS_COLLECTION, claimId(congregationId, it)) }
+                selection.barangays.forEach { b ->
+                    offline.cacheFromServer(
+                        BARANGAYS_COLLECTION, claimId(congregationId, b.id),
+                        TerritoryAssignmentBarangay(
+                            id = claimId(congregationId, b.id), congregationId = congregationId, assignmentId = plan.assignmentRef.id,
+                            groupId = groupId, groupName = groupName, provinceId = provinceId,
+                            muncityId = selection.muncityId, muncityName = selection.muncityName,
+                            barangayId = b.id, barangayName = b.name, createdAt = now, createdByPersonId = actorPersonId,
+                        ),
+                    )
+                }
+            }
+            droppedClaims.forEach { offline.deleteFromServer(BARANGAYS_COLLECTION, it.id) }
+            droppedAssignments.forEach { offline.deleteFromServer(ASSIGNMENTS_COLLECTION, it.id) }
+
             auditLogRepository.log(
                 actorPersonId = actorPersonId,
-                action = "ADD_TERRITORY_ASSIGNMENT",
+                action = if (existingAssignments.isEmpty()) "ADD_TERRITORY_ASSIGNMENT" else "EDIT_TERRITORY_ASSIGNMENT",
                 targetType = "TerritoryAssignment",
-                targetId = assignment.id,
+                targetId = groupId,
                 congregationId = congregationId,
-                details = "group=$groupName municipality=$muncityName barangays=${barangays.size}",
+                details = "group=$groupName province=$provinceName municipalities=${plans.size} barangays=$totalBarangays",
             )
-            TerritoryAssignmentResult.Success(assignment.id)
+            TerritoryAssignmentResult.Success(groupId)
         } catch (e: TerritoryConflictException) {
             TerritoryAssignmentResult.Conflict(e.barangayName, e.takenByGroupName)
         } catch (e: Exception) {
@@ -174,120 +289,59 @@ class TerritoryAssignmentRepository @Inject constructor(
         }
     }
 
-    suspend fun updateAssignment(
-        assignmentId: String,
+    /** Removes every municipality this Group holds in [provinceId] — the
+     * card-level "remove entire assignment" action, generalized from
+     * [removeAssignment] (single assignment id) to a (group, province)
+     * scope. Fresh Firestore queries (not the cached/offline flow), same
+     * freshness reasoning [removeAssignment] already uses for deletes: a
+     * stale local list could miss a just-added claim and leave it orphaned. */
+    suspend fun removeGroupTerritory(
         congregationId: String,
         groupId: String,
-        groupName: String,
         provinceId: Int,
-        provinceName: String,
-        muncityId: Int,
-        muncityName: String,
-        newBarangays: List<PsgcOption>,
         actorPersonId: String,
     ): TerritoryAssignmentResult {
         if (!connectivityObserver.isOnline()) return TerritoryAssignmentResult.Offline()
-        if (newBarangays.isEmpty()) return TerritoryAssignmentResult.Error("Select at least one barangay.")
-        if (newBarangays.size > MAX_BARANGAYS_PER_SAVE) {
-            return TerritoryAssignmentResult.Error(
-                "You can assign at most $MAX_BARANGAYS_PER_SAVE barangays in one save. Split this into two assignments.",
-            )
-        }
-        // Computed before the transaction opens — the transaction only
-        // needs to re-verify the barangays actually being newly claimed
-        // ([toAdd]); anything already held by this same assignment
-        // ([unchanged]) needs no existence re-check, and anything dropped
-        // ([toRemove]) is simply released.
-        val existingClaims = observeBarangayClaims().first().filter { it.assignmentId == assignmentId }
-        val oldIds = existingClaims.map { it.barangayId }.toSet()
-        val newIds = newBarangays.map { it.id }.toSet()
-        val toAdd = newBarangays.filter { it.id !in oldIds }
-        val toRemoveIds = oldIds - newIds
-        val unchanged = newBarangays.filter { it.id in oldIds }
-        val now = System.currentTimeMillis()
-        val assignmentRef = firestore.collection(ASSIGNMENTS_COLLECTION).document(assignmentId)
-
         return try {
+            // Single-field equality filters only (groupId) — always covered
+            // by Firestore's automatic indexing, no composite index needed —
+            // then narrowed to this congregation/province client-side.
+            val assignmentDocs = firestore.collection(ASSIGNMENTS_COLLECTION)
+                .whereEqualTo("groupId", groupId)
+                .get().await()
+                .documents.filter { it.getString("congregationId") == congregationId && it.getLong("provinceId")?.toInt() == provinceId }
+            val assignmentIds = assignmentDocs.map { it.id }.toSet()
+            val claimDocs = firestore.collection(BARANGAYS_COLLECTION)
+                .whereEqualTo("groupId", groupId)
+                .get().await()
+                .documents.filter { it.getString("assignmentId") in assignmentIds }
             firestore.runTransaction { txn ->
-                for (b in toAdd) {
-                    val ref = firestore.collection(BARANGAYS_COLLECTION).document(claimId(congregationId, b.id))
-                    val snap = txn.get(ref)
-                    if (snap.exists()) {
-                        throw TerritoryConflictException(b.name, snap.getString("groupName") ?: "another group")
-                    }
+                for (doc in claimDocs) {
+                    // Re-check inside the transaction: only delete a claim
+                    // that still points at one of these exact assignments —
+                    // guards the narrow race of someone editing this Group's
+                    // territory (reassigning one of its barangays) between
+                    // the query above and this transaction's commit.
+                    val snap = txn.get(doc.reference)
+                    if (snap.getString("assignmentId") in assignmentIds) txn.delete(doc.reference)
                 }
-                txn.update(
-                    assignmentRef,
-                    mapOf(
-                        "groupId" to groupId,
-                        "provinceId" to provinceId,
-                        "provinceName" to provinceName,
-                        "muncityId" to muncityId,
-                        "muncityName" to muncityName,
-                        "updatedAt" to now,
-                        "updatedByPersonId" to actorPersonId,
-                    ),
-                )
-                for (barangayId in toRemoveIds) {
-                    txn.delete(firestore.collection(BARANGAYS_COLLECTION).document(claimId(congregationId, barangayId)))
-                }
-                for (b in toAdd) {
-                    txn.set(
-                        firestore.collection(BARANGAYS_COLLECTION).document(claimId(congregationId, b.id)),
-                        TerritoryAssignmentBarangay(
-                            id = claimId(congregationId, b.id), congregationId = congregationId, assignmentId = assignmentId,
-                            groupId = groupId, groupName = groupName, provinceId = provinceId, muncityId = muncityId,
-                            muncityName = muncityName, barangayId = b.id, barangayName = b.name,
-                            createdAt = now, createdByPersonId = actorPersonId,
-                        ),
-                    )
-                }
-                // Group/municipality display fields on an unchanged claim
-                // only need rewriting if the group itself changed — cheap to
-                // always do, keeps denormalized groupName correct even if
-                // only the Group was edited on this save.
-                for (b in unchanged) {
-                    txn.update(
-                        firestore.collection(BARANGAYS_COLLECTION).document(claimId(congregationId, b.id)),
-                        mapOf("groupId" to groupId, "groupName" to groupName, "muncityName" to muncityName),
-                    )
+                for (doc in assignmentDocs) {
+                    txn.delete(doc.reference)
                 }
             }.await()
-
-            offline.cacheFromServer(
-                ASSIGNMENTS_COLLECTION, assignmentId,
-                TerritoryAssignment(
-                    id = assignmentId, congregationId = congregationId, groupId = groupId,
-                    provinceId = provinceId, provinceName = provinceName, muncityId = muncityId, muncityName = muncityName,
-                    createdAt = existingClaims.minOfOrNull { it.createdAt } ?: now, createdByPersonId = actorPersonId,
-                    updatedAt = now, updatedByPersonId = actorPersonId,
-                ),
-            )
-            toRemoveIds.forEach { offline.deleteFromServer(BARANGAYS_COLLECTION, claimId(congregationId, it)) }
-            newBarangays.forEach { b ->
-                offline.cacheFromServer(
-                    BARANGAYS_COLLECTION, claimId(congregationId, b.id),
-                    TerritoryAssignmentBarangay(
-                        id = claimId(congregationId, b.id), congregationId = congregationId, assignmentId = assignmentId,
-                        groupId = groupId, groupName = groupName, provinceId = provinceId, muncityId = muncityId,
-                        muncityName = muncityName, barangayId = b.id, barangayName = b.name,
-                        createdAt = now, createdByPersonId = actorPersonId,
-                    ),
-                )
-            }
+            assignmentIds.forEach { offline.deleteFromServer(ASSIGNMENTS_COLLECTION, it) }
+            claimDocs.forEach { offline.deleteFromServer(BARANGAYS_COLLECTION, it.id) }
             auditLogRepository.log(
                 actorPersonId = actorPersonId,
-                action = "EDIT_TERRITORY_ASSIGNMENT",
+                action = "REMOVE_TERRITORY_ASSIGNMENT",
                 targetType = "TerritoryAssignment",
-                targetId = assignmentId,
+                targetId = groupId,
                 congregationId = congregationId,
-                details = "group=$groupName municipality=$muncityName barangays=${newBarangays.size}",
+                details = "municipalities=${assignmentIds.size} barangays=${claimDocs.size}",
             )
-            TerritoryAssignmentResult.Success(assignmentId)
-        } catch (e: TerritoryConflictException) {
-            TerritoryAssignmentResult.Conflict(e.barangayName, e.takenByGroupName)
+            TerritoryAssignmentResult.Success(groupId)
         } catch (e: Exception) {
-            TerritoryAssignmentResult.Error(e.localizedMessage ?: "Couldn't save this territory assignment.")
+            TerritoryAssignmentResult.Error(e.localizedMessage ?: "Couldn't remove this territory assignment.")
         }
     }
 

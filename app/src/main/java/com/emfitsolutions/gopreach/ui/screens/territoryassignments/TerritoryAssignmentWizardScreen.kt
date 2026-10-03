@@ -3,6 +3,7 @@ package com.emfitsolutions.gopreach.ui.screens.territoryassignments
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +20,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -44,6 +46,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
+import com.emfitsolutions.gopreach.data.repository.MunicipalitySelection
 import com.emfitsolutions.gopreach.data.repository.PsgcOption
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentResult
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -52,7 +55,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 
 private const val STEP_GROUP = 0
-private const val STEP_MUNICIPALITY = 1
+private const val STEP_MUNICIPALITIES = 1
 private const val STEP_BARANGAYS = 2
 private const val STEP_CONFIRM = 3
 private const val STEP_COUNT = 4
@@ -61,63 +64,89 @@ private const val STEP_COUNT = 4
  * Add/Edit Territory Assignment — a dedicated full-screen wizard rather than
  * [com.emfitsolutions.gopreach.ui.components.FormDialog] (checked that
  * component's own sizing — a fixed-height scrollable dialog — against what
- * this flow needs: a Group pick, a Province/Municipality cascade, a
- * Barangay checklist that can run into the hundreds with per-row
- * explanations, then a confirmation summary; four genuinely sequential
- * concerns is a wizard shape, not a compact form). [assignmentId] null means
- * Add; non-null means Edit (congregationId becomes immutable once loaded,
- * matching [com.emfitsolutions.gopreach.data.repository
- * .TerritoryAssignmentRepository.updateAssignment]).
+ * this flow needs: a Group pick, a Province + multi-Municipality pick, a
+ * Barangay checklist per municipality that can run into the hundreds with
+ * per-row explanations, then a confirmation summary; four genuinely
+ * sequential concerns is a wizard shape, not a compact form).
+ *
+ * "A single Field Service Group may cover multiple municipalities" — Add and
+ * Edit are the same flow here: [groupIdArg]/[provinceIdArg] non-null means
+ * this Group already has territory in that province, which is preloaded
+ * (municipalities + their barangays) so the user adds to/edits it rather
+ * than creating a disconnected duplicate; the exact same preload also fires
+ * from a fresh "Add" session the moment the user picks a Group+Province
+ * combination that already has existing territory. [congregationIdArg] is
+ * passed explicitly rather than re-derived, since the dashboard already
+ * knows it for the Edit route; congregationId becomes immutable once a Group
+ * is picked (matching [com.emfitsolutions.gopreach.data.repository
+ * .TerritoryAssignmentRepository.saveGroupTerritoryForProvince]'s own
+ * single-group-per-call contract).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TerritoryAssignmentWizardScreen(
-    assignmentId: String?,
+    congregationIdArg: String?,
+    groupIdArg: String?,
+    provinceIdArg: Int?,
     fixedCongregationId: String?,
     currentPersonId: String,
     onDone: () -> Unit,
     viewModel: TerritoryAssignmentWizardViewModel = hiltViewModel(),
 ) {
+    val isEditing = groupIdArg != null && provinceIdArg != null
     var step by rememberSaveable { mutableStateOf(STEP_GROUP) }
     // Reset the instant the step changes — advancing to a new step should
     // never carry over "you tried to skip this" styling from the step before.
     var nextTappedWhileInvalid by remember(step) { mutableStateOf(false) }
-    var isLoadingExisting by remember { mutableStateOf(assignmentId != null) }
+    var isLoadingExisting by remember { mutableStateOf(isEditing) }
 
     // Super-Admin only (fixedCongregationId == null) and only for a brand-new
-    // assignment — editing always keeps the loaded assignment's own
-    // congregationId, never offers a picker (congregationId is immutable on
-    // edit).
-    var pickedCongregationId by rememberSaveable { mutableStateOf(fixedCongregationId) }
+    // session — editing always keeps the loaded territory's own
+    // congregationId, never offers a picker (congregationId is immutable
+    // once a Group is picked).
+    var pickedCongregationId by rememberSaveable { mutableStateOf(fixedCongregationId ?: congregationIdArg) }
     val congregationId = fixedCongregationId ?: pickedCongregationId
     val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    var selectedGroupId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedGroupId by rememberSaveable { mutableStateOf(groupIdArg) }
     var provinceOption by remember { mutableStateOf<PsgcOption?>(null) }
-    var muncityOption by remember { mutableStateOf<PsgcOption?>(null) }
-    var selectedBarangays by remember { mutableStateOf<List<PsgcOption>>(emptyList()) }
+    var selectedMunicipalities by remember { mutableStateOf<List<PsgcOption>>(emptyList()) }
+    var barangaysByMuncity by remember { mutableStateOf<Map<Int, List<PsgcOption>>>(emptyMap()) }
 
     val groups by (congregationId?.let { viewModel.groupsFor(it) } ?: flowOf(emptyList()))
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val selectedGroup = groups.firstOrNull { it.id == selectedGroupId }
 
     // Edit pre-fill — loads once, before the user can interact with any step.
-    LaunchedEffect(assignmentId) {
-        if (assignmentId == null) {
-            isLoadingExisting = false
-            return@LaunchedEffect
-        }
-        val assignment = viewModel.getAssignment(assignmentId)
-        if (assignment != null) {
-            pickedCongregationId = assignment.congregationId
-            selectedGroupId = assignment.groupId
-            provinceOption = PsgcOption(assignment.provinceId, assignment.provinceName)
-            muncityOption = PsgcOption(assignment.muncityId, assignment.muncityName)
-            selectedBarangays = viewModel.existingBarangaysFor(assignmentId)
-                .map { PsgcOption(it.barangayId, it.barangayName) }
-                .sortedBy { it.name }
+    LaunchedEffect(Unit) {
+        if (groupIdArg != null && provinceIdArg != null && congregationId != null) {
+            val existing = viewModel.existingMunicipalitiesFor(congregationId, groupIdArg, provinceIdArg)
+            if (existing.isNotEmpty()) {
+                val first = existing.first()
+                provinceOption = PsgcOption(first.provinceId, first.provinceName)
+                selectedMunicipalities = existing.map { PsgcOption(it.muncityId, it.muncityName) }
+                barangaysByMuncity = existing.associate { it.muncityId to it.barangays }
+            }
         }
         isLoadingExisting = false
+    }
+
+    // "Display its current territory assignments to prevent accidental
+    // duplication" — the same preload, triggered again whenever the Group or
+    // Province changes mid-session (covers both a fresh "Add" session where
+    // the user picks a Group+Province that already has territory, and
+    // switching Province while already on this screen — see this screen's
+    // own file-level doc comment). Skipped while the initial edit pre-fill
+    // above is still running so the two don't race each other.
+    LaunchedEffect(selectedGroupId, provinceOption?.id) {
+        if (isLoadingExisting) return@LaunchedEffect
+        val cid = congregationId
+        val gid = selectedGroupId
+        val pid = provinceOption?.id
+        if (cid == null || gid == null || pid == null) return@LaunchedEffect
+        val existing = viewModel.existingMunicipalitiesFor(cid, gid, pid)
+        selectedMunicipalities = existing.map { PsgcOption(it.muncityId, it.muncityName) }
+        barangaysByMuncity = existing.associate { it.muncityId to it.barangays }
     }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -127,7 +156,7 @@ fun TerritoryAssignmentWizardScreen(
     LaunchedEffect(uiState.saveResult) {
         when (val result = uiState.saveResult) {
             is TerritoryAssignmentResult.Success -> {
-                showToast(if (assignmentId == null) "Territory assignment added." else "Territory assignment saved.")
+                showToast(if (isEditing) "Territory assignment saved." else "Territory assignment added.")
                 viewModel.consumeSaveResult()
                 onDone()
             }
@@ -144,22 +173,22 @@ fun TerritoryAssignmentWizardScreen(
         val cid = congregationId ?: return
         val group = selectedGroup ?: return
         val province = provinceOption ?: return
-        val muncity = muncityOption ?: return
-        if (assignmentId == null) {
-            viewModel.createAssignment(
-                cid, group.id, group.name, province.id, province.name, muncity.id, muncity.name, selectedBarangays, currentPersonId,
-            )
-        } else {
-            viewModel.updateAssignment(
-                assignmentId, cid, group.id, group.name, province.id, province.name, muncity.id, muncity.name, selectedBarangays, currentPersonId,
+        val selections = selectedMunicipalities.map { m ->
+            MunicipalitySelection(
+                provinceId = province.id,
+                provinceName = province.name,
+                muncityId = m.id,
+                muncityName = m.name,
+                barangays = barangaysByMuncity[m.id] ?: emptyList(),
             )
         }
+        viewModel.save(cid, group.id, group.name, province.id, province.name, selections, currentPersonId)
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (assignmentId == null) "Add Territory Assignment" else "Edit Territory Assignment") },
+                title = { Text(if (isEditing) "Edit Territory Assignment" else "Add Territory Assignment") },
                 navigationIcon = {
                     IconButton(onClick = onDone) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -187,22 +216,21 @@ fun TerritoryAssignmentWizardScreen(
             )
 
             // Bug fix — "app closes after clicking Next after selecting
-            // municipality": the Barangays step's own LazyColumn used to sit
-            // inside this shared container's Modifier.verticalScroll(), which
-            // Compose explicitly disallows (a scrollable-in-scrollable nests
-            // an unbounded height constraint into the LazyColumn and crashes
-            // with IllegalStateException the instant that step renders — see
-            // CheckScrollableContainerConstraints). Steps 1/2/4 are short
-            // forms that still want to scroll as a plain Column; only the
-            // Barangays step gets the bounded, unscrolled container its own
-            // LazyColumn needs (that step scrolls itself).
+            // municipality": a scrollable-in-scrollable (a step's own
+            // LazyColumn sitting inside this shared container's
+            // Modifier.verticalScroll()) is explicitly disallowed by Compose
+            // and crashes the instant that step renders (see
+            // CheckScrollableContainerConstraints). Steps 1/4 are short forms
+            // that still want to scroll as a plain Column; Municipalities/
+            // Barangays get the bounded, unscrolled container their own
+            // LazyColumn needs (those steps scroll themselves).
             Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
                 when (step) {
                     STEP_GROUP -> Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                         GroupStep(
                             congregationId = congregationId,
                             fixedCongregationId = fixedCongregationId,
-                            isEditing = assignmentId != null,
+                            isEditing = isEditing,
                             congregations = congregations,
                             onCongregationSelected = { pickedCongregationId = it; selectedGroupId = null },
                             groups = groups,
@@ -210,39 +238,38 @@ fun TerritoryAssignmentWizardScreen(
                             onGroupSelected = { selectedGroupId = it },
                         )
                     }
-                    STEP_MUNICIPALITY -> Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                        MunicipalityStep(
-                            viewModel = viewModel,
-                            province = provinceOption,
-                            onProvinceSelected = { provinceOption = it; muncityOption = null },
-                            muncity = muncityOption,
-                            onMuncitySelected = { muncityOption = it },
-                        )
-                    }
+                    STEP_MUNICIPALITIES -> MunicipalitiesStep(
+                        viewModel = viewModel,
+                        province = provinceOption,
+                        onProvinceSelected = { provinceOption = it; selectedMunicipalities = emptyList(); barangaysByMuncity = emptyMap() },
+                        selectedMunicipalities = selectedMunicipalities,
+                        onSelectedMunicipalitiesChange = { selectedMunicipalities = it },
+                    )
                     STEP_BARANGAYS -> BarangaysStep(
                         viewModel = viewModel,
                         congregationId = congregationId,
-                        assignmentId = assignmentId,
-                        muncity = muncityOption,
-                        selected = selectedBarangays,
-                        onSelectedChange = { selectedBarangays = it },
+                        excludeGroupId = selectedGroupId,
+                        municipalities = selectedMunicipalities,
+                        barangaysByMuncity = barangaysByMuncity,
+                        onBarangaysChange = { muncityId, barangays -> barangaysByMuncity = barangaysByMuncity + (muncityId to barangays) },
                     )
                     STEP_CONFIRM -> Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                         ConfirmStep(
                             group = selectedGroup,
                             province = provinceOption,
-                            muncity = muncityOption,
-                            barangays = selectedBarangays,
+                            municipalities = selectedMunicipalities,
+                            barangaysByMuncity = barangaysByMuncity,
                             saveResult = uiState.saveResult,
                         )
                     }
                 }
             }
 
+            val totalSelectedBarangays = selectedMunicipalities.sumOf { (barangaysByMuncity[it.id] ?: emptyList()).size }
             val nextEnabled = when (step) {
                 STEP_GROUP -> congregationId != null && selectedGroupId != null
-                STEP_MUNICIPALITY -> muncityOption != null
-                STEP_BARANGAYS -> selectedBarangays.isNotEmpty()
+                STEP_MUNICIPALITIES -> provinceOption != null && selectedMunicipalities.isNotEmpty()
+                STEP_BARANGAYS -> totalSelectedBarangays > 0
                 else -> true
             }
             val stepErrorMessage = when (step) {
@@ -250,8 +277,11 @@ fun TerritoryAssignmentWizardScreen(
                     "Congregation" to (congregationId != null),
                     "Field Service Group" to (selectedGroupId != null),
                 )
-                STEP_MUNICIPALITY -> requiredFieldsMessage("Municipality / City" to (muncityOption != null))
-                STEP_BARANGAYS -> requiredFieldsMessage("At least one barangay" to selectedBarangays.isNotEmpty())
+                STEP_MUNICIPALITIES -> requiredFieldsMessage(
+                    "Province" to (provinceOption != null),
+                    "At least one municipality" to selectedMunicipalities.isNotEmpty(),
+                )
+                STEP_BARANGAYS -> requiredFieldsMessage("At least one barangay" to (totalSelectedBarangays > 0))
                 else -> null
             }
 
@@ -271,7 +301,7 @@ fun TerritoryAssignmentWizardScreen(
                         if (uiState.isSaving) {
                             CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
                         }
-                        Text(if (assignmentId == null) "Create Assignment" else "Save Changes")
+                        Text(if (isEditing) "Save Changes" else "Create Assignment")
                     }
                 }
             }
@@ -328,16 +358,40 @@ private fun GroupStep(
     }
 }
 
+/** Step 2 — single Province, then a multi-select Municipality checklist
+ * scoped to it ("A single Field Service Group may cover multiple
+ * municipalities ... including barangays from different municipalities
+ * within the same province"). Changing Province clears the municipality (and
+ * therefore barangay) selection — a save session is scoped to one province,
+ * see this screen's own file-level doc comment. */
 @Composable
-private fun MunicipalityStep(
+private fun MunicipalitiesStep(
     viewModel: TerritoryAssignmentWizardViewModel,
     province: PsgcOption?,
     onProvinceSelected: (PsgcOption) -> Unit,
-    muncity: PsgcOption?,
-    onMuncitySelected: (PsgcOption) -> Unit,
+    selectedMunicipalities: List<PsgcOption>,
+    onSelectedMunicipalitiesChange: (List<PsgcOption>) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Municipality / City", style = MaterialTheme.typography.titleMedium)
+    var allMuncities by remember(province?.id) { mutableStateOf<List<PsgcOption>>(emptyList()) }
+    var isLoading by remember(province?.id) { mutableStateOf(false) }
+    var search by remember(province?.id) { mutableStateOf("") }
+
+    LaunchedEffect(province?.id) {
+        val p = province ?: return@LaunchedEffect
+        isLoading = true
+        allMuncities = viewModel.searchMunicipalities(p.id, "")
+        isLoading = false
+    }
+
+    val selectedIds = selectedMunicipalities.map { it.id }.toSet()
+    val visible = allMuncities.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
+
+    // fillMaxSize, not wrap-content — this sits directly in the caller's
+    // bounded (non-scrolling) container; the LazyColumn below needs a real
+    // bounded max height via weight(1f), same reasoning the Barangays step
+    // already documents on this screen's own file-level doc comment.
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Province & Municipalities", style = MaterialTheme.typography.titleMedium)
         PsgcSearchField(
             label = "Province",
             selected = province,
@@ -345,114 +399,171 @@ private fun MunicipalityStep(
             search = { query -> viewModel.searchProvinces(query) },
             onSelected = onProvinceSelected,
         )
-        PsgcSearchField(
-            label = "Municipality / City",
-            selected = muncity,
-            enabled = province != null,
-            search = { query -> province?.let { viewModel.searchMunicipalities(it.id, query) } ?: emptyList() },
-            onSelected = onMuncitySelected,
-        )
         if (province == null) {
-            Text("Select a province to browse its municipalities.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Select a province to browse its municipalities.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            OutlinedTextField(
+                value = search,
+                onValueChange = { search = it },
+                label = { Text("Search municipality / city") },
+                singleLine = true,
+                visualTransformation = VisualTransformation.None,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    onSelectedMunicipalitiesChange((selectedMunicipalities + visible).distinctBy { it.id })
+                }) { Text("Select All") }
+                OutlinedButton(onClick = {
+                    val visibleIds = visible.map { it.id }.toSet()
+                    onSelectedMunicipalitiesChange(selectedMunicipalities.filterNot { it.id in visibleIds })
+                }) { Text("Clear Selection") }
+            }
+            Text(
+                "${selectedMunicipalities.size} municipalit${if (selectedMunicipalities.size == 1) "y" else "ies"} selected",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+            } else if (visible.isEmpty()) {
+                Text("No municipalities match this search.", style = MaterialTheme.typography.bodySmall)
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    items(visible, key = { it.id }) { muncity ->
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = muncity.id in selectedIds,
+                                onCheckedChange = { checked ->
+                                    onSelectedMunicipalitiesChange(
+                                        if (checked) (selectedMunicipalities + muncity).distinctBy { it.id }
+                                        else selectedMunicipalities.filterNot { it.id == muncity.id },
+                                    )
+                                },
+                            )
+                            Text(muncity.name, modifier = Modifier.padding(top = 14.dp))
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
+/** Step 3 — one expandable section per selected municipality, each with its
+ * own search + Select All/Clear + checklist, all inside **one** LazyColumn
+ * (a section per municipality via repeated `item`/`items` calls) rather than
+ * nested LazyColumns — same scrollable-in-scrollable constraint this
+ * screen's own file-level doc comment already explains for why Steps 2/3
+ * don't share the other steps' Modifier.verticalScroll(Column). */
 @Composable
 private fun BarangaysStep(
     viewModel: TerritoryAssignmentWizardViewModel,
     congregationId: String?,
-    assignmentId: String?,
-    muncity: PsgcOption?,
-    selected: List<PsgcOption>,
-    onSelectedChange: (List<PsgcOption>) -> Unit,
+    excludeGroupId: String?,
+    municipalities: List<PsgcOption>,
+    barangaysByMuncity: Map<Int, List<PsgcOption>>,
+    onBarangaysChange: (muncityId: Int, barangays: List<PsgcOption>) -> Unit,
 ) {
-    var allBarangays by remember(muncity?.id) { mutableStateOf<List<PsgcOption>>(emptyList()) }
-    var taken by remember(muncity?.id) { mutableStateOf<Map<Int, String>>(emptyMap()) }
-    var isLoading by remember(muncity?.id) { mutableStateOf(true) }
-    var search by remember { mutableStateOf("") }
+    var allBarangaysByMuncity by remember(municipalities) { mutableStateOf<Map<Int, List<PsgcOption>>>(emptyMap()) }
+    var taken by remember(municipalities) { mutableStateOf<Map<Int, String>>(emptyMap()) }
+    var isLoading by remember(municipalities) { mutableStateOf(true) }
+    var searchByMuncity by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
 
-    LaunchedEffect(muncity?.id, congregationId) {
-        if (muncity == null || congregationId == null) {
+    LaunchedEffect(municipalities, congregationId) {
+        if (municipalities.isEmpty()) {
             isLoading = false
             return@LaunchedEffect
         }
         isLoading = true
-        allBarangays = viewModel.searchBarangays(muncity.id, "")
-        taken = viewModel.takenBarangays(congregationId, assignmentId)
+        allBarangaysByMuncity = municipalities.associate { it.id to viewModel.searchBarangays(it.id, "") }
+        taken = congregationId?.let { viewModel.takenBarangays(it, excludeGroupId) } ?: emptyMap()
         isLoading = false
     }
 
-    val selectedIds = selected.map { it.id }.toSet()
-    val visible = allBarangays.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
-    val selectableVisible = visible.filter { it.id !in taken }
-
-    // fillMaxSize, not just wrap-content — this Column sits directly in the
-    // caller's bounded (non-scrolling) container, and its LazyColumn below
-    // needs a real bounded max height via weight(1f) rather than fillMaxSize
-    // alone (see this screen's own doc comment on why Barangays doesn't
-    // share the other steps' Modifier.verticalScroll(Column)).
-    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Barangays in ${muncity?.name ?: "—"}", style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(
-            value = search,
-            onValueChange = { search = it },
-            label = { Text("Search barangay") },
-            singleLine = true,
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {
-                onSelectedChange((selected + selectableVisible).distinctBy { it.id })
-            }) { Text("Select All") }
-            OutlinedButton(onClick = {
-                val visibleIds = visible.map { it.id }.toSet()
-                onSelectedChange(selected.filterNot { it.id in visibleIds })
-            }) { Text("Clear Selection") }
-        }
+    if (municipalities.isEmpty()) {
         Text(
-            "${selected.size} barangay${if (selected.size == 1) "" else "s"} selected",
+            "Select at least one municipality first.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 16.dp),
         )
-        if (isLoading) {
-            CircularProgressIndicator(modifier = Modifier.padding(16.dp))
-        } else if (visible.isEmpty()) {
-            Text("No barangays match this search.", style = MaterialTheme.typography.bodySmall)
-        } else {
-            LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                items(visible, key = { it.id }) { barangay ->
-                    val takenBy = taken[barangay.id]
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Checkbox(
-                                checked = barangay.id in selectedIds,
-                                enabled = takenBy == null,
-                                onCheckedChange = { checked ->
-                                    onSelectedChange(
-                                        if (checked) (selected + barangay).distinctBy { it.id }
-                                        else selected.filterNot { it.id == barangay.id },
-                                    )
-                                },
-                            )
-                            Text(
-                                barangay.name,
-                                modifier = Modifier.padding(top = 14.dp),
-                                color = if (takenBy != null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                        if (takenBy != null) {
-                            Text(
-                                "Already assigned to $takenBy",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(start = 48.dp),
-                            )
-                        }
+        return
+    }
+    if (isLoading) {
+        CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
+        return
+    }
+
+    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+        municipalities.forEach { muncity ->
+            val allBarangays = allBarangaysByMuncity[muncity.id] ?: emptyList()
+            val selected = barangaysByMuncity[muncity.id] ?: emptyList()
+            val selectedIds = selected.map { it.id }.toSet()
+            val search = searchByMuncity[muncity.id] ?: ""
+            val visible = allBarangays.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
+            val selectableVisible = visible.filter { it.id !in taken }
+
+            item(key = "header_${muncity.id}") {
+                Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    Text(muncity.name.uppercase(), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    OutlinedTextField(
+                        value = search,
+                        onValueChange = { searchByMuncity = searchByMuncity + (muncity.id to it) },
+                        label = { Text("Search barangay in ${muncity.name}") },
+                        singleLine = true,
+                        visualTransformation = VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                        OutlinedButton(onClick = {
+                            onBarangaysChange(muncity.id, (selected + selectableVisible).distinctBy { it.id })
+                        }) { Text("Select All") }
+                        OutlinedButton(onClick = {
+                            val visibleIds = visible.map { it.id }.toSet()
+                            onBarangaysChange(muncity.id, selected.filterNot { it.id in visibleIds })
+                        }) { Text("Clear Selection") }
+                    }
+                    Text(
+                        "${selected.size} barangay${if (selected.size == 1) "" else "s"} selected",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (visible.isEmpty()) {
+                        Text("No barangays match this search.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            items(visible, key = { "b_${muncity.id}_${it.id}" }) { barangay ->
+                val takenBy = taken[barangay.id]
+                Column {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = barangay.id in selectedIds,
+                            enabled = takenBy == null,
+                            onCheckedChange = { checked ->
+                                onBarangaysChange(
+                                    muncity.id,
+                                    if (checked) (selected + barangay).distinctBy { it.id } else selected.filterNot { it.id == barangay.id },
+                                )
+                            },
+                        )
+                        Text(
+                            barangay.name,
+                            modifier = Modifier.padding(top = 14.dp),
+                            color = if (takenBy != null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    if (takenBy != null) {
+                        Text(
+                            "Already assigned to $takenBy",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(start = 48.dp),
+                        )
                     }
                 }
             }
@@ -464,17 +575,30 @@ private fun BarangaysStep(
 private fun ConfirmStep(
     group: Group?,
     province: PsgcOption?,
-    muncity: PsgcOption?,
-    barangays: List<PsgcOption>,
+    municipalities: List<PsgcOption>,
+    barangaysByMuncity: Map<Int, List<PsgcOption>>,
     saveResult: TerritoryAssignmentResult?,
 ) {
+    val totalBarangays = municipalities.sumOf { (barangaysByMuncity[it.id] ?: emptyList()).size }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Confirm", style = MaterialTheme.typography.titleMedium)
         Text("Field Service Group: ${group?.name ?: "—"}", style = MaterialTheme.typography.bodyMedium)
         Text("Province: ${province?.name ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-        Text("Municipality / City: ${muncity?.name ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+        municipalities.forEach { muncity ->
+            val barangays = (barangaysByMuncity[muncity.id] ?: emptyList()).sortedBy { it.name }
+            Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                Text(muncity.name, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "${barangays.size} barangay${if (barangays.size == 1) "" else "s"}: ${barangays.joinToString(", ") { it.name }}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
         Text(
-            "${barangays.size} barangay${if (barangays.size == 1) "" else "s"}: ${barangays.sortedBy { it.name }.joinToString(", ") { it.name }}",
+            "${municipalities.size} municipalit${if (municipalities.size == 1) "y" else "ies"} · " +
+                "$totalBarangays barangay${if (totalBarangays == 1) "" else "s"}",
             style = MaterialTheme.typography.bodyMedium,
         )
         when (saveResult) {

@@ -241,11 +241,16 @@ fun AdminHomeScreen(
     // calls for (Super-Admin/Admin/Coordinator Elder via
     // canManagePublishersAndGroups, plus Service Overseer/Secretary), same
     // direct-role-check pattern as [canManageGroups] just above rather than
-    // routing through [PermissionChecker.hasPermission] — see
-    // firestore.rules' canManageTerritoryAssignmentsFor for the real
-    // server-side enforcement this client-side flag only gates the UI for.
-    val canManageTerritoryAssignments = canManagePublishersAndGroups || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY ||
-        Permission.MANAGE_TERRITORY_ASSIGNMENTS in grantPermissions
+    // routing through [PermissionChecker.hasPermission]. Deliberately NO
+    // `Permission.MANAGE_TERRITORY_ASSIGNMENTS in grantPermissions` branch
+    // (unlike canManageGroups) — firestore.rules' canManageTerritoryAssignmentsFor
+    // has no grant-based path at all, by design (its own comment explains why:
+    // avoiding the "restrictedAllows() always true for built-in roles" gap
+    // this feature was specifically built to close). A grant-only branch here
+    // would show the Add button to a restricted user whose every save would
+    // then be rejected server-side — this stays an exact mirror of the
+    // server's fixed role list instead.
+    val canManageTerritoryAssignments = canManagePublishersAndGroups || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY
     // Drawer-only widening of the Regular Elder item for a grant-based
     // Circuit Overseer — deliberately *not* folded into
     // [canEnrollRegularElderOrPublisher] itself, since that flag also drives

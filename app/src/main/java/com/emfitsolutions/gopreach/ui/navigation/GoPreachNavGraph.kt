@@ -489,18 +489,32 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
                 // The wizard itself offers a Congregation picker (Super-Admin
                 // only, Add only) as its own first step — nothing from this
-                // dashboard needs to pre-select one.
-                onAddNew = { navController.navigate("territory_assignment_wizard/new") },
-                onEdit = { assignmentId -> navController.navigate("territory_assignment_wizard/$assignmentId") },
+                // dashboard needs to pre-select one for Add.
+                onAddNew = { navController.navigate("territory_assignment_wizard/new/new/new") },
+                // Edit addresses a Group's whole territory within one
+                // province (not a single assignment id — see
+                // Destinations.TERRITORY_ASSIGNMENT_WIZARD's own comment);
+                // the dashboard already knows this row's congregationId.
+                onEdit = { congregationId, groupId, provinceId ->
+                    navController.navigate("territory_assignment_wizard/$congregationId/$groupId/$provinceId")
+                },
             )
         }
         composable(
             route = Destinations.TERRITORY_ASSIGNMENT_WIZARD,
-            arguments = listOf(navArgument("assignmentId") { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument("congregationId") { type = NavType.StringType },
+                navArgument("groupId") { type = NavType.StringType },
+                navArgument("provinceId") { type = NavType.StringType },
+            ),
         ) { backStackEntry ->
-            val rawAssignmentId = backStackEntry.arguments?.getString("assignmentId")
+            val rawCongregationId = backStackEntry.arguments?.getString("congregationId")
+            val rawGroupId = backStackEntry.arguments?.getString("groupId")
+            val rawProvinceId = backStackEntry.arguments?.getString("provinceId")
             TerritoryAssignmentWizardScreen(
-                assignmentId = rawAssignmentId?.takeIf { it != "new" },
+                congregationIdArg = rawCongregationId?.takeIf { it != "new" },
+                groupIdArg = rawGroupId?.takeIf { it != "new" },
+                provinceIdArg = rawProvinceId?.takeIf { it != "new" }?.toIntOrNull(),
                 fixedCongregationId = ownCongregationId,
                 currentPersonId = currentPersonId,
                 onDone = { navController.popBackStack() },

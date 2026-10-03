@@ -5,10 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.RecordStatus
-import com.emfitsolutions.gopreach.data.model.TerritoryAssignment
-import com.emfitsolutions.gopreach.data.model.TerritoryAssignmentBarangay
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
+import com.emfitsolutions.gopreach.data.repository.MunicipalitySelection
 import com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository
 import com.emfitsolutions.gopreach.data.repository.PsgcOption
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentRepository
@@ -24,8 +23,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /** A barangay row for the Step 3 checklist — [takenByGroupName] non-null
- * means another assignment already claims it (null when editing and it's
- * claimed by *this same* assignment — see [TerritoryAssignmentWizardViewModel
+ * means another Group already claims it (never set for a barangay this same
+ * Group already holds — see [TerritoryAssignmentWizardViewModel
  * .takenBarangays]'s own doc comment). */
 data class BarangayChecklistRow(val option: PsgcOption, val takenByGroupName: String?)
 
@@ -49,14 +48,12 @@ class TerritoryAssignmentWizardViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(WizardUiState())
     val uiState: StateFlow<WizardUiState> = _uiState
 
-    /** Super-Admin only — picking which congregation a brand-new assignment
+    /** Super-Admin only — picking which congregation a brand-new session
      * belongs to; unused (and hidden by the screen) once [fixedCongregationId]
-     * is non-null, or when editing an existing assignment (congregationId is
-     * immutable on edit, matching TerritoryAssignmentRepository.updateAssignment). */
+     * is non-null, or once a Group is already picked (congregationId is
+     * immutable from that point on, matching [TerritoryAssignmentRepository
+     * .saveGroupTerritoryForProvince]). */
     val congregations: Flow<List<Congregation>> = congregationRepository.observeAll()
-
-    suspend fun getAssignment(assignmentId: String): TerritoryAssignment? =
-        territoryAssignmentRepository.observeAssignments().first().firstOrNull { it.id == assignmentId }
 
     fun groupsFor(congregationId: String): Flow<List<Group>> =
         groupRepository.observeAll().map { groups ->
@@ -68,46 +65,56 @@ class TerritoryAssignmentWizardViewModel @Inject constructor(
         philippineLocationRepository.searchCitiesMunicipalities(provinceId, query)
     suspend fun searchBarangays(muncityId: Int, query: String): List<PsgcOption> =
         philippineLocationRepository.searchBarangays(muncityId, query)
-    suspend fun provinceOf(muncityId: Int): PsgcOption? = philippineLocationRepository.provinceOfMuncity(muncityId)
 
-    /** Which of [barangays] are already claimed by a DIFFERENT assignment in
-     * this congregation — client-side "already taken, disabled" hint for the
-     * Step 3 checklist. [excludeAssignmentId] is this same wizard's own
-     * assignment when editing, so its own already-claimed barangays don't
-     * show as unavailable to itself. This is UX only; the actual,
-     * unbypassable guarantee is the transaction inside
-     * [TerritoryAssignmentRepository] at Save. */
-    suspend fun takenBarangays(congregationId: String, excludeAssignmentId: String?): Map<Int, String> =
-        territoryAssignmentRepository.observeBarangayClaims().first()
-            .filter { it.congregationId == congregationId && it.assignmentId != excludeAssignmentId }
-            .associate { it.barangayId to it.groupName }
-
-    suspend fun existingBarangaysFor(assignmentId: String): List<TerritoryAssignmentBarangay> =
-        territoryAssignmentRepository.observeBarangayClaims().first().filter { it.assignmentId == assignmentId }
-
-    fun createAssignment(
-        congregationId: String, groupId: String, groupName: String,
-        provinceId: Int, provinceName: String, muncityId: Int, muncityName: String,
-        barangays: List<PsgcOption>, actorPersonId: String,
-    ) {
-        _uiState.update { it.copy(isSaving = true, saveResult = null) }
-        viewModelScope.launch {
-            val result = territoryAssignmentRepository.createAssignment(
-                congregationId, groupId, groupName, provinceId, provinceName, muncityId, muncityName, barangays, actorPersonId,
+    /** "Display its current territory assignments to prevent accidental
+     * duplication" — what this Group already holds in [provinceId], as the
+     * same [MunicipalitySelection] shape the wizard edits and eventually
+     * saves, so both the "Add" and "Edit" entry points converge on identical
+     * preload logic (see this module's own design notes on unifying them). */
+    suspend fun existingMunicipalitiesFor(congregationId: String, groupId: String, provinceId: Int): List<MunicipalitySelection> {
+        val assignments = territoryAssignmentRepository.observeAssignments().first()
+            .filter { it.congregationId == congregationId && it.groupId == groupId && it.provinceId == provinceId }
+        val claimsByAssignment = territoryAssignmentRepository.observeBarangayClaims().first()
+            .filter { claim -> assignments.any { it.id == claim.assignmentId } }
+            .groupBy { it.assignmentId }
+        return assignments.map { assignment ->
+            MunicipalitySelection(
+                provinceId = assignment.provinceId,
+                provinceName = assignment.provinceName,
+                muncityId = assignment.muncityId,
+                muncityName = assignment.muncityName,
+                barangays = (claimsByAssignment[assignment.id] ?: emptyList())
+                    .map { PsgcOption(it.barangayId, it.barangayName) }
+                    .sortedBy { it.name },
             )
-            _uiState.update { it.copy(isSaving = false, saveResult = result) }
-        }
+        }.sortedBy { it.muncityName }
     }
 
-    fun updateAssignment(
-        assignmentId: String, congregationId: String, groupId: String, groupName: String,
-        provinceId: Int, provinceName: String, muncityId: Int, muncityName: String,
-        barangays: List<PsgcOption>, actorPersonId: String,
+    /** Which of a municipality's barangays are already claimed by a
+     * DIFFERENT Group in this congregation — client-side "already taken,
+     * disabled" hint for the Step 3 checklist. [excludeGroupId] is this same
+     * wizard's own Group, so barangays it already holds (possibly under a
+     * municipality still in this session) never show as unavailable to
+     * itself. This is UX only; the actual, unbypassable guarantee is the
+     * transaction inside [TerritoryAssignmentRepository] at Save. */
+    suspend fun takenBarangays(congregationId: String, excludeGroupId: String?): Map<Int, String> =
+        territoryAssignmentRepository.observeBarangayClaims().first()
+            .filter { it.congregationId == congregationId && it.groupId != excludeGroupId }
+            .associate { it.barangayId to it.groupName }
+
+    fun save(
+        congregationId: String,
+        groupId: String,
+        groupName: String,
+        provinceId: Int,
+        provinceName: String,
+        municipalities: List<MunicipalitySelection>,
+        actorPersonId: String,
     ) {
         _uiState.update { it.copy(isSaving = true, saveResult = null) }
         viewModelScope.launch {
-            val result = territoryAssignmentRepository.updateAssignment(
-                assignmentId, congregationId, groupId, groupName, provinceId, provinceName, muncityId, muncityName, barangays, actorPersonId,
+            val result = territoryAssignmentRepository.saveGroupTerritoryForProvince(
+                congregationId, groupId, groupName, provinceId, provinceName, municipalities, actorPersonId,
             )
             _uiState.update { it.copy(isSaving = false, saveResult = result) }
         }
