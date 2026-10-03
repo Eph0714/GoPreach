@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.LocationOff
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.PinDrop
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -44,6 +45,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.emfitsolutions.gopreach.BuildConfig
+import com.emfitsolutions.gopreach.data.export.BoundaryKmlExporter
 import com.emfitsolutions.gopreach.ui.components.map.LeafletMapView
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
 import com.emfitsolutions.gopreach.ui.components.map.rememberLeafletMapController
@@ -190,6 +192,20 @@ fun BarangayBoundaryDialog(
                     navigationIcon = {
                         IconButton(onClick = onDismiss) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Close")
+                        }
+                    },
+                    actions = {
+                        // "Can the line barrier also show in Google Maps?" —
+                        // see BoundaryKmlExporter's own doc comment for why
+                        // this can only ever be a manual KML import into
+                        // Google My Maps (no API renders a custom polygon
+                        // inside a maps deep link), not something automatic.
+                        if (geometryJson != null) {
+                            IconButton(
+                                onClick = { BoundaryKmlExporter.share(context, geometryJson!!, barangayName, municipality) },
+                            ) {
+                                Icon(Icons.Rounded.Share, contentDescription = "Share boundary as KML")
+                            }
                         }
                     },
                 )
