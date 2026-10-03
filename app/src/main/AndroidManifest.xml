@@ -2,6 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Native TomTom Maps SDK declares minSdk 26; this app stays at 24 so
+         devices below API 26 (or missing Vulkan/64-bit) keep working. Every
+         call site is gated by NativeMapSupport.isSupported() so the SDK's
+         classes are never touched below API 26 — see that file's doc
+         comment for why that keeps this override safe despite the "may lead
+         to runtime failures" warning Gradle prints for it. -->
+    <uses-sdk tools:overrideLibrary="com.tomtom.sdk.map.display.premium,com.tomtom.sdk.map.display.common,com.tomtom.sdk.common.configuration,com.tomtom.sdk.map.display.maptilestore,com.tomtom.sdk.map.display.maptilestore.common,com.tomtom.sdk.common.fileloader,com.tomtom.sdk.navigation,com.tomtom.sdk.routing,com.tomtom.sdk.common.httphandler,com.tomtom.sdk.routing.range,com.tomtom.sdk.routing.common,com.tomtom.sdk.traffic.client.infrastructure,com.tomtom.sdk.datamanagement.datastore,com.tomtom.sdk.map.display.elasticdataprovider.binding,com.tomtom.sdk.common.initializer,com.tomtom.sdk.maps.telemetry,com.tomtom.sdk.traffic.internal,com.tomtom.sdk.traffic,com.tomtom.sdk.datamanagement.datamanagement.unifiedlocationdecoder,com.tomtom.sdk.hazards.online,com.tomtom.sdk.hazards.common,com.tomtom.sdk.safetylocations.online,com.tomtom.sdk.safetylocations.safetylocations,com.tomtom.sdk.openlr.binding,com.tomtom.sdk.datamanagement.common,com.tomtom.sdk.adas.adasisv2,com.tomtom.sdk.vehicle,com.tomtom.sdk.common.mqtt,com.tomtom.sdk.telemetry,com.tomtom.sdk.common.httpframework,com.tomtom.sdk.geojson,com.tomtom.sdk.location.provider,com.tomtom.sdk.location.android,com.tomtom.sdk.location,com.tomtom.sdk.location.road,com.tomtom.sdk.common.morton,com.tomtom.sdk.location.model,com.tomtom.sdk.vehicle.common,com.tomtom.sdk.common.httpframework.bindings,com.tomtom.sdk.http,com.tomtom.sdk.featuretoggle,com.tomtom.sdk.datamanagement.locationdecoder,com.tomtom.sdk.datamanagement.mapreferences,com.tomtom.sdk.datamanagement.rootndsstub,com.tomtom.sdk.asset.fontprovider,com.tomtom.sdk.logging.logger,com.tomtom.sdk.log.binding,com.tomtom.sdk.nativelibraryloader,com.tomtom.sdk.logging.common,com.tomtom.sdk.annotations,com.tomtom.sdk,com.tomtom.quantity" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />

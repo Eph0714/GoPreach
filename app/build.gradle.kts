@@ -36,6 +36,14 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         buildConfigField("String", "TOMTOM_API_KEY", "\"$tomtomApiKey\"")
+        // TomTom's "complete" flavor needs no extra credentials (unlike
+        // "extended", which TomTom only grants on request) — see
+        // settings.gradle.kts for the Maven repo this resolves against.
+        missingDimensionStrategy("tomtom-sdk-version", "complete")
+        // TomTom only ships native libs for these two ABIs anyway (its docs'
+        // own requirement) — without this filter Gradle still packages every
+        // other ABI's .so from every other dependency, unsplit, into one APK.
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
     // GoPreach is sideloaded (no Play Store), so every release has always
@@ -164,6 +172,14 @@ dependencies {
 
     // Location / Maps (Share Location, GPS capture)
     implementation("com.google.android.gms:play-services-location:21.3.0")
+
+    // Native TomTom Maps SDK (Territory Assignment boundary preview, native
+    // polygon rendering) — map-display-premium is the View-based artifact;
+    // the official Compose wrapper has no polygon API as of 2.6.2. Requires
+    // API 26+/arm64-v8a or x86_64/Vulkan 1.0, so every call site must check
+    // com.emfitsolutions.gopreach.ui.components.map.NativeMapSupport before
+    // touching any class from this dependency — see that file's doc comment.
+    implementation("com.tomtom.sdk.maps:map-display-premium:2.6.2")
 
     // Coil (logo / image loading)
     implementation("io.coil-kt:coil-compose:2.7.0")
