@@ -1,5 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.territoryassignments
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -7,12 +10,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -20,9 +27,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -31,6 +40,8 @@ import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.ui.components.map.LeafletMapView
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
 import com.emfitsolutions.gopreach.ui.components.map.rememberLeafletMapController
+import kotlinx.coroutines.launch
+import java.util.Locale
 
 /**
  * "If a barangay is selected show the boundary map" — a full-screen dialog
@@ -52,11 +63,45 @@ fun BarangayBoundaryDialog(
 ) {
     var geometryJson by remember(municipality, barangayName) { mutableStateOf<String?>(null) }
     var isLoading by remember(municipality, barangayName) { mutableStateOf(true) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var mapCommand by remember(municipality, barangayName) { mutableStateOf<MapCommand?>(null) }
+    var distanceLabel by remember(municipality, barangayName) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(municipality, barangayName) {
         isLoading = true
         geometryJson = viewModel.boundaryGeometry(municipality, barangayName)
         isLoading = false
+    }
+
+    // "Add my location, then compare the distance to the selected barangay"
+    // — one fused-location fix (same provider Share Location already uses,
+    // via viewModel.currentLocation()), pushed into the already-loaded map
+    // page as a marker + dashed line to the boundary's center. Distance
+    // itself is computed in JS (Leaflet's own map.distance(), true WGS84
+    // great-circle) and handed back through the one JS->Android bridge
+    // [LeafletMapView] already exposes (AndroidBridge.showDetails), rather
+    // than re-deriving a polygon centroid in Kotlin from raw GeoJSON.
+    fun locateMe() {
+        if (!viewModel.isLocationServicesEnabled()) {
+            scope.launch { snackbarHostState.showSnackbar("Location services are disabled. Please enable GPS to continue.") }
+            return
+        }
+        scope.launch {
+            val fix = viewModel.currentLocation()
+            if (fix == null) {
+                snackbarHostState.showSnackbar("Could not get your current location. Make sure location is turned on and try again.")
+            } else {
+                mapCommand = MapCommand.ShowMyLocation(fix.lat, fix.lng)
+            }
+        }
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            locateMe()
+        } else {
+            scope.launch { snackbarHostState.showSnackbar("Location permission is required to show your location.") }
+        }
     }
 
     // usePlatformDefaultWidth = false — the one flag that lets a Dialog's
@@ -80,6 +125,22 @@ fun BarangayBoundaryDialog(
                     },
                 )
             },
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            floatingActionButton = {
+                if (!isLoading && geometryJson != null) {
+                    FloatingActionButton(
+                        onClick = {
+                            if (viewModel.hasLocationPermission()) {
+                                locateMe()
+                            } else {
+                                permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                            }
+                        },
+                    ) {
+                        Icon(Icons.Rounded.MyLocation, contentDescription = "Show my location")
+                    }
+                }
+            },
         ) { padding ->
             Box(modifier = Modifier.fillMaxSize().padding(padding)) {
                 when {
@@ -97,12 +158,45 @@ fun BarangayBoundaryDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    else -> BarangayBoundaryMap(geometryJson = geometryJson!!, modifier = Modifier.fillMaxSize())
+                    else -> Box(modifier = Modifier.fillMaxSize()) {
+                        BarangayBoundaryMap(
+                            geometryJson = geometryJson!!,
+                            command = mapCommand,
+                            onDistanceComputed = { meters ->
+                                distanceLabel = "📍 ${formatDistance(meters)} from $barangayName"
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        distanceLabel?.let { label ->
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 8.dp)
+                                    .clip(MaterialTheme.shapes.medium)
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 }
+
+/** One-shot instruction pushed down into the already-loaded map page —
+ * [mapCommand] changing (even to an equal-looking new instance) is what
+ * [BarangayBoundaryMap] keys its `LaunchedEffect` on to re-run the JS call,
+ * so tapping "my location" again after it already ran still works. */
+private sealed class MapCommand {
+    data class ShowMyLocation(val lat: Double, val lng: Double) : MapCommand()
+}
+
+private fun formatDistance(meters: Double): String =
+    if (meters < 1000) "${meters.toInt()} m" else String.format(Locale.getDefault(), "%.1f km", meters / 1000.0)
 
 /** The actual map — real pan/zoom (unlike [com.emfitsolutions.gopreach.ui
  * .screens.findlocation.LocationPreviewMap]'s locked-down marker preview,
@@ -111,17 +205,40 @@ fun BarangayBoundaryDialog(
  * internet connection for map tiles, same as every other [LeafletMapView]
  * consumer — [MapLoadState.FAILED] below covers that case. */
 @Composable
-private fun BarangayBoundaryMap(geometryJson: String, modifier: Modifier = Modifier) {
+private fun BarangayBoundaryMap(
+    geometryJson: String,
+    command: MapCommand?,
+    onDistanceComputed: (meters: Double) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val html = remember(geometryJson) { buildBoundaryHtml(geometryJson) }
     val controller = rememberLeafletMapController()
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
+
+    // Re-runs whenever [command] changes (including tapping "my location"
+    // again) — only once the page has actually finished loading, since
+    // `window.showMyLocation` doesn't exist in the page until then.
+    LaunchedEffect(command, loadState) {
+        if (loadState != MapLoadState.LOADED) return@LaunchedEffect
+        when (command) {
+            is MapCommand.ShowMyLocation ->
+                controller.evaluateJavascript("if (window.showMyLocation) { window.showMyLocation(${command.lat}, ${command.lng}); }")
+            null -> Unit
+        }
+    }
 
     Box(modifier = modifier) {
         LeafletMapView(
             html = html,
             mapGlobalVarName = "boundaryMap",
             controller = controller,
-            onMarkerClick = {},
+            // The one JS->Android bridge LeafletMapView exposes, repurposed
+            // here to carry the distance figure JS already computed via
+            // Leaflet's own map.distance() — see buildBoundaryHtml's
+            // window.showMyLocation for the "DISTANCE:<meters>" message it sends.
+            onMarkerClick = { id ->
+                id.removePrefix("DISTANCE:").toDoubleOrNull()?.let(onDistanceComputed)
+            },
             onLoadStateChange = { loadState = it },
             onConsoleMessage = {},
             logTag = "BarangayBoundaryMap",
@@ -213,6 +330,7 @@ private fun buildBoundaryHtml(geometryJson: String): String = """
         style: { color: '#D32F2F', weight: 3, fillColor: '#D32F2F', fillOpacity: 0.2 }
       }).addTo(map);
       var bounds = layer.getBounds();
+      var boundaryCenter = bounds.isValid() ? bounds.getCenter() : null;
       if (bounds.isValid()) {
         map.fitBounds(bounds.pad(0.15), { maxZoom: 17 });
       } else {
@@ -221,6 +339,32 @@ private fun buildBoundaryHtml(geometryJson: String): String = """
         // some view rather than leaving the map blank/uninitialized.
         map.setView([0, 0], 2);
       }
+      // "Add my location, then compare the distance to the selected
+      // barangay" — called from Kotlin (via the controller) once a fresh GPS
+      // fix comes back. Distance to the boundary's own center (not its
+      // nearest edge — simpler, and a reasonable "how far to this barangay"
+      // figure for a Service Overseer/Secretary planning territory
+      // assignments) uses Leaflet's own map.distance(), a true WGS84
+      // great-circle distance, not a flat-plane approximation.
+      var myLocationMarker = null;
+      var myLocationLine = null;
+      window.showMyLocation = function(lat, lng) {
+        if (!boundaryCenter) return;
+        if (myLocationMarker) { map.removeLayer(myLocationMarker); }
+        if (myLocationLine) { map.removeLayer(myLocationLine); }
+        var myLatLng = L.latLng(lat, lng);
+        var pin = L.divIcon({
+          className: '',
+          html: '<div style="width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,.5);"></div>',
+          iconSize: [18, 18], iconAnchor: [9, 9]
+        });
+        myLocationMarker = L.marker(myLatLng, { icon: pin }).addTo(map).bindPopup('My Location');
+        myLocationLine = L.polyline([myLatLng, boundaryCenter], { color: '#1a73e8', weight: 2, dashArray: '6, 6' }).addTo(map);
+        var group = L.featureGroup([myLocationMarker, layer]);
+        map.fitBounds(group.getBounds().pad(0.2), { maxZoom: 17 });
+        var distanceMeters = map.distance(myLatLng, boundaryCenter);
+        if (window.AndroidBridge) { window.AndroidBridge.showDetails('DISTANCE:' + distanceMeters); }
+      };
     } catch (e) {
       console.error('Boundary map failed: ' + e);
     }

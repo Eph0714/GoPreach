@@ -2,6 +2,8 @@ package com.emfitsolutions.gopreach.ui.screens.territoryassignments
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.emfitsolutions.gopreach.data.location.LatLng
+import com.emfitsolutions.gopreach.data.location.LocationTracker
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.TerritoryAssignment
@@ -33,6 +35,7 @@ class TerritoryAssignmentsViewModel @Inject constructor(
     private val territoryAssignmentRepository: TerritoryAssignmentRepository,
     private val groupRepository: GroupRepository,
     private val territoryBoundaryRepository: TerritoryBoundaryRepository,
+    private val locationTracker: LocationTracker,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -75,6 +78,17 @@ class TerritoryAssignmentsViewModel @Inject constructor(
      * available yet," not an error. */
     suspend fun boundaryGeometry(municipality: String, barangay: String): String? =
         territoryBoundaryRepository.barangayGeometry(municipality, barangay)
+
+    /** "Add my location, then compare the distance to the selected barangay"
+     * — thin pass-through to the shared [LocationTracker] (same fused-location
+     * approach Share Location already uses) so [BarangayBoundaryDialog] can
+     * check/request permission and fetch a fix without reaching into
+     * infrastructure directly from a Composable. */
+    fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
+
+    fun isLocationServicesEnabled(): Boolean = locationTracker.isLocationServicesEnabled()
+
+    suspend fun currentLocation(): LatLng? = locationTracker.getCurrentLocation()
 
     private val _removeResult = MutableStateFlow<TerritoryAssignmentResult?>(null)
     val removeResult: StateFlow<TerritoryAssignmentResult?> = _removeResult
