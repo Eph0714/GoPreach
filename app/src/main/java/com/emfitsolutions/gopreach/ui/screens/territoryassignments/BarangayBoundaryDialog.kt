@@ -1,6 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.territoryassignments
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -36,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -69,6 +72,7 @@ fun BarangayBoundaryDialog(
     var isLoading by remember(municipality, barangayName) { mutableStateOf(true) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var mapCommand by remember(municipality, barangayName) { mutableStateOf<MapCommand?>(null) }
     var distanceLabel by remember(municipality, barangayName) { mutableStateOf<String?>(null) }
     var pointDistanceLabel by remember(municipality, barangayName) { mutableStateOf<String?>(null) }
@@ -153,6 +157,20 @@ fun BarangayBoundaryDialog(
         } else {
             pointDistanceLabel = null
         }
+    }
+
+    // "If the selected point is clicked, show Google Maps — show the way
+    // from my location" — a plain directions deep link (not a package-
+    // specific intent for the Google Maps app) so it still works through
+    // whatever the device resolves ACTION_VIEW maps URLs to (Google Maps if
+    // installed, a browser fallback otherwise), same tolerant approach the
+    // rest of this app takes for external links.
+    fun openDirections(originLat: Double, originLng: Double, destLat: Double, destLng: Double) {
+        val uri = Uri.parse(
+            "https://www.google.com/maps/dir/?api=1&origin=$originLat,$originLng&destination=$destLat,$destLng&travelmode=driving",
+        )
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+            .onFailure { scope.launch { snackbarHostState.showSnackbar("Could not open Google Maps.") } }
     }
 
     // usePlatformDefaultWidth = false — the one flag that lets a Dialog's
@@ -240,6 +258,9 @@ fun BarangayBoundaryDialog(
                             onPointNeedsLocation = {
                                 scope.launch { snackbarHostState.showSnackbar("Turn on My Location first.") }
                             },
+                            onOpenDirections = { originLat, originLng, destLat, destLng ->
+                                openDirections(originLat, originLng, destLat, destLng)
+                            },
                             modifier = Modifier.fillMaxSize(),
                         )
                         Column(
@@ -304,6 +325,7 @@ private fun BarangayBoundaryMap(
     onDistanceComputed: (meters: Double) -> Unit,
     onPointDistanceComputed: (meters: Double) -> Unit,
     onPointNeedsLocation: () -> Unit,
+    onOpenDirections: (originLat: Double, originLng: Double, destLat: Double, destLng: Double) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val html = remember(geometryJson) { buildBoundaryHtml(geometryJson) }
@@ -333,15 +355,23 @@ private fun BarangayBoundaryMap(
             controller = controller,
             // The one JS->Android bridge LeafletMapView exposes, repurposed
             // here to carry distance figures JS already computed via
-            // Leaflet's own map.distance() — see buildBoundaryHtml's
-            // window.updateMyLocation / map click handler for the
-            // "DISTANCE:<meters>" / "POINT_DISTANCE:<meters>" /
-            // "POINT_NO_LOCATION" messages they send.
+            // Leaflet's own map.distance(), and the "open directions" request
+            // from tapping the selected-point marker — see buildBoundaryHtml's
+            // window.updateMyLocation / map click handler / selectedPointMarker
+            // click handler for the "DISTANCE:<meters>" / "POINT_DISTANCE:
+            // <meters>" / "POINT_NO_LOCATION" / "OPEN_MAPS:lat,lng:lat,lng"
+            // messages they send.
             onMarkerClick = { id ->
                 when {
                     id.startsWith("DISTANCE:") -> id.removePrefix("DISTANCE:").toDoubleOrNull()?.let(onDistanceComputed)
                     id.startsWith("POINT_DISTANCE:") -> id.removePrefix("POINT_DISTANCE:").toDoubleOrNull()?.let(onPointDistanceComputed)
                     id == "POINT_NO_LOCATION" -> onPointNeedsLocation()
+                    id.startsWith("OPEN_MAPS:") -> runCatching {
+                        val parts = id.removePrefix("OPEN_MAPS:").split(":")
+                        val (originLat, originLng) = parts[0].split(",").map { it.toDouble() }
+                        val (destLat, destLng) = parts[1].split(",").map { it.toDouble() }
+                        onOpenDirections(originLat, originLng, destLat, destLng)
+                    }
                 }
             },
             onLoadStateChange = { loadState = it },
@@ -513,6 +543,7 @@ private fun buildBoundaryHtml(geometryJson: String): String = """
         if (selectedPointMarker) { map.removeLayer(selectedPointMarker); selectedPointMarker = null; }
         if (selectedPointLine) { map.removeLayer(selectedPointLine); selectedPointLine = null; }
         myLocationLatLng = null;
+        selectedPointLatLng = null;
         pickModeOn = false;
         hasFitMyLocation = false;
       };
@@ -522,6 +553,7 @@ private fun buildBoundaryHtml(geometryJson: String): String = """
       // drops a point.
       var pickModeOn = false;
       var selectedPointMarker = null;
+      var selectedPointLatLng = null;
       var selectedPointLine = null;
       window.setPickMode = function(enabled) {
         pickModeOn = enabled;
@@ -534,12 +566,26 @@ private fun buildBoundaryHtml(geometryJson: String): String = """
         }
         if (selectedPointMarker) { map.removeLayer(selectedPointMarker); }
         if (selectedPointLine) { map.removeLayer(selectedPointLine); }
+        selectedPointLatLng = e.latlng;
         var pin = L.divIcon({
           className: '',
           html: '<div style="width:16px;height:16px;border-radius:50%;background:#e8710a;border:3px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,.5);"></div>',
           iconSize: [16, 16], iconAnchor: [8, 8]
         });
-        selectedPointMarker = L.marker(e.latlng, { icon: pin }).addTo(map).bindPopup('Selected point');
+        // "If the selected point is clicked, show Google Maps — show the way
+        // from my location" — the marker's own click (separate from the
+        // map's click above, which only fires on empty map space since
+        // Leaflet markers stop event propagation) hands the live location +
+        // this point back to Kotlin to open turn-by-turn directions.
+        selectedPointMarker = L.marker(e.latlng, { icon: pin }).addTo(map);
+        selectedPointMarker.on('click', function() {
+          if (myLocationLatLng && selectedPointLatLng && window.AndroidBridge) {
+            window.AndroidBridge.showDetails(
+              'OPEN_MAPS:' + myLocationLatLng.lat + ',' + myLocationLatLng.lng + ':' +
+              selectedPointLatLng.lat + ',' + selectedPointLatLng.lng
+            );
+          }
+        });
         selectedPointLine = L.polyline([myLocationLatLng, e.latlng], { color: '#e8710a', weight: 2, dashArray: '4, 8' }).addTo(map);
         var distanceMeters = map.distance(myLocationLatLng, e.latlng);
         if (window.AndroidBridge) { window.AndroidBridge.showDetails('POINT_DISTANCE:' + distanceMeters); }
