@@ -12,6 +12,8 @@ import com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository
 import com.emfitsolutions.gopreach.data.repository.PsgcOption
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentResult
+import com.emfitsolutions.gopreach.data.repository.TerritoryBoundaryRepository
+import com.emfitsolutions.gopreach.ui.components.map.NamedBoundary
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +44,7 @@ class TerritoryAssignmentWizardViewModel @Inject constructor(
     private val territoryAssignmentRepository: TerritoryAssignmentRepository,
     private val groupRepository: GroupRepository,
     private val philippineLocationRepository: PhilippineLocationRepository,
+    private val territoryBoundaryRepository: TerritoryBoundaryRepository,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -123,4 +126,15 @@ class TerritoryAssignmentWizardViewModel @Inject constructor(
     fun consumeSaveResult() {
         _uiState.update { it.copy(saveResult = null) }
     }
+
+    /** Boundary preview (Step 3) — one [NamedBoundary] per selected barangay
+     * that actually has bundled boundary data; a barangay outside the
+     * bundled province's coverage is silently skipped here, same graceful-
+     * miss convention [TerritoryBoundaryRepository] already documents for
+     * every other boundary lookup in this app. */
+    suspend fun boundaryGeometries(municipalityName: String, barangays: List<PsgcOption>): List<NamedBoundary> =
+        barangays.mapNotNull { barangay ->
+            territoryBoundaryRepository.barangayGeometry(municipalityName, barangay.name)
+                ?.let { NamedBoundary(barangay.name, it) }
+        }
 }

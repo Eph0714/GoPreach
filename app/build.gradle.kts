@@ -180,6 +180,12 @@ dependencies {
     // com.emfitsolutions.gopreach.ui.components.map.NativeMapSupport before
     // touching any class from this dependency — see that file's doc comment.
     implementation("com.tomtom.sdk.maps:map-display-premium:2.6.2")
+    // MapOptions' simple mapKey-only constructor resolves its map-tile data
+    // provider through the SDK's global context — without TomTomSdk.initialize()
+    // having run first, MapView.onCreate throws "No valid data provider
+    // configured" (confirmed on-device), so this is not actually optional
+    // despite TomTom's own docs never saying so explicitly.
+    implementation("com.tomtom.sdk:init:2.6.2")
 
     // Coil (logo / image loading)
     implementation("io.coil-kt:coil-compose:2.7.0")

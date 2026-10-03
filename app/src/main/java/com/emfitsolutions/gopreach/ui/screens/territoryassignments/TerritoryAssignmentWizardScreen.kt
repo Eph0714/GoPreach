@@ -1,5 +1,6 @@
 package com.emfitsolutions.gopreach.ui.screens.territoryassignments
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -40,6 +42,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -49,6 +52,10 @@ import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.repository.MunicipalitySelection
 import com.emfitsolutions.gopreach.data.repository.PsgcOption
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentResult
+import com.emfitsolutions.gopreach.ui.components.map.MultiBoundaryMap
+import com.emfitsolutions.gopreach.ui.components.map.NamedBoundary
+import com.emfitsolutions.gopreach.ui.components.map.NativeMapSupport
+import com.emfitsolutions.gopreach.ui.components.map.TomTomBoundaryMap
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import kotlinx.coroutines.delay
@@ -498,8 +505,58 @@ private fun BarangaysStep(
         return
     }
 
-    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
-        municipalities.forEach { muncity ->
+    val context = LocalContext.current
+    var showMap by remember { mutableStateOf(false) }
+    var boundaries by remember { mutableStateOf<List<NamedBoundary>>(emptyList()) }
+    var isLoadingBoundaries by remember { mutableStateOf(false) }
+    val totalSelected = municipalities.sumOf { (barangaysByMuncity[it.id] ?: emptyList()).size }
+
+    // Reloads every time the checklist below changes, but only while the
+    // preview is actually open — no point fetching/parsing boundary GeoJSON
+    // for a panel the user isn't looking at.
+    LaunchedEffect(showMap, barangaysByMuncity, municipalities) {
+        if (!showMap) return@LaunchedEffect
+        isLoadingBoundaries = true
+        boundaries = municipalities.flatMap { m ->
+            viewModel.boundaryGeometries(m.name, barangaysByMuncity[m.id] ?: emptyList())
+        }
+        isLoadingBoundaries = false
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        OutlinedButton(
+            onClick = { showMap = !showMap },
+            enabled = totalSelected > 0,
+            modifier = Modifier.padding(bottom = 8.dp),
+        ) {
+            Text(if (showMap) "Hide Boundary Map" else "View Boundary Map ($totalSelected selected)")
+        }
+        if (showMap) {
+            Box(modifier = Modifier.fillMaxWidth().height(220.dp).padding(bottom = 12.dp)) {
+                when {
+                    isLoadingBoundaries -> Box(
+                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator() }
+                    boundaries.isEmpty() -> Box(
+                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "No boundary map available for the selected barangay(s) yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    NativeMapSupport.isSupported(context) ->
+                        TomTomBoundaryMap(boundaries = boundaries, modifier = Modifier.fillMaxSize())
+                    else ->
+                        MultiBoundaryMap(boundaries = boundaries, modifier = Modifier.fillMaxSize())
+                }
+            }
+        }
+        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
+            municipalities.forEach { muncity ->
             val allBarangays = allBarangaysByMuncity[muncity.id] ?: emptyList()
             val selected = barangaysByMuncity[muncity.id] ?: emptyList()
             val selectedIds = selected.map { it.id }.toSet()
@@ -568,6 +625,7 @@ private fun BarangaysStep(
                 }
             }
         }
+    }
     }
 }
 
