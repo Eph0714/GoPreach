@@ -90,6 +90,13 @@ class TerritoryAssignmentsViewModel @Inject constructor(
 
     suspend fun currentLocation(): LatLng? = locationTracker.getCurrentLocation()
 
+    /** "Make my location live and blinking" — a continuous subscription
+     * (same mechanism Share Location's own live tracking uses) rather than
+     * repeated one-shot [currentLocation] polling, so the marker moves as
+     * the device does instead of staying frozen at whatever fix was current
+     * when the user tapped the button. */
+    fun locationUpdates(): Flow<LatLng> = locationTracker.requestLocationUpdatesFlow()
+
     private val _removeResult = MutableStateFlow<TerritoryAssignmentResult?>(null)
     val removeResult: StateFlow<TerritoryAssignmentResult?> = _removeResult
 

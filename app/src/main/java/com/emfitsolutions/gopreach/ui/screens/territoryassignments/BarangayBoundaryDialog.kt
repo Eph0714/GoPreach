@@ -6,11 +6,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.LocationOff
 import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.PinDrop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -67,6 +71,13 @@ fun BarangayBoundaryDialog(
     val scope = rememberCoroutineScope()
     var mapCommand by remember(municipality, barangayName) { mutableStateOf<MapCommand?>(null) }
     var distanceLabel by remember(municipality, barangayName) { mutableStateOf<String?>(null) }
+    var pointDistanceLabel by remember(municipality, barangayName) { mutableStateOf<String?>(null) }
+
+    // "Show and hide my location" — [isLiveLocationOn] drives a continuous
+    // subscription below, not a one-shot fetch, so toggling it on makes the
+    // marker track the device live instead of freezing at one fix.
+    var isLiveLocationOn by remember(municipality, barangayName) { mutableStateOf(false) }
+    var isPickModeOn by remember(municipality, barangayName) { mutableStateOf(false) }
 
     LaunchedEffect(municipality, barangayName) {
         isLoading = true
@@ -75,32 +86,72 @@ fun BarangayBoundaryDialog(
     }
 
     // "Add my location, then compare the distance to the selected barangay"
-    // — one fused-location fix (same provider Share Location already uses,
-    // via viewModel.currentLocation()), pushed into the already-loaded map
-    // page as a marker + dashed line to the boundary's center. Distance
-    // itself is computed in JS (Leaflet's own map.distance(), true WGS84
-    // great-circle) and handed back through the one JS->Android bridge
-    // [LeafletMapView] already exposes (AndroidBridge.showDetails), rather
-    // than re-deriving a polygon centroid in Kotlin from raw GeoJSON.
-    fun locateMe() {
+    // — a live fused-location subscription (same provider Share Location's
+    // own live tracking uses), pushed into the already-loaded map page as a
+    // marker on every fix. Distance itself is computed in JS (Leaflet's own
+    // map.distance(), true WGS84 great-circle) and handed back through the
+    // one JS->Android bridge [LeafletMapView] already exposes
+    // (AndroidBridge.showDetails), rather than re-deriving a polygon
+    // centroid in Kotlin from raw GeoJSON.
+    LaunchedEffect(isLiveLocationOn) {
+        if (!isLiveLocationOn) {
+            mapCommand = MapCommand.HideMyLocation
+            distanceLabel = null
+            pointDistanceLabel = null
+            isPickModeOn = false
+            return@LaunchedEffect
+        }
+        runCatching {
+            viewModel.locationUpdates().collect { fix ->
+                mapCommand = MapCommand.UpdateMyLocation(fix.lat, fix.lng)
+            }
+        }.onFailure {
+            isLiveLocationOn = false
+            snackbarHostState.showSnackbar("Could not get your current location. Make sure location is turned on and try again.")
+        }
+    }
+
+    fun turnOnLiveLocation() {
         if (!viewModel.isLocationServicesEnabled()) {
             scope.launch { snackbarHostState.showSnackbar("Location services are disabled. Please enable GPS to continue.") }
             return
         }
-        scope.launch {
-            val fix = viewModel.currentLocation()
-            if (fix == null) {
-                snackbarHostState.showSnackbar("Could not get your current location. Make sure location is turned on and try again.")
-            } else {
-                mapCommand = MapCommand.ShowMyLocation(fix.lat, fix.lng)
-            }
-        }
+        isLiveLocationOn = true
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
-            locateMe()
+            turnOnLiveLocation()
         } else {
             scope.launch { snackbarHostState.showSnackbar("Location permission is required to show your location.") }
+        }
+    }
+    fun toggleLiveLocation() {
+        if (isLiveLocationOn) {
+            isLiveLocationOn = false
+        } else if (viewModel.hasLocationPermission()) {
+            turnOnLiveLocation()
+        } else {
+            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    // "Let the user select a point then calculate the distance from
+    // location" — a second mode, independent of the barangay-distance
+    // banner above: while on, tapping anywhere on the map (handled in JS,
+    // see buildBoundaryHtml's map.on('click', ...)) drops a point marker and
+    // reports its distance from the live location fix. Requires live
+    // location already on, since a point is meaningless without a "from".
+    fun togglePickMode() {
+        if (!isLiveLocationOn) {
+            scope.launch { snackbarHostState.showSnackbar("Turn on My Location first, then tap the map to pick a point.") }
+            return
+        }
+        isPickModeOn = !isPickModeOn
+        mapCommand = MapCommand.SetPickMode(isPickModeOn)
+        if (isPickModeOn) {
+            scope.launch { snackbarHostState.showSnackbar("Tap anywhere on the map to measure distance from your location.") }
+        } else {
+            pointDistanceLabel = null
         }
     }
 
@@ -128,16 +179,34 @@ fun BarangayBoundaryDialog(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             floatingActionButton = {
                 if (!isLoading && geometryJson != null) {
-                    FloatingActionButton(
-                        onClick = {
-                            if (viewModel.hasLocationPermission()) {
-                                locateMe()
+                    Column(horizontalAlignment = Alignment.End) {
+                        FloatingActionButton(
+                            onClick = { togglePickMode() },
+                            containerColor = if (isPickModeOn) {
+                                MaterialTheme.colorScheme.tertiaryContainer
                             } else {
-                                permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                            }
-                        },
-                    ) {
-                        Icon(Icons.Rounded.MyLocation, contentDescription = "Show my location")
+                                MaterialTheme.colorScheme.secondaryContainer
+                            },
+                        ) {
+                            Icon(
+                                Icons.Rounded.PinDrop,
+                                contentDescription = if (isPickModeOn) "Stop picking a point" else "Pick a point to measure distance",
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        FloatingActionButton(
+                            onClick = { toggleLiveLocation() },
+                            containerColor = if (isLiveLocationOn) {
+                                MaterialTheme.colorScheme.tertiaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.primaryContainer
+                            },
+                        ) {
+                            Icon(
+                                if (isLiveLocationOn) Icons.Rounded.MyLocation else Icons.Rounded.LocationOff,
+                                contentDescription = if (isLiveLocationOn) "Hide my location" else "Show my location",
+                            )
+                        }
                     }
                 }
             },
@@ -165,20 +234,41 @@ fun BarangayBoundaryDialog(
                             onDistanceComputed = { meters ->
                                 distanceLabel = "📍 ${formatDistance(meters)} from $barangayName"
                             },
+                            onPointDistanceComputed = { meters ->
+                                pointDistanceLabel = "📏 ${formatDistance(meters)} to selected point"
+                            },
+                            onPointNeedsLocation = {
+                                scope.launch { snackbarHostState.showSnackbar("Turn on My Location first.") }
+                            },
                             modifier = Modifier.fillMaxSize(),
                         )
-                        distanceLabel?.let { label ->
-                            Text(
-                                text = label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(top = 8.dp)
-                                    .clip(MaterialTheme.shapes.medium)
-                                    .background(MaterialTheme.colorScheme.primaryContainer)
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                            )
+                        Column(
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            distanceLabel?.let { label ->
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier
+                                        .clip(MaterialTheme.shapes.medium)
+                                        .background(MaterialTheme.colorScheme.primaryContainer)
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                                Spacer(Modifier.height(6.dp))
+                            }
+                            pointDistanceLabel?.let { label ->
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    modifier = Modifier
+                                        .clip(MaterialTheme.shapes.medium)
+                                        .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -187,12 +277,15 @@ fun BarangayBoundaryDialog(
     }
 }
 
-/** One-shot instruction pushed down into the already-loaded map page —
- * [mapCommand] changing (even to an equal-looking new instance) is what
+/** Instruction pushed down into the already-loaded map page — [mapCommand]
+ * changing (even to an equal-looking new instance) is what
  * [BarangayBoundaryMap] keys its `LaunchedEffect` on to re-run the JS call,
- * so tapping "my location" again after it already ran still works. */
+ * so e.g. every new live-location fix (a fresh [UpdateMyLocation] each time)
+ * still gets pushed through. */
 private sealed class MapCommand {
-    data class ShowMyLocation(val lat: Double, val lng: Double) : MapCommand()
+    data class UpdateMyLocation(val lat: Double, val lng: Double) : MapCommand()
+    data object HideMyLocation : MapCommand()
+    data class SetPickMode(val enabled: Boolean) : MapCommand()
 }
 
 private fun formatDistance(meters: Double): String =
@@ -209,20 +302,26 @@ private fun BarangayBoundaryMap(
     geometryJson: String,
     command: MapCommand?,
     onDistanceComputed: (meters: Double) -> Unit,
+    onPointDistanceComputed: (meters: Double) -> Unit,
+    onPointNeedsLocation: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val html = remember(geometryJson) { buildBoundaryHtml(geometryJson) }
     val controller = rememberLeafletMapController()
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
 
-    // Re-runs whenever [command] changes (including tapping "my location"
-    // again) — only once the page has actually finished loading, since
-    // `window.showMyLocation` doesn't exist in the page until then.
+    // Re-runs whenever [command] changes (including every new live-location
+    // fix) — only once the page has actually finished loading, since these
+    // `window.xxx` functions don't exist in the page until then.
     LaunchedEffect(command, loadState) {
         if (loadState != MapLoadState.LOADED) return@LaunchedEffect
         when (command) {
-            is MapCommand.ShowMyLocation ->
-                controller.evaluateJavascript("if (window.showMyLocation) { window.showMyLocation(${command.lat}, ${command.lng}); }")
+            is MapCommand.UpdateMyLocation ->
+                controller.evaluateJavascript("if (window.updateMyLocation) { window.updateMyLocation(${command.lat}, ${command.lng}); }")
+            is MapCommand.HideMyLocation ->
+                controller.evaluateJavascript("if (window.hideMyLocation) { window.hideMyLocation(); }")
+            is MapCommand.SetPickMode ->
+                controller.evaluateJavascript("if (window.setPickMode) { window.setPickMode(${command.enabled}); }")
             null -> Unit
         }
     }
@@ -233,11 +332,17 @@ private fun BarangayBoundaryMap(
             mapGlobalVarName = "boundaryMap",
             controller = controller,
             // The one JS->Android bridge LeafletMapView exposes, repurposed
-            // here to carry the distance figure JS already computed via
+            // here to carry distance figures JS already computed via
             // Leaflet's own map.distance() — see buildBoundaryHtml's
-            // window.showMyLocation for the "DISTANCE:<meters>" message it sends.
+            // window.updateMyLocation / map click handler for the
+            // "DISTANCE:<meters>" / "POINT_DISTANCE:<meters>" /
+            // "POINT_NO_LOCATION" messages they send.
             onMarkerClick = { id ->
-                id.removePrefix("DISTANCE:").toDoubleOrNull()?.let(onDistanceComputed)
+                when {
+                    id.startsWith("DISTANCE:") -> id.removePrefix("DISTANCE:").toDoubleOrNull()?.let(onDistanceComputed)
+                    id.startsWith("POINT_DISTANCE:") -> id.removePrefix("POINT_DISTANCE:").toDoubleOrNull()?.let(onPointDistanceComputed)
+                    id == "POINT_NO_LOCATION" -> onPointNeedsLocation()
+                }
             },
             onLoadStateChange = { loadState = it },
             onConsoleMessage = {},
@@ -282,6 +387,22 @@ private fun buildBoundaryHtml(geometryJson: String): String = """
     <style>
       html, body { height: 100%; margin: 0; padding: 0; }
       #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+      /* "Make my location live and blinking" — a pulsing ring behind a solid
+         dot, the same visual convention Google/Apple Maps use for a live
+         (as opposed to one-shot) location fix. */
+      .my-location-dot {
+        width: 16px; height: 16px; border-radius: 50%; background: #1a73e8;
+        border: 3px solid #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,.5); position: relative;
+      }
+      .my-location-pulse {
+        position: absolute; top: 50%; left: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px;
+        border-radius: 50%; background: rgba(26, 115, 232, 0.55);
+        animation: my-location-pulse 1.6s ease-out infinite;
+      }
+      @keyframes my-location-pulse {
+        0% { transform: scale(1); opacity: 0.8; }
+        100% { transform: scale(3); opacity: 0; }
+      }
     </style>
     </head>
     <body>
@@ -326,8 +447,12 @@ private fun buildBoundaryHtml(geometryJson: String): String = """
         { position: 'topright' }
       ).addTo(map);
       var geometry = $geometryJson;
+      // "Lesser opacity" on the barrier fill — the red outline (weight 3,
+      // full opacity) stays clearly visible on its own; only the fill
+      // behind it is now light enough that satellite imagery underneath
+      // still reads through.
       var layer = L.geoJSON(geometry, {
-        style: { color: '#D32F2F', weight: 3, fillColor: '#D32F2F', fillOpacity: 0.2 }
+        style: { color: '#D32F2F', weight: 3, fillColor: '#D32F2F', fillOpacity: 0.08 }
       }).addTo(map);
       var bounds = layer.getBounds();
       var boundaryCenter = bounds.isValid() ? bounds.getCenter() : null;
@@ -340,31 +465,85 @@ private fun buildBoundaryHtml(geometryJson: String): String = """
         map.setView([0, 0], 2);
       }
       // "Add my location, then compare the distance to the selected
-      // barangay" — called from Kotlin (via the controller) once a fresh GPS
-      // fix comes back. Distance to the boundary's own center (not its
-      // nearest edge — simpler, and a reasonable "how far to this barangay"
-      // figure for a Service Overseer/Secretary planning territory
-      // assignments) uses Leaflet's own map.distance(), a true WGS84
-      // great-circle distance, not a flat-plane approximation.
+      // barangay" + "make my location live and blinking" + "show and hide
+      // my location" — window.updateMyLocation is called from Kotlin on
+      // every fix of a continuous location subscription (not a one-shot
+      // fetch), so it both moves the marker live and keeps recomputing the
+      // distance to the boundary's own center (not its nearest edge —
+      // simpler, and a reasonable "how far to this barangay" figure for a
+      // Service Overseer/Secretary planning territory assignments) via
+      // Leaflet's own map.distance(), a true WGS84 great-circle distance.
+      // The CSS pulse animation (.my-location-pulse) is what makes it
+      // "blinking" — Leaflet itself has no live/animated marker concept, so
+      // the blink is pure CSS on a marker Kotlin just keeps moving.
       var myLocationMarker = null;
+      var myLocationLatLng = null;
       var myLocationLine = null;
-      window.showMyLocation = function(lat, lng) {
-        if (!boundaryCenter) return;
-        if (myLocationMarker) { map.removeLayer(myLocationMarker); }
-        if (myLocationLine) { map.removeLayer(myLocationLine); }
-        var myLatLng = L.latLng(lat, lng);
+      var hasFitMyLocation = false;
+      window.updateMyLocation = function(lat, lng) {
+        myLocationLatLng = L.latLng(lat, lng);
+        if (!myLocationMarker) {
+          var pin = L.divIcon({
+            className: '',
+            html: '<div class="my-location-dot"><div class="my-location-pulse"></div></div>',
+            iconSize: [16, 16], iconAnchor: [8, 8]
+          });
+          myLocationMarker = L.marker(myLocationLatLng, { icon: pin, zIndexOffset: 1000 }).addTo(map).bindPopup('My Location');
+        } else {
+          myLocationMarker.setLatLng(myLocationLatLng);
+        }
+        if (boundaryCenter) {
+          if (myLocationLine) { map.removeLayer(myLocationLine); }
+          myLocationLine = L.polyline([myLocationLatLng, boundaryCenter], { color: '#1a73e8', weight: 2, dashArray: '6, 6' }).addTo(map);
+          var distanceMeters = map.distance(myLocationLatLng, boundaryCenter);
+          if (window.AndroidBridge) { window.AndroidBridge.showDetails('DISTANCE:' + distanceMeters); }
+        }
+        // Only re-fit the view on the very first fix — once live tracking
+        // is running, re-fitting on every update would otherwise yank the
+        // view out from under anyone panning/zooming to look around.
+        if (!hasFitMyLocation) {
+          hasFitMyLocation = true;
+          var group = L.featureGroup([myLocationMarker, layer]);
+          map.fitBounds(group.getBounds().pad(0.2), { maxZoom: 17 });
+        }
+      };
+      window.hideMyLocation = function() {
+        if (myLocationMarker) { map.removeLayer(myLocationMarker); myLocationMarker = null; }
+        if (myLocationLine) { map.removeLayer(myLocationLine); myLocationLine = null; }
+        if (selectedPointMarker) { map.removeLayer(selectedPointMarker); selectedPointMarker = null; }
+        if (selectedPointLine) { map.removeLayer(selectedPointLine); selectedPointLine = null; }
+        myLocationLatLng = null;
+        pickModeOn = false;
+        hasFitMyLocation = false;
+      };
+      // "Let the user select a point then calculate the distance from
+      // location" — only active while [pickModeOn] (toggled from Kotlin via
+      // window.setPickMode), so an ordinary pan/zoom tap never accidentally
+      // drops a point.
+      var pickModeOn = false;
+      var selectedPointMarker = null;
+      var selectedPointLine = null;
+      window.setPickMode = function(enabled) {
+        pickModeOn = enabled;
+      };
+      map.on('click', function(e) {
+        if (!pickModeOn) return;
+        if (!myLocationLatLng) {
+          if (window.AndroidBridge) { window.AndroidBridge.showDetails('POINT_NO_LOCATION'); }
+          return;
+        }
+        if (selectedPointMarker) { map.removeLayer(selectedPointMarker); }
+        if (selectedPointLine) { map.removeLayer(selectedPointLine); }
         var pin = L.divIcon({
           className: '',
-          html: '<div style="width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,.5);"></div>',
-          iconSize: [18, 18], iconAnchor: [9, 9]
+          html: '<div style="width:16px;height:16px;border-radius:50%;background:#e8710a;border:3px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,.5);"></div>',
+          iconSize: [16, 16], iconAnchor: [8, 8]
         });
-        myLocationMarker = L.marker(myLatLng, { icon: pin }).addTo(map).bindPopup('My Location');
-        myLocationLine = L.polyline([myLatLng, boundaryCenter], { color: '#1a73e8', weight: 2, dashArray: '6, 6' }).addTo(map);
-        var group = L.featureGroup([myLocationMarker, layer]);
-        map.fitBounds(group.getBounds().pad(0.2), { maxZoom: 17 });
-        var distanceMeters = map.distance(myLatLng, boundaryCenter);
-        if (window.AndroidBridge) { window.AndroidBridge.showDetails('DISTANCE:' + distanceMeters); }
-      };
+        selectedPointMarker = L.marker(e.latlng, { icon: pin }).addTo(map).bindPopup('Selected point');
+        selectedPointLine = L.polyline([myLocationLatLng, e.latlng], { color: '#e8710a', weight: 2, dashArray: '4, 8' }).addTo(map);
+        var distanceMeters = map.distance(myLocationLatLng, e.latlng);
+        if (window.AndroidBridge) { window.AndroidBridge.showDetails('POINT_DISTANCE:' + distanceMeters); }
+      });
     } catch (e) {
       console.error('Boundary map failed: ' + e);
     }
