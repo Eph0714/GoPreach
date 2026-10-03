@@ -13,17 +13,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.LocationOff
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.ViewList
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -52,6 +55,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -64,6 +68,7 @@ import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.LocationSharingSettings
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.FormDialog
+import com.emfitsolutions.gopreach.ui.components.openCoordinatesInMaps
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import java.text.SimpleDateFormat
@@ -106,10 +111,18 @@ fun ShareLocationScreen(
     onOpenTerritoryMap: (lat: Double, lng: Double, name: String) -> Unit,
     viewModel: ShareLocationViewModel = hiltViewModel(),
 ) {
+    val context = LocalContext.current
     val isSharingFlow = remember(currentPersonId) { viewModel.isSharingFor(currentPersonId) }
     val isSharing by isSharingFlow.collectAsStateWithLifecycle(initialValue = false)
     LaunchedEffect(currentPersonId) { viewModel.observeOwnSharedLocation(currentPersonId) }
     val myLocation by viewModel.myLocation.collectAsStateWithLifecycle()
+    // "Location Acquired" vs. "published" are different: a GPS fix can exist
+    // on-device yet still fail LocationSharingService's accuracy gate
+    // forever (weak/indoor signal, a strict congregation threshold) — with
+    // only [myLocation] to go on, that reads identically to "no fix yet,"
+    // leaving the Publisher staring at "Acquiring…" with no indication
+    // anything is actually happening. This distinguishes the two.
+    val locationAcquired by viewModel.locationAcquired.collectAsStateWithLifecycle()
     var searchQuery by remember { mutableStateOf("") }
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
     // "Move the By Congregation from textbox to Dropdown same as the other
@@ -120,10 +133,11 @@ fun ShareLocationScreen(
     var congregationFilter by remember { mutableStateOf<String?>(null) }
     val effectiveCongregationId = visibleCongregationId ?: congregationFilter
     val rowsFlow = remember(effectiveCongregationId, searchQuery) {
-        viewModel.rowsFor(effectiveCongregationId, currentPersonId, searchQuery)
+        viewModel.rowsFor(effectiveCongregationId, searchQuery)
     }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val dateFormat = remember { SimpleDateFormat("MMMM d, yyyy – h:mm a", Locale.getDefault()) }
+    val rowTimestampFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()) }
     // "The default view can be List View" — same [rows] backs both views
     // (already scoped/searched identically), so switching never loses the
     // active search/filter.
@@ -217,7 +231,7 @@ fun ShareLocationScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Share Location") },
+                title = { Text("Location Sharing") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -245,113 +259,138 @@ fun ShareLocationScreen(
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (canShareOwnLocation) {
-                // "Show only essential location information: Publisher Name,
-                // Sharing Status, Latitude, Longitude, Last Updated. Do not
-                // display unnecessary map previews or complicated location
-                // controls." — a colored status card, nothing more.
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isSharing) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                    ),
+                // Matches the "Location Sharing" reference design: a plain
+                // "My Location" heading and a single pill-shaped Share
+                // button — no status card, no switch. The same
+                // consent-dialog → permission → toggleSharing flow as
+                // before runs underneath; only the presentation changed.
+                Text(
+                    "My Location",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                // Reference design: the Lat/Lng link sits directly under the
+                // heading, above the Share button — only while actively
+                // sharing (nothing to show otherwise).
+                if (isSharing && myLocation != null) {
+                    InternalCoordinatesText(
+                        lat = myLocation!!.fix.lat,
+                        lng = myLocation!!.fix.lng,
+                        onClick = { onOpenTerritoryMap(myLocation!!.fix.lat, myLocation!!.fix.lng, currentPersonName) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                } else if (isSharing) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Text(
+                            // locationAcquired true + myLocation still null
+                            // means a fix exists on-device but every one so
+                            // far has failed the congregation's accuracy
+                            // gate (LocationSharingService.publish) — a weak/
+                            // indoor GPS signal, most often — not that
+                            // nothing is happening. Saying so distinguishes a
+                            // slow-but-working session from a stuck one.
+                            if (locationAcquired) "Got a GPS fix, but it's not accurate enough yet — still trying for a better one…"
+                            else "Acquiring your current location…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        // Always reachable while sharing, regardless of
+                        // whether a fix has ever been published yet — the
+                        // trailing stop icon on this person's own Team
+                        // Locations row (below) only exists once a fix has
+                        // actually landed, which would otherwise leave no way
+                        // to turn sharing back off during exactly the
+                        // "stuck acquiring" case above.
+                        TextButton(
+                            onClick = {
+                                viewModel.toggleSharing(false, currentPersonId, visibleCongregationId, null)
+                                showToast("Location sharing stopped successfully.")
+                            },
+                            contentPadding = PaddingValues(0.dp),
+                        ) { Text("Stop Sharing") }
+                    }
+                }
+                // "Share" always starts/refreshes sharing — once already on,
+                // stopping happens from the "Stop Sharing" link above (while
+                // waiting for a fix) or this person's own row in Team
+                // Locations below (its trailing stop-sharing icon) once one
+                // lands — not from this button, matching the reference
+                // design (identical Share button regardless of current
+                // state). "Show my current Coordinates" sits beside it, same
+                // fill color, since both are this section's primary actions.
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(currentPersonName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                // [isSharing] already reflects the tap itself
-                                // (an optimistic override — see
-                                // ShareLocationViewModel.toggleSharing), not
-                                // whatever GPS/server round-trip is still
-                                // happening underneath.
-                                if (isSharing) "🟢 Location Sharing: ON" else "Location Sharing: OFF",
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Switch(
-                                checked = isSharing,
-                                onCheckedChange = { enabled ->
-                                    if (enabled) {
-                                        // "There must be a pop up message that
-                                        // the user will allow the app to share
-                                        // location coordinates" — an app-level
-                                        // consent step, separate from (and
-                                        // shown before) the OS location-
-                                        // permission prompt below.
-                                        showConsentDialog = true
-                                    } else {
-                                        // "Stop all scheduled location updates
-                                        // immediately when Location Sharing is
-                                        // turned OFF" — same optimistic
-                                        // override, the other way.
-                                        viewModel.toggleSharing(false, currentPersonId, visibleCongregationId, null)
-                                        showToast("Location sharing stopped successfully.")
-                                    }
-                                },
-                            )
-                        }
-                        if (isSharing && myLocation != null) {
-                            InternalCoordinatesText(
-                                lat = myLocation!!.fix.lat,
-                                lng = myLocation!!.fix.lng,
-                                onClick = { onOpenTerritoryMap(myLocation!!.fix.lat, myLocation!!.fix.lng, currentPersonName) },
-                            )
-                            Text(
-                                "Last Updated: ${dateFormat.format(Date(myLocation!!.capturedAt))}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        } else if (isSharing) {
-                            Text(
-                                "Acquiring your current location…",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                    Button(
+                        onClick = {
+                            if (!isSharing) {
+                                // "There must be a pop up message that the user
+                                // will allow the app to share location
+                                // coordinates" — same app-level consent step,
+                                // shown before the OS location-permission prompt.
+                                showConsentDialog = true
+                            }
+                        },
+                        enabled = !isSharing,
+                        shape = RoundedCornerShape(50),
+                    ) {
+                        Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text("Share")
+                    }
+                    Button(onClick = ::showMyCoordinates, enabled = !isFetchingCoordinates, shape = RoundedCornerShape(50)) {
+                        if (isFetchingCoordinates) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp).padding(end = 0.dp), strokeWidth = 2.dp)
+                            Text("Getting your coordinates…", modifier = Modifier.padding(start = 8.dp))
                         } else {
-                            Text(
-                                "Only other publishers in your congregation see it, and it stops on its own after the configured time.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Icon(Icons.Rounded.MyLocation, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                            Text("My Coordinates")
                         }
                     }
                 }
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        OutlinedButton(onClick = ::showMyCoordinates, enabled = !isFetchingCoordinates, modifier = Modifier.fillMaxWidth()) {
-                            if (isFetchingCoordinates) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp).padding(end = 0.dp), strokeWidth = 2.dp)
-                                Text("Getting your coordinates…", modifier = Modifier.padding(start = 8.dp))
-                            } else {
-                                Icon(Icons.Rounded.MyLocation, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                                Text("Show my current Coordinates")
-                            }
-                        }
-                        shownCoordinates?.let { fix ->
-                            Text("Latitude: ${"%.6f".format(fix.lat)}", style = MaterialTheme.typography.bodyMedium)
-                            Text("Longitude: ${"%.6f".format(fix.lng)}", style = MaterialTheme.typography.bodyMedium)
-                            if (fix.accuracyMeters != null) {
-                                Text("Accuracy: ${fix.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text("Only shown to you — not shared.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            OutlinedButton(onClick = { shownCoordinates = null; coordinatesError = null }, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Rounded.VisibilityOff, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                                Text("Hide my current location")
-                            }
-                        }
-                        coordinatesError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (isSharing && myLocation != null) {
+                        Text(
+                            "Last Updated: ${dateFormat.format(Date(myLocation!!.capturedAt))}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else if (!isSharing) {
+                        Text(
+                            "Only other publishers in your congregation see it, and it stops on its own after the configured time.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
+                    shownCoordinates?.let { fix ->
+                        // Clicking opens GoPreach's own Territory Map,
+                        // centered here — same behavior as every other
+                        // coordinates link on this screen (InternalCoordinatesText).
+                        InternalCoordinatesText(
+                            lat = fix.lat,
+                            lng = fix.lng,
+                            onClick = { onOpenTerritoryMap(fix.lat, fix.lng, currentPersonName) },
+                        )
+                        if (fix.accuracyMeters != null) {
+                            Text("Accuracy: ${fix.accuracyMeters.toInt()} meters", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("Only shown to you — not shared.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton(onClick = { shownCoordinates = null; coordinatesError = null }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.VisibilityOff, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                            Text("Hide my current location")
+                        }
+                    }
+                    coordinatesError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                }
                 HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
             }
 
             Text(
-                "Sharing now (${rows.size})",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).padding(top = if (canShareOwnLocation) 0.dp else 8.dp),
+                "Team Locations (${rows.size})",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).padding(top = if (canShareOwnLocation) 0.dp else 8.dp),
             )
 
             if (viewMode == ShareLocationViewMode.MAP) {
@@ -389,35 +428,57 @@ fun ShareLocationScreen(
                         modifier = Modifier.fillMaxSize().padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Text("No one is currently sharing their location.", style = MaterialTheme.typography.bodyMedium)
+                        Text("No one has shared their location yet.", style = MaterialTheme.typography.bodyMedium)
                     }
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         items(rows, key = { it.person.id }) { row ->
-                            Card(modifier = Modifier.fillMaxWidth()) {
-                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            val isOwnRow = row.person.id == currentPersonId
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                Icon(
+                                    Icons.Rounded.LocationOn,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 2.dp, end = 8.dp),
+                                )
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
-                                        row.groupName?.let { "${row.person.fullName} ($it)" } ?: row.person.fullName,
+                                        row.person.fullName.uppercase(),
                                         style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        textDecoration = TextDecoration.Underline,
+                                        // Tapping the name opens this publisher's
+                                        // location in Google Maps (or whatever
+                                        // handles `geo:`) — an external app, unlike
+                                        // the internal-Territory-Map coordinates
+                                        // links elsewhere on this screen.
+                                        modifier = Modifier.clickable { openCoordinatesInMaps(context, row.location.lat, row.location.lng, row.person.fullName) },
                                     )
-                                    if (row.category != null) {
-                                        Text("Status: ${row.category.name.replace('_', ' ')}", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                    Text("Congregation/Group: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
-                                    InternalCoordinatesText(
-                                        lat = row.location.lat,
-                                        lng = row.location.lng,
-                                        onClick = { onOpenTerritoryMap(row.location.lat, row.location.lng, row.person.fullName) },
-                                    )
+                                    val statusLabel = row.category?.name?.lowercase() ?: row.person.activeAdminRole?.lowercase() ?: "publisher"
                                     Text(
-                                        "Last Updated: ${dateFormat.format(Date(row.location.updatedAt))}",
-                                        style = MaterialTheme.typography.labelSmall,
+                                        "$statusLabel — shared ${rowTimestampFormat.format(Date(row.location.updatedAt))}",
+                                        style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
+                                }
+                                // Only the viewer's own row carries the
+                                // stop-sharing control — matches the
+                                // reference design, and stopping someone
+                                // else's sharing was never a feature here.
+                                if (isOwnRow) {
+                                    IconButton(onClick = {
+                                        viewModel.toggleSharing(false, currentPersonId, visibleCongregationId, null)
+                                        showToast("Location sharing stopped successfully.")
+                                    }) {
+                                        Icon(Icons.Rounded.LocationOff, contentDescription = "Stop sharing my location")
+                                    }
                                 }
                             }
                         }

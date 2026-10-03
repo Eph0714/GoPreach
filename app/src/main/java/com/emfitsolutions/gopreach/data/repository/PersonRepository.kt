@@ -52,6 +52,20 @@ class PersonRepository @Inject constructor(
         offline.delete(COLLECTION, personId)
     }
 
+    /** Cache-only mirror of a [Person] already read straight from Firestore —
+     * used by [AuthRepository][com.emfitsolutions.gopreach.data.repository
+     * .AuthRepository] to seed the local cache right after sign-in. Must never
+     * go through [save]: that enqueues a pending upload of this just-read
+     * snapshot, which can race [UserSession.syncActiveRoleContext]'s own
+     * `saveNow` of the newly-resolved `activeCongregationId`/`activeAdminRole`
+     * and, on a person's very first sign-in (the only time those fields move
+     * off `null`), clobber it back to `null` via the sync queue's full-document
+     * `.set()` — breaking every write firestore.rules gates on
+     * `activeCongregationId` until the next sign-in. */
+    suspend fun cacheFromServer(person: Person) {
+        offline.cacheFromServer(COLLECTION, person.id, person)
+    }
+
     /** Profile-menu avatar upload — one fixed Storage path per person (a
      * re-upload simply overwrites it), same pattern
      * [AnnouncementRepository.uploadImage] already uses. Returns the

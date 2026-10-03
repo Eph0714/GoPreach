@@ -118,6 +118,23 @@ function canManageRoleAssignmentsFor(db, congregationId) {
   );
 }
 
+// Territory Assignment module — same role set as [canManageRoleAssignmentsFor]
+// (Super-Admin, or Admin/Coordinator Elder/Service Overseer/Secretary active
+// in the exact congregation the assignment belongs to). Deliberately NOT the
+// restrictedAllows()-is-always-true-for-every-built-in-role pattern
+// [groups]/[congregations] use below — this is genuine per-role-per-
+// congregation server-side enforcement, closing that gap specifically for
+// this module.
+function canManageTerritoryAssignmentsFor(db, congregationId) {
+  return isSignedIn() && exists(/databases/$(db)/documents/people/$(personIdFromToken())) && (
+    isSuperAdmin(db) || (
+      myPerson(db).get('activeCongregationId', null) == congregationId &&
+      myPerson(db).get('activeAdminRole', null) in
+        ['ADMIN_PER_CONGREGATION', 'COORDINATOR_ELDER', 'SERVICE_OVERSEER', 'SECRETARY']
+    )
+  );
+}
+
 // "Congregation Admin Access Control" spec §11/§12/§15/§30 — a
 // [RoleType.serialize]-shaped `roleType` string ("ADMIN:SUPER_ADMIN"/
 // "ADMIN:CIRCUIT_OVERSEER") naming one of the two roles nobody below
@@ -321,6 +338,41 @@ service cloud.firestore {
       allow read: if restrictedAllows(database, 'VIEW_GROUPS', resource.data.get('congregationId', null));
       allow create: if restrictedAllows(database, 'MANAGE_GROUPS', request.resource.data.get('congregationId', null));
       allow update, delete: if restrictedAllows(database, 'MANAGE_GROUPS', resource.data.get('congregationId', null));
+    }
+
+    // Territory Assignment module — see [canManageTerritoryAssignmentsFor]'s
+    // own comment for why this is real per-role-per-congregation enforcement
+    // rather than the restrictedAllows() pattern above. Read stays plain
+    // isSignedIn() — same trust level every other admin-track list (Groups,
+    // Congregations) already reads at; only claiming/releasing a barangay
+    // needed the tighter write check.
+    match /territoryAssignments/{assignmentId} {
+      allow read: if isSignedIn();
+      allow create: if canManageTerritoryAssignmentsFor(database, request.resource.data.get('congregationId', null));
+      // congregationId is immutable on edit — a congregation is a fixed
+      // scope for this record, never reassignable.
+      allow update: if canManageTerritoryAssignmentsFor(database, resource.data.get('congregationId', null)) &&
+        request.resource.data.get('congregationId', null) == resource.data.get('congregationId', null);
+      allow delete: if canManageTerritoryAssignmentsFor(database, resource.data.get('congregationId', null));
+    }
+
+    // One doc per claimed barangay, id == "${congregationId}_${barangayId}"
+    // (see TerritoryAssignmentBarangay's own doc comment) — that deterministic
+    // id, combined with the create rule below, is what makes "a barangay can
+    // only ever be assigned to one FS Group per congregation" an actual
+    // database-enforced guarantee rather than just a client-side check:
+    // TerritoryAssignmentRepository's transaction can only ever create this
+    // exact document once, and this rule additionally pins congregationId/
+    // barangayId as immutable once set, so an "edit" of a claim is always a
+    // delete + create under a different deterministic id, never a rewrite of
+    // the fields that make the id meaningful.
+    match /territoryAssignmentBarangays/{claimId} {
+      allow read: if isSignedIn();
+      allow create: if canManageTerritoryAssignmentsFor(database, request.resource.data.get('congregationId', null));
+      allow update: if canManageTerritoryAssignmentsFor(database, resource.data.get('congregationId', null)) &&
+        request.resource.data.get('congregationId', null) == resource.data.get('congregationId', null) &&
+        request.resource.data.get('barangayId', null) == resource.data.get('barangayId', null);
+      allow delete: if canManageTerritoryAssignmentsFor(database, resource.data.get('congregationId', null));
     }
 
     // Elders and Publishers are both `roleAssignments` rows (see
@@ -914,7 +966,8 @@ service cloud.firestore {
         'appSettings', 'auditLog', 'sharedLocations', 'savedLocations', 'cartAssignments',
         'locationSharingSettings', 'midweekMeetingSchedules', 'publicTalkSchedules', 'announcements',
         'creditHourCategories', 'plannerDays', 'monthlyPlannerGoals', 'weeklyPlannerGoals',
-        'yearlyPlannerGoals', 'creditHourRecords', 'ministryTimerSessions'
+        'yearlyPlannerGoals', 'creditHourRecords', 'ministryTimerSessions',
+        'territoryAssignments', 'territoryAssignmentBarangays'
       ]);
     }
   }

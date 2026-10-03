@@ -123,3 +123,67 @@ data class Territory(
     val assignedGroupId: String? = null,
     val createdAt: Long = 0L,
 )
+
+/**
+ * Territory Assignment module — a Group's claim over every barangay of one
+ * municipality/city currently checked in a matching [TerritoryAssignmentBarangay]
+ * doc pointing at this id. The barangay list itself is NOT stored here (see
+ * that model's own doc comment for why) — this header is just Group+
+ * Municipality metadata. [provinceId]/[muncityId] are the stable PSGC row ids
+ * from the bundled `psgc.db` ([com.emfitsolutions.gopreach.data.local.psgc
+ * .PsgcEntities]), not the official PSGC code string; [provinceName]/
+ * [muncityName] are denormalized at save time (same convention as
+ * [Congregation.province]/[cityMunicipality]) so the dashboard never needs a
+ * PSGC DB join to render a row.
+ *
+ * No [RecordStatus] field, unlike [Congregation]/[Group] — see
+ * [com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentRepository]
+ * .removeAssignment's doc comment for why an "Inactive" state would be wrong
+ * here (it would keep blocking every barangay it covers from being claimed
+ * elsewhere). Remove is always a hard delete.
+ *
+ * Firestore collection: `territoryAssignments/{assignmentId}`
+ */
+data class TerritoryAssignment(
+    @DocumentId val id: String = "",
+    val congregationId: String = "",
+    val groupId: String = "",
+    val provinceId: Int = 0,
+    val provinceName: String = "",
+    val muncityId: Int = 0,
+    val muncityName: String = "",
+    val createdAt: Long = 0L,
+    val createdByPersonId: String = "",
+    val updatedAt: Long = 0L,
+    val updatedByPersonId: String? = null,
+)
+
+/**
+ * One claimed barangay for a [TerritoryAssignment]. [id] is always
+ * `"${congregationId}_${barangayId}"` — that deterministic id IS the
+ * uniqueness mechanism: "a barangay belongs to at most one FS Group per
+ * congregation" becomes "this exact document id can be created at most
+ * once," which [com.emfitsolutions.gopreach.data.repository
+ * .TerritoryAssignmentRepository] enforces with a Firestore transaction
+ * (get-then-set, never update the keyed fields) rather than a client-side
+ * pre-check alone. Duplicates across *different* congregations are fine by
+ * construction — a different congregationId is a different document id
+ * entirely. [groupName] is denormalized so a duplicate-tap conflict ("X is
+ * already assigned to Y") can be shown from this one document, no second read.
+ *
+ * Firestore collection: `territoryAssignmentBarangays/{congregationId}_{barangayId}`
+ */
+data class TerritoryAssignmentBarangay(
+    @DocumentId val id: String = "",
+    val congregationId: String = "",
+    val assignmentId: String = "",
+    val groupId: String = "",
+    val groupName: String = "",
+    val provinceId: Int = 0,
+    val muncityId: Int = 0,
+    val muncityName: String = "",
+    val barangayId: Int = 0,
+    val barangayName: String = "",
+    val createdAt: Long = 0L,
+    val createdByPersonId: String = "",
+)

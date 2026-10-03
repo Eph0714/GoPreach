@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AccountBalance
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.Assessment
+import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.CalendarMonth
@@ -101,6 +102,10 @@ fun GoPreachSidePanelContent(
      * Coordinator Elder). Service Overseer gets Groups specifically, not the
      * wider Publisher-management access. */
     canManageGroups: Boolean,
+    /** Territory Assignment module — see AdminHomeScreen's own derivation
+     * (same role set as [canManageGroups]: canManagePublishersAndGroups plus
+     * Service Overseer/Secretary). */
+    canManageTerritoryAssignments: Boolean,
     canManageTerritories: Boolean,
     canEditMeetingAssignments: Boolean,
     canAccessControlPanel: Boolean,
@@ -159,6 +164,7 @@ fun GoPreachSidePanelContent(
             if (canEnrollRegularElderOrPublisher) add(SideItem(stringResource(R.string.side_elders), Icons.Rounded.PersonAdd, Destinations.MANAGE_ELDERS))
             if (canEnrollMinisterialServant) add(SideItem(stringResource(R.string.side_ministerial_servant), Icons.Rounded.PersonAdd, Destinations.MANAGE_MINISTERIAL_SERVANTS))
             if (canManageGroups) add(SideItem(stringResource(R.string.side_groups), Icons.Rounded.Groups, Destinations.MANAGE_GROUPS))
+            if (canManageTerritoryAssignments) add(SideItem(stringResource(R.string.side_territory_assignments), Icons.Rounded.Assignment, Destinations.MANAGE_TERRITORY_ASSIGNMENTS))
             // Routes to the Manage Publishers *list* screen (which has its own
             // onAddNew FAB into ENROLL_PUBLISHER), matching every other entry
             // in this section (Congregations/Admins/Coordinator Elder/Regular

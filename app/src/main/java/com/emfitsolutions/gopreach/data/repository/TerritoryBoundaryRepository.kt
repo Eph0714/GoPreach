@@ -78,11 +78,26 @@ class TerritoryBoundaryRepository @Inject constructor(
 
     /** Real polygon/multipolygon GeoJSON geometry (as a raw JSON string,
      * ready to hand straight to Leaflet's `L.geoJSON`) for a Municipality,
-     * or null if this asset wasn't built for that Municipality's province. */
+     * or null if this asset wasn't built for that Municipality's province.
+     *
+     * Bug fix ("boundary dialog shows the whole world instead of the
+     * barangay" for a handful of entries): [JsonObject.get] returns Gson's
+     * own [com.google.gson.JsonNull] singleton — not Kotlin `null` — when a
+     * key's value is a JSON `null` (as opposed to the key being absent
+     * entirely); [com.google.gson.JsonNull.toString] is the literal 4-character
+     * string `"null"`, which is not equal to Kotlin `null` and sailed straight
+     * past every caller's `geometryJson == null` "not covered" check. That
+     * string then got embedded verbatim as `var geometry = null;` in the
+     * boundary dialog's JS, which `L.geoJSON()` silently accepts and turns
+     * into an empty layer with invalid bounds — Leaflet's fallback for that
+     * is to render the default whole-world view, not an error. [isJsonNull]
+     * now treats that case the same as a missing key: a clean `null`, so
+     * every caller's existing "not available yet" fallback actually fires. */
     suspend fun municipalityGeometry(municipality: String): String? {
         ensureLoaded()
         val key = normalize(municipality)
-        return municipalities?.get(key)?.toString()
+        val element = municipalities?.get(key) ?: return null
+        return if (element.isJsonNull) null else element.toString()
     }
 
     /** Same as [municipalityGeometry], for one Barangay within a Municipality —
@@ -90,6 +105,7 @@ class TerritoryBoundaryRepository @Inject constructor(
     suspend fun barangayGeometry(municipality: String, barangay: String): String? {
         ensureLoaded()
         val key = normalize(municipality) + "|" + normalize(barangay)
-        return barangays?.get(key)?.toString()
+        val element = barangays?.get(key) ?: return null
+        return if (element.isJsonNull) null else element.toString()
     }
 }

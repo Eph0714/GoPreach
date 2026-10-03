@@ -75,6 +75,17 @@ class SyncWorker @AssistedInject constructor(
          * leaves this false, which is what [SyncStatusCenter.onSyncFinished]
          * reads to decide whether this run is worth a toast at all. */
         const val KEY_MANUAL = "manual"
+
+        /** Collections whose `@DocumentId` property isn't named "id" — must stay
+         * in lockstep with every `@DocumentId val <name>` in `data/model` that
+         * isn't `id`. See [applyOperation]'s doc comment for why this list has to
+         * be exhaustive: missing an entry here reproduces the exact
+         * "crashes/fails to mirror back down" bug this map exists to prevent. */
+        private val DOCUMENT_ID_KEYS_BY_COLLECTION = mapOf(
+            "sharedLocations" to "publisherPersonId",
+            "locationSharingSettings" to "congregationId",
+            "dashboardModuleLayouts" to "personId",
+        )
     }
 
     override suspend fun doWork(): Result {
@@ -238,19 +249,23 @@ class SyncWorker @AssistedInject constructor(
                 val mapType = object : TypeToken<Map<String, Any?>>() {}.type
                 val fields: Map<String, Any?> = gson.fromJson(op.payloadJson, mapType)
                 // Every model's @DocumentId property — "id" for nearly all of them,
-                // but SharedLocation's is "publisherPersonId" (see that class's doc
-                // comment) — must never be written as a literal stored field:
-                // Firestore's toObject() throws on read if it finds one, since
-                // @DocumentId is supposed to repopulate that property from the
-                // document reference alone. This raw Gson-map upload path doesn't go
-                // through Firestore's POJO mapper (which strips these automatically),
-                // so it has to know each collection's @DocumentId key explicitly.
+                // but a few collections use their own natural key instead (see
+                // DOCUMENT_ID_KEYS_BY_COLLECTION) — must never be written as a
+                // literal stored field: Firestore's toObject() throws on read if
+                // it finds one, since @DocumentId is supposed to repopulate that
+                // property from the document reference alone. This raw Gson-map
+                // upload path doesn't go through Firestore's POJO mapper (which
+                // strips these automatically), so it has to know each
+                // collection's @DocumentId key explicitly.
                 // Confirmed root cause of a real production crash: this write path
-                // was uploading a real "publisherPersonId" field for sharedLocations
-                // (only "id" was ever stripped), and every session's post-login
-                // mirror of that collection crashed the whole app the instant it
-                // downloaded that corrupt document back — see FirestoreMirror.kt.
-                val documentIdKey = if (op.collectionPath == "sharedLocations") "publisherPersonId" else "id"
+                // only ever special-cased "sharedLocations" -> "publisherPersonId"
+                // (originally stripping only "id"), leaving
+                // "locationSharingSettings" (@DocumentId congregationId) and
+                // "dashboardModuleLayouts" (@DocumentId personId) with the same
+                // bug — every session's post-login mirror of any of these three
+                // collections crashed/failed the instant it downloaded a corrupt
+                // document written through this path back — see FirestoreMirror.kt.
+                val documentIdKey = DOCUMENT_ID_KEYS_BY_COLLECTION[op.collectionPath] ?: "id"
                 docRef.set(fields - documentIdKey).await()
             }
             SyncOperationType.DELETE -> docRef.delete().await()

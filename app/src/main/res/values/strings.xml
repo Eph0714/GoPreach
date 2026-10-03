@@ -137,6 +137,7 @@
     <string name="side_ministerial_servant">Ministerial Servant</string>
     <string name="side_announcements">Announcements</string>
     <string name="side_groups">Field Service Groups</string>
+    <string name="side_territory_assignments">Territory Assignment</string>
     <string name="side_publisher">Publisher</string>
     <string name="side_territory_map">Territory Map</string>
     <string name="side_backup_restore">Backup &amp; Restore</string>

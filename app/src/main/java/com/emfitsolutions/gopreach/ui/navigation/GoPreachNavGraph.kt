@@ -43,6 +43,8 @@ import com.emfitsolutions.gopreach.ui.screens.enrollment.PublisherEnrollmentScre
 import com.emfitsolutions.gopreach.ui.screens.findlocation.FindLocationEnrollmentAccess
 import com.emfitsolutions.gopreach.ui.screens.findlocation.FindLocationScreen
 import com.emfitsolutions.gopreach.ui.screens.groups.ManageGroupsScreen
+import com.emfitsolutions.gopreach.ui.screens.territoryassignments.TerritoryAssignmentWizardScreen
+import com.emfitsolutions.gopreach.ui.screens.territoryassignments.TerritoryAssignmentsScreen
 import com.emfitsolutions.gopreach.ui.screens.home.AdminHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.householderassignment.HouseholderAssignmentScreen
@@ -478,6 +480,30 @@ fun GoPreachNavGraph(
                 currentPersonId = currentPersonId,
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.MANAGE_TERRITORY_ASSIGNMENTS) {
+            TerritoryAssignmentsScreen(
+                fixedCongregationId = ownCongregationId,
+                currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
+                // The wizard itself offers a Congregation picker (Super-Admin
+                // only, Add only) as its own first step — nothing from this
+                // dashboard needs to pre-select one.
+                onAddNew = { navController.navigate("territory_assignment_wizard/new") },
+                onEdit = { assignmentId -> navController.navigate("territory_assignment_wizard/$assignmentId") },
+            )
+        }
+        composable(
+            route = Destinations.TERRITORY_ASSIGNMENT_WIZARD,
+            arguments = listOf(navArgument("assignmentId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val rawAssignmentId = backStackEntry.arguments?.getString("assignmentId")
+            TerritoryAssignmentWizardScreen(
+                assignmentId = rawAssignmentId?.takeIf { it != "new" },
+                fixedCongregationId = ownCongregationId,
+                currentPersonId = currentPersonId,
+                onDone = { navController.popBackStack() },
             )
         }
         composable(

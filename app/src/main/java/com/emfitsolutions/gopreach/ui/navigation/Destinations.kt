@@ -88,6 +88,10 @@ object Destinations {
     // Phase 4
     const val MANAGE_PUBLISHERS = "manage_publishers"
     const val MANAGE_GROUPS = "manage_groups"
+    const val MANAGE_TERRITORY_ASSIGNMENTS = "manage_territory_assignments"
+    // "new" sentinel in the {assignmentId} slot means Add rather than Edit —
+    // see GoPreachNavGraph's own composable() block for this route.
+    const val TERRITORY_ASSIGNMENT_WIZARD = "territory_assignment_wizard/{assignmentId}"
     // "Clicking coordinates should open the Territory Map centered on the
     // Publisher's latest location" — [MANAGE_TERRITORIES] (with the literal
     // `{focusLat}`-style placeholders) is the route *pattern*, used only to

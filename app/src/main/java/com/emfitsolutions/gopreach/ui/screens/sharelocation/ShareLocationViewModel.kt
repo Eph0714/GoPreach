@@ -156,7 +156,7 @@ class ShareLocationViewModel @Inject constructor(
      * category ("Status"), Group name, and Congregation name. Search
      * (name/status/group, plus congregation for a Super-Admin) is applied
      * here too rather than duplicated per caller. */
-    fun rowsFor(visibleCongregationId: String?, excludePersonId: String, searchQuery: String): Flow<List<SharedLocationRow>> =
+    fun rowsFor(visibleCongregationId: String?, searchQuery: String): Flow<List<SharedLocationRow>> =
         combine(
             sharedLocationRepository.observeAll(),
             personRepository.observeAll(),
@@ -171,7 +171,12 @@ class ShareLocationViewModel @Inject constructor(
                 // without writing a clean "stopped" doc drops off this list
                 // the same way they already drop off the Territory Map's
                 // Publisher layer, rather than lingering as a stale "sharer."
-                .filter { it.isCurrentlyFresh() && it.publisherPersonId != excludePersonId }
+                // Includes the viewer's own entry (unlike the old "Sharing
+                // now" list, which excluded it) — "Team Locations" is meant
+                // to show who's sharing, period, with the viewer's own row
+                // carrying the stop-sharing action instead of a separate
+                // status card.
+                .filter { it.isCurrentlyFresh() }
                 .filter { visibleCongregationId == null || it.congregationId == visibleCongregationId }
                 .mapNotNull { location ->
                     val person = people.firstOrNull { it.id == location.publisherPersonId } ?: return@mapNotNull null

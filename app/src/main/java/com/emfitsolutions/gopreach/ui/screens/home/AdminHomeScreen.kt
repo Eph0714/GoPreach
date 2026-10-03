@@ -237,6 +237,15 @@ fun AdminHomeScreen(
     // without gaining the wider Publisher-management access above.
     val canManageGroups = canManagePublishersAndGroups || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY ||
         Permission.MANAGE_GROUPS in grantPermissions
+    // Territory Assignment module — same five built-in roles as the spec
+    // calls for (Super-Admin/Admin/Coordinator Elder via
+    // canManagePublishersAndGroups, plus Service Overseer/Secretary), same
+    // direct-role-check pattern as [canManageGroups] just above rather than
+    // routing through [PermissionChecker.hasPermission] — see
+    // firestore.rules' canManageTerritoryAssignmentsFor for the real
+    // server-side enforcement this client-side flag only gates the UI for.
+    val canManageTerritoryAssignments = canManagePublishersAndGroups || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY ||
+        Permission.MANAGE_TERRITORY_ASSIGNMENTS in grantPermissions
     // Drawer-only widening of the Regular Elder item for a grant-based
     // Circuit Overseer — deliberately *not* folded into
     // [canEnrollRegularElderOrPublisher] itself, since that flag also drives
@@ -447,6 +456,7 @@ fun AdminHomeScreen(
                 canEnrollPublisher = canEnrollPublisher,
                 canManagePublishersAndGroups = canManagePublishersAndGroups,
                 canManageGroups = canManageGroups,
+                canManageTerritoryAssignments = canManageTerritoryAssignments,
                 canManageTerritories = canViewTerritoryMap,
                 canEditMeetingAssignments = canEditMeetingAssignments,
                 canAccessControlPanel = canAccessControlPanel,

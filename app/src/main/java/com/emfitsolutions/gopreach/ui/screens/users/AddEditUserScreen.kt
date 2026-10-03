@@ -306,6 +306,8 @@ private fun Permission.displayLabel(): String = when (this) {
     Permission.MANAGE_ELDERS -> "Manage Elders"
     Permission.VIEW_GROUPS -> "View Field Service Groups"
     Permission.MANAGE_GROUPS -> "Manage Field Service Groups"
+    Permission.VIEW_TERRITORY_ASSIGNMENTS -> "View Territory Assignments"
+    Permission.MANAGE_TERRITORY_ASSIGNMENTS -> "Manage Territory Assignments"
     Permission.VIEW_PUBLISHERS -> "View Publishers"
     Permission.MANAGE_PUBLISHERS -> "Manage Publishers"
     Permission.VIEW_PUBLISHER_REPORTS -> "View Publisher Reports"

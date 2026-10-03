@@ -211,7 +211,7 @@ fun ShareLocationMapView(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
             ) {
                 Text(
-                    if (allPoints.isEmpty()) "No one is currently sharing their location." else "No Publisher matches the selected filter.",
+                    if (allPoints.isEmpty()) "No one has shared their location yet." else "No Publisher matches the selected filter.",
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(16.dp),
                 )

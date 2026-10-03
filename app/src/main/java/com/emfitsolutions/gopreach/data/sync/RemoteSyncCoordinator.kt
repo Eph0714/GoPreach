@@ -32,6 +32,7 @@ import com.emfitsolutions.gopreach.data.repository.YearlyPlannerGoalRepository
 import com.emfitsolutions.gopreach.data.repository.SavedLocationRepository
 import com.emfitsolutions.gopreach.data.repository.ScheduleRepository
 import com.emfitsolutions.gopreach.data.repository.SharedLocationRepository
+import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.TerritoryRepository
 import com.emfitsolutions.gopreach.data.repository.UserAccessGrantRepository
 import com.emfitsolutions.gopreach.di.ApplicationScope
@@ -95,6 +96,7 @@ class RemoteSyncCoordinator @Inject constructor(
     private val groupRepository: GroupRepository,
     private val elderTitleRepository: ElderTitleRepository,
     private val territoryRepository: TerritoryRepository,
+    private val territoryAssignmentRepository: TerritoryAssignmentRepository,
     private val scheduleRepository: ScheduleRepository,
     private val interestedPersonRepository: InterestedPersonRepository,
     private val forwardRequestRepository: ForwardRequestRepository,
@@ -283,6 +285,7 @@ class RemoteSyncCoordinator @Inject constructor(
         groupRepository.startRemoteSync().startTracked(uidChanged)
         elderTitleRepository.startRemoteSync().startTracked(uidChanged)
         territoryRepository.startRemoteSync().startTracked(uidChanged)
+        territoryAssignmentRepository.startRemoteSync().startTracked(uidChanged)
         scheduleRepository.startRemoteSync().startTracked(uidChanged)
         interestedPersonRepository.startRemoteSync().startTracked(uidChanged)
         forwardRequestRepository.startRemoteSync().startTracked(uidChanged)

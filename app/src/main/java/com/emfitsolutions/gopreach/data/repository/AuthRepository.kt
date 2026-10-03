@@ -130,7 +130,12 @@ class AuthRepository @Inject constructor(
         }
         firebaseAuth.signInWithEmailAndPassword(authEmailFor(person.id), password).await()
         Log.d(TAG, "Password verified: TRUE")
-        personRepository.save(person) // seed local cache for offline use this session
+        // Cache-only: a stale pre-sign-in snapshot must never get queued as a
+        // pending upload here (see PersonRepository.cacheFromServer's doc
+        // comment) — it would race, and could clobber, UserSession
+        // .syncActiveRoleContext's own write of activeCongregationId/
+        // activeAdminRole for this same session.
+        personRepository.cacheFromServer(person)
         // "Offline Login" spec §1-§2: securely cache a hashed verifier for this
         // exact username/password (never the password itself) so a later
         // sign-in attempt with no network can still be verified — see
