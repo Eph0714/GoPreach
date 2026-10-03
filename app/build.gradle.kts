@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -6,6 +8,19 @@ plugins {
     id("com.google.gms.google-services")
     id("com.google.devtools.ksp")
 }
+
+// TomTom map tiles experiment — the key lives only in local.properties
+// (gitignored, never committed) and is exposed to Kotlin as a BuildConfig
+// constant rather than hardcoded in source, same reasoning as any other
+// per-developer secret. Note this does NOT make the key safe from
+// extraction: it still ends up embedded in plain text inside the WebView
+// HTML string the app loads at runtime, readable by anyone who inspects
+// network traffic or decompiles the APK — there is no way to fully hide a
+// client-side map-tile key, this is just "don't also leak it via git history."
+val tomtomApiKey: String = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) localPropertiesFile.inputStream().use { load(it) }
+}.getProperty("tomtomApiKey", "")
 
 android {
     namespace = "com.emfitsolutions.gopreach"
@@ -20,6 +35,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+        buildConfigField("String", "TOMTOM_API_KEY", "\"$tomtomApiKey\"")
     }
 
     // GoPreach is sideloaded (no Play Store), so every release has always

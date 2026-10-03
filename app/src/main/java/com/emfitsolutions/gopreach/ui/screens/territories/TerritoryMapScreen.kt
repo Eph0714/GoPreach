@@ -3481,9 +3481,21 @@ private fun buildTerritoryMapHtml(): String {
           // JS-level check). Plain raster OpenStreetMap tiles have no WebGL
           // dependency at all and are proven reliable on every device this
           // app has been tested on all session — kept as the one tile source.
-          var tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; OpenStreetMap contributors',
+          // TomTom raster tiles trial (reversible — see commit history) for
+          // the initial/default layer only — see LocationPreviewMap.kt's own
+          // comment on this same change for the key-handling note.
+          // Deliberately NOT touched: BASE_LAYER_DEFS.standard below, which
+          // feeds the "OPENSTREETMAP MAP LAYERS" switcher this file already
+          // documents as free/keyless-only by design (spec §21, see that
+          // block's own comment) — swapping it here would silently put a
+          // paid/keyed provider behind a switcher UI labeled and attributed
+          // as plain OSM.
+          // Satellite imagery so actual house/building rooftops are visible,
+          // not just a vector street map. Plain imagery only — no road-line
+          // overlay — per explicit request to show "just a real map".
+          var tiles = L.tileLayer('https://api.tomtom.com/map/1/tile/sat/main/{z}/{x}/{y}.jpg?key=${BuildConfig.TOMTOM_API_KEY}', {
+            maxZoom: 22,
+            attribution: '&copy; TomTom',
           }).addTo(map);
           var tileErrorCount = 0;
           tiles.on('tileerror', function(e) { tileErrorCount++; console.error('Tile load failed (' + tileErrorCount + ')'); });

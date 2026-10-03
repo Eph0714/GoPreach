@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.ui.components.isValidLatitude
@@ -379,10 +380,30 @@ private fun buildShareLocationMapHtml(): String {
         try {
           var map = L.map('map', { zoomControl: true });
           window.shareLocationMap = map;
-          var tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; OpenStreetMap contributors'
-          }).addTo(map);
+          // "Make a choice for map view: satellite, 3D, and other" — see
+          // BarangayBoundaryDialog.kt's own comment on this same change for
+          // why 3D isn't offered (confirmed WebGL rendering failure on this
+          // exact device). Satellite / Standard / Night switch via Leaflet's
+          // own built-in layers control (top-right icon). Satellite is plain
+          // imagery only — no road-line overlay — per explicit request to
+          // drop the white hybrid-layer lines and show "just a real map".
+          var tiles = L.tileLayer('https://api.tomtom.com/map/1/tile/sat/main/{z}/{x}/{y}.jpg?key=${BuildConfig.TOMTOM_API_KEY}', {
+            maxZoom: 22,
+            attribution: '&copy; TomTom'
+          });
+          var satelliteLayer = tiles;
+          var standardLayer = L.tileLayer('https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${BuildConfig.TOMTOM_API_KEY}', {
+            maxZoom: 22, attribution: '&copy; TomTom'
+          });
+          var nightLayer = L.tileLayer('https://api.tomtom.com/map/1/tile/basic/night/{z}/{x}/{y}.png?key=${BuildConfig.TOMTOM_API_KEY}', {
+            maxZoom: 22, attribution: '&copy; TomTom'
+          });
+          satelliteLayer.addTo(map);
+          L.control.layers(
+            { 'Satellite': satelliteLayer, 'Standard': standardLayer, 'Night': nightLayer },
+            null,
+            { position: 'topright' }
+          ).addTo(map);
           var tileErrorCount = 0;
           tiles.on('tileerror', function(e) {
             tileErrorCount++;

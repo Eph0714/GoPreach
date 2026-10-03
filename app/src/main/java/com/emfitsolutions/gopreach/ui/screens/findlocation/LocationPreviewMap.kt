@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.ui.components.map.LeafletMapView
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
 import com.emfitsolutions.gopreach.ui.components.map.rememberLeafletMapController
@@ -92,9 +93,14 @@ private fun buildPreviewHtml(lat: Double, lng: Double): String = """
         scrollWheelZoom: false, boxZoom: false, keyboard: false
       }).setView([$lat, $lng], 17);
       window.previewMap = map;
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
+      // TomTom satellite tiles (reversible — see commit history) so actual
+      // house/building rooftops are visible, not just a vector street map.
+      // Plain imagery only — no road-line overlay — per explicit request to
+      // show "just a real map". BuildConfig.TOMTOM_API_KEY comes from
+      // local.properties (gitignored), never committed in source.
+      L.tileLayer('https://api.tomtom.com/map/1/tile/sat/main/{z}/{x}/{y}.jpg?key=${BuildConfig.TOMTOM_API_KEY}', {
+        maxZoom: 22,
+        attribution: '&copy; TomTom'
       }).addTo(map);
       var pin = L.divIcon({
         className: '',

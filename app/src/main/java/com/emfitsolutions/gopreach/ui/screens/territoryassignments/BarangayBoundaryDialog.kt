@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.ui.components.map.LeafletMapView
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
 import com.emfitsolutions.gopreach.ui.components.map.rememberLeafletMapController
@@ -182,13 +183,34 @@ private fun buildBoundaryHtml(geometryJson: String): String = """
       // view-setting call below.
       var map = L.map('map', { zoomControl: true });
       window.boundaryMap = map;
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(map);
+      // "Make a choice for map view: satellite, 3D, and other" — true 3D
+      // needs real WebGL vector rendering, which this exact device's WebView
+      // was already confirmed (see TerritoryMapScreen.kt's own comment on
+      // the reverted OpenFreeMap/MapLibre attempt) to silently paint nothing
+      // despite reporting a working WebGL context — not offered here for
+      // that reason. Satellite / Standard / Night are all plain raster tiles
+      // (same proven-reliable approach as before) and switch via Leaflet's
+      // own built-in layers control (top-right icon). Satellite is plain
+      // imagery only — no road-line overlay — per explicit request to drop
+      // the white hybrid-layer lines and show "just a real map".
+      var satelliteLayer = L.tileLayer('https://api.tomtom.com/map/1/tile/sat/main/{z}/{x}/{y}.jpg?key=${BuildConfig.TOMTOM_API_KEY}', {
+        maxZoom: 22, attribution: '&copy; TomTom'
+      });
+      var standardLayer = L.tileLayer('https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${BuildConfig.TOMTOM_API_KEY}', {
+        maxZoom: 22, attribution: '&copy; TomTom'
+      });
+      var nightLayer = L.tileLayer('https://api.tomtom.com/map/1/tile/basic/night/{z}/{x}/{y}.png?key=${BuildConfig.TOMTOM_API_KEY}', {
+        maxZoom: 22, attribution: '&copy; TomTom'
+      });
+      satelliteLayer.addTo(map);
+      L.control.layers(
+        { 'Satellite': satelliteLayer, 'Standard': standardLayer, 'Night': nightLayer },
+        null,
+        { position: 'topright' }
+      ).addTo(map);
       var geometry = $geometryJson;
       var layer = L.geoJSON(geometry, {
-        style: { color: '#5F4B8B', weight: 3, fillColor: '#5F4B8B', fillOpacity: 0.2 }
+        style: { color: '#D32F2F', weight: 3, fillColor: '#D32F2F', fillOpacity: 0.2 }
       }).addTo(map);
       var bounds = layer.getBounds();
       if (bounds.isValid()) {
