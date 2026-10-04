@@ -13,17 +13,38 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
+/** What kind of place a [Landmark] is — drives which icon/color the map
+ * draws for it (a school pin looks nothing like a police station pin) so
+ * the map reads as real, categorized places rather than identical dots. */
+enum class LandmarkCategory(val emoji: String, val colorArgb: Int) {
+    SCHOOL("🏫", 0xFF7B1FA2.toInt()),
+    WORSHIP("⛪", 0xFF6D4C41.toInt()),
+    HEALTH("🏥", 0xFFD32F2F.toInt()),
+    PHARMACY("💊", 0xFF00897B.toInt()),
+    MARKET("🛒", 0xFFF57C00.toInt()),
+    SHOP("🏬", 0xFFEF6C00.toInt()),
+    GOVERNMENT("🏛", 0xFF455A64.toInt()),
+    POLICE("🚓", 0xFF1565C0.toInt()),
+    FIRE("🚒", 0xFFC62828.toInt()),
+    TOURISM("📷", 0xFF2E7D32.toInt()),
+    OTHER("📍", 0xFF616161.toInt()),
+}
+
 /** One named point of interest within a boundary's bounding box — a real
  * landmark (school, church, market, clinic, shop, ...) rather than a
  * synthetic label, so "the map" reads as an actual place and not just a
- * satellite photo or a bare polygon. */
-data class Landmark(val name: String, val lat: Double, val lng: Double)
+ * satellite photo or a bare polygon. [category] is derived from whichever
+ * OSM tag actually matched in [OverpassLandmarkRepository.classify]. */
+data class Landmark(val name: String, val lat: Double, val lng: Double, val category: LandmarkCategory)
 
 /** One real road, as the ordered (lat, lng) points tracing its actual path —
  * drawn as its own line, not flattened into a point cloud like
  * [OverpassStreetRepository.nearbyStreetPoints] does for its own (different)
- * convex-hull-shape use case. */
-data class StreetSegment(val points: List<Pair<Double, Double>>)
+ * convex-hull-shape use case. [name] is the road's own OSM "name" tag
+ * ("Maharlika Highway", "Burgos St.", ...) so the map can label it instead
+ * of just drawing an anonymous line — null for unnamed ways (alleys,
+ * driveways, ...), which still draw, just unlabeled. */
+data class StreetSegment(val points: List<Pair<Double, Double>>, val name: String? = null)
 
 data class MapDetails(val landmarks: List<Landmark>, val streets: List<StreetSegment>)
 
@@ -110,8 +131,9 @@ class OverpassLandmarkRepository @Inject constructor() {
                     if (obj.get("type")?.asString != "node") return@mapNotNull null
                     val lat = obj.get("lat")?.asDouble ?: return@mapNotNull null
                     val lon = obj.get("lon")?.asDouble ?: return@mapNotNull null
-                    val name = obj.getAsJsonObject("tags")?.get("name")?.asString ?: return@mapNotNull null
-                    Landmark(name, lat, lon)
+                    val tags = obj.getAsJsonObject("tags") ?: return@mapNotNull null
+                    val name = tags.get("name")?.asString ?: return@mapNotNull null
+                    Landmark(name, lat, lon, classify(tags))
                 }
                 val streets = elements.mapNotNull { el ->
                     val obj = el.asJsonObject
@@ -123,12 +145,37 @@ class OverpassLandmarkRepository @Inject constructor() {
                         val lon = point.get("lon")?.asDouble ?: return@mapNotNull null
                         lat to lon
                     }
-                    if (points.size >= 2) StreetSegment(points) else null
+                    val name = obj.getAsJsonObject("tags")?.get("name")?.asString
+                    if (points.size >= 2) StreetSegment(points, name) else null
                 }
                 Log.i(TAG, "Overpass query found ${landmarks.size} landmark(s), ${streets.size} street(s) of ${elements.size()} element(s)")
                 MapDetails(landmarks, streets)
             }.onFailure { Log.w(TAG, "Overpass fetch threw", it) }.getOrDefault(MapDetails(emptyList(), emptyList()))
         }
+
+    /** Which [LandmarkCategory] a node's own OSM tags actually describe —
+     * checked in the same priority the query itself groups by (a specific
+     * `amenity` value first, since it's the most precise tag a POI can
+     * carry; a bare `shop`/`tourism` presence last, since those tags only
+     * say "this is a shop/attraction", never which kind). */
+    private fun classify(tags: com.google.gson.JsonObject): LandmarkCategory {
+        val amenity = tags.get("amenity")?.asString
+        val office = tags.get("office")?.asString
+        return when {
+            amenity == "school" -> LandmarkCategory.SCHOOL
+            amenity == "place_of_worship" -> LandmarkCategory.WORSHIP
+            amenity == "hospital" || amenity == "clinic" -> LandmarkCategory.HEALTH
+            amenity == "pharmacy" -> LandmarkCategory.PHARMACY
+            amenity == "marketplace" -> LandmarkCategory.MARKET
+            amenity == "townhall" -> LandmarkCategory.GOVERNMENT
+            amenity == "police" -> LandmarkCategory.POLICE
+            amenity == "fire_station" -> LandmarkCategory.FIRE
+            office == "government" -> LandmarkCategory.GOVERNMENT
+            tags.has("tourism") -> LandmarkCategory.TOURISM
+            tags.has("shop") -> LandmarkCategory.SHOP
+            else -> LandmarkCategory.OTHER
+        }
+    }
 
     private companion object {
         const val TAG = "OverpassLandmarkRepo"

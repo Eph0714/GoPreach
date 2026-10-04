@@ -1,9 +1,11 @@
 package com.emfitsolutions.gopreach.ui.components.map
 
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -31,6 +33,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.repository.Landmark
+import com.emfitsolutions.gopreach.data.repository.LandmarkCategory
 import com.emfitsolutions.gopreach.data.repository.StreetSegment
 import com.tomtom.sdk.common.configuration.buildSdkConfiguration
 import com.tomtom.sdk.init.TomTomSdk
@@ -46,6 +49,7 @@ import com.tomtom.sdk.map.display.marker.Label
 import com.tomtom.sdk.map.display.marker.MarkerOptions
 import com.tomtom.sdk.map.display.polygon.InnerPolygonOptions
 import com.tomtom.sdk.map.display.polygon.PolygonOverlayOptions
+import com.tomtom.sdk.map.display.polyline.CapType
 import com.tomtom.sdk.map.display.polyline.PolylineOptions
 import com.tomtom.sdk.map.display.style.LoadingStyleFailure
 import com.tomtom.sdk.map.display.style.StandardStyles
@@ -136,17 +140,18 @@ fun TomTomBoundaryMap(
     var tomTomMap by remember { mutableStateOf<TomTomMap?>(null) }
     var isStyleReady by remember { mutableStateOf(false) }
     // MarkerOptions.pinImage has no default (confirmed: compiling without it
-    // fails with "No value passed for parameter 'pinImage'") and this app
-    // bundles no map-pin drawable — a small solid dot, drawn once and reused
-    // for every landmark, needs neither.
-    val landmarkPinImage = remember {
-        val size = 28
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        Canvas(bitmap).apply {
-            drawCircle(size / 2f, size / 2f, size / 2f - 2f, Paint().apply { color = Color.argb(255, 25, 118, 210); isAntiAlias = true })
-            drawCircle(size / 2f, size / 2f, size / 2f - 2f, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f; isAntiAlias = true })
-        }
-        ImageFactory.fromBitmap(bitmap)
+    // fails with "No value passed for parameter 'pinImage'") — one teardrop
+    // pin bitmap per [LandmarkCategory], built once and reused for every
+    // landmark of that kind, so a school pin actually looks different from a
+    // police station pin instead of every POI being an identical dot.
+    val categoryPinImages = remember {
+        LandmarkCategory.entries.associateWith { category -> ImageFactory.fromBitmap(buildPinBitmap(category)) }
+    }
+    // Street name labels need a Label but have nothing to pin — MarkerOptions
+    // has no "label only, no icon" constructor, so a 1x1 fully transparent
+    // bitmap stands in for the icon it otherwise requires.
+    val transparentPinImage = remember {
+        ImageFactory.fromBitmap(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888))
     }
 
     // MapView.onCreate must only ever run once per instance; subsequent
@@ -198,7 +203,7 @@ fun TomTomBoundaryMap(
         )
     }
 
-    LaunchedEffect(tomTomMap, isStyleReady, boundaries, streets) {
+    LaunchedEffect(tomTomMap, isStyleReady, boundaries, streets, landmarks) {
         val map = tomTomMap ?: return@LaunchedEffect
         if (!isStyleReady) return@LaunchedEffect
         // A plain PolygonController.addPolygon got silently painted over by
@@ -212,31 +217,42 @@ fun TomTomBoundaryMap(
         map.removePolygonOverlays()
         map.removePolylines(BOUNDARY_LINE_TAG)
         map.removePolylines(STREET_LINE_TAG)
+        map.removeMarkers(STREET_LABEL_TAG)
         val allPoints = mutableListOf<GeoPoint>()
         boundaries.forEach { boundary ->
             BoundaryGeometry.outerRings(boundary.geometryJson).forEach { ring ->
                 val points = ring.map { (lat, lng) -> GeoPoint(lat, lng) }
                 if (points.size >= 3) {
                     allPoints.addAll(points)
+                    // A light territory tint inside, a softer dim outside —
+                    // this overlay has no stroke of its own (see this
+                    // effect's earlier doc comment), the actual boundary
+                    // line is the halo'd polyline drawn right after it.
                     map.addPolygonOverlay(
                         PolygonOverlayOptions(
-                            outerColor = Color.argb(140, 0, 0, 0),
+                            outerColor = Color.argb(110, 0, 0, 0),
                             innerPolygonOptions = InnerPolygonOptions(
                                 coordinates = points,
-                                fillColor = Color.TRANSPARENT,
+                                fillColor = Color.argb(26, 211, 47, 47),
                                 innerPolygonOptions = null,
                             ),
                         ),
                     )
-                    // The overlay above has no stroke option of its own (see
-                    // this effect's earlier doc comment) — an explicit red
-                    // polyline around the same ring, closed back to its own
-                    // first point, is the actual drawn boundary line.
+                    // A white halo under a red core line — the same
+                    // casing-plus-fill technique real cartography uses for a
+                    // line that needs to read clearly over any basemap
+                    // (satellite, light, or dark), rounded joints instead of
+                    // the hard mitered corners a single thin line left
+                    // looking hand-drawn.
                     map.addPolyline(
                         PolylineOptions(
                             coordinates = points + points.first(),
                             lineColor = Color.argb(255, 211, 47, 47),
-                            lineWidths = listOf(WidthByZoom(3.0)),
+                            lineWidths = listOf(WidthByZoom(4.0)),
+                            outlineColor = Color.argb(235, 255, 255, 255),
+                            outlineWidths = listOf(WidthByZoom(7.0)),
+                            lineStartCapType = CapType.Round,
+                            lineEndCapType = CapType.Round,
                             tag = BOUNDARY_LINE_TAG,
                         ),
                     )
@@ -245,29 +261,63 @@ fun TomTomBoundaryMap(
         }
         map.removeMarkers(LANDMARK_TAG)
         landmarks.forEach { landmark ->
+            val pin = categoryPinImages[landmark.category] ?: categoryPinImages.getValue(LandmarkCategory.OTHER)
             map.addMarker(
                 MarkerOptions(
                     coordinate = GeoPoint(landmark.lat, landmark.lng),
-                    pinImage = landmarkPinImage,
-                    label = Label(text = landmark.name),
+                    pinImage = pin,
+                    label = Label(
+                        text = landmark.name,
+                        textColor = Color.WHITE,
+                        textSize = 13.0,
+                        outlineColor = Color.argb(220, 0, 0, 0),
+                        outlineWidth = 2.0,
+                    ),
                     tag = LANDMARK_TAG,
                 ),
             )
         }
         // Real street lines, drawn independently of whatever TomTom's own
         // map data does or doesn't have for this area — see
-        // OverpassLandmarkRepository's own doc comment.
+        // OverpassLandmarkRepository's own doc comment. A dark casing under
+        // a light fill (the same technique the boundary line above uses) is
+        // how real road cartography reads as an actual street rather than a
+        // bare line, and a named road gets its own label at its midpoint —
+        // the same "no pin, just text with a halo" treatment Google/Apple
+        // Maps use for street names.
         streets.forEach { street ->
             val points = street.points.map { (lat, lng) -> GeoPoint(lat, lng) }
             if (points.size >= 2) {
                 map.addPolyline(
                     PolylineOptions(
                         coordinates = points,
-                        lineColor = Color.argb(220, 255, 255, 255),
+                        lineColor = Color.argb(235, 255, 255, 255),
                         lineWidths = listOf(WidthByZoom(2.0)),
+                        outlineColor = Color.argb(160, 55, 55, 55),
+                        outlineWidths = listOf(WidthByZoom(3.5)),
+                        lineStartCapType = CapType.Round,
+                        lineEndCapType = CapType.Round,
                         tag = STREET_LINE_TAG,
                     ),
                 )
+                val streetName = street.name
+                if (!streetName.isNullOrBlank()) {
+                    val mid = points[points.size / 2]
+                    map.addMarker(
+                        MarkerOptions(
+                            coordinate = mid,
+                            pinImage = transparentPinImage,
+                            label = Label(
+                                text = streetName,
+                                textColor = Color.argb(255, 235, 235, 235),
+                                textSize = 11.0,
+                                outlineColor = Color.argb(220, 0, 0, 0),
+                                outlineWidth = 2.0,
+                            ),
+                            tag = STREET_LABEL_TAG,
+                        ),
+                    )
+                }
             }
         }
         // CameraOptions' own bounds constructor param is internal to the SDK
@@ -307,3 +357,55 @@ fun TomTomBoundaryMap(
 private const val BOUNDARY_LINE_TAG = "territory_boundary_line"
 private const val LANDMARK_TAG = "territory_landmark"
 private const val STREET_LINE_TAG = "territory_street_line"
+private const val STREET_LABEL_TAG = "territory_street_label"
+
+/** A modern map-pin bitmap (rounded head + pointed tail, like a Google Maps
+ * pin) filled with [category]'s own color and centered with its emoji —
+ * drawn once per category and cached by the caller, rather than the single
+ * identical plain-dot marker every landmark used to get regardless of what
+ * kind of place it actually was. */
+private fun buildPinBitmap(category: LandmarkCategory): Bitmap {
+    val width = 72
+    val height = 92
+    val radius = 28f
+    val centerX = width / 2f
+    val centerY = radius + 6f
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+
+    val head = Path().apply { addCircle(centerX, centerY, radius, Path.Direction.CW) }
+    val tail = Path().apply {
+        moveTo(centerX - 13f, centerY + radius - 7f)
+        lineTo(centerX, height - 4f)
+        lineTo(centerX + 13f, centerY + radius - 7f)
+        close()
+    }
+    val pinShape = Path().apply { op(head, tail, Path.Op.UNION) }
+
+    canvas.drawPath(
+        pinShape,
+        Paint().apply {
+            color = Color.argb(70, 0, 0, 0)
+            isAntiAlias = true
+            maskFilter = BlurMaskFilter(5f, BlurMaskFilter.Blur.NORMAL)
+        },
+    )
+    canvas.drawPath(pinShape, Paint().apply { color = category.colorArgb; isAntiAlias = true })
+    canvas.drawPath(
+        pinShape,
+        Paint().apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
+            isAntiAlias = true
+        },
+    )
+    val textPaint = Paint().apply {
+        textSize = radius * 1.15f
+        textAlign = Paint.Align.CENTER
+        isAntiAlias = true
+    }
+    val textY = centerY - (textPaint.ascent() + textPaint.descent()) / 2f
+    canvas.drawText(category.emoji, centerX, textY, textPaint)
+    return bitmap
+}

@@ -450,11 +450,18 @@ private fun BarangayBoundaryMap(
  * bundled asset, not user input — safe to inline directly into the page. */
 private fun landmarksJs(landmarks: List<Landmark>): String {
     val gson = com.google.gson.Gson()
-    return landmarks.joinToString(",\n") { l -> "{ name: ${gson.toJson(l.name)}, lat: ${l.lat}, lng: ${l.lng} }" }
+    return landmarks.joinToString(",\n") { l ->
+        "{ name: ${gson.toJson(l.name)}, lat: ${l.lat}, lng: ${l.lng}, " +
+            "emoji: ${gson.toJson(l.category.emoji)}, color: ${gson.toJson(String.format("#%06X", l.category.colorArgb and 0xFFFFFF))} }"
+    }
 }
 
-private fun streetsJs(streets: List<StreetSegment>): String =
-    streets.joinToString(",\n") { s -> "[${s.points.joinToString(",") { (lat, lng) -> "[$lat,$lng]" }}]" }
+private fun streetsJs(streets: List<StreetSegment>): String {
+    val gson = com.google.gson.Gson()
+    return streets.joinToString(",\n") { s ->
+        "{ points: [${s.points.joinToString(",") { (lat, lng) -> "[$lat,$lng]" }}], name: ${gson.toJson(s.name)} }"
+    }
+}
 
 private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, streets: List<StreetSegment>): String = """
     <!DOCTYPE html>
@@ -526,12 +533,16 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
         { position: 'topright' }
       ).addTo(map);
       var geometry = $geometryJson;
-      // "Lesser opacity" on the barrier fill — the red outline (weight 3,
-      // full opacity) stays clearly visible on its own; only the fill
-      // behind it is now light enough that satellite imagery underneath
-      // still reads through.
+      // A white halo under the red core line — same casing-plus-fill
+      // cartography trick the native TomTom map uses, drawn here as two
+      // stacked GeoJSON layers (Leaflet polylines have no built-in
+      // outline option) so the boundary reads clearly over any basemap
+      // instead of a single thin line that looked hand-drawn.
+      var boundaryHalo = L.geoJSON(geometry, {
+        style: { color: '#ffffff', weight: 7, opacity: 0.9, fillOpacity: 0 }
+      }).addTo(map);
       var layer = L.geoJSON(geometry, {
-        style: { color: '#D32F2F', weight: 3, fillColor: '#D32F2F', fillOpacity: 0.08 }
+        style: { color: '#D32F2F', weight: 3, fillColor: '#D32F2F', fillOpacity: 0.1 }
       }).addTo(map);
       var bounds = layer.getBounds();
       var boundaryCenter = bounds.isValid() ? bounds.getCenter() : null;
@@ -546,19 +557,48 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
       // Real named landmarks (school, church, market, ...) within this
       // barangay's own bounding box — see OverpassLandmarkRepository's own
       // doc comment for why the map needs these at all rather than just the
-      // bare boundary.
+      // bare boundary. Each one is a colored pin matching its own
+      // [LandmarkCategory] (school vs. shop vs. government office, ...)
+      // instead of an identical blue dot, with its name always visible as
+      // a label rather than hidden behind a tap-to-open popup.
       var landmarks = [${landmarksJs(landmarks)}];
       landmarks.forEach(function(l) {
-        L.circleMarker([l.lat, l.lng], {
-          radius: 6, color: '#ffffff', weight: 2, fillColor: '#1976D2', fillOpacity: 1
-        }).bindPopup(l.name).addTo(map);
+        var pin = L.divIcon({
+          className: '',
+          html: '<div style="position:relative;width:30px;height:38px;">' +
+            '<div style="position:absolute;top:0;left:0;width:30px;height:30px;border-radius:50%;' +
+            'background:' + l.color + ';border:2.5px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,.5);' +
+            'display:flex;align-items:center;justify-content:center;font-size:16px;">' + l.emoji + '</div>' +
+            '<div style="position:absolute;top:26px;left:11px;width:8px;height:8px;' +
+            'background:' + l.color + ';transform:rotate(45deg);border-radius:0 0 2px 0;"></div>' +
+            '<div style="position:absolute;top:34px;left:50%;transform:translateX(-50%);white-space:nowrap;' +
+            'font-size:11px;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;' +
+            'font-weight:600;">' + l.name + '</div></div>',
+          iconSize: [30, 56], iconAnchor: [15, 30]
+        });
+        L.marker([l.lat, l.lng], { icon: pin }).addTo(map);
       });
       // Real street lines, drawn independently of whatever TomTom's own
       // map data does or doesn't have for this area — see
-      // OverpassLandmarkRepository's own doc comment.
+      // OverpassLandmarkRepository's own doc comment. A dark casing under a
+      // light fill (same trick as the boundary line above) reads as an
+      // actual road, and a named street gets its own label at its midpoint.
       var streets = [${streetsJs(streets)}];
       streets.forEach(function(s) {
-        L.polyline(s, { color: '#ffffff', weight: 2, opacity: 0.85 }).addTo(map);
+        L.polyline(s.points, { color: '#333333', weight: 4.5, opacity: 0.55 }).addTo(map);
+        L.polyline(s.points, { color: '#ffffff', weight: 2, opacity: 0.9 }).addTo(map);
+        if (s.name) {
+          var mid = s.points[Math.floor(s.points.length / 2)];
+          L.marker(mid, {
+            icon: L.divIcon({
+              className: '',
+              html: '<div style="font-size:10px;color:#eee;text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;' +
+                'font-weight:600;white-space:nowrap;transform:translate(-50%,-50%);">' + s.name + '</div>',
+              iconSize: [0, 0]
+            }),
+            interactive: false
+          }).addTo(map);
+        }
       });
       // "Add my location, then compare the distance to the selected
       // barangay" + "make my location live and blinking" + "show and hide
