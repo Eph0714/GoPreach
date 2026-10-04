@@ -1,6 +1,15 @@
 package com.emfitsolutions.gopreach.ui.components.map
 
 import android.graphics.Color
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -8,8 +17,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -23,7 +35,13 @@ import com.tomtom.sdk.map.display.MapOptions
 import com.tomtom.sdk.map.display.TomTomMap
 import com.tomtom.sdk.map.display.camera.CameraOptionsFactory
 import com.tomtom.sdk.map.display.camera.InitialCameraOptions
-import com.tomtom.sdk.map.display.polygon.PolygonOptions
+import com.tomtom.sdk.map.display.polygon.InnerPolygonOptions
+import com.tomtom.sdk.map.display.polygon.PolygonOverlayOptions
+import com.tomtom.sdk.map.display.style.LoadingStyleFailure
+import com.tomtom.sdk.map.display.style.StandardStyles
+import com.tomtom.sdk.map.display.style.StyleDescriptor
+import com.tomtom.sdk.map.display.style.StyleLoadingCallback
+import com.tomtom.sdk.map.display.style.StyleMode
 import com.tomtom.sdk.map.display.ui.MapView
 
 /** One named boundary to draw — [name] is only used as the polygon's tag so
@@ -31,12 +49,25 @@ import com.tomtom.sdk.map.display.ui.MapView
  * changes, not shown as a label on the map itself. */
 data class NamedBoundary(val name: String, val geometryJson: String)
 
+/** Satellite/Standard/Night — the same three choices the Leaflet fallback's
+ * own layer control already offered, mapped onto the native SDK's two
+ * orthogonal knobs: a base [StyleDescriptor] (vector "Standard"/BROWSING vs
+ * raster "Satellite" imagery) and a [StyleMode] (MAIN/DARK — "Night" is
+ * Standard's own dark variant, not a separate descriptor, matching how a
+ * single style's darkUri already works). */
+private enum class MapStyle(val label: String, val descriptor: StyleDescriptor, val mode: StyleMode) {
+    SATELLITE("Satellite", StandardStyles.SATELLITE, StyleMode.MAIN),
+    STANDARD("Standard", StandardStyles.BROWSING, StyleMode.MAIN),
+    NIGHT("Night", StandardStyles.BROWSING, StyleMode.DARK),
+}
+
 /**
  * Native TomTom map preview for Territory Assignment — draws every selected
- * barangay's real boundary as a polygon and fits the camera to all of them.
- * Caller must have already checked [NativeMapSupport.isSupported]; this file
- * is the one place in the app allowed to import `com.tomtom.sdk.*` map
- * classes for exactly that reason (see [NativeMapSupport]'s doc comment).
+ * barangay's real boundary and fits the camera to all of them, with a
+ * Satellite/Standard/Night picker matching the Leaflet fallback's own layer
+ * control. Caller must have already checked [NativeMapSupport.isSupported];
+ * this file is the one place in the app allowed to import `com.tomtom.sdk.*`
+ * map classes for exactly that reason (see [NativeMapSupport]'s doc comment).
  */
 @Composable
 fun TomTomBoundaryMap(
@@ -45,6 +76,11 @@ fun TomTomBoundaryMap(
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    // Satellite first — confirmed on-device that Standard/BROWSING's vector
+    // road+building data has little to no coverage for rural provinces this
+    // app actually serves (a flat blank canvas), whereas satellite imagery
+    // shows real ground detail everywhere.
+    var selectedStyle by remember { mutableStateOf(MapStyle.SATELLITE) }
 
     // MapOptions' plain mapKey constructor resolves its tile data provider
     // through the SDK's own global context — without this having run first,
@@ -86,6 +122,7 @@ fun TomTomBoundaryMap(
         )
     }
     var tomTomMap by remember { mutableStateOf<TomTomMap?>(null) }
+    var isStyleReady by remember { mutableStateOf(false) }
 
     // MapView.onCreate must only ever run once per instance; subsequent
     // lifecycle events are forwarded for as long as this composable stays in
@@ -111,22 +148,57 @@ fun TomTomBoundaryMap(
         }
     }
 
-    LaunchedEffect(tomTomMap, boundaries) {
+    // Confirmed on-device: adding polygons right after getMapAsync (i.e.
+    // before the chosen style has actually finished loading) makes them
+    // vanish once the style/imagery catches up. Explicitly (re)loading the
+    // style and only drawing boundaries in its onSuccess callback avoids
+    // that race instead of guessing a delay — reruns on every picker change.
+    LaunchedEffect(tomTomMap, selectedStyle) {
         val map = tomTomMap ?: return@LaunchedEffect
-        map.removePolygons(POLYGON_TAG)
+        isStyleReady = false
+        map.loadStyle(
+            selectedStyle.descriptor,
+            object : StyleLoadingCallback {
+                override fun onSuccess() {
+                    map.setStyleMode(selectedStyle.mode)
+                    isStyleReady = true
+                }
+                override fun onFailure(failure: LoadingStyleFailure) {
+                    // Degrade to "draw the boundary anyway" rather than leave
+                    // the preview permanently empty — same graceful-miss
+                    // spirit as every other boundary lookup in this app.
+                    isStyleReady = true
+                }
+            },
+        )
+    }
+
+    LaunchedEffect(tomTomMap, isStyleReady, boundaries) {
+        val map = tomTomMap ?: return@LaunchedEffect
+        if (!isStyleReady) return@LaunchedEffect
+        // A plain PolygonController.addPolygon got silently painted over by
+        // satellite raster tiles once they finished loading (confirmed
+        // on-device — the polygon worked fine under a blank/no-data style
+        // but vanished under real imagery). PolygonOverlayController is a
+        // genuinely separate compositing layer that always sits above the
+        // base map regardless of style, at the cost of no stroke/outline
+        // option of its own — the dim-outside/clear-inside edge it produces
+        // reads as the boundary line instead.
+        map.removePolygonOverlays()
         val allPoints = mutableListOf<GeoPoint>()
         boundaries.forEach { boundary ->
             BoundaryGeometry.outerRings(boundary.geometryJson).forEach { ring ->
                 val points = ring.map { (lat, lng) -> GeoPoint(lat, lng) }
                 if (points.size >= 3) {
                     allPoints.addAll(points)
-                    map.addPolygon(
-                        PolygonOptions(
-                            coordinates = points,
-                            outlineColor = Color.argb(255, 211, 47, 47),
-                            outlineWidth = 3.0,
-                            fillColor = Color.argb(20, 211, 47, 47),
-                            tag = POLYGON_TAG,
+                    map.addPolygonOverlay(
+                        PolygonOverlayOptions(
+                            outerColor = Color.argb(140, 0, 0, 0),
+                            innerPolygonOptions = InnerPolygonOptions(
+                                coordinates = points,
+                                fillColor = Color.TRANSPARENT,
+                                innerPolygonOptions = null,
+                            ),
                         ),
                     )
                 }
@@ -142,7 +214,26 @@ fun TomTomBoundaryMap(
         }
     }
 
-    AndroidView(factory = { mapView }, modifier = modifier)
+    Box(modifier = modifier) {
+        AndroidView(factory = { mapView }, modifier = Modifier.matchParentSize())
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                .padding(4.dp),
+        ) {
+            MapStyle.entries.forEach { style ->
+                FilterChip(
+                    selected = style == selectedStyle,
+                    onClick = { selectedStyle = style },
+                    label = { Text(style.label) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+                )
+            }
+        }
+    }
 }
-
-private const val POLYGON_TAG = "territory_boundary"
