@@ -48,6 +48,9 @@ import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.export.BoundaryKmlExporter
 import com.emfitsolutions.gopreach.ui.components.map.LeafletMapView
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
+import com.emfitsolutions.gopreach.ui.components.map.NamedBoundary
+import com.emfitsolutions.gopreach.ui.components.map.NativeMapSupport
+import com.emfitsolutions.gopreach.ui.components.map.TomTomBoundaryMap
 import com.emfitsolutions.gopreach.ui.components.map.rememberLeafletMapController
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -212,7 +215,11 @@ fun BarangayBoundaryDialog(
             },
             snackbarHost = { SnackbarHost(snackbarHostState) },
             floatingActionButton = {
-                if (!isLoading && geometryJson != null) {
+                // Live location / pick-a-point only exist on the Leaflet
+                // fallback's JS bridge — TomTomBoundaryMap below is a plain
+                // boundary view with no equivalent yet, so these FABs would
+                // just do nothing on a device that gets the native map.
+                if (!isLoading && geometryJson != null && !NativeMapSupport.isSupported(context)) {
                     Column(horizontalAlignment = Alignment.End) {
                         FloatingActionButton(
                             onClick = { togglePickMode() },
@@ -261,6 +268,10 @@ fun BarangayBoundaryDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    NativeMapSupport.isSupported(context) -> TomTomBoundaryMap(
+                        boundaries = listOf(NamedBoundary(barangayName, geometryJson!!)),
+                        modifier = Modifier.fillMaxSize(),
+                    )
                     else -> Box(modifier = Modifier.fillMaxSize()) {
                         BarangayBoundaryMap(
                             geometryJson = geometryJson!!,
