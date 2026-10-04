@@ -544,6 +544,32 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
       var layer = L.geoJSON(geometry, {
         style: { color: '#D32F2F', weight: 3, fillColor: '#D32F2F', fillOpacity: 0.1 }
       }).addTo(map);
+      // "Make the map text and icons responsive if zoom in and out" —
+      // Leaflet keeps every stroke weight and divIcon at a fixed pixel size
+      // regardless of zoom unless told otherwise, so this app's own 'zoom'
+      // handler below rescales them: thinner lines and smaller pins/text
+      // zoomed out (so a whole-barangay overview isn't cluttered), thicker
+      // and larger zoomed in. zoomScaledLayers/zoomScaledPins/
+      // zoomScaledLabels collect everything that handler needs to touch —
+      // appended to as streets/landmarks are added below.
+      var zoomScaledLayers = [
+        { layer: boundaryHalo, base: 7 },
+        { layer: layer, base: 3 }
+      ];
+      var zoomScaledPins = [];
+      var zoomScaledLabels = [];
+      function zoomScale(zoom) {
+        return Math.max(0.6, Math.min(1.5, 0.6 + (zoom - 10) * 0.12));
+      }
+      function applyZoomScale() {
+        var scale = zoomScale(map.getZoom());
+        zoomScaledLayers.forEach(function(entry) {
+          entry.layer.setStyle({ weight: entry.base * scale });
+        });
+        zoomScaledPins.forEach(function(el) { el.style.transform = 'scale(' + scale + ')'; });
+        zoomScaledLabels.forEach(function(el) { el.style.transform = el.baseTransform + ' scale(' + scale + ')'; });
+      }
+      map.on('zoom', applyZoomScale);
       var bounds = layer.getBounds();
       var boundaryCenter = bounds.isValid() ? bounds.getCenter() : null;
       if (bounds.isValid()) {
@@ -565,7 +591,7 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
       landmarks.forEach(function(l) {
         var pin = L.divIcon({
           className: '',
-          html: '<div style="position:relative;width:30px;height:38px;">' +
+          html: '<div class="zoom-pin" style="position:relative;width:30px;height:38px;">' +
             '<div style="position:absolute;top:0;left:0;width:30px;height:30px;border-radius:50%;' +
             'background:' + l.color + ';border:2.5px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,.5);' +
             'display:flex;align-items:center;justify-content:center;font-size:16px;">' + l.emoji + '</div>' +
@@ -576,7 +602,12 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
             'font-weight:600;">' + l.name + '</div></div>',
           iconSize: [30, 56], iconAnchor: [15, 30]
         });
-        L.marker([l.lat, l.lng], { icon: pin }).addTo(map);
+        var marker = L.marker([l.lat, l.lng], { icon: pin }).addTo(map);
+        var el = marker.getElement();
+        if (el) {
+          var pinDiv = el.querySelector('.zoom-pin');
+          if (pinDiv) { zoomScaledPins.push(pinDiv); }
+        }
       });
       // Real street lines, drawn independently of whatever TomTom's own
       // map data does or doesn't have for this area — see
@@ -585,21 +616,29 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
       // actual road, and a named street gets its own label at its midpoint.
       var streets = [${streetsJs(streets)}];
       streets.forEach(function(s) {
-        L.polyline(s.points, { color: '#333333', weight: 4.5, opacity: 0.55 }).addTo(map);
-        L.polyline(s.points, { color: '#ffffff', weight: 2, opacity: 0.9 }).addTo(map);
+        var casing = L.polyline(s.points, { color: '#333333', weight: 4.5, opacity: 0.55 }).addTo(map);
+        var fill = L.polyline(s.points, { color: '#ffffff', weight: 2, opacity: 0.9 }).addTo(map);
+        zoomScaledLayers.push({ layer: casing, base: 4.5 });
+        zoomScaledLayers.push({ layer: fill, base: 2 });
         if (s.name) {
           var mid = s.points[Math.floor(s.points.length / 2)];
-          L.marker(mid, {
+          var labelMarker = L.marker(mid, {
             icon: L.divIcon({
               className: '',
-              html: '<div style="font-size:10px;color:#eee;text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;' +
+              html: '<div class="zoom-label" style="font-size:10px;color:#eee;text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;' +
                 'font-weight:600;white-space:nowrap;transform:translate(-50%,-50%);">' + s.name + '</div>',
               iconSize: [0, 0]
             }),
             interactive: false
           }).addTo(map);
+          var labelEl = labelMarker.getElement();
+          if (labelEl) {
+            var labelDiv = labelEl.querySelector('.zoom-label');
+            if (labelDiv) { labelDiv.baseTransform = 'translate(-50%,-50%)'; zoomScaledLabels.push(labelDiv); }
+          }
         }
       });
+      applyZoomScale();
       // "Add my location, then compare the distance to the selected
       // barangay" + "make my location live and blinking" + "show and hide
       // my location" — window.updateMyLocation is called from Kotlin on

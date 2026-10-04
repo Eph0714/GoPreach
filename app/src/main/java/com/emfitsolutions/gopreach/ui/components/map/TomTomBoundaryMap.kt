@@ -183,6 +183,21 @@ fun TomTomBoundaryMap(
     // vanish once the style/imagery catches up. Explicitly (re)loading the
     // style and only drawing boundaries in its onSuccess callback avoids
     // that race instead of guessing a delay — reruns on every picker change.
+    // "Make the map text and icons responsive if zoom in and out" — the
+    // SDK's own built-in per-zoom marker scaling, set once per map instance
+    // rather than something this file would otherwise have to fake with a
+    // camera listener: landmark/street-label markers shrink smoothly toward
+    // zoom 10 (so a zoomed-out overview isn't cluttered with full-size pins)
+    // and grow back to full size by zoom 16, fading in/out over a narrower
+    // band so they don't just pop abruptly into view.
+    LaunchedEffect(tomTomMap) {
+        val map = tomTomMap ?: return@LaunchedEffect
+        map.isMarkersShrinkingEnabled = true
+        map.markersShrinkingRange = 10..16
+        map.isMarkersFadingEnabled = true
+        map.markersFadingRange = 11..13
+    }
+
     LaunchedEffect(tomTomMap, selectedStyle) {
         val map = tomTomMap ?: return@LaunchedEffect
         isStyleReady = false
@@ -248,9 +263,9 @@ fun TomTomBoundaryMap(
                         PolylineOptions(
                             coordinates = points + points.first(),
                             lineColor = Color.argb(255, 211, 47, 47),
-                            lineWidths = listOf(WidthByZoom(4.0)),
+                            lineWidths = BOUNDARY_LINE_WIDTHS,
                             outlineColor = Color.argb(235, 255, 255, 255),
-                            outlineWidths = listOf(WidthByZoom(7.0)),
+                            outlineWidths = BOUNDARY_OUTLINE_WIDTHS,
                             lineStartCapType = CapType.Round,
                             lineEndCapType = CapType.Round,
                             tag = BOUNDARY_LINE_TAG,
@@ -292,9 +307,9 @@ fun TomTomBoundaryMap(
                     PolylineOptions(
                         coordinates = points,
                         lineColor = Color.argb(235, 255, 255, 255),
-                        lineWidths = listOf(WidthByZoom(2.0)),
+                        lineWidths = STREET_LINE_WIDTHS,
                         outlineColor = Color.argb(160, 55, 55, 55),
-                        outlineWidths = listOf(WidthByZoom(3.5)),
+                        outlineWidths = STREET_OUTLINE_WIDTHS,
                         lineStartCapType = CapType.Round,
                         lineEndCapType = CapType.Round,
                         tag = STREET_LINE_TAG,
@@ -358,6 +373,15 @@ private const val BOUNDARY_LINE_TAG = "territory_boundary_line"
 private const val LANDMARK_TAG = "territory_landmark"
 private const val STREET_LINE_TAG = "territory_street_line"
 private const val STREET_LABEL_TAG = "territory_street_label"
+
+/** Multiple zoom stops (the SDK interpolates width between them) instead of
+ * one flat width — "responsive to zoom in/out": thin and unobtrusive at a
+ * whole-barangay overview, thick and easy to tap/read once zoomed into one
+ * street. */
+private val BOUNDARY_LINE_WIDTHS = listOf(WidthByZoom(width = 2.0, zoom = 10.0), WidthByZoom(width = 4.0, zoom = 14.0), WidthByZoom(width = 6.0, zoom = 18.0))
+private val BOUNDARY_OUTLINE_WIDTHS = listOf(WidthByZoom(width = 3.5, zoom = 10.0), WidthByZoom(width = 7.0, zoom = 14.0), WidthByZoom(width = 10.0, zoom = 18.0))
+private val STREET_LINE_WIDTHS = listOf(WidthByZoom(width = 1.0, zoom = 10.0), WidthByZoom(width = 2.0, zoom = 14.0), WidthByZoom(width = 3.5, zoom = 18.0))
+private val STREET_OUTLINE_WIDTHS = listOf(WidthByZoom(width = 2.0, zoom = 10.0), WidthByZoom(width = 3.5, zoom = 14.0), WidthByZoom(width = 5.5, zoom = 18.0))
 
 /** A modern map-pin bitmap (rounded head + pointed tail, like a Google Maps
  * pin) filled with [category]'s own color and centered with its emoji —
