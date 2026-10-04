@@ -7,16 +7,11 @@ import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
-import com.emfitsolutions.gopreach.data.repository.Landmark
 import com.emfitsolutions.gopreach.data.repository.MunicipalitySelection
-import com.emfitsolutions.gopreach.data.repository.OverpassLandmarkRepository
 import com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository
 import com.emfitsolutions.gopreach.data.repository.PsgcOption
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentResult
-import com.emfitsolutions.gopreach.data.repository.TerritoryBoundaryRepository
-import com.emfitsolutions.gopreach.ui.components.map.BoundaryGeometry
-import com.emfitsolutions.gopreach.ui.components.map.NamedBoundary
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,8 +42,6 @@ class TerritoryAssignmentWizardViewModel @Inject constructor(
     private val territoryAssignmentRepository: TerritoryAssignmentRepository,
     private val groupRepository: GroupRepository,
     private val philippineLocationRepository: PhilippineLocationRepository,
-    private val territoryBoundaryRepository: TerritoryBoundaryRepository,
-    private val overpassLandmarkRepository: OverpassLandmarkRepository,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -129,33 +122,5 @@ class TerritoryAssignmentWizardViewModel @Inject constructor(
 
     fun consumeSaveResult() {
         _uiState.update { it.copy(saveResult = null) }
-    }
-
-    /** Boundary preview (Step 3) — one [NamedBoundary] per selected barangay
-     * that actually has bundled boundary data; a barangay outside the
-     * bundled province's coverage is silently skipped here, same graceful-
-     * miss convention [TerritoryBoundaryRepository] already documents for
-     * every other boundary lookup in this app. */
-    suspend fun boundaryGeometries(provinceName: String, municipalityName: String, barangays: List<PsgcOption>): List<NamedBoundary> =
-        barangays.mapNotNull { barangay ->
-            territoryBoundaryRepository.barangayGeometry(provinceName, municipalityName, barangay.name)
-                ?.let { NamedBoundary(barangay.name, it) }
-        }
-
-    /** Real named landmarks (schools, churches, markets, ...) within the
-     * combined bounding box of every boundary currently shown — see
-     * [OverpassLandmarkRepository]'s own doc comment for why the native map
-     * needs this at all. Empty on any failure or genuine absence, same
-     * graceful-miss convention as every other boundary/landmark lookup. */
-    suspend fun landmarksFor(boundaries: List<NamedBoundary>): List<Landmark> {
-        val points = boundaries.flatMap { BoundaryGeometry.outerRings(it.geometryJson).flatten() }
-        if (points.isEmpty()) return emptyList()
-        val minLat = points.minOf { it.first }
-        val maxLat = points.maxOf { it.first }
-        val minLng = points.minOf { it.second }
-        val maxLng = points.maxOf { it.second }
-        val latPad = (maxLat - minLat).coerceAtLeast(0.001) * 0.2
-        val lngPad = (maxLng - minLng).coerceAtLeast(0.001) * 0.2
-        return overpassLandmarkRepository.landmarksIn(minLat - latPad, minLng - lngPad, maxLat + latPad, maxLng + lngPad)
     }
 }

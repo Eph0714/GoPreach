@@ -47,6 +47,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.export.BoundaryKmlExporter
 import com.emfitsolutions.gopreach.data.repository.Landmark
+import com.emfitsolutions.gopreach.data.repository.StreetSegment
 import com.emfitsolutions.gopreach.ui.components.map.LeafletMapView
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
 import com.emfitsolutions.gopreach.ui.components.map.NamedBoundary
@@ -78,6 +79,7 @@ fun BarangayBoundaryDialog(
     var geometryJson by remember(municipality, barangayName) { mutableStateOf<String?>(null) }
     var isLoading by remember(municipality, barangayName) { mutableStateOf(true) }
     var landmarks by remember(municipality, barangayName) { mutableStateOf<List<Landmark>>(emptyList()) }
+    var streets by remember(municipality, barangayName) { mutableStateOf<List<StreetSegment>>(emptyList()) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -95,7 +97,9 @@ fun BarangayBoundaryDialog(
         isLoading = true
         geometryJson = viewModel.boundaryGeometry(province, municipality, barangayName)
         isLoading = false
-        landmarks = geometryJson?.let { viewModel.landmarksFor(it) } ?: emptyList()
+        val details = geometryJson?.let { viewModel.mapDetailsFor(it) }
+        landmarks = details?.landmarks ?: emptyList()
+        streets = details?.streets ?: emptyList()
     }
 
     // "Add my location, then compare the distance to the selected barangay"
@@ -275,12 +279,14 @@ fun BarangayBoundaryDialog(
                     NativeMapSupport.isSupported(context) -> TomTomBoundaryMap(
                         boundaries = listOf(NamedBoundary(barangayName, geometryJson!!)),
                         landmarks = landmarks,
+                        streets = streets,
                         modifier = Modifier.fillMaxSize(),
                     )
                     else -> Box(modifier = Modifier.fillMaxSize()) {
                         BarangayBoundaryMap(
                             geometryJson = geometryJson!!,
                             landmarks = landmarks,
+                            streets = streets,
                             command = mapCommand,
                             onDistanceComputed = { meters ->
                                 distanceLabel = "📍 ${formatDistance(meters)} from $barangayName"
@@ -355,6 +361,7 @@ private fun formatDistance(meters: Double): String =
 private fun BarangayBoundaryMap(
     geometryJson: String,
     landmarks: List<Landmark>,
+    streets: List<StreetSegment>,
     command: MapCommand?,
     onDistanceComputed: (meters: Double) -> Unit,
     onPointDistanceComputed: (meters: Double) -> Unit,
@@ -362,7 +369,7 @@ private fun BarangayBoundaryMap(
     onOpenDirections: (originLat: Double, originLng: Double, destLat: Double, destLng: Double) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val html = remember(geometryJson, landmarks) { buildBoundaryHtml(geometryJson, landmarks) }
+    val html = remember(geometryJson, landmarks, streets) { buildBoundaryHtml(geometryJson, landmarks, streets) }
     val controller = rememberLeafletMapController()
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
 
@@ -446,7 +453,10 @@ private fun landmarksJs(landmarks: List<Landmark>): String {
     return landmarks.joinToString(",\n") { l -> "{ name: ${gson.toJson(l.name)}, lat: ${l.lat}, lng: ${l.lng} }" }
 }
 
-private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>): String = """
+private fun streetsJs(streets: List<StreetSegment>): String =
+    streets.joinToString(",\n") { s -> "[${s.points.joinToString(",") { (lat, lng) -> "[$lat,$lng]" }}]" }
+
+private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, streets: List<StreetSegment>): String = """
     <!DOCTYPE html>
     <html>
     <head>
@@ -542,6 +552,13 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>): 
         L.circleMarker([l.lat, l.lng], {
           radius: 6, color: '#ffffff', weight: 2, fillColor: '#1976D2', fillOpacity: 1
         }).bindPopup(l.name).addTo(map);
+      });
+      // Real street lines, drawn independently of whatever TomTom's own
+      // map data does or doesn't have for this area — see
+      // OverpassLandmarkRepository's own doc comment.
+      var streets = [${streetsJs(streets)}];
+      streets.forEach(function(s) {
+        L.polyline(s, { color: '#ffffff', weight: 2, opacity: 0.85 }).addTo(map);
       });
       // "Add my location, then compare the distance to the selected
       // barangay" + "make my location live and blinking" + "show and hide

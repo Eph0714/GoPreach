@@ -68,7 +68,11 @@ class OverpassStreetRepository @javax.inject.Inject constructor() {
     private suspend fun fetch(lat: Double, lng: Double, radiusMeters: Double): List<Pair<Double, Double>>? = withContext(Dispatchers.IO) {
         runCatching {
             val query = "[out:json][timeout:5];way[\"highway\"](around:$radiusMeters,$lat,$lng);out geom;"
-            val connection = (URL("https://overpass-api.de/api/interpreter").openConnection() as HttpURLConnection).apply {
+            // overpass-api.de itself started rejecting every request with a
+            // bare "406 Not Acceptable" (confirmed independently via curl —
+            // not a client/query problem, the server rejects even a trivial
+            // probe query). This mirror was confirmed returning real results.
+            val connection = (URL("https://overpass.openstreetmap.fr/api/interpreter").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 doOutput = true
                 connectTimeout = 4000

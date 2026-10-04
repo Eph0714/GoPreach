@@ -1,7 +1,5 @@
 package com.emfitsolutions.gopreach.ui.screens.territoryassignments
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,7 +7,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -43,23 +40,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
-import com.emfitsolutions.gopreach.data.repository.Landmark
 import com.emfitsolutions.gopreach.data.repository.MunicipalitySelection
 import com.emfitsolutions.gopreach.data.repository.PsgcOption
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentResult
-import com.emfitsolutions.gopreach.ui.components.map.MultiBoundaryMap
-import com.emfitsolutions.gopreach.ui.components.map.NamedBoundary
-import com.emfitsolutions.gopreach.ui.components.map.NativeMapSupport
-import com.emfitsolutions.gopreach.ui.components.map.TomTomBoundaryMap
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import kotlinx.coroutines.delay
@@ -260,7 +249,6 @@ fun TerritoryAssignmentWizardScreen(
                         viewModel = viewModel,
                         congregationId = congregationId,
                         excludeGroupId = selectedGroupId,
-                        province = provinceOption,
                         municipalities = selectedMunicipalities,
                         barangaysByMuncity = barangaysByMuncity,
                         onBarangaysChange = { muncityId, barangays -> barangaysByMuncity = barangaysByMuncity + (muncityId to barangays) },
@@ -477,7 +465,6 @@ private fun BarangaysStep(
     viewModel: TerritoryAssignmentWizardViewModel,
     congregationId: String?,
     excludeGroupId: String?,
-    province: PsgcOption?,
     municipalities: List<PsgcOption>,
     barangaysByMuncity: Map<Int, List<PsgcOption>>,
     onBarangaysChange: (muncityId: Int, barangays: List<PsgcOption>) -> Unit,
@@ -511,64 +498,7 @@ private fun BarangaysStep(
         return
     }
 
-    val context = LocalContext.current
-    var showMap by remember { mutableStateOf(false) }
-    var boundaries by remember { mutableStateOf<List<NamedBoundary>>(emptyList()) }
-    var landmarks by remember { mutableStateOf<List<Landmark>>(emptyList()) }
-    var isLoadingBoundaries by remember { mutableStateOf(false) }
-    val totalSelected = municipalities.sumOf { (barangaysByMuncity[it.id] ?: emptyList()).size }
-    // "I want to see the TomTom map when clicking a barangay from the
-    // list" — tapping any barangay's name (whether or not it's checked)
-    // opens its own single-boundary map, independent of the combined
-    // preview the button above toggles.
-    var previewTarget by remember { mutableStateOf<Pair<String, PsgcOption>?>(null) }
-
-    // Reloads every time the checklist below changes, but only while the
-    // preview is actually open — no point fetching/parsing boundary GeoJSON
-    // for a panel the user isn't looking at.
-    LaunchedEffect(showMap, barangaysByMuncity, municipalities, province) {
-        if (!showMap) return@LaunchedEffect
-        val provinceName = province?.name ?: return@LaunchedEffect
-        isLoadingBoundaries = true
-        boundaries = municipalities.flatMap { m ->
-            viewModel.boundaryGeometries(provinceName, m.name, barangaysByMuncity[m.id] ?: emptyList())
-        }
-        landmarks = viewModel.landmarksFor(boundaries)
-        isLoadingBoundaries = false
-    }
-
     Column(modifier = Modifier.fillMaxSize()) {
-        OutlinedButton(
-            onClick = { showMap = !showMap },
-            enabled = totalSelected > 0,
-            modifier = Modifier.padding(bottom = 8.dp),
-        ) {
-            Text(if (showMap) "Hide Boundary Map" else "View Boundary Map ($totalSelected selected)")
-        }
-        if (showMap) {
-            Box(modifier = Modifier.fillMaxWidth().height(220.dp).padding(bottom = 12.dp)) {
-                when {
-                    isLoadingBoundaries -> Box(
-                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center,
-                    ) { CircularProgressIndicator() }
-                    boundaries.isEmpty() -> Box(
-                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            "No boundary map available for the selected barangay(s) yet.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    NativeMapSupport.isSupported(context) ->
-                        TomTomBoundaryMap(boundaries = boundaries, landmarks = landmarks, modifier = Modifier.fillMaxSize())
-                    else ->
-                        MultiBoundaryMap(boundaries = boundaries, landmarks = landmarks, modifier = Modifier.fillMaxSize())
-                }
-            }
-        }
         LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
             municipalities.forEach { muncity ->
             val allBarangays = allBarangaysByMuncity[muncity.id] ?: emptyList()
@@ -624,9 +554,7 @@ private fun BarangaysStep(
                         )
                         Text(
                             barangay.name,
-                            modifier = Modifier
-                                .padding(top = 14.dp)
-                                .clickable { previewTarget = muncity.name to barangay },
+                            modifier = Modifier.padding(top = 14.dp),
                             color = if (takenBy != null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                         )
                     }
@@ -642,89 +570,6 @@ private fun BarangaysStep(
             }
         }
     }
-    previewTarget?.let { (muncityName, barangay) ->
-        if (province != null) {
-            BarangayPreviewDialog(
-                viewModel = viewModel,
-                province = province.name,
-                municipality = muncityName,
-                barangay = barangay,
-                onDismiss = { previewTarget = null },
-            )
-        }
-    }
-    }
-}
-
-/** Tap-to-preview from the Step 3 checklist — the single-barangay
- * counterpart to the combined "View Boundary Map" panel above, native
- * TomTom when [NativeMapSupport.isSupported], the same Leaflet/TomTom-tiles
- * fallback otherwise. Deliberately a plain [Dialog] rather than reusing
- * [BarangayBoundaryDialog] — that one is Leaflet-only (no native-map
- * branch) and carries live-location/pick-a-point features this quick
- * preview doesn't need. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun BarangayPreviewDialog(
-    viewModel: TerritoryAssignmentWizardViewModel,
-    province: String,
-    municipality: String,
-    barangay: PsgcOption,
-    onDismiss: () -> Unit,
-) {
-    val context = LocalContext.current
-    var boundaries by remember(barangay.id) { mutableStateOf<List<NamedBoundary>>(emptyList()) }
-    var landmarks by remember(barangay.id) { mutableStateOf<List<Landmark>>(emptyList()) }
-    var isLoading by remember(barangay.id) { mutableStateOf(true) }
-
-    LaunchedEffect(province, municipality, barangay.id) {
-        isLoading = true
-        boundaries = viewModel.boundaryGeometries(province, municipality, listOf(barangay))
-        landmarks = viewModel.landmarksFor(boundaries)
-        isLoading = false
-    }
-
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(barangay.name)
-                            Text(municipality, style = MaterialTheme.typography.bodySmall)
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Close")
-                        }
-                    },
-                )
-            },
-        ) { padding ->
-            Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-                when {
-                    isLoading -> Box(
-                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center,
-                    ) { CircularProgressIndicator() }
-                    boundaries.isEmpty() -> Box(
-                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant).padding(16.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            "No boundary map available for this barangay yet.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    NativeMapSupport.isSupported(context) ->
-                        TomTomBoundaryMap(boundaries = boundaries, landmarks = landmarks, modifier = Modifier.fillMaxSize())
-                    else ->
-                        MultiBoundaryMap(boundaries = boundaries, landmarks = landmarks, modifier = Modifier.fillMaxSize())
-                }
-            }
-        }
     }
 }
 

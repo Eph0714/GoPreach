@@ -31,6 +31,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.repository.Landmark
+import com.emfitsolutions.gopreach.data.repository.StreetSegment
 import com.tomtom.sdk.common.configuration.buildSdkConfiguration
 import com.tomtom.sdk.init.TomTomSdk
 import com.tomtom.sdk.location.GeoBounds
@@ -82,6 +83,7 @@ private enum class MapStyle(val label: String, val descriptor: StyleDescriptor, 
 fun TomTomBoundaryMap(
     boundaries: List<NamedBoundary>,
     landmarks: List<Landmark> = emptyList(),
+    streets: List<StreetSegment> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -196,7 +198,7 @@ fun TomTomBoundaryMap(
         )
     }
 
-    LaunchedEffect(tomTomMap, isStyleReady, boundaries) {
+    LaunchedEffect(tomTomMap, isStyleReady, boundaries, streets) {
         val map = tomTomMap ?: return@LaunchedEffect
         if (!isStyleReady) return@LaunchedEffect
         // A plain PolygonController.addPolygon got silently painted over by
@@ -209,6 +211,7 @@ fun TomTomBoundaryMap(
         // reads as the boundary line instead.
         map.removePolygonOverlays()
         map.removePolylines(BOUNDARY_LINE_TAG)
+        map.removePolylines(STREET_LINE_TAG)
         val allPoints = mutableListOf<GeoPoint>()
         boundaries.forEach { boundary ->
             BoundaryGeometry.outerRings(boundary.geometryJson).forEach { ring ->
@@ -251,6 +254,22 @@ fun TomTomBoundaryMap(
                 ),
             )
         }
+        // Real street lines, drawn independently of whatever TomTom's own
+        // map data does or doesn't have for this area — see
+        // OverpassLandmarkRepository's own doc comment.
+        streets.forEach { street ->
+            val points = street.points.map { (lat, lng) -> GeoPoint(lat, lng) }
+            if (points.size >= 2) {
+                map.addPolyline(
+                    PolylineOptions(
+                        coordinates = points,
+                        lineColor = Color.argb(220, 255, 255, 255),
+                        lineWidths = listOf(WidthByZoom(2.0)),
+                        tag = STREET_LINE_TAG,
+                    ),
+                )
+            }
+        }
         // CameraOptions' own bounds constructor param is internal to the SDK
         // (an unstable, TomTom-internal-only API per its own annotation) —
         // CameraOptionsFactory.lookAt is the public equivalent: fits a
@@ -287,3 +306,4 @@ fun TomTomBoundaryMap(
 
 private const val BOUNDARY_LINE_TAG = "territory_boundary_line"
 private const val LANDMARK_TAG = "territory_landmark"
+private const val STREET_LINE_TAG = "territory_street_line"

@@ -10,7 +10,7 @@ import com.emfitsolutions.gopreach.data.model.TerritoryAssignment
 import com.emfitsolutions.gopreach.data.model.TerritoryAssignmentBarangay
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
-import com.emfitsolutions.gopreach.data.repository.Landmark
+import com.emfitsolutions.gopreach.data.repository.MapDetails
 import com.emfitsolutions.gopreach.data.repository.OverpassLandmarkRepository
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentResult
@@ -138,21 +138,21 @@ class TerritoryAssignmentsViewModel @Inject constructor(
     suspend fun boundaryGeometry(province: String, municipality: String, barangay: String): String? =
         territoryBoundaryRepository.barangayGeometry(province, municipality, barangay)
 
-    /** Real named landmarks (schools, churches, markets, ...) within a
-     * boundary's own bounding box — see [OverpassLandmarkRepository]'s own
-     * doc comment for why the native map needs this at all. Empty on any
-     * failure or genuine absence, same graceful-miss convention as every
-     * other boundary/landmark lookup in this app. */
-    suspend fun landmarksFor(geometryJson: String): List<Landmark> {
+    /** Real named landmarks and real streets within a boundary's own
+     * bounding box — see [OverpassLandmarkRepository]'s own doc comment for
+     * why the native map needs these at all. Both empty on any failure or
+     * genuine absence, same graceful-miss convention as every other
+     * boundary lookup in this app. */
+    suspend fun mapDetailsFor(geometryJson: String): MapDetails {
         val points = BoundaryGeometry.outerRings(geometryJson).flatten()
-        if (points.isEmpty()) return emptyList()
+        if (points.isEmpty()) return MapDetails(emptyList(), emptyList())
         val minLat = points.minOf { it.first }
         val maxLat = points.maxOf { it.first }
         val minLng = points.minOf { it.second }
         val maxLng = points.maxOf { it.second }
         val latPad = (maxLat - minLat).coerceAtLeast(0.001) * 0.2
         val lngPad = (maxLng - minLng).coerceAtLeast(0.001) * 0.2
-        return overpassLandmarkRepository.landmarksIn(minLat - latPad, minLng - lngPad, maxLat + latPad, maxLng + lngPad)
+        return overpassLandmarkRepository.detailsIn(minLat - latPad, minLng - lngPad, maxLat + latPad, maxLng + lngPad)
     }
 
     /** "Add my location, then compare the distance to the selected barangay"
