@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.emfitsolutions.gopreach.BuildConfig
+import com.emfitsolutions.gopreach.data.repository.Landmark
 import com.google.gson.Gson
 
 /**
@@ -28,9 +29,10 @@ import com.google.gson.Gson
 @Composable
 fun MultiBoundaryMap(
     boundaries: List<NamedBoundary>,
+    landmarks: List<Landmark> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
-    val html = remember(boundaries) { buildMultiBoundaryHtml(boundaries) }
+    val html = remember(boundaries, landmarks) { buildMultiBoundaryHtml(boundaries, landmarks) }
     val controller = rememberLeafletMapController()
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
 
@@ -65,7 +67,7 @@ fun MultiBoundaryMap(
     }
 }
 
-private fun buildMultiBoundaryHtml(boundaries: List<NamedBoundary>): String {
+private fun buildMultiBoundaryHtml(boundaries: List<NamedBoundary>, landmarks: List<Landmark>): String {
     // Each geometry is already-validated GeoJSON straight from
     // TerritoryBoundaryRepository's bundled asset (never user input) — safe
     // to inline directly, same trust boundary BarangayBoundaryDialog's own
@@ -74,6 +76,9 @@ private fun buildMultiBoundaryHtml(boundaries: List<NamedBoundary>): String {
     val gson = Gson()
     val layersJs = boundaries.joinToString(",\n") { boundary ->
         "{ name: ${gson.toJson(boundary.name)}, geometry: ${boundary.geometryJson} }"
+    }
+    val landmarksJs = landmarks.joinToString(",\n") { landmark ->
+        "{ name: ${gson.toJson(landmark.name)}, lat: ${landmark.lat}, lng: ${landmark.lng} }"
     }
     return """
         <!DOCTYPE html>
@@ -116,6 +121,12 @@ private fun buildMultiBoundaryHtml(boundaries: List<NamedBoundary>): String {
           } else {
             map.setView([0, 0], 2);
           }
+          var landmarks = [$landmarksJs];
+          landmarks.forEach(function(l) {
+            L.circleMarker([l.lat, l.lng], {
+              radius: 6, color: '#ffffff', weight: 2, fillColor: '#1976D2', fillOpacity: 1
+            }).bindPopup(l.name).addTo(map);
+          });
         } catch (e) {
           console.error('Multi-boundary map failed: ' + e);
         }

@@ -1,6 +1,9 @@
 package com.emfitsolutions.gopreach.ui.components.map
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -27,6 +30,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.emfitsolutions.gopreach.BuildConfig
+import com.emfitsolutions.gopreach.data.repository.Landmark
 import com.tomtom.sdk.common.configuration.buildSdkConfiguration
 import com.tomtom.sdk.init.TomTomSdk
 import com.tomtom.sdk.location.GeoBounds
@@ -35,8 +39,13 @@ import com.tomtom.sdk.map.display.MapOptions
 import com.tomtom.sdk.map.display.TomTomMap
 import com.tomtom.sdk.map.display.camera.CameraOptionsFactory
 import com.tomtom.sdk.map.display.camera.InitialCameraOptions
+import com.tomtom.sdk.map.display.common.WidthByZoom
+import com.tomtom.sdk.map.display.image.ImageFactory
+import com.tomtom.sdk.map.display.marker.Label
+import com.tomtom.sdk.map.display.marker.MarkerOptions
 import com.tomtom.sdk.map.display.polygon.InnerPolygonOptions
 import com.tomtom.sdk.map.display.polygon.PolygonOverlayOptions
+import com.tomtom.sdk.map.display.polyline.PolylineOptions
 import com.tomtom.sdk.map.display.style.LoadingStyleFailure
 import com.tomtom.sdk.map.display.style.StandardStyles
 import com.tomtom.sdk.map.display.style.StyleDescriptor
@@ -72,6 +81,7 @@ private enum class MapStyle(val label: String, val descriptor: StyleDescriptor, 
 @Composable
 fun TomTomBoundaryMap(
     boundaries: List<NamedBoundary>,
+    landmarks: List<Landmark> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -123,6 +133,19 @@ fun TomTomBoundaryMap(
     }
     var tomTomMap by remember { mutableStateOf<TomTomMap?>(null) }
     var isStyleReady by remember { mutableStateOf(false) }
+    // MarkerOptions.pinImage has no default (confirmed: compiling without it
+    // fails with "No value passed for parameter 'pinImage'") and this app
+    // bundles no map-pin drawable — a small solid dot, drawn once and reused
+    // for every landmark, needs neither.
+    val landmarkPinImage = remember {
+        val size = 28
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        Canvas(bitmap).apply {
+            drawCircle(size / 2f, size / 2f, size / 2f - 2f, Paint().apply { color = Color.argb(255, 25, 118, 210); isAntiAlias = true })
+            drawCircle(size / 2f, size / 2f, size / 2f - 2f, Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 3f; isAntiAlias = true })
+        }
+        ImageFactory.fromBitmap(bitmap)
+    }
 
     // MapView.onCreate must only ever run once per instance; subsequent
     // lifecycle events are forwarded for as long as this composable stays in
@@ -185,6 +208,7 @@ fun TomTomBoundaryMap(
         // option of its own — the dim-outside/clear-inside edge it produces
         // reads as the boundary line instead.
         map.removePolygonOverlays()
+        map.removePolylines(BOUNDARY_LINE_TAG)
         val allPoints = mutableListOf<GeoPoint>()
         boundaries.forEach { boundary ->
             BoundaryGeometry.outerRings(boundary.geometryJson).forEach { ring ->
@@ -201,8 +225,31 @@ fun TomTomBoundaryMap(
                             ),
                         ),
                     )
+                    // The overlay above has no stroke option of its own (see
+                    // this effect's earlier doc comment) — an explicit red
+                    // polyline around the same ring, closed back to its own
+                    // first point, is the actual drawn boundary line.
+                    map.addPolyline(
+                        PolylineOptions(
+                            coordinates = points + points.first(),
+                            lineColor = Color.argb(255, 211, 47, 47),
+                            lineWidths = listOf(WidthByZoom(3.0)),
+                            tag = BOUNDARY_LINE_TAG,
+                        ),
+                    )
                 }
             }
+        }
+        map.removeMarkers(LANDMARK_TAG)
+        landmarks.forEach { landmark ->
+            map.addMarker(
+                MarkerOptions(
+                    coordinate = GeoPoint(landmark.lat, landmark.lng),
+                    pinImage = landmarkPinImage,
+                    label = Label(text = landmark.name),
+                    tag = LANDMARK_TAG,
+                ),
+            )
         }
         // CameraOptions' own bounds constructor param is internal to the SDK
         // (an unstable, TomTom-internal-only API per its own annotation) —
@@ -237,3 +284,6 @@ fun TomTomBoundaryMap(
         }
     }
 }
+
+private const val BOUNDARY_LINE_TAG = "territory_boundary_line"
+private const val LANDMARK_TAG = "territory_landmark"

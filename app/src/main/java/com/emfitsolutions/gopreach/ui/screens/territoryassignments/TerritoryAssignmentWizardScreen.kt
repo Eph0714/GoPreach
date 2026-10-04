@@ -52,6 +52,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.Group
+import com.emfitsolutions.gopreach.data.repository.Landmark
 import com.emfitsolutions.gopreach.data.repository.MunicipalitySelection
 import com.emfitsolutions.gopreach.data.repository.PsgcOption
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentResult
@@ -513,6 +514,7 @@ private fun BarangaysStep(
     val context = LocalContext.current
     var showMap by remember { mutableStateOf(false) }
     var boundaries by remember { mutableStateOf<List<NamedBoundary>>(emptyList()) }
+    var landmarks by remember { mutableStateOf<List<Landmark>>(emptyList()) }
     var isLoadingBoundaries by remember { mutableStateOf(false) }
     val totalSelected = municipalities.sumOf { (barangaysByMuncity[it.id] ?: emptyList()).size }
     // "I want to see the TomTom map when clicking a barangay from the
@@ -531,6 +533,7 @@ private fun BarangaysStep(
         boundaries = municipalities.flatMap { m ->
             viewModel.boundaryGeometries(provinceName, m.name, barangaysByMuncity[m.id] ?: emptyList())
         }
+        landmarks = viewModel.landmarksFor(boundaries)
         isLoadingBoundaries = false
     }
 
@@ -560,9 +563,9 @@ private fun BarangaysStep(
                         )
                     }
                     NativeMapSupport.isSupported(context) ->
-                        TomTomBoundaryMap(boundaries = boundaries, modifier = Modifier.fillMaxSize())
+                        TomTomBoundaryMap(boundaries = boundaries, landmarks = landmarks, modifier = Modifier.fillMaxSize())
                     else ->
-                        MultiBoundaryMap(boundaries = boundaries, modifier = Modifier.fillMaxSize())
+                        MultiBoundaryMap(boundaries = boundaries, landmarks = landmarks, modifier = Modifier.fillMaxSize())
                 }
             }
         }
@@ -671,11 +674,13 @@ private fun BarangayPreviewDialog(
 ) {
     val context = LocalContext.current
     var boundaries by remember(barangay.id) { mutableStateOf<List<NamedBoundary>>(emptyList()) }
+    var landmarks by remember(barangay.id) { mutableStateOf<List<Landmark>>(emptyList()) }
     var isLoading by remember(barangay.id) { mutableStateOf(true) }
 
     LaunchedEffect(province, municipality, barangay.id) {
         isLoading = true
         boundaries = viewModel.boundaryGeometries(province, municipality, listOf(barangay))
+        landmarks = viewModel.landmarksFor(boundaries)
         isLoading = false
     }
 
@@ -714,9 +719,9 @@ private fun BarangayPreviewDialog(
                         )
                     }
                     NativeMapSupport.isSupported(context) ->
-                        TomTomBoundaryMap(boundaries = boundaries, modifier = Modifier.fillMaxSize())
+                        TomTomBoundaryMap(boundaries = boundaries, landmarks = landmarks, modifier = Modifier.fillMaxSize())
                     else ->
-                        MultiBoundaryMap(boundaries = boundaries, modifier = Modifier.fillMaxSize())
+                        MultiBoundaryMap(boundaries = boundaries, landmarks = landmarks, modifier = Modifier.fillMaxSize())
                 }
             }
         }

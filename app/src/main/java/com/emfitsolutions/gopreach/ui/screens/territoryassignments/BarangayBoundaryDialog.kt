@@ -46,6 +46,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.export.BoundaryKmlExporter
+import com.emfitsolutions.gopreach.data.repository.Landmark
 import com.emfitsolutions.gopreach.ui.components.map.LeafletMapView
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
 import com.emfitsolutions.gopreach.ui.components.map.NamedBoundary
@@ -76,6 +77,7 @@ fun BarangayBoundaryDialog(
 ) {
     var geometryJson by remember(municipality, barangayName) { mutableStateOf<String?>(null) }
     var isLoading by remember(municipality, barangayName) { mutableStateOf(true) }
+    var landmarks by remember(municipality, barangayName) { mutableStateOf<List<Landmark>>(emptyList()) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -93,6 +95,7 @@ fun BarangayBoundaryDialog(
         isLoading = true
         geometryJson = viewModel.boundaryGeometry(province, municipality, barangayName)
         isLoading = false
+        landmarks = geometryJson?.let { viewModel.landmarksFor(it) } ?: emptyList()
     }
 
     // "Add my location, then compare the distance to the selected barangay"
@@ -271,11 +274,13 @@ fun BarangayBoundaryDialog(
                     }
                     NativeMapSupport.isSupported(context) -> TomTomBoundaryMap(
                         boundaries = listOf(NamedBoundary(barangayName, geometryJson!!)),
+                        landmarks = landmarks,
                         modifier = Modifier.fillMaxSize(),
                     )
                     else -> Box(modifier = Modifier.fillMaxSize()) {
                         BarangayBoundaryMap(
                             geometryJson = geometryJson!!,
+                            landmarks = landmarks,
                             command = mapCommand,
                             onDistanceComputed = { meters ->
                                 distanceLabel = "📍 ${formatDistance(meters)} from $barangayName"
@@ -349,6 +354,7 @@ private fun formatDistance(meters: Double): String =
 @Composable
 private fun BarangayBoundaryMap(
     geometryJson: String,
+    landmarks: List<Landmark>,
     command: MapCommand?,
     onDistanceComputed: (meters: Double) -> Unit,
     onPointDistanceComputed: (meters: Double) -> Unit,
@@ -356,7 +362,7 @@ private fun BarangayBoundaryMap(
     onOpenDirections: (originLat: Double, originLng: Double, destLat: Double, destLng: Double) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val html = remember(geometryJson) { buildBoundaryHtml(geometryJson) }
+    val html = remember(geometryJson, landmarks) { buildBoundaryHtml(geometryJson, landmarks) }
     val controller = rememberLeafletMapController()
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
 
@@ -435,7 +441,12 @@ private fun BarangayBoundaryMap(
  * cleanly from. [geometryJson] is trusted, already-validated GeoJSON from
  * [com.emfitsolutions.gopreach.data.repository.TerritoryBoundaryRepository]'s
  * bundled asset, not user input — safe to inline directly into the page. */
-private fun buildBoundaryHtml(geometryJson: String): String = """
+private fun landmarksJs(landmarks: List<Landmark>): String {
+    val gson = com.google.gson.Gson()
+    return landmarks.joinToString(",\n") { l -> "{ name: ${gson.toJson(l.name)}, lat: ${l.lat}, lng: ${l.lng} }" }
+}
+
+private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>): String = """
     <!DOCTYPE html>
     <html>
     <head>
@@ -522,6 +533,16 @@ private fun buildBoundaryHtml(geometryJson: String): String = """
         // some view rather than leaving the map blank/uninitialized.
         map.setView([0, 0], 2);
       }
+      // Real named landmarks (school, church, market, ...) within this
+      // barangay's own bounding box — see OverpassLandmarkRepository's own
+      // doc comment for why the map needs these at all rather than just the
+      // bare boundary.
+      var landmarks = [${landmarksJs(landmarks)}];
+      landmarks.forEach(function(l) {
+        L.circleMarker([l.lat, l.lng], {
+          radius: 6, color: '#ffffff', weight: 2, fillColor: '#1976D2', fillOpacity: 1
+        }).bindPopup(l.name).addTo(map);
+      });
       // "Add my location, then compare the distance to the selected
       // barangay" + "make my location live and blinking" + "show and hide
       // my location" — window.updateMyLocation is called from Kotlin on
