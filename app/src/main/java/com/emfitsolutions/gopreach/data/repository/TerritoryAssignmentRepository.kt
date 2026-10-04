@@ -316,14 +316,17 @@ class TerritoryAssignmentRepository @Inject constructor(
                 .get().await()
                 .documents.filter { it.getString("assignmentId") in assignmentIds }
             firestore.runTransaction { txn ->
-                for (doc in claimDocs) {
-                    // Re-check inside the transaction: only delete a claim
-                    // that still points at one of these exact assignments —
-                    // guards the narrow race of someone editing this Group's
-                    // territory (reassigning one of its barangays) between
-                    // the query above and this transaction's commit.
-                    val snap = txn.get(doc.reference)
-                    if (snap.getString("assignmentId") in assignmentIds) txn.delete(doc.reference)
+                // All reads before any write — a Firestore transaction
+                // rejects an interleaved get()/delete()/get()/delete()
+                // sequence outright ("all reads must be executed before all
+                // writes"), confirmed on-device. Re-checking each claim
+                // inside the transaction (rather than trusting the query
+                // above) still guards the narrow race of someone editing
+                // this Group's territory between that query and this
+                // transaction's commit — just as two passes, not one.
+                val claimSnaps = claimDocs.map { txn.get(it.reference) }
+                for (snap in claimSnaps) {
+                    if (snap.getString("assignmentId") in assignmentIds) txn.delete(snap.reference)
                 }
                 for (doc in assignmentDocs) {
                     txn.delete(doc.reference)
@@ -359,14 +362,11 @@ class TerritoryAssignmentRepository @Inject constructor(
                 .get().await()
             val assignmentRef = firestore.collection(ASSIGNMENTS_COLLECTION).document(assignmentId)
             firestore.runTransaction { txn ->
-                for (doc in claimDocs.documents) {
-                    // Re-check inside the transaction: only delete a claim
-                    // that still points at this exact assignment — guards
-                    // the narrow race of someone editing this assignment
-                    // (reassigning one of its barangays elsewhere) between
-                    // the query above and this transaction's commit.
-                    val snap = txn.get(doc.reference)
-                    if (snap.getString("assignmentId") == assignmentId) txn.delete(doc.reference)
+                // All reads before any write — same fix/reasoning as
+                // removeGroupTerritory's own identical two-pass rewrite.
+                val claimSnaps = claimDocs.documents.map { txn.get(it.reference) }
+                for (snap in claimSnaps) {
+                    if (snap.getString("assignmentId") == assignmentId) txn.delete(snap.reference)
                 }
                 txn.delete(assignmentRef)
             }.await()
