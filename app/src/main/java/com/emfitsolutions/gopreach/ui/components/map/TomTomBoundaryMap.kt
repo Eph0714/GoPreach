@@ -9,9 +9,12 @@ import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.RectF
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -35,8 +38,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.repository.AreaFeature
+import com.emfitsolutions.gopreach.data.repository.BuildingFootprint
 import com.emfitsolutions.gopreach.data.repository.Landmark
 import com.emfitsolutions.gopreach.data.repository.LandmarkCategory
+import com.emfitsolutions.gopreach.data.repository.LandmarkGroup
 import com.emfitsolutions.gopreach.data.repository.StreetSegment
 import com.tomtom.sdk.common.configuration.buildSdkConfiguration
 import com.tomtom.sdk.init.TomTomSdk
@@ -44,15 +49,19 @@ import com.tomtom.sdk.location.GeoBounds
 import com.tomtom.sdk.location.GeoPoint
 import com.tomtom.sdk.map.display.MapOptions
 import com.tomtom.sdk.map.display.TomTomMap
+import com.tomtom.sdk.map.display.camera.CameraChangeListener
 import com.tomtom.sdk.map.display.camera.CameraOptionsFactory
 import com.tomtom.sdk.map.display.camera.InitialCameraOptions
 import com.tomtom.sdk.map.display.common.WidthByZoom
 import com.tomtom.sdk.map.display.image.ImageFactory
 import com.tomtom.sdk.map.display.marker.Label
+import com.tomtom.sdk.map.display.marker.Marker
 import com.tomtom.sdk.map.display.marker.MarkerOptions
 import com.tomtom.sdk.map.display.polygon.InnerPolygonOptions
+import com.tomtom.sdk.map.display.polygon.PolygonOverlay
 import com.tomtom.sdk.map.display.polygon.PolygonOverlayOptions
 import com.tomtom.sdk.map.display.polyline.CapType
+import com.tomtom.sdk.map.display.polyline.Polyline
 import com.tomtom.sdk.map.display.polyline.PolylineOptions
 import com.tomtom.sdk.map.display.style.LoadingStyleFailure
 import com.tomtom.sdk.map.display.style.StandardStyles
@@ -92,6 +101,7 @@ fun TomTomBoundaryMap(
     landmarks: List<Landmark> = emptyList(),
     streets: List<StreetSegment> = emptyList(),
     areas: List<AreaFeature> = emptyList(),
+    buildings: List<BuildingFootprint> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -101,6 +111,16 @@ fun TomTomBoundaryMap(
     // app actually serves (a flat blank canvas), whereas satellite imagery
     // shows real ground detail everywhere.
     var selectedStyle by remember { mutableStateOf(MapStyle.SATELLITE) }
+    // "Add a feature for the user to select what he wants to see
+    // specifically" — narrows which landmark pins draw; the boundary tint,
+    // streets, and buildings are always-on base map context, not part of
+    // this choice.
+    var selectedLayer by remember { mutableStateOf(MapLayer.ALL) }
+    // "Add a drawing of the houses and buildings if zoom in" — a barangay's
+    // poblacion can have hundreds of building footprints, so they only
+    // start drawing once zoomed in close enough that they're actually
+    // useful rather than just clutter at a whole-barangay overview.
+    var buildingsVisible by remember { mutableStateOf(false) }
 
     // MapOptions' plain mapKey constructor resolves its tile data provider
     // through the SDK's own global context — without this having run first,
@@ -149,6 +169,24 @@ fun TomTomBoundaryMap(
     val transparentPinImage = remember {
         ImageFactory.fromBitmap(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888))
     }
+    // Stable handles to everything already drawn — rebuilt only when the
+    // actual data changes (a real redraw, below), never on a filter/zoom
+    // toggle. Toggling the layer filter or zooming past the building
+    // threshold then only ever flips .isVisible on these existing handles
+    // (two small effects further down) instead of removing and re-adding
+    // dozens of markers/polylines every time, which on-device turned out to
+    // be unreliable — a filter that should hide everything sometimes left
+    // stale markers on screen, almost certainly a race in the SDK's own
+    // remove-then-immediately-re-add path rather than anything wrong with
+    // the filter logic itself (confirmed: the exact same "remove all, add
+    // the filtered set" code reliably dropped to zero on a fresh rebuild,
+    // just not reliably on a rapid repeat).
+    var landmarkHandles by remember { mutableStateOf<List<LandmarkHandle>>(emptyList()) }
+    var streetLineHandles by remember { mutableStateOf<List<Polyline>>(emptyList()) }
+    var streetLabelHandles by remember { mutableStateOf<List<Marker>>(emptyList()) }
+    var areaHandles by remember { mutableStateOf<List<Marker>>(emptyList()) }
+    var buildingFillHandles by remember { mutableStateOf<List<PolygonOverlay>>(emptyList()) }
+    var buildingOutlineHandles by remember { mutableStateOf<List<Polyline>>(emptyList()) }
 
     // MapView.onCreate must only ever run once per instance; subsequent
     // lifecycle events are forwarded for as long as this composable stays in
@@ -194,6 +232,23 @@ fun TomTomBoundaryMap(
         map.markersFadingRange = 11..13
     }
 
+    // Buildings only start drawing above BUILDING_ZOOM_THRESHOLD — tracked
+    // via a plain camera listener (polygons/polylines have no SDK-built-in
+    // zoom visibility of their own the way markers do above) rather than
+    // redrawing on every single camera frame; the listener only flips
+    // [buildingsVisible] on the rare frame that actually crosses the
+    // threshold, and the drawing effect below reacts to that state change.
+    DisposableEffect(tomTomMap) {
+        val map = tomTomMap
+        if (map == null) return@DisposableEffect onDispose {}
+        val listener = CameraChangeListener {
+            val shouldShow = map.cameraPosition.zoom >= BUILDING_ZOOM_THRESHOLD
+            if (shouldShow != buildingsVisible) buildingsVisible = shouldShow
+        }
+        map.addCameraChangeListener(listener)
+        onDispose { map.removeCameraChangeListener(listener) }
+    }
+
     LaunchedEffect(tomTomMap, selectedStyle) {
         val map = tomTomMap ?: return@LaunchedEffect
         isStyleReady = false
@@ -214,7 +269,7 @@ fun TomTomBoundaryMap(
         )
     }
 
-    LaunchedEffect(tomTomMap, isStyleReady, boundaries, streets, landmarks, areas) {
+    LaunchedEffect(tomTomMap, isStyleReady, boundaries, streets, landmarks, areas, buildings) {
         val map = tomTomMap ?: return@LaunchedEffect
         if (!isStyleReady) return@LaunchedEffect
         // A plain PolygonController.addPolygon got silently painted over by
@@ -229,9 +284,18 @@ fun TomTomBoundaryMap(
         // uses for a selected region instead of a hard polygon stroke.
         map.removePolygonOverlays()
         map.removePolylines(STREET_LINE_TAG)
+        map.removePolylines(BUILDING_OUTLINE_TAG)
+        map.removeMarkers(LANDMARK_TAG)
         map.removeMarkers(STREET_LABEL_TAG)
         map.removeMarkers(AREA_LABEL_TAG)
         val allPoints = mutableListOf<GeoPoint>()
+        // Every ring across every selected boundary — landmarks, streets,
+        // and area labels test against this below so the ones outside it
+        // (fetched from a padded bounding box around the boundary, not the
+        // boundary itself) can be dimmed instead of drawn at full strength.
+        // "Make the text outside the selected barangay less opacity, so
+        // focus stays on the selected barangay."
+        val allRings = boundaries.flatMap { BoundaryGeometry.outerRings(it.geometryJson) }
         boundaries.forEach { boundary ->
             BoundaryGeometry.outerRings(boundary.geometryJson).forEach { ring ->
                 val points = ring.map { (lat, lng) -> GeoPoint(lat, lng) }
@@ -250,7 +314,51 @@ fun TomTomBoundaryMap(
                 }
             }
         }
-        map.removeMarkers(LANDMARK_TAG)
+        // "Add a drawing of the houses and buildings if zoom in" — a
+        // borderless transparent-outside overlay per footprint (the same
+        // always-on-top compositing PolygonOverlayController gives the
+        // boundary tint above) plus a thin outline, so a real building
+        // shape reads clearly over satellite imagery instead of either
+        // vanishing under it (a plain PolygonController.addPolygon would)
+        // or needing its own removal tag (polygon overlays share one blanket
+        // removePolygonOverlays() call, already made above alongside the
+        // boundary tint's own redraw). Built every time regardless of zoom —
+        // visibility (by zoom) is toggled on these same handles by a
+        // separate, lighter effect below.
+        val newBuildingFillHandles = mutableListOf<PolygonOverlay>()
+        val newBuildingOutlineHandles = mutableListOf<Polyline>()
+        buildings.forEach { building ->
+            val points = building.points.map { (lat, lng) -> GeoPoint(lat, lng) }
+            if (points.size >= 3) {
+                val (midLat, midLng) = building.points[building.points.size / 2]
+                val inside = BoundaryGeometry.containsPoint(allRings, midLat, midLng)
+                val fill = map.addPolygonOverlay(
+                    PolygonOverlayOptions(
+                        outerColor = Color.TRANSPARENT,
+                        innerPolygonOptions = InnerPolygonOptions(
+                            coordinates = points,
+                            fillColor = dimIf(!inside, Color.argb(130, 215, 204, 200)),
+                            innerPolygonOptions = null,
+                        ),
+                    ),
+                )
+                val outline = map.addPolyline(
+                    PolylineOptions(
+                        coordinates = points + points.first(),
+                        lineColor = dimIf(!inside, Color.argb(200, 109, 76, 65)),
+                        lineWidths = listOf(WidthByZoom(width = 1.0, zoom = BUILDING_ZOOM_THRESHOLD)),
+                        tag = BUILDING_OUTLINE_TAG,
+                    ),
+                )
+                fill.isVisible = buildingsVisible
+                outline.isVisible = buildingsVisible
+                newBuildingFillHandles.add(fill)
+                newBuildingOutlineHandles.add(outline)
+            }
+        }
+        buildingFillHandles = newBuildingFillHandles
+        buildingOutlineHandles = newBuildingOutlineHandles
+        val newLandmarkHandles = mutableListOf<LandmarkHandle>()
         landmarks.forEach { landmark ->
             // Built per-landmark (not cached by category) since each one
             // bakes its own name into the bitmap as a white chip under the
@@ -259,8 +367,9 @@ fun TomTomBoundaryMap(
             // background. placementAnchor points at the pin's own tip
             // (not the bitmap's bottom edge, which is now the chip) since
             // the SDK's default anchor assumes a plain pin shape.
-            val built = buildLandmarkPinBitmap(landmark)
-            map.addMarker(
+            val inside = BoundaryGeometry.containsPoint(allRings, landmark.lat, landmark.lng)
+            val built = buildLandmarkPinBitmap(landmark, dimmed = !inside)
+            val marker = map.addMarker(
                 MarkerOptions(
                     coordinate = GeoPoint(landmark.lat, landmark.lng),
                     pinImage = ImageFactory.fromBitmap(built.bitmap),
@@ -268,70 +377,82 @@ fun TomTomBoundaryMap(
                     tag = LANDMARK_TAG,
                 ),
             )
+            newLandmarkHandles.add(LandmarkHandle(marker, landmark.category.group))
         }
+        landmarkHandles = newLandmarkHandles
         // What's actually on the ground (rice fields, orchards, forest,
         // ...) within this barangay — a plain colored label with no pin,
         // the same soft area-name convention Google Maps uses for
         // parks/farmland/forest rather than a named point of interest.
+        val newAreaHandles = mutableListOf<Marker>()
         areas.forEach { area ->
-            map.addMarker(
+            val inside = BoundaryGeometry.containsPoint(allRings, area.lat, area.lng)
+            val marker = map.addMarker(
                 MarkerOptions(
                     coordinate = GeoPoint(area.lat, area.lng),
                     pinImage = transparentPinImage,
                     label = Label(
                         text = area.name,
-                        textColor = Color.argb(255, 220, 237, 200),
+                        textColor = dimIf(!inside, Color.argb(255, 220, 237, 200)),
                         textSize = 13.0,
-                        outlineColor = Color.argb(220, 0, 0, 0),
-                        outlineWidth = 2.0,
+                        outlineColor = dimIf(!inside, Color.argb(200, 0, 0, 0)),
+                        outlineWidth = 1.5,
                     ),
                     tag = AREA_LABEL_TAG,
                 ),
             )
+            newAreaHandles.add(marker)
         }
+        areaHandles = newAreaHandles
         // Real street lines, drawn independently of whatever TomTom's own
         // map data does or doesn't have for this area — see
         // OverpassLandmarkRepository's own doc comment. A dark casing under
-        // a light fill (the same technique the boundary line above uses) is
-        // how real road cartography reads as an actual street rather than a
-        // bare line, and a named road gets its own label at its midpoint —
-        // the same "no pin, just text with a halo" treatment Google/Apple
-        // Maps use for street names.
+        // a light fill is how real road cartography reads as an actual
+        // street rather than a bare line, and a named road gets its own
+        // label at its midpoint.
+        val newStreetLineHandles = mutableListOf<Polyline>()
+        val newStreetLabelHandles = mutableListOf<Marker>()
         streets.forEach { street ->
             val points = street.points.map { (lat, lng) -> GeoPoint(lat, lng) }
             if (points.size >= 2) {
-                map.addPolyline(
+                val (midLat, midLng) = street.points[street.points.size / 2]
+                val mid = GeoPoint(midLat, midLng)
+                val inside = BoundaryGeometry.containsPoint(allRings, midLat, midLng)
+                val line = map.addPolyline(
                     PolylineOptions(
                         coordinates = points,
-                        lineColor = Color.argb(235, 255, 255, 255),
+                        lineColor = dimIf(!inside, Color.argb(235, 255, 255, 255)),
                         lineWidths = STREET_LINE_WIDTHS,
-                        outlineColor = Color.argb(160, 55, 55, 55),
+                        outlineColor = dimIf(!inside, Color.argb(160, 55, 55, 55)),
                         outlineWidths = STREET_OUTLINE_WIDTHS,
                         lineStartCapType = CapType.Round,
                         lineEndCapType = CapType.Round,
                         tag = STREET_LINE_TAG,
                     ),
                 )
+                newStreetLineHandles.add(line)
                 val streetName = street.name
                 if (!streetName.isNullOrBlank()) {
-                    val mid = points[points.size / 2]
-                    map.addMarker(
+                    val label = map.addMarker(
                         MarkerOptions(
                             coordinate = mid,
                             pinImage = transparentPinImage,
                             label = Label(
                                 text = streetName,
-                                textColor = Color.argb(255, 235, 235, 235),
-                                textSize = 11.0,
-                                outlineColor = Color.argb(220, 0, 0, 0),
-                                outlineWidth = 2.0,
+                                textColor = dimIf(!inside, Color.argb(255, 235, 235, 235)),
+                                textSize = 12.0,
+                                outlineColor = dimIf(!inside, Color.argb(200, 0, 0, 0)),
+                                outlineWidth = 1.5,
                             ),
                             tag = STREET_LABEL_TAG,
                         ),
                     )
+                    newStreetLabelHandles.add(label)
                 }
             }
         }
+        streetLineHandles = newStreetLineHandles
+        streetLabelHandles = newStreetLabelHandles
         // CameraOptions' own bounds constructor param is internal to the SDK
         // (an unstable, TomTom-internal-only API per its own annotation) —
         // CameraOptionsFactory.lookAt is the public equivalent: fits a
@@ -342,41 +463,109 @@ fun TomTomBoundaryMap(
         }
     }
 
+    // "Add a feature for the user to select what he wants to see
+    // specifically" — toggles .isVisible on the already-built handles above
+    // instead of removing and re-adding markers (see landmarkHandles' own
+    // doc comment for why: that path was unreliable on rapid repeat clicks).
+    LaunchedEffect(selectedLayer, landmarkHandles, streetLabelHandles, areaHandles) {
+        landmarkHandles.forEach { handle ->
+            handle.marker.isVisible = when (selectedLayer) {
+                MapLayer.ALL -> true
+                MapLayer.LANDMARKS -> handle.group == LandmarkGroup.LANDMARK
+                MapLayer.CHURCHES -> handle.group == LandmarkGroup.CHURCH
+                MapLayer.KINGDOM_HALL -> handle.group == LandmarkGroup.KINGDOM_HALL
+                MapLayer.STREET_NAMES -> false
+            }
+        }
+        val showStreetNames = selectedLayer == MapLayer.ALL || selectedLayer == MapLayer.STREET_NAMES
+        streetLabelHandles.forEach { it.isVisible = showStreetNames }
+        val showAreas = selectedLayer == MapLayer.ALL
+        areaHandles.forEach { it.isVisible = showAreas }
+    }
+
+    // Same isVisible-toggle approach for buildings crossing the zoom
+    // threshold — see [buildingsVisible]'s own doc comment.
+    LaunchedEffect(buildingsVisible, buildingFillHandles, buildingOutlineHandles) {
+        buildingFillHandles.forEach { it.isVisible = buildingsVisible }
+        buildingOutlineHandles.forEach { it.isVisible = buildingsVisible }
+    }
+
     Box(modifier = modifier) {
         AndroidView(factory = { mapView }, modifier = Modifier.matchParentSize())
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp)
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
-                .padding(4.dp),
+        Column(
+            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+            horizontalAlignment = Alignment.End,
         ) {
-            MapStyle.entries.forEach { style ->
-                FilterChip(
-                    selected = style == selectedStyle,
-                    onClick = { selectedStyle = style },
-                    label = { Text(style.label) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    ),
-                )
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                    .padding(4.dp),
+            ) {
+                MapStyle.entries.forEach { style ->
+                    FilterChip(
+                        selected = style == selectedStyle,
+                        onClick = { selectedStyle = style },
+                        label = { Text(style.label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        ),
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .horizontalScroll(rememberScrollState())
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                    .padding(4.dp),
+            ) {
+                MapLayer.entries.forEach { layer ->
+                    FilterChip(
+                        selected = layer == selectedLayer,
+                        onClick = { selectedLayer = layer },
+                        label = { Text(layer.label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        ),
+                    )
+                }
             }
         }
     }
 }
 
+/** A landmark marker handle plus the group it belongs to — stored so the
+ * filter-toggle effect can decide each marker's visibility without having
+ * to re-inspect the original [Landmark] list. */
+private data class LandmarkHandle(val marker: Marker, val group: LandmarkGroup)
+
 private const val LANDMARK_TAG = "territory_landmark"
 private const val STREET_LINE_TAG = "territory_street_line"
 private const val STREET_LABEL_TAG = "territory_street_label"
 private const val AREA_LABEL_TAG = "territory_area_label"
+private const val BUILDING_OUTLINE_TAG = "territory_building_outline"
+
+/** Zoom level buildings start drawing at — close enough that they're
+ * actually useful detail rather than clutter over a whole-barangay
+ * overview (a single poblacion can have hundreds of footprints). */
+private const val BUILDING_ZOOM_THRESHOLD = 16.0
+
+/** "Make the text outside the selected barangay less opacity" — halves a
+ * color's own alpha when [dim] is true, otherwise returns it unchanged. */
+private fun dimIf(dim: Boolean, argb: Int): Int {
+    if (!dim) return argb
+    val alpha = (Color.alpha(argb) * 0.4f).toInt()
+    return Color.argb(alpha, Color.red(argb), Color.green(argb), Color.blue(argb))
+}
 
 /** Multiple zoom stops (the SDK interpolates width between them) instead of
  * one flat width — "responsive to zoom in/out": thin and unobtrusive at a
  * whole-barangay overview, thick and easy to tap/read once zoomed into one
  * street. */
-private val STREET_LINE_WIDTHS = listOf(WidthByZoom(width = 1.0, zoom = 10.0), WidthByZoom(width = 2.0, zoom = 14.0), WidthByZoom(width = 3.5, zoom = 18.0))
-private val STREET_OUTLINE_WIDTHS = listOf(WidthByZoom(width = 2.0, zoom = 10.0), WidthByZoom(width = 3.5, zoom = 14.0), WidthByZoom(width = 5.5, zoom = 18.0))
+private val STREET_LINE_WIDTHS = listOf(WidthByZoom(width = 1.5, zoom = 10.0), WidthByZoom(width = 3.0, zoom = 14.0), WidthByZoom(width = 7.0, zoom = 18.0))
+private val STREET_OUTLINE_WIDTHS = listOf(WidthByZoom(width = 3.0, zoom = 10.0), WidthByZoom(width = 5.0, zoom = 14.0), WidthByZoom(width = 10.0, zoom = 18.0))
 
 /** A built landmark pin bitmap plus where its actual pin (not the chip
  * hanging below it) sits within it, as a placementAnchor fraction — see
@@ -392,7 +581,7 @@ private data class BuiltPin(val bitmap: Bitmap, val tipAnchor: PointF)
  * assumes a plain pin shape with nothing below its own tip, so the real
  * anchor returned here points at the tip itself, not the bitmap's bottom
  * edge (now the chip). */
-private fun buildLandmarkPinBitmap(landmark: Landmark): BuiltPin {
+private fun buildLandmarkPinBitmap(landmark: Landmark, dimmed: Boolean = false): BuiltPin {
     val category = landmark.category
     val pinRadius = 15f
     val tailHeight = 9f
@@ -401,7 +590,7 @@ private fun buildLandmarkPinBitmap(landmark: Landmark): BuiltPin {
     val chipPaddingV = 5f
 
     val textPaint = Paint().apply {
-        textSize = 15f
+        textSize = 14f
         isAntiAlias = true
         color = Color.rgb(0x20, 0x21, 0x24)
         textAlign = Paint.Align.CENTER
@@ -420,6 +609,12 @@ private fun buildLandmarkPinBitmap(landmark: Landmark): BuiltPin {
 
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
+    // "Make the text outside the selected barangay less opacity" — one
+    // saveLayerAlpha around every draw call below dims the whole pin+chip
+    // uniformly, rather than fading the pin color, the white stroke, the
+    // chip background, and the chip text as four separate adjustments.
+    val layerAlpha = if (dimmed) 110 else 255
+    canvas.saveLayerAlpha(null, layerAlpha)
 
     val head = Path().apply { addCircle(centerX, pinCenterY, pinRadius, Path.Direction.CW) }
     val tail = Path().apply {
@@ -471,6 +666,7 @@ private fun buildLandmarkPinBitmap(landmark: Landmark): BuiltPin {
     canvas.drawRoundRect(chipRect, chipRadius, chipRadius, Paint().apply { color = Color.WHITE; isAntiAlias = true })
     val textY = chipTopY + chipHeight / 2f - (textPaint.ascent() + textPaint.descent()) / 2f
     canvas.drawText(landmark.name, centerX, textY, textPaint)
+    canvas.restore()
 
     return BuiltPin(bitmap, PointF(0.5f, pinTipY / height))
 }

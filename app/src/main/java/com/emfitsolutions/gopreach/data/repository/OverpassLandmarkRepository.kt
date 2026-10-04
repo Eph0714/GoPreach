@@ -13,21 +13,34 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
+/** Which broad [MapLayer][com.emfitsolutions.gopreach.ui.components.map.MapLayer]
+ * a [LandmarkCategory] belongs to — Kingdom Halls and generic churches are
+ * both `place_of_worship` in OSM but need to be independently filterable
+ * ("show Kingdom Hall", "show churches"), and every other category is a
+ * plain "Landmarks" entry for that same filter. */
+enum class LandmarkGroup { KINGDOM_HALL, CHURCH, LANDMARK }
+
 /** What kind of place a [Landmark] is — drives which icon/color the map
  * draws for it (a school pin looks nothing like a police station pin) so
  * the map reads as real, categorized places rather than identical dots. */
-enum class LandmarkCategory(val emoji: String, val colorArgb: Int) {
-    SCHOOL("🏫", 0xFF7B1FA2.toInt()),
-    WORSHIP("⛪", 0xFF6D4C41.toInt()),
-    HEALTH("🏥", 0xFFD32F2F.toInt()),
-    PHARMACY("💊", 0xFF00897B.toInt()),
-    MARKET("🛒", 0xFFF57C00.toInt()),
-    SHOP("🏬", 0xFFEF6C00.toInt()),
-    GOVERNMENT("🏛", 0xFF455A64.toInt()),
-    POLICE("🚓", 0xFF1565C0.toInt()),
-    FIRE("🚒", 0xFFC62828.toInt()),
-    TOURISM("📷", 0xFF2E7D32.toInt()),
-    OTHER("📍", 0xFF616161.toInt()),
+enum class LandmarkCategory(val emoji: String, val colorArgb: Int, val group: LandmarkGroup) {
+    KINGDOM_HALL("📖", 0xFF283593.toInt(), LandmarkGroup.KINGDOM_HALL),
+    SCHOOL("🏫", 0xFF7B1FA2.toInt(), LandmarkGroup.LANDMARK),
+    WORSHIP("⛪", 0xFF6D4C41.toInt(), LandmarkGroup.CHURCH),
+    HEALTH("🏥", 0xFFD32F2F.toInt(), LandmarkGroup.LANDMARK),
+    PHARMACY("💊", 0xFF00897B.toInt(), LandmarkGroup.LANDMARK),
+    MARKET("🛒", 0xFFF57C00.toInt(), LandmarkGroup.LANDMARK),
+    SUPERMARKET("🏪", 0xFF2E7D32.toInt(), LandmarkGroup.LANDMARK),
+    SHOP("🏬", 0xFFEF6C00.toInt(), LandmarkGroup.LANDMARK),
+    GOVERNMENT("🏛", 0xFF455A64.toInt(), LandmarkGroup.LANDMARK),
+    POLICE("🚓", 0xFF1565C0.toInt(), LandmarkGroup.LANDMARK),
+    FIRE("🚒", 0xFFC62828.toInt(), LandmarkGroup.LANDMARK),
+    FUEL("⛽", 0xFFE65100.toInt(), LandmarkGroup.LANDMARK),
+    BANK("🏦", 0xFF0277BD.toInt(), LandmarkGroup.LANDMARK),
+    RESTAURANT("🍽", 0xFFD84315.toInt(), LandmarkGroup.LANDMARK),
+    HOTEL("🏨", 0xFF8E24AA.toInt(), LandmarkGroup.LANDMARK),
+    TOURISM("📷", 0xFF2E7D32.toInt(), LandmarkGroup.LANDMARK),
+    OTHER("📍", 0xFF616161.toInt(), LandmarkGroup.LANDMARK),
 }
 
 /** One named point of interest within a boundary's bounding box — a real
@@ -54,7 +67,20 @@ data class StreetSegment(val points: List<Pair<Double, Double>>, val name: Strin
  * instead of only ever labeling roads and named businesses. */
 data class AreaFeature(val name: String, val lat: Double, val lng: Double)
 
-data class MapDetails(val landmarks: List<Landmark>, val streets: List<StreetSegment>, val areas: List<AreaFeature> = emptyList())
+/** One real building footprint — the actual OSM `building` way outline, so
+ * zooming into a street shows real house/building shapes along it ("add a
+ * drawing of the houses and buildings if zoom in") instead of just roads
+ * and named places. Drawn only above a close zoom threshold by the caller
+ * — there can be hundreds in a single poblacion barangay, so always
+ * drawing them would just clutter every other zoom level. */
+data class BuildingFootprint(val points: List<Pair<Double, Double>>)
+
+data class MapDetails(
+    val landmarks: List<Landmark>,
+    val streets: List<StreetSegment>,
+    val areas: List<AreaFeature> = emptyList(),
+    val buildings: List<BuildingFootprint> = emptyList(),
+)
 
 /**
  * Live, best-effort landmark + street lookup for a boundary's bounding box —
@@ -105,19 +131,25 @@ class OverpassLandmarkRepository @Inject constructor() {
                 // round trip — cheaper than two separate requests against the
                 // same bounding box, and this public service is already
                 // best shared sparingly.
-                val query = "[out:json][timeout:15];(" +
-                    "node[\"name\"][\"amenity\"~\"^(school|place_of_worship|hospital|clinic|pharmacy|marketplace|townhall|police|fire_station)$\"]($bbox);" +
+                val query = "[out:json][timeout:20];(" +
+                    "node[\"name\"][\"amenity\"~\"^(school|place_of_worship|hospital|clinic|pharmacy|marketplace|townhall|police|fire_station|fuel|bank|restaurant|fast_food)$\"]($bbox);" +
                     "node[\"name\"][\"shop\"]($bbox);" +
-                    "node[\"name\"][\"tourism\"~\"^(attraction|museum|viewpoint)$\"]($bbox);" +
+                    "node[\"name\"][\"tourism\"~\"^(attraction|museum|viewpoint|hotel)$\"]($bbox);" +
                     "node[\"name\"][\"office\"=\"government\"]($bbox);" +
-                    ");out body 40;" +
+                    ");out body 60;" +
                     "way[\"highway\"]($bbox);out geom 150;" +
                     // What's actually on the ground — farmland (ricefields in
                     // this app's own rural provinces), orchards, forest,
                     // water — so the map can describe land, not just roads
                     // and named businesses.
                     "way[\"landuse\"~\"^(farmland|orchard|forest|meadow|vineyard|aquaculture)$\"]($bbox);out geom 60;" +
-                    "way[\"natural\"~\"^(wood|water)$\"]($bbox);out geom 30;"
+                    "way[\"natural\"~\"^(wood|water)$\"]($bbox);out geom 30;" +
+                    // Real building footprints — "add a drawing of the houses
+                    // and buildings if zoom in" — capped well below streets/
+                    // landmarks since a single poblacion barangay can have
+                    // hundreds; the caller only draws these above a close
+                    // zoom threshold anyway.
+                    "way[\"building\"]($bbox);out geom 400;"
                 // overpass-api.de itself started rejecting every request with
                 // a bare "406 Not Acceptable" (confirmed both from this app
                 // on-device and independently via curl — not a client/query
@@ -167,7 +199,7 @@ class OverpassLandmarkRepository @Inject constructor() {
                 val rawAreas = ways.mapNotNull { el ->
                     val obj = el.asJsonObject
                     val tags = obj.getAsJsonObject("tags") ?: return@mapNotNull null
-                    if (tags.has("highway")) return@mapNotNull null
+                    if (tags.has("highway") || tags.has("building")) return@mapNotNull null
                     val name = areaFeatureName(tags) ?: return@mapNotNull null
                     val geometry = obj.getAsJsonArray("geometry") ?: return@mapNotNull null
                     val points = geometry.mapNotNull { g ->
@@ -178,6 +210,19 @@ class OverpassLandmarkRepository @Inject constructor() {
                     }
                     if (points.isEmpty()) return@mapNotNull null
                     AreaFeature(name, points.map { it.first }.average(), points.map { it.second }.average())
+                }
+                val buildings = ways.mapNotNull { el ->
+                    val obj = el.asJsonObject
+                    val tags = obj.getAsJsonObject("tags") ?: return@mapNotNull null
+                    if (!tags.has("building")) return@mapNotNull null
+                    val geometry = obj.getAsJsonArray("geometry") ?: return@mapNotNull null
+                    val points = geometry.mapNotNull { g ->
+                        val point = g.asJsonObject
+                        val lat = point.get("lat")?.asDouble ?: return@mapNotNull null
+                        val lon = point.get("lon")?.asDouble ?: return@mapNotNull null
+                        lat to lon
+                    }
+                    if (points.size >= 3) BuildingFootprint(points) else null
                 }
                 // A river/pond is commonly split across several adjacent OSM
                 // ways that each carry the same `natural=water` tag — left
@@ -194,8 +239,12 @@ class OverpassLandmarkRepository @Inject constructor() {
                     }
                     if (!tooClose) areas.add(candidate)
                 }
-                Log.i(TAG, "Overpass query found ${landmarks.size} landmark(s), ${streets.size} street(s), ${areas.size} area(s) of ${elements.size()} element(s)")
-                MapDetails(landmarks, streets, areas)
+                Log.i(
+                    TAG,
+                    "Overpass query found ${landmarks.size} landmark(s), ${streets.size} street(s), " +
+                        "${areas.size} area(s), ${buildings.size} building(s) of ${elements.size()} element(s)",
+                )
+                MapDetails(landmarks, streets, areas, buildings)
             }.onFailure { Log.w(TAG, "Overpass fetch threw", it) }.getOrDefault(MapDetails(emptyList(), emptyList()))
         }
 
@@ -207,7 +256,19 @@ class OverpassLandmarkRepository @Inject constructor() {
     private fun classify(tags: com.google.gson.JsonObject): LandmarkCategory {
         val amenity = tags.get("amenity")?.asString
         val office = tags.get("office")?.asString
+        val shop = tags.get("shop")?.asString
+        val tourism = tags.get("tourism")?.asString
+        val religion = tags.get("religion")?.asString
+        val name = tags.get("name")?.asString.orEmpty()
         return when {
+            // A Kingdom Hall is `amenity=place_of_worship` with no OSM tag
+            // of its own to tell it apart from any other church — checked
+            // before the generic place_of_worship case below. Most mappers
+            // do add `religion=jehovahs_witness`; a name match is the
+            // fallback for the ones who only wrote the name.
+            amenity == "place_of_worship" &&
+                (religion == "jehovahs_witness" || name.contains("Kingdom Hall", ignoreCase = true)) ->
+                LandmarkCategory.KINGDOM_HALL
             amenity == "school" -> LandmarkCategory.SCHOOL
             amenity == "place_of_worship" -> LandmarkCategory.WORSHIP
             amenity == "hospital" || amenity == "clinic" -> LandmarkCategory.HEALTH
@@ -216,9 +277,14 @@ class OverpassLandmarkRepository @Inject constructor() {
             amenity == "townhall" -> LandmarkCategory.GOVERNMENT
             amenity == "police" -> LandmarkCategory.POLICE
             amenity == "fire_station" -> LandmarkCategory.FIRE
+            amenity == "fuel" -> LandmarkCategory.FUEL
+            amenity == "bank" -> LandmarkCategory.BANK
+            amenity == "restaurant" || amenity == "fast_food" -> LandmarkCategory.RESTAURANT
             office == "government" -> LandmarkCategory.GOVERNMENT
-            tags.has("tourism") -> LandmarkCategory.TOURISM
-            tags.has("shop") -> LandmarkCategory.SHOP
+            shop == "supermarket" -> LandmarkCategory.SUPERMARKET
+            tourism == "hotel" -> LandmarkCategory.HOTEL
+            tourism != null -> LandmarkCategory.TOURISM
+            shop != null -> LandmarkCategory.SHOP
             else -> LandmarkCategory.OTHER
         }
     }

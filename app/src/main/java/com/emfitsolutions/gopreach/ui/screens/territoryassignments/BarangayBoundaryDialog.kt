@@ -47,6 +47,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.export.BoundaryKmlExporter
 import com.emfitsolutions.gopreach.data.repository.AreaFeature
+import com.emfitsolutions.gopreach.data.repository.BuildingFootprint
 import com.emfitsolutions.gopreach.data.repository.Landmark
 import com.emfitsolutions.gopreach.data.repository.StreetSegment
 import com.emfitsolutions.gopreach.ui.components.map.LeafletMapView
@@ -82,6 +83,7 @@ fun BarangayBoundaryDialog(
     var landmarks by remember(municipality, barangayName) { mutableStateOf<List<Landmark>>(emptyList()) }
     var streets by remember(municipality, barangayName) { mutableStateOf<List<StreetSegment>>(emptyList()) }
     var areas by remember(municipality, barangayName) { mutableStateOf<List<AreaFeature>>(emptyList()) }
+    var buildings by remember(municipality, barangayName) { mutableStateOf<List<BuildingFootprint>>(emptyList()) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -103,6 +105,7 @@ fun BarangayBoundaryDialog(
         landmarks = details?.landmarks ?: emptyList()
         streets = details?.streets ?: emptyList()
         areas = details?.areas ?: emptyList()
+        buildings = details?.buildings ?: emptyList()
     }
 
     // "Add my location, then compare the distance to the selected barangay"
@@ -284,6 +287,7 @@ fun BarangayBoundaryDialog(
                         landmarks = landmarks,
                         streets = streets,
                         areas = areas,
+                        buildings = buildings,
                         modifier = Modifier.fillMaxSize(),
                     )
                     else -> Box(modifier = Modifier.fillMaxSize()) {
@@ -292,6 +296,7 @@ fun BarangayBoundaryDialog(
                             landmarks = landmarks,
                             streets = streets,
                             areas = areas,
+                            buildings = buildings,
                             command = mapCommand,
                             onDistanceComputed = { meters ->
                                 distanceLabel = "📍 ${formatDistance(meters)} from $barangayName"
@@ -368,6 +373,7 @@ private fun BarangayBoundaryMap(
     landmarks: List<Landmark>,
     streets: List<StreetSegment>,
     areas: List<AreaFeature>,
+    buildings: List<BuildingFootprint>,
     command: MapCommand?,
     onDistanceComputed: (meters: Double) -> Unit,
     onPointDistanceComputed: (meters: Double) -> Unit,
@@ -375,7 +381,9 @@ private fun BarangayBoundaryMap(
     onOpenDirections: (originLat: Double, originLng: Double, destLat: Double, destLng: Double) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val html = remember(geometryJson, landmarks, streets, areas) { buildBoundaryHtml(geometryJson, landmarks, streets, areas) }
+    val html = remember(geometryJson, landmarks, streets, areas, buildings) {
+        buildBoundaryHtml(geometryJson, landmarks, streets, areas, buildings)
+    }
     val controller = rememberLeafletMapController()
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
 
@@ -458,7 +466,8 @@ private fun landmarksJs(landmarks: List<Landmark>): String {
     val gson = com.google.gson.Gson()
     return landmarks.joinToString(",\n") { l ->
         "{ name: ${gson.toJson(l.name)}, lat: ${l.lat}, lng: ${l.lng}, " +
-            "emoji: ${gson.toJson(l.category.emoji)}, color: ${gson.toJson(String.format("#%06X", l.category.colorArgb and 0xFFFFFF))} }"
+            "emoji: ${gson.toJson(l.category.emoji)}, color: ${gson.toJson(String.format("#%06X", l.category.colorArgb and 0xFFFFFF))}, " +
+            "group: ${gson.toJson(l.category.group.name)} }"
     }
 }
 
@@ -474,7 +483,16 @@ private fun areasJs(areas: List<AreaFeature>): String {
     return areas.joinToString(",\n") { a -> "{ name: ${gson.toJson(a.name)}, lat: ${a.lat}, lng: ${a.lng} }" }
 }
 
-private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, streets: List<StreetSegment>, areas: List<AreaFeature>): String = """
+private fun buildingsJs(buildings: List<BuildingFootprint>): String =
+    buildings.joinToString(",\n") { b -> "[${b.points.joinToString(",") { (lat, lng) -> "[$lat,$lng]" }}]" }
+
+private fun buildBoundaryHtml(
+    geometryJson: String,
+    landmarks: List<Landmark>,
+    streets: List<StreetSegment>,
+    areas: List<AreaFeature>,
+    buildings: List<BuildingFootprint>,
+): String = """
     <!DOCTYPE html>
     <html>
     <head>
@@ -544,6 +562,29 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
         { position: 'topright' }
       ).addTo(map);
       var geometry = $geometryJson;
+      // "Make the text outside the selected barangay less opacity, so
+      // focus stays on the selected barangay" — a plain even-odd ray cast
+      // against the boundary's own outer ring(s), checked below for every
+      // landmark/street/area pulled from a padded bounding box around the
+      // boundary (not the boundary itself), so everything actually outside
+      // it can be dimmed instead of drawn at full strength.
+      function pointInRing(ring, lat, lng) {
+        var inside = false;
+        for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          var lngI = ring[i][0], latI = ring[i][1];
+          var lngJ = ring[j][0], latJ = ring[j][1];
+          if (((lngI > lng) !== (lngJ > lng)) && (lat < (latJ - latI) * (lng - lngI) / (lngJ - lngI) + latI)) {
+            inside = !inside;
+          }
+        }
+        return inside;
+      }
+      function pointInBoundary(lat, lng) {
+        var polys = geometry.type === 'Polygon' ? [geometry.coordinates]
+          : geometry.type === 'MultiPolygon' ? geometry.coordinates : [];
+        return polys.some(function(poly) { return pointInRing(poly[0], lat, lng); });
+      }
+      var DIMMED_OPACITY = 0.4;
       // Borderless territory tint only — no drawn outline. The earlier red
       // stroke (plus its white halo) was redundant once the fill itself
       // already reads as "this area" against the dimmer map around it, the
@@ -552,6 +593,60 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
       var layer = L.geoJSON(geometry, {
         style: { stroke: false, fillColor: '#4285F4', fillOpacity: 0.12 }
       }).addTo(map);
+      // "Add a feature for the user to select what he wants to see
+      // specifically" — a small custom control (Leaflet has no built-in
+      // concept of this) with one button per [MapLayer]. The boundary
+      // tint, street lines, and building footprints are never gated by it
+      // — only which landmark pins/labels show, plus whether street NAMES
+      // (not the lines themselves) are visible.
+      var LAYER_OPTIONS = [
+        { id: 'ALL', label: 'All' },
+        { id: 'LANDMARKS', label: 'Landmarks' },
+        { id: 'CHURCHES', label: 'Churches' },
+        { id: 'KINGDOM_HALL', label: 'Kingdom Hall' },
+        { id: 'STREET_NAMES', label: 'Street Names' }
+      ];
+      var currentLayerFilter = 'ALL';
+      var landmarkMarkers = [];
+      var streetLabelEntries = [];
+      function applyLayerFilter() {
+        landmarkMarkers.forEach(function(entry) {
+          var show = currentLayerFilter === 'ALL' || entry.group === currentLayerFilter;
+          entry.el.style.display = show ? '' : 'none';
+        });
+        var showStreetNames = currentLayerFilter === 'ALL' || currentLayerFilter === 'STREET_NAMES';
+        streetLabelEntries.forEach(function(entry) {
+          entry.el.style.display = showStreetNames ? '' : 'none';
+        });
+      }
+      var LayerFilterControl = L.Control.extend({
+        options: { position: 'topright' },
+        onAdd: function() {
+          var container = L.DomUtil.create('div', '');
+          container.style.display = 'flex';
+          container.style.flexWrap = 'wrap';
+          container.style.gap = '4px';
+          container.style.maxWidth = '220px';
+          container.style.marginTop = '6px';
+          LAYER_OPTIONS.forEach(function(opt) {
+            var btn = L.DomUtil.create('button', '', container);
+            btn.innerText = opt.label;
+            btn.style.cssText = 'font-size:11px;padding:4px 9px;border-radius:12px;border:none;' +
+              'background:#fff;color:#202124;box-shadow:0 1px 3px rgba(0,0,0,.3);cursor:pointer;';
+            if (opt.id === currentLayerFilter) { btn.style.background = '#c8dafc'; }
+            L.DomEvent.on(btn, 'click', function(e) {
+              L.DomEvent.stopPropagation(e);
+              currentLayerFilter = opt.id;
+              container.querySelectorAll('button').forEach(function(b, idx) {
+                b.style.background = LAYER_OPTIONS[idx].id === opt.id ? '#c8dafc' : '#fff';
+              });
+              applyLayerFilter();
+            });
+          });
+          return container;
+        }
+      });
+      new LayerFilterControl().addTo(map);
       // "Make the map text and icons responsive if zoom in and out" —
       // Leaflet keeps every stroke weight and divIcon at a fixed pixel size
       // regardless of zoom unless told otherwise, so this app's own 'zoom'
@@ -587,8 +682,9 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
         var el = marker.getElement();
         if (el) {
           var div = el.querySelector('.zoom-label');
-          if (div) { div.baseTransform = baseTransform; zoomScaledLabels.push(div); }
+          if (div) { div.baseTransform = baseTransform; zoomScaledLabels.push(div); return div; }
         }
+        return null;
       }
       var bounds = layer.getBounds();
       var boundaryCenter = bounds.isValid() ? bounds.getCenter() : null;
@@ -610,16 +706,17 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
       // glowing text with no background.
       var landmarks = [${landmarksJs(landmarks)}];
       landmarks.forEach(function(l) {
+        var opacity = pointInBoundary(l.lat, l.lng) ? 1 : DIMMED_OPACITY;
         var pin = L.divIcon({
           className: '',
-          html: '<div class="zoom-pin" style="position:relative;width:30px;height:30px;transform-origin:50% 100%;">' +
+          html: '<div class="zoom-pin" style="position:relative;width:30px;height:30px;transform-origin:50% 100%;opacity:' + opacity + ';">' +
             '<div style="width:30px;height:30px;border-radius:50%;background:' + l.color + ';' +
             'border:2px solid #ffffff;box-shadow:0 1px 3px rgba(0,0,0,.35);display:flex;' +
             'align-items:center;justify-content:center;font-size:15px;">' + l.emoji + '</div>' +
             '<div style="position:absolute;top:25px;left:11px;width:8px;height:8px;' +
             'background:' + l.color + ';transform:rotate(45deg);border-radius:0 0 2px 0;"></div>' +
             '<div style="position:absolute;top:34px;left:50%;transform:translateX(-50%);white-space:nowrap;' +
-            'background:#ffffff;color:#202124;font-size:11px;font-weight:500;line-height:1.3;' +
+            'background:#ffffff;color:#202124;font-size:12px;line-height:1.3;' +
             'padding:2px 7px;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.3);">' + l.name + '</div></div>',
           iconSize: [30, 64], iconAnchor: [15, 30]
         });
@@ -628,6 +725,7 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
         if (el) {
           var pinDiv = el.querySelector('.zoom-pin');
           if (pinDiv) { zoomScaledPins.push(pinDiv); }
+          landmarkMarkers.push({ el: el, group: l.group });
         }
       });
       // Real street lines, drawn independently of whatever TomTom's own
@@ -646,24 +744,31 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
         return Math.atan2(y, x) * 180 / Math.PI;
       }
       streets.forEach(function(s) {
-        var casing = L.polyline(s.points, { color: '#333333', weight: 4.5, opacity: 0.55 }).addTo(map);
-        var fill = L.polyline(s.points, { color: '#ffffff', weight: 2, opacity: 0.9 }).addTo(map);
-        zoomScaledLayers.push({ layer: casing, base: 4.5 });
-        zoomScaledLayers.push({ layer: fill, base: 2 });
+        var midIdx = Math.floor(s.points.length / 2);
+        var inside = pointInBoundary(s.points[midIdx][0], s.points[midIdx][1]);
+        var lineOpacity = inside ? 1 : DIMMED_OPACITY;
+        // "Make the streets wider so the street text fits inside it when
+        // zoomed in" — a wider casing (scaled by the same zoom handler as
+        // everything else) so the road itself visibly carries its own name
+        // at a close zoom instead of a thin line with text floating beside it.
+        var casing = L.polyline(s.points, { color: '#333333', weight: 7, opacity: 0.55 * lineOpacity }).addTo(map);
+        var fill = L.polyline(s.points, { color: '#ffffff', weight: 3.5, opacity: 0.9 * lineOpacity }).addTo(map);
+        zoomScaledLayers.push({ layer: casing, base: 7 });
+        zoomScaledLayers.push({ layer: fill, base: 3.5 });
         if (s.name && s.points.length >= 2) {
-          var midIdx = Math.floor(s.points.length / 2);
           var p1 = s.points[Math.max(0, midIdx - 1)];
           var p2 = s.points[Math.min(s.points.length - 1, midIdx + 1)];
           var angle = bearingDeg(p1, p2);
           if (angle > 90) angle -= 180;
           if (angle < -90) angle += 180;
           var baseTransform = 'translate(-50%,-50%) rotate(' + angle + 'deg)';
-          addScaledLabel(
+          var labelEl = addScaledLabel(
             s.points[midIdx],
-            '<div class="zoom-label" style="font-size:10px;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;' +
-              'font-weight:600;white-space:nowrap;transform:' + baseTransform + ';">' + s.name + '</div>',
+            '<div class="zoom-label" style="font-size:11px;color:#202124;text-shadow:0 0 2px #fff,0 1px 2px #fff;' +
+              'font-weight:600;white-space:nowrap;opacity:' + (inside ? 1 : DIMMED_OPACITY) + ';transform:' + baseTransform + ';">' + s.name + '</div>',
             baseTransform
           );
+          if (labelEl) { streetLabelEntries.push({ el: labelEl }); }
         }
       });
       // What's actually on the ground (rice fields, orchards, forest, ...)
@@ -672,14 +777,47 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
       // uses for parks/farmland/forest rather than a named point of interest.
       var areas = [${areasJs(areas)}];
       areas.forEach(function(a) {
+        var inside = pointInBoundary(a.lat, a.lng);
         addScaledLabel(
           [a.lat, a.lng],
-          '<div class="zoom-label" style="font-size:12px;font-style:italic;color:#dcedc8;' +
-            'text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;font-weight:600;white-space:nowrap;' +
-            'letter-spacing:0.3px;transform:translate(-50%,-50%);">' + a.name + '</div>',
+          '<div class="zoom-label" style="font-size:13px;font-style:italic;color:#dcedc8;' +
+            'text-shadow:0 0 2px #000,0 1px 2px #000;white-space:nowrap;' +
+            'opacity:' + (inside ? 1 : DIMMED_OPACITY) + ';transform:translate(-50%,-50%);">' + a.name + '</div>',
           'translate(-50%,-50%)'
         );
       });
+      // "Add a drawing of the houses and buildings if zoom in" — real OSM
+      // building footprints, only added to the map once zoomed in close
+      // (a single poblacion barangay can have hundreds, which would just
+      // be clutter at a whole-barangay overview).
+      var BUILDING_ZOOM_THRESHOLD = 16;
+      var buildingPolygons = [];
+      var buildings = [${buildingsJs(buildings)}];
+      var buildingsOnMap = false;
+      function updateBuildingsVisibility() {
+        var shouldShow = map.getZoom() >= BUILDING_ZOOM_THRESHOLD;
+        if (shouldShow === buildingsOnMap) return;
+        buildingsOnMap = shouldShow;
+        if (shouldShow) {
+          if (buildingPolygons.length === 0) {
+            buildings.forEach(function(pts) {
+              if (pts.length < 3) return;
+              var mid = pts[Math.floor(pts.length / 2)];
+              var inside = pointInBoundary(mid[0], mid[1]);
+              buildingPolygons.push(L.polygon(pts, {
+                color: '#6d4c41', weight: 1, fillColor: '#d7ccc8',
+                fillOpacity: inside ? 0.55 : 0.25, opacity: inside ? 1 : DIMMED_OPACITY
+              }));
+            });
+          }
+          buildingPolygons.forEach(function(p) { p.addTo(map); });
+        } else {
+          buildingPolygons.forEach(function(p) { map.removeLayer(p); });
+        }
+      }
+      map.on('zoomend', updateBuildingsVisibility);
+      updateBuildingsVisibility();
+      applyLayerFilter();
       applyZoomScale();
       // "Add my location, then compare the distance to the selected
       // barangay" + "make my location live and blinking" + "show and hide

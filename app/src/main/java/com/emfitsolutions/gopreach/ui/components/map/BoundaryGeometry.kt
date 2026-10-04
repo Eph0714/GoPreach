@@ -38,4 +38,32 @@ object BoundaryGeometry {
             lat to lng
         }
     }
+
+    /** "Make the text outside the selected barangay less opacity, so focus
+     * stays on the selected barangay" — whether (lat, lng) actually falls
+     * inside one of [rings], so callers can dim everything else (a landmark,
+     * street, or area label fetched from a padded bounding box around the
+     * boundary, not the boundary itself) instead of drawing it at full
+     * strength. Standard even-odd ray casting, checked against every ring
+     * (a multipolygon barangay is "inside" if the point is inside any one
+     * of its parts) — holes are already dropped in [outerRings], so this
+     * only ever sees outer rings. */
+    fun containsPoint(rings: List<List<Pair<Double, Double>>>, lat: Double, lng: Double): Boolean =
+        rings.any { ring -> ringContains(ring, lat, lng) }
+
+    private fun ringContains(ring: List<Pair<Double, Double>>, lat: Double, lng: Double): Boolean {
+        if (ring.size < 3) return false
+        var inside = false
+        var j = ring.size - 1
+        for (i in ring.indices) {
+            val (lat1, lng1) = ring[i]
+            val (lat2, lng2) = ring[j]
+            if ((lng1 > lng) != (lng2 > lng)) {
+                val latAtLng = lat1 + (lng - lng1) / (lng2 - lng1) * (lat2 - lat1)
+                if (lat < latAtLng) inside = !inside
+            }
+            j = i
+        }
+        return inside
+    }
 }
