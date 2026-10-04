@@ -593,57 +593,80 @@ private fun buildBoundaryHtml(
       var layer = L.geoJSON(geometry, {
         style: { stroke: false, fillColor: '#4285F4', fillOpacity: 0.12 }
       }).addTo(map);
-      // "Add a feature for the user to select what he wants to see
-      // specifically" — a small custom control (Leaflet has no built-in
-      // concept of this) with one button per [MapLayer]. The boundary
-      // tint, street lines, and building footprints are never gated by it
-      // — only which landmark pins/labels show, plus whether street NAMES
-      // (not the lines themselves) are visible.
+      // "Make changes to filter ... make it checkbox so that the user can
+      // select a specific feature he wants" — a small custom control
+      // (Leaflet has no built-in concept of this) with one checkbox per
+      // [MapLayer] plus a master "All" checkbox, collapsed behind a
+      // "Filters" button so it doesn't permanently take up map space. The
+      // boundary tint and street lines themselves are never gated by this
+      // — only landmark pins, street NAME labels, and building footprints.
       var LAYER_OPTIONS = [
-        { id: 'ALL', label: 'All' },
         { id: 'LANDMARKS', label: 'Landmarks' },
         { id: 'CHURCHES', label: 'Churches' },
+        { id: 'GASOLINE', label: 'Gasoline' },
         { id: 'KINGDOM_HALL', label: 'Kingdom Hall' },
-        { id: 'STREET_NAMES', label: 'Street Names' }
+        { id: 'STREET_NAMES', label: 'Street Names' },
+        { id: 'BUILDINGS', label: 'Buildings' }
       ];
-      var currentLayerFilter = 'ALL';
+      var selectedLayers = {};
+      LAYER_OPTIONS.forEach(function(opt) { selectedLayers[opt.id] = true; });
       var landmarkMarkers = [];
       var streetLabelEntries = [];
       function applyLayerFilter() {
         landmarkMarkers.forEach(function(entry) {
-          var show = currentLayerFilter === 'ALL' || entry.group === currentLayerFilter;
-          entry.el.style.display = show ? '' : 'none';
+          entry.el.style.display = selectedLayers[entry.group] ? '' : 'none';
         });
-        var showStreetNames = currentLayerFilter === 'ALL' || currentLayerFilter === 'STREET_NAMES';
         streetLabelEntries.forEach(function(entry) {
-          entry.el.style.display = showStreetNames ? '' : 'none';
+          entry.el.style.display = selectedLayers.STREET_NAMES ? '' : 'none';
         });
+        updateBuildingsVisibility();
       }
       var LayerFilterControl = L.Control.extend({
         options: { position: 'topright' },
         onAdd: function() {
-          var container = L.DomUtil.create('div', '');
-          container.style.display = 'flex';
-          container.style.flexWrap = 'wrap';
-          container.style.gap = '4px';
-          container.style.maxWidth = '220px';
-          container.style.marginTop = '6px';
+          var wrapper = L.DomUtil.create('div', '');
+          var toggleBtn = L.DomUtil.create('button', '', wrapper);
+          toggleBtn.style.cssText = 'font-size:12px;padding:5px 10px;border-radius:14px;border:none;' +
+            'background:#fff;color:#202124;box-shadow:0 1px 3px rgba(0,0,0,.3);cursor:pointer;margin-top:6px;';
+          var panel = L.DomUtil.create('div', '', wrapper);
+          panel.style.cssText = 'display:none;flex-direction:column;gap:2px;background:#fff;' +
+            'border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.3);padding:6px 10px;margin-top:4px;';
+          function refreshToggleLabel() {
+            var n = LAYER_OPTIONS.filter(function(o) { return selectedLayers[o.id]; }).length;
+            toggleBtn.innerText = 'Filters (' + n + '/' + LAYER_OPTIONS.length + ')';
+          }
+          function buildRow(label, checked, onChange) {
+            var row = L.DomUtil.create('label', '', panel);
+            row.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;color:#202124;' +
+              'cursor:pointer;padding:3px 0;white-space:nowrap;';
+            var cb = L.DomUtil.create('input', '', row);
+            cb.type = 'checkbox';
+            cb.checked = checked;
+            row.appendChild(document.createTextNode(label));
+            L.DomEvent.on(cb, 'click', function(e) { L.DomEvent.stopPropagation(e); });
+            L.DomEvent.on(cb, 'change', function() { onChange(cb.checked); });
+            return cb;
+          }
+          var allCb = buildRow('All', true, function(checked) {
+            LAYER_OPTIONS.forEach(function(opt) { selectedLayers[opt.id] = checked; });
+            panel.querySelectorAll('input[type=checkbox]').forEach(function(cb) { cb.checked = checked; });
+            refreshToggleLabel();
+            applyLayerFilter();
+          });
           LAYER_OPTIONS.forEach(function(opt) {
-            var btn = L.DomUtil.create('button', '', container);
-            btn.innerText = opt.label;
-            btn.style.cssText = 'font-size:11px;padding:4px 9px;border-radius:12px;border:none;' +
-              'background:#fff;color:#202124;box-shadow:0 1px 3px rgba(0,0,0,.3);cursor:pointer;';
-            if (opt.id === currentLayerFilter) { btn.style.background = '#c8dafc'; }
-            L.DomEvent.on(btn, 'click', function(e) {
-              L.DomEvent.stopPropagation(e);
-              currentLayerFilter = opt.id;
-              container.querySelectorAll('button').forEach(function(b, idx) {
-                b.style.background = LAYER_OPTIONS[idx].id === opt.id ? '#c8dafc' : '#fff';
-              });
+            buildRow(opt.label, true, function(checked) {
+              selectedLayers[opt.id] = checked;
+              allCb.checked = LAYER_OPTIONS.every(function(o) { return selectedLayers[o.id]; });
+              refreshToggleLabel();
               applyLayerFilter();
             });
           });
-          return container;
+          L.DomEvent.on(toggleBtn, 'click', function(e) {
+            L.DomEvent.stopPropagation(e);
+            panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+          });
+          refreshToggleLabel();
+          return wrapper;
         }
       });
       new LayerFilterControl().addTo(map);
@@ -786,36 +809,30 @@ private fun buildBoundaryHtml(
           'translate(-50%,-50%)'
         );
       });
-      // "Add a drawing of the houses and buildings if zoom in" — real OSM
-      // building footprints, only added to the map once zoomed in close
-      // (a single poblacion barangay can have hundreds, which would just
-      // be clutter at a whole-barangay overview).
-      var BUILDING_ZOOM_THRESHOLD = 16;
+      // Real OSM building footprints — purely opt-in through the
+      // "Buildings" checkbox now, no automatic zoom-triggered drawing
+      // ("remove the drawing in every building").
       var buildingPolygons = [];
       var buildings = [${buildingsJs(buildings)}];
-      var buildingsOnMap = false;
+      var buildingsBuilt = false;
       function updateBuildingsVisibility() {
-        var shouldShow = map.getZoom() >= BUILDING_ZOOM_THRESHOLD;
-        if (shouldShow === buildingsOnMap) return;
-        buildingsOnMap = shouldShow;
-        if (shouldShow) {
-          if (buildingPolygons.length === 0) {
-            buildings.forEach(function(pts) {
-              if (pts.length < 3) return;
-              var mid = pts[Math.floor(pts.length / 2)];
-              var inside = pointInBoundary(mid[0], mid[1]);
-              buildingPolygons.push(L.polygon(pts, {
-                color: '#6d4c41', weight: 1, fillColor: '#d7ccc8',
-                fillOpacity: inside ? 0.55 : 0.25, opacity: inside ? 1 : DIMMED_OPACITY
-              }));
-            });
-          }
-          buildingPolygons.forEach(function(p) { p.addTo(map); });
-        } else {
-          buildingPolygons.forEach(function(p) { map.removeLayer(p); });
+        var shouldShow = !!selectedLayers.BUILDINGS;
+        if (shouldShow && !buildingsBuilt) {
+          buildingsBuilt = true;
+          buildings.forEach(function(pts) {
+            if (pts.length < 3) return;
+            var mid = pts[Math.floor(pts.length / 2)];
+            var inside = pointInBoundary(mid[0], mid[1]);
+            buildingPolygons.push(L.polygon(pts, {
+              color: '#6d4c41', weight: 1, fillColor: '#d7ccc8',
+              fillOpacity: inside ? 0.55 : 0.25, opacity: inside ? 1 : DIMMED_OPACITY
+            }));
+          });
         }
+        buildingPolygons.forEach(function(p) {
+          if (shouldShow) { p.addTo(map); } else { map.removeLayer(p); }
+        });
       }
-      map.on('zoomend', updateBuildingsVisibility);
       updateBuildingsVisibility();
       applyLayerFilter();
       applyZoomScale();

@@ -9,13 +9,14 @@ import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.RectF
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -49,7 +50,6 @@ import com.tomtom.sdk.location.GeoBounds
 import com.tomtom.sdk.location.GeoPoint
 import com.tomtom.sdk.map.display.MapOptions
 import com.tomtom.sdk.map.display.TomTomMap
-import com.tomtom.sdk.map.display.camera.CameraChangeListener
 import com.tomtom.sdk.map.display.camera.CameraOptionsFactory
 import com.tomtom.sdk.map.display.camera.InitialCameraOptions
 import com.tomtom.sdk.map.display.common.WidthByZoom
@@ -111,16 +111,13 @@ fun TomTomBoundaryMap(
     // app actually serves (a flat blank canvas), whereas satellite imagery
     // shows real ground detail everywhere.
     var selectedStyle by remember { mutableStateOf(MapStyle.SATELLITE) }
-    // "Add a feature for the user to select what he wants to see
-    // specifically" — narrows which landmark pins draw; the boundary tint,
-    // streets, and buildings are always-on base map context, not part of
-    // this choice.
-    var selectedLayer by remember { mutableStateOf(MapLayer.ALL) }
-    // "Add a drawing of the houses and buildings if zoom in" — a barangay's
-    // poblacion can have hundreds of building footprints, so they only
-    // start drawing once zoomed in close enough that they're actually
-    // useful rather than just clutter at a whole-barangay overview.
-    var buildingsVisible by remember { mutableStateOf(false) }
+    // "Make changes to filter ... make it checkbox so that the user can
+    // select a specific feature he wants" — a multi-select checkbox filter;
+    // everything is checked (shown) by default. Buildings are now purely
+    // opt-in through this same checkbox (no automatic zoom-triggered
+    // drawing any more — "remove the drawing in every building").
+    var selectedLayers by remember { mutableStateOf(MapLayer.entries.toSet()) }
+    var filterMenuExpanded by remember { mutableStateOf(false) }
 
     // MapOptions' plain mapKey constructor resolves its tile data provider
     // through the SDK's own global context — without this having run first,
@@ -232,23 +229,6 @@ fun TomTomBoundaryMap(
         map.markersFadingRange = 11..13
     }
 
-    // Buildings only start drawing above BUILDING_ZOOM_THRESHOLD — tracked
-    // via a plain camera listener (polygons/polylines have no SDK-built-in
-    // zoom visibility of their own the way markers do above) rather than
-    // redrawing on every single camera frame; the listener only flips
-    // [buildingsVisible] on the rare frame that actually crosses the
-    // threshold, and the drawing effect below reacts to that state change.
-    DisposableEffect(tomTomMap) {
-        val map = tomTomMap
-        if (map == null) return@DisposableEffect onDispose {}
-        val listener = CameraChangeListener {
-            val shouldShow = map.cameraPosition.zoom >= BUILDING_ZOOM_THRESHOLD
-            if (shouldShow != buildingsVisible) buildingsVisible = shouldShow
-        }
-        map.addCameraChangeListener(listener)
-        onDispose { map.removeCameraChangeListener(listener) }
-    }
-
     LaunchedEffect(tomTomMap, selectedStyle) {
         val map = tomTomMap ?: return@LaunchedEffect
         isStyleReady = false
@@ -314,17 +294,14 @@ fun TomTomBoundaryMap(
                 }
             }
         }
-        // "Add a drawing of the houses and buildings if zoom in" — a
-        // borderless transparent-outside overlay per footprint (the same
-        // always-on-top compositing PolygonOverlayController gives the
-        // boundary tint above) plus a thin outline, so a real building
-        // shape reads clearly over satellite imagery instead of either
-        // vanishing under it (a plain PolygonController.addPolygon would)
-        // or needing its own removal tag (polygon overlays share one blanket
-        // removePolygonOverlays() call, already made above alongside the
-        // boundary tint's own redraw). Built every time regardless of zoom —
-        // visibility (by zoom) is toggled on these same handles by a
-        // separate, lighter effect below.
+        // Real building footprints — a borderless transparent-outside
+        // overlay per footprint (the same always-on-top compositing
+        // PolygonOverlayController gives the boundary tint above) plus a
+        // thin outline, so a real building shape reads clearly over
+        // satellite imagery instead of vanishing under it (a plain
+        // PolygonController.addPolygon would). Purely opt-in through the
+        // "Buildings" checkbox now — no automatic zoom-triggered drawing.
+        val buildingsChecked = MapLayer.BUILDINGS in selectedLayers
         val newBuildingFillHandles = mutableListOf<PolygonOverlay>()
         val newBuildingOutlineHandles = mutableListOf<Polyline>()
         buildings.forEach { building ->
@@ -346,12 +323,12 @@ fun TomTomBoundaryMap(
                     PolylineOptions(
                         coordinates = points + points.first(),
                         lineColor = dimIf(!inside, Color.argb(200, 109, 76, 65)),
-                        lineWidths = listOf(WidthByZoom(width = 1.0, zoom = BUILDING_ZOOM_THRESHOLD)),
+                        lineWidths = listOf(WidthByZoom(width = 1.0)),
                         tag = BUILDING_OUTLINE_TAG,
                     ),
                 )
-                fill.isVisible = buildingsVisible
-                outline.isVisible = buildingsVisible
+                fill.isVisible = buildingsChecked
+                outline.isVisible = buildingsChecked
                 newBuildingFillHandles.add(fill)
                 newBuildingOutlineHandles.add(outline)
             }
@@ -433,15 +410,19 @@ fun TomTomBoundaryMap(
                 newStreetLineHandles.add(line)
                 val streetName = street.name
                 if (!streetName.isNullOrBlank()) {
+                    // "Put the names of the street inside the street" — dark
+                    // text with a light halo reads as sitting on the now-wide
+                    // light-colored street band itself, rather than light
+                    // text that only worked floating over dark imagery.
                     val label = map.addMarker(
                         MarkerOptions(
                             coordinate = mid,
                             pinImage = transparentPinImage,
                             label = Label(
                                 text = streetName,
-                                textColor = dimIf(!inside, Color.argb(255, 235, 235, 235)),
+                                textColor = dimIf(!inside, Color.rgb(0x20, 0x21, 0x24)),
                                 textSize = 12.0,
-                                outlineColor = dimIf(!inside, Color.argb(200, 0, 0, 0)),
+                                outlineColor = dimIf(!inside, Color.argb(220, 255, 255, 255)),
                                 outlineWidth = 1.5,
                             ),
                             tag = STREET_LABEL_TAG,
@@ -463,31 +444,17 @@ fun TomTomBoundaryMap(
         }
     }
 
-    // "Add a feature for the user to select what he wants to see
-    // specifically" — toggles .isVisible on the already-built handles above
+    // "Make it checkbox so that the user can select a specific feature he
+    // wants" — toggles .isVisible on the already-built handles above
     // instead of removing and re-adding markers (see landmarkHandles' own
     // doc comment for why: that path was unreliable on rapid repeat clicks).
-    LaunchedEffect(selectedLayer, landmarkHandles, streetLabelHandles, areaHandles) {
-        landmarkHandles.forEach { handle ->
-            handle.marker.isVisible = when (selectedLayer) {
-                MapLayer.ALL -> true
-                MapLayer.LANDMARKS -> handle.group == LandmarkGroup.LANDMARK
-                MapLayer.CHURCHES -> handle.group == LandmarkGroup.CHURCH
-                MapLayer.KINGDOM_HALL -> handle.group == LandmarkGroup.KINGDOM_HALL
-                MapLayer.STREET_NAMES -> false
-            }
-        }
-        val showStreetNames = selectedLayer == MapLayer.ALL || selectedLayer == MapLayer.STREET_NAMES
+    LaunchedEffect(selectedLayers, landmarkHandles, streetLabelHandles, buildingFillHandles, buildingOutlineHandles) {
+        landmarkHandles.forEach { handle -> handle.marker.isVisible = handle.group.toMapLayer() in selectedLayers }
+        val showStreetNames = MapLayer.STREET_NAMES in selectedLayers
         streetLabelHandles.forEach { it.isVisible = showStreetNames }
-        val showAreas = selectedLayer == MapLayer.ALL
-        areaHandles.forEach { it.isVisible = showAreas }
-    }
-
-    // Same isVisible-toggle approach for buildings crossing the zoom
-    // threshold — see [buildingsVisible]'s own doc comment.
-    LaunchedEffect(buildingsVisible, buildingFillHandles, buildingOutlineHandles) {
-        buildingFillHandles.forEach { it.isVisible = buildingsVisible }
-        buildingOutlineHandles.forEach { it.isVisible = buildingsVisible }
+        val showBuildings = MapLayer.BUILDINGS in selectedLayers
+        buildingFillHandles.forEach { it.isVisible = showBuildings }
+        buildingOutlineHandles.forEach { it.isVisible = showBuildings }
     }
 
     Box(modifier = modifier) {
@@ -513,23 +480,39 @@ fun TomTomBoundaryMap(
                     )
                 }
             }
-            Row(
-                modifier = Modifier
-                    .padding(top = 4.dp)
-                    .horizontalScroll(rememberScrollState())
-                    .clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
-                    .padding(4.dp),
-            ) {
-                MapLayer.entries.forEach { layer ->
-                    FilterChip(
-                        selected = layer == selectedLayer,
-                        onClick = { selectedLayer = layer },
-                        label = { Text(layer.label) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        ),
+            Box(modifier = Modifier.padding(top = 4.dp)) {
+                FilterChip(
+                    selected = filterMenuExpanded,
+                    onClick = { filterMenuExpanded = true },
+                    label = { Text("Filters (${selectedLayers.size}/${MapLayer.entries.size})") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    ),
+                )
+                DropdownMenu(expanded = filterMenuExpanded, onDismissRequest = { filterMenuExpanded = false }) {
+                    val allChecked = selectedLayers.size == MapLayer.entries.size
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = allChecked, onCheckedChange = null)
+                                Text("All")
+                            }
+                        },
+                        onClick = { selectedLayers = if (allChecked) emptySet() else MapLayer.entries.toSet() },
                     )
+                    MapLayer.entries.forEach { layer ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = layer in selectedLayers, onCheckedChange = null)
+                                    Text(layer.label)
+                                }
+                            },
+                            onClick = {
+                                selectedLayers = if (layer in selectedLayers) selectedLayers - layer else selectedLayers + layer
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -546,11 +529,6 @@ private const val STREET_LINE_TAG = "territory_street_line"
 private const val STREET_LABEL_TAG = "territory_street_label"
 private const val AREA_LABEL_TAG = "territory_area_label"
 private const val BUILDING_OUTLINE_TAG = "territory_building_outline"
-
-/** Zoom level buildings start drawing at — close enough that they're
- * actually useful detail rather than clutter over a whole-barangay
- * overview (a single poblacion can have hundreds of footprints). */
-private const val BUILDING_ZOOM_THRESHOLD = 16.0
 
 /** "Make the text outside the selected barangay less opacity" — halves a
  * color's own alpha when [dim] is true, otherwise returns it unchanged. */

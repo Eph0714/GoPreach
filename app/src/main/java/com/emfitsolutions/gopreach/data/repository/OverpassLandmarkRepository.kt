@@ -14,11 +14,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Which broad [MapLayer][com.emfitsolutions.gopreach.ui.components.map.MapLayer]
- * a [LandmarkCategory] belongs to — Kingdom Halls and generic churches are
- * both `place_of_worship` in OSM but need to be independently filterable
- * ("show Kingdom Hall", "show churches"), and every other category is a
- * plain "Landmarks" entry for that same filter. */
-enum class LandmarkGroup { KINGDOM_HALL, CHURCH, LANDMARK }
+ * a [LandmarkCategory] belongs to — Kingdom Halls, generic churches, and gas
+ * stations each need their own independently checkable filter entry, and
+ * every other category is a plain "Landmarks" entry for that same filter. */
+enum class LandmarkGroup { KINGDOM_HALL, CHURCH, GASOLINE, LANDMARK }
 
 /** What kind of place a [Landmark] is — drives which icon/color the map
  * draws for it (a school pin looks nothing like a police station pin) so
@@ -35,7 +34,7 @@ enum class LandmarkCategory(val emoji: String, val colorArgb: Int, val group: La
     GOVERNMENT("🏛", 0xFF455A64.toInt(), LandmarkGroup.LANDMARK),
     POLICE("🚓", 0xFF1565C0.toInt(), LandmarkGroup.LANDMARK),
     FIRE("🚒", 0xFFC62828.toInt(), LandmarkGroup.LANDMARK),
-    FUEL("⛽", 0xFFE65100.toInt(), LandmarkGroup.LANDMARK),
+    FUEL("⛽", 0xFFE65100.toInt(), LandmarkGroup.GASOLINE),
     BANK("🏦", 0xFF0277BD.toInt(), LandmarkGroup.LANDMARK),
     RESTAURANT("🍽", 0xFFD84315.toInt(), LandmarkGroup.LANDMARK),
     HOTEL("🏨", 0xFF8E24AA.toInt(), LandmarkGroup.LANDMARK),
