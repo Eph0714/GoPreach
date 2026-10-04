@@ -46,6 +46,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.export.BoundaryKmlExporter
+import com.emfitsolutions.gopreach.data.repository.AreaFeature
 import com.emfitsolutions.gopreach.data.repository.Landmark
 import com.emfitsolutions.gopreach.data.repository.StreetSegment
 import com.emfitsolutions.gopreach.ui.components.map.LeafletMapView
@@ -80,6 +81,7 @@ fun BarangayBoundaryDialog(
     var isLoading by remember(municipality, barangayName) { mutableStateOf(true) }
     var landmarks by remember(municipality, barangayName) { mutableStateOf<List<Landmark>>(emptyList()) }
     var streets by remember(municipality, barangayName) { mutableStateOf<List<StreetSegment>>(emptyList()) }
+    var areas by remember(municipality, barangayName) { mutableStateOf<List<AreaFeature>>(emptyList()) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -100,6 +102,7 @@ fun BarangayBoundaryDialog(
         val details = geometryJson?.let { viewModel.mapDetailsFor(it) }
         landmarks = details?.landmarks ?: emptyList()
         streets = details?.streets ?: emptyList()
+        areas = details?.areas ?: emptyList()
     }
 
     // "Add my location, then compare the distance to the selected barangay"
@@ -280,6 +283,7 @@ fun BarangayBoundaryDialog(
                         boundaries = listOf(NamedBoundary(barangayName, geometryJson!!)),
                         landmarks = landmarks,
                         streets = streets,
+                        areas = areas,
                         modifier = Modifier.fillMaxSize(),
                     )
                     else -> Box(modifier = Modifier.fillMaxSize()) {
@@ -287,6 +291,7 @@ fun BarangayBoundaryDialog(
                             geometryJson = geometryJson!!,
                             landmarks = landmarks,
                             streets = streets,
+                            areas = areas,
                             command = mapCommand,
                             onDistanceComputed = { meters ->
                                 distanceLabel = "📍 ${formatDistance(meters)} from $barangayName"
@@ -362,6 +367,7 @@ private fun BarangayBoundaryMap(
     geometryJson: String,
     landmarks: List<Landmark>,
     streets: List<StreetSegment>,
+    areas: List<AreaFeature>,
     command: MapCommand?,
     onDistanceComputed: (meters: Double) -> Unit,
     onPointDistanceComputed: (meters: Double) -> Unit,
@@ -369,7 +375,7 @@ private fun BarangayBoundaryMap(
     onOpenDirections: (originLat: Double, originLng: Double, destLat: Double, destLng: Double) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val html = remember(geometryJson, landmarks, streets) { buildBoundaryHtml(geometryJson, landmarks, streets) }
+    val html = remember(geometryJson, landmarks, streets, areas) { buildBoundaryHtml(geometryJson, landmarks, streets, areas) }
     val controller = rememberLeafletMapController()
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
 
@@ -463,7 +469,12 @@ private fun streetsJs(streets: List<StreetSegment>): String {
     }
 }
 
-private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, streets: List<StreetSegment>): String = """
+private fun areasJs(areas: List<AreaFeature>): String {
+    val gson = com.google.gson.Gson()
+    return areas.joinToString(",\n") { a -> "{ name: ${gson.toJson(a.name)}, lat: ${a.lat}, lng: ${a.lng} }" }
+}
+
+private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, streets: List<StreetSegment>, areas: List<AreaFeature>): String = """
     <!DOCTYPE html>
     <html>
     <head>
@@ -533,16 +544,13 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
         { position: 'topright' }
       ).addTo(map);
       var geometry = $geometryJson;
-      // A white halo under the red core line — same casing-plus-fill
-      // cartography trick the native TomTom map uses, drawn here as two
-      // stacked GeoJSON layers (Leaflet polylines have no built-in
-      // outline option) so the boundary reads clearly over any basemap
-      // instead of a single thin line that looked hand-drawn.
-      var boundaryHalo = L.geoJSON(geometry, {
-        style: { color: '#ffffff', weight: 7, opacity: 0.9, fillOpacity: 0 }
-      }).addTo(map);
+      // Borderless territory tint only — no drawn outline. The earlier red
+      // stroke (plus its white halo) was redundant once the fill itself
+      // already reads as "this area" against the dimmer map around it, the
+      // same soft-highlight convention Google Maps uses for a selected
+      // region instead of a hard polygon outline.
       var layer = L.geoJSON(geometry, {
-        style: { color: '#D32F2F', weight: 3, fillColor: '#D32F2F', fillOpacity: 0.1 }
+        style: { stroke: false, fillColor: '#4285F4', fillOpacity: 0.12 }
       }).addTo(map);
       // "Make the map text and icons responsive if zoom in and out" —
       // Leaflet keeps every stroke weight and divIcon at a fixed pixel size
@@ -552,10 +560,7 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
       // and larger zoomed in. zoomScaledLayers/zoomScaledPins/
       // zoomScaledLabels collect everything that handler needs to touch —
       // appended to as streets/landmarks are added below.
-      var zoomScaledLayers = [
-        { layer: boundaryHalo, base: 7 },
-        { layer: layer, base: 3 }
-      ];
+      var zoomScaledLayers = [];
       var zoomScaledPins = [];
       var zoomScaledLabels = [];
       function zoomScale(zoom) {
@@ -570,6 +575,21 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
         zoomScaledLabels.forEach(function(el) { el.style.transform = el.baseTransform + ' scale(' + scale + ')'; });
       }
       map.on('zoom', applyZoomScale);
+      // addScaledLabel — every plain-text (no-pin) label on this map (street
+      // names, area names) goes through here so it's registered for the
+      // zoom handler above exactly once, instead of repeating that
+      // registration dance at each call site.
+      function addScaledLabel(latlng, html, baseTransform) {
+        var marker = L.marker(latlng, {
+          icon: L.divIcon({ className: '', html: html, iconSize: [0, 0] }),
+          interactive: false
+        }).addTo(map);
+        var el = marker.getElement();
+        if (el) {
+          var div = el.querySelector('.zoom-label');
+          if (div) { div.baseTransform = baseTransform; zoomScaledLabels.push(div); }
+        }
+      }
       var bounds = layer.getBounds();
       var boundaryCenter = bounds.isValid() ? bounds.getCenter() : null;
       if (bounds.isValid()) {
@@ -585,22 +605,23 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
       // doc comment for why the map needs these at all rather than just the
       // bare boundary. Each one is a colored pin matching its own
       // [LandmarkCategory] (school vs. shop vs. government office, ...)
-      // instead of an identical blue dot, with its name always visible as
-      // a label rather than hidden behind a tap-to-open popup.
+      // with its name in a plain white chip below it — the same pin+label
+      // look Google Maps itself uses for a point of interest, rather than
+      // glowing text with no background.
       var landmarks = [${landmarksJs(landmarks)}];
       landmarks.forEach(function(l) {
         var pin = L.divIcon({
           className: '',
-          html: '<div class="zoom-pin" style="position:relative;width:30px;height:38px;">' +
-            '<div style="position:absolute;top:0;left:0;width:30px;height:30px;border-radius:50%;' +
-            'background:' + l.color + ';border:2.5px solid #ffffff;box-shadow:0 1px 4px rgba(0,0,0,.5);' +
-            'display:flex;align-items:center;justify-content:center;font-size:16px;">' + l.emoji + '</div>' +
-            '<div style="position:absolute;top:26px;left:11px;width:8px;height:8px;' +
+          html: '<div class="zoom-pin" style="position:relative;width:30px;height:30px;transform-origin:50% 100%;">' +
+            '<div style="width:30px;height:30px;border-radius:50%;background:' + l.color + ';' +
+            'border:2px solid #ffffff;box-shadow:0 1px 3px rgba(0,0,0,.35);display:flex;' +
+            'align-items:center;justify-content:center;font-size:15px;">' + l.emoji + '</div>' +
+            '<div style="position:absolute;top:25px;left:11px;width:8px;height:8px;' +
             'background:' + l.color + ';transform:rotate(45deg);border-radius:0 0 2px 0;"></div>' +
             '<div style="position:absolute;top:34px;left:50%;transform:translateX(-50%);white-space:nowrap;' +
-            'font-size:11px;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;' +
-            'font-weight:600;">' + l.name + '</div></div>',
-          iconSize: [30, 56], iconAnchor: [15, 30]
+            'background:#ffffff;color:#202124;font-size:11px;font-weight:500;line-height:1.3;' +
+            'padding:2px 7px;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.3);">' + l.name + '</div></div>',
+          iconSize: [30, 64], iconAnchor: [15, 30]
         });
         var marker = L.marker([l.lat, l.lng], { icon: pin }).addTo(map);
         var el = marker.getElement();
@@ -612,31 +633,52 @@ private fun buildBoundaryHtml(geometryJson: String, landmarks: List<Landmark>, s
       // Real street lines, drawn independently of whatever TomTom's own
       // map data does or doesn't have for this area — see
       // OverpassLandmarkRepository's own doc comment. A dark casing under a
-      // light fill (same trick as the boundary line above) reads as an
-      // actual road, and a named street gets its own label at its midpoint.
+      // light fill reads as an actual road, and a named street gets its own
+      // label sitting directly on the line at its own local bearing (the
+      // same "name follows the road" convention Google Maps uses) rather
+      // than always-horizontal text floating beside it.
       var streets = [${streetsJs(streets)}];
+      function bearingDeg(p1, p2) {
+        var lat1 = p1[0] * Math.PI / 180, lat2 = p2[0] * Math.PI / 180;
+        var dLon = (p2[1] - p1[1]) * Math.PI / 180;
+        var y = Math.sin(dLon) * Math.cos(lat2);
+        var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+        return Math.atan2(y, x) * 180 / Math.PI;
+      }
       streets.forEach(function(s) {
         var casing = L.polyline(s.points, { color: '#333333', weight: 4.5, opacity: 0.55 }).addTo(map);
         var fill = L.polyline(s.points, { color: '#ffffff', weight: 2, opacity: 0.9 }).addTo(map);
         zoomScaledLayers.push({ layer: casing, base: 4.5 });
         zoomScaledLayers.push({ layer: fill, base: 2 });
-        if (s.name) {
-          var mid = s.points[Math.floor(s.points.length / 2)];
-          var labelMarker = L.marker(mid, {
-            icon: L.divIcon({
-              className: '',
-              html: '<div class="zoom-label" style="font-size:10px;color:#eee;text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;' +
-                'font-weight:600;white-space:nowrap;transform:translate(-50%,-50%);">' + s.name + '</div>',
-              iconSize: [0, 0]
-            }),
-            interactive: false
-          }).addTo(map);
-          var labelEl = labelMarker.getElement();
-          if (labelEl) {
-            var labelDiv = labelEl.querySelector('.zoom-label');
-            if (labelDiv) { labelDiv.baseTransform = 'translate(-50%,-50%)'; zoomScaledLabels.push(labelDiv); }
-          }
+        if (s.name && s.points.length >= 2) {
+          var midIdx = Math.floor(s.points.length / 2);
+          var p1 = s.points[Math.max(0, midIdx - 1)];
+          var p2 = s.points[Math.min(s.points.length - 1, midIdx + 1)];
+          var angle = bearingDeg(p1, p2);
+          if (angle > 90) angle -= 180;
+          if (angle < -90) angle += 180;
+          var baseTransform = 'translate(-50%,-50%) rotate(' + angle + 'deg)';
+          addScaledLabel(
+            s.points[midIdx],
+            '<div class="zoom-label" style="font-size:10px;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;' +
+              'font-weight:600;white-space:nowrap;transform:' + baseTransform + ';">' + s.name + '</div>',
+            baseTransform
+          );
         }
+      });
+      // What's actually on the ground (rice fields, orchards, forest, ...)
+      // within this barangay — plain italic text with no pin and no
+      // background chip, the same soft area-label convention Google Maps
+      // uses for parks/farmland/forest rather than a named point of interest.
+      var areas = [${areasJs(areas)}];
+      areas.forEach(function(a) {
+        addScaledLabel(
+          [a.lat, a.lng],
+          '<div class="zoom-label" style="font-size:12px;font-style:italic;color:#dcedc8;' +
+            'text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;font-weight:600;white-space:nowrap;' +
+            'letter-spacing:0.3px;transform:translate(-50%,-50%);">' + a.name + '</div>',
+          'translate(-50%,-50%)'
+        );
       });
       applyZoomScale();
       // "Add my location, then compare the distance to the selected

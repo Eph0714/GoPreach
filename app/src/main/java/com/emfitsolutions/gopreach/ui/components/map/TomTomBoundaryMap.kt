@@ -6,6 +6,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PointF
+import android.graphics.RectF
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -32,6 +34,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.emfitsolutions.gopreach.BuildConfig
+import com.emfitsolutions.gopreach.data.repository.AreaFeature
 import com.emfitsolutions.gopreach.data.repository.Landmark
 import com.emfitsolutions.gopreach.data.repository.LandmarkCategory
 import com.emfitsolutions.gopreach.data.repository.StreetSegment
@@ -88,6 +91,7 @@ fun TomTomBoundaryMap(
     boundaries: List<NamedBoundary>,
     landmarks: List<Landmark> = emptyList(),
     streets: List<StreetSegment> = emptyList(),
+    areas: List<AreaFeature> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -139,14 +143,6 @@ fun TomTomBoundaryMap(
     }
     var tomTomMap by remember { mutableStateOf<TomTomMap?>(null) }
     var isStyleReady by remember { mutableStateOf(false) }
-    // MarkerOptions.pinImage has no default (confirmed: compiling without it
-    // fails with "No value passed for parameter 'pinImage'") — one teardrop
-    // pin bitmap per [LandmarkCategory], built once and reused for every
-    // landmark of that kind, so a school pin actually looks different from a
-    // police station pin instead of every POI being an identical dot.
-    val categoryPinImages = remember {
-        LandmarkCategory.entries.associateWith { category -> ImageFactory.fromBitmap(buildPinBitmap(category)) }
-    }
     // Street name labels need a Label but have nothing to pin — MarkerOptions
     // has no "label only, no icon" constructor, so a 1x1 fully transparent
     // bitmap stands in for the icon it otherwise requires.
@@ -218,7 +214,7 @@ fun TomTomBoundaryMap(
         )
     }
 
-    LaunchedEffect(tomTomMap, isStyleReady, boundaries, streets, landmarks) {
+    LaunchedEffect(tomTomMap, isStyleReady, boundaries, streets, landmarks, areas) {
         val map = tomTomMap ?: return@LaunchedEffect
         if (!isStyleReady) return@LaunchedEffect
         // A plain PolygonController.addPolygon got silently painted over by
@@ -226,49 +222,29 @@ fun TomTomBoundaryMap(
         // on-device — the polygon worked fine under a blank/no-data style
         // but vanished under real imagery). PolygonOverlayController is a
         // genuinely separate compositing layer that always sits above the
-        // base map regardless of style, at the cost of no stroke/outline
-        // option of its own — the dim-outside/clear-inside edge it produces
-        // reads as the boundary line instead.
+        // base map regardless of style. No explicit boundary line is drawn
+        // on top of it any more — a drawn outline was redundant once this
+        // dim-outside/tinted-inside overlay already reads as "this area" on
+        // its own, the same soft-highlight convention Google Maps itself
+        // uses for a selected region instead of a hard polygon stroke.
         map.removePolygonOverlays()
-        map.removePolylines(BOUNDARY_LINE_TAG)
         map.removePolylines(STREET_LINE_TAG)
         map.removeMarkers(STREET_LABEL_TAG)
+        map.removeMarkers(AREA_LABEL_TAG)
         val allPoints = mutableListOf<GeoPoint>()
         boundaries.forEach { boundary ->
             BoundaryGeometry.outerRings(boundary.geometryJson).forEach { ring ->
                 val points = ring.map { (lat, lng) -> GeoPoint(lat, lng) }
                 if (points.size >= 3) {
                     allPoints.addAll(points)
-                    // A light territory tint inside, a softer dim outside —
-                    // this overlay has no stroke of its own (see this
-                    // effect's earlier doc comment), the actual boundary
-                    // line is the halo'd polyline drawn right after it.
                     map.addPolygonOverlay(
                         PolygonOverlayOptions(
-                            outerColor = Color.argb(110, 0, 0, 0),
+                            outerColor = Color.argb(90, 0, 0, 0),
                             innerPolygonOptions = InnerPolygonOptions(
                                 coordinates = points,
-                                fillColor = Color.argb(26, 211, 47, 47),
+                                fillColor = Color.argb(40, 66, 133, 244),
                                 innerPolygonOptions = null,
                             ),
-                        ),
-                    )
-                    // A white halo under a red core line — the same
-                    // casing-plus-fill technique real cartography uses for a
-                    // line that needs to read clearly over any basemap
-                    // (satellite, light, or dark), rounded joints instead of
-                    // the hard mitered corners a single thin line left
-                    // looking hand-drawn.
-                    map.addPolyline(
-                        PolylineOptions(
-                            coordinates = points + points.first(),
-                            lineColor = Color.argb(255, 211, 47, 47),
-                            lineWidths = BOUNDARY_LINE_WIDTHS,
-                            outlineColor = Color.argb(235, 255, 255, 255),
-                            outlineWidths = BOUNDARY_OUTLINE_WIDTHS,
-                            lineStartCapType = CapType.Round,
-                            lineEndCapType = CapType.Round,
-                            tag = BOUNDARY_LINE_TAG,
                         ),
                     )
                 }
@@ -276,19 +252,40 @@ fun TomTomBoundaryMap(
         }
         map.removeMarkers(LANDMARK_TAG)
         landmarks.forEach { landmark ->
-            val pin = categoryPinImages[landmark.category] ?: categoryPinImages.getValue(LandmarkCategory.OTHER)
+            // Built per-landmark (not cached by category) since each one
+            // bakes its own name into the bitmap as a white chip under the
+            // pin — the same pin+label look Google Maps itself uses for a
+            // point of interest, rather than glowing text with no
+            // background. placementAnchor points at the pin's own tip
+            // (not the bitmap's bottom edge, which is now the chip) since
+            // the SDK's default anchor assumes a plain pin shape.
+            val built = buildLandmarkPinBitmap(landmark)
             map.addMarker(
                 MarkerOptions(
                     coordinate = GeoPoint(landmark.lat, landmark.lng),
-                    pinImage = pin,
+                    pinImage = ImageFactory.fromBitmap(built.bitmap),
+                    placementAnchor = built.tipAnchor,
+                    tag = LANDMARK_TAG,
+                ),
+            )
+        }
+        // What's actually on the ground (rice fields, orchards, forest,
+        // ...) within this barangay — a plain colored label with no pin,
+        // the same soft area-name convention Google Maps uses for
+        // parks/farmland/forest rather than a named point of interest.
+        areas.forEach { area ->
+            map.addMarker(
+                MarkerOptions(
+                    coordinate = GeoPoint(area.lat, area.lng),
+                    pinImage = transparentPinImage,
                     label = Label(
-                        text = landmark.name,
-                        textColor = Color.WHITE,
+                        text = area.name,
+                        textColor = Color.argb(255, 220, 237, 200),
                         textSize = 13.0,
                         outlineColor = Color.argb(220, 0, 0, 0),
                         outlineWidth = 2.0,
                     ),
-                    tag = LANDMARK_TAG,
+                    tag = AREA_LABEL_TAG,
                 ),
             )
         }
@@ -369,39 +366,66 @@ fun TomTomBoundaryMap(
     }
 }
 
-private const val BOUNDARY_LINE_TAG = "territory_boundary_line"
 private const val LANDMARK_TAG = "territory_landmark"
 private const val STREET_LINE_TAG = "territory_street_line"
 private const val STREET_LABEL_TAG = "territory_street_label"
+private const val AREA_LABEL_TAG = "territory_area_label"
 
 /** Multiple zoom stops (the SDK interpolates width between them) instead of
  * one flat width — "responsive to zoom in/out": thin and unobtrusive at a
  * whole-barangay overview, thick and easy to tap/read once zoomed into one
  * street. */
-private val BOUNDARY_LINE_WIDTHS = listOf(WidthByZoom(width = 2.0, zoom = 10.0), WidthByZoom(width = 4.0, zoom = 14.0), WidthByZoom(width = 6.0, zoom = 18.0))
-private val BOUNDARY_OUTLINE_WIDTHS = listOf(WidthByZoom(width = 3.5, zoom = 10.0), WidthByZoom(width = 7.0, zoom = 14.0), WidthByZoom(width = 10.0, zoom = 18.0))
 private val STREET_LINE_WIDTHS = listOf(WidthByZoom(width = 1.0, zoom = 10.0), WidthByZoom(width = 2.0, zoom = 14.0), WidthByZoom(width = 3.5, zoom = 18.0))
 private val STREET_OUTLINE_WIDTHS = listOf(WidthByZoom(width = 2.0, zoom = 10.0), WidthByZoom(width = 3.5, zoom = 14.0), WidthByZoom(width = 5.5, zoom = 18.0))
 
-/** A modern map-pin bitmap (rounded head + pointed tail, like a Google Maps
- * pin) filled with [category]'s own color and centered with its emoji —
- * drawn once per category and cached by the caller, rather than the single
- * identical plain-dot marker every landmark used to get regardless of what
- * kind of place it actually was. */
-private fun buildPinBitmap(category: LandmarkCategory): Bitmap {
-    val width = 72
-    val height = 92
-    val radius = 28f
+/** A built landmark pin bitmap plus where its actual pin (not the chip
+ * hanging below it) sits within it, as a placementAnchor fraction — see
+ * [buildLandmarkPinBitmap]'s own doc comment. */
+private data class BuiltPin(val bitmap: Bitmap, val tipAnchor: PointF)
+
+/** A modern pin+label bitmap (rounded head + pointed tail, like a Google
+ * Maps pin, with a white rounded-rect name chip hanging below it) built
+ * fresh per landmark — unlike a shared per-category bitmap, this one bakes
+ * the landmark's own name into the image, the same pin+label look Google
+ * Maps itself uses for a point of interest instead of glowing text with no
+ * background. The SDK's default placementAnchor (0.5, 1.0 — bottom-center)
+ * assumes a plain pin shape with nothing below its own tip, so the real
+ * anchor returned here points at the tip itself, not the bitmap's bottom
+ * edge (now the chip). */
+private fun buildLandmarkPinBitmap(landmark: Landmark): BuiltPin {
+    val category = landmark.category
+    val pinRadius = 15f
+    val tailHeight = 9f
+    val gap = 5f
+    val chipPaddingH = 9f
+    val chipPaddingV = 5f
+
+    val textPaint = Paint().apply {
+        textSize = 15f
+        isAntiAlias = true
+        color = Color.rgb(0x20, 0x21, 0x24)
+        textAlign = Paint.Align.CENTER
+    }
+    val textWidth = textPaint.measureText(landmark.name)
+    val chipWidth = textWidth + chipPaddingH * 2
+    val chipHeight = textPaint.textSize + chipPaddingV * 2
+
+    val width = (maxOf(pinRadius * 2, chipWidth) + 8f).toInt()
     val centerX = width / 2f
-    val centerY = radius + 6f
+    val pinTopY = 4f
+    val pinCenterY = pinTopY + pinRadius
+    val pinTipY = pinCenterY + pinRadius + tailHeight
+    val chipTopY = pinTipY + gap
+    val height = (chipTopY + chipHeight + 4f).toInt()
+
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
 
-    val head = Path().apply { addCircle(centerX, centerY, radius, Path.Direction.CW) }
+    val head = Path().apply { addCircle(centerX, pinCenterY, pinRadius, Path.Direction.CW) }
     val tail = Path().apply {
-        moveTo(centerX - 13f, centerY + radius - 7f)
-        lineTo(centerX, height - 4f)
-        lineTo(centerX + 13f, centerY + radius - 7f)
+        moveTo(centerX - 7f, pinCenterY + pinRadius - 4f)
+        lineTo(centerX, pinTipY)
+        lineTo(centerX + 7f, pinCenterY + pinRadius - 4f)
         close()
     }
     val pinShape = Path().apply { op(head, tail, Path.Op.UNION) }
@@ -411,7 +435,7 @@ private fun buildPinBitmap(category: LandmarkCategory): Bitmap {
         Paint().apply {
             color = Color.argb(70, 0, 0, 0)
             isAntiAlias = true
-            maskFilter = BlurMaskFilter(5f, BlurMaskFilter.Blur.NORMAL)
+            maskFilter = BlurMaskFilter(4f, BlurMaskFilter.Blur.NORMAL)
         },
     )
     canvas.drawPath(pinShape, Paint().apply { color = category.colorArgb; isAntiAlias = true })
@@ -420,16 +444,33 @@ private fun buildPinBitmap(category: LandmarkCategory): Bitmap {
         Paint().apply {
             color = Color.WHITE
             style = Paint.Style.STROKE
-            strokeWidth = 4f
+            strokeWidth = 3f
             isAntiAlias = true
         },
     )
-    val textPaint = Paint().apply {
-        textSize = radius * 1.15f
+    val emojiPaint = Paint().apply {
+        textSize = pinRadius * 1.1f
         textAlign = Paint.Align.CENTER
         isAntiAlias = true
     }
-    val textY = centerY - (textPaint.ascent() + textPaint.descent()) / 2f
-    canvas.drawText(category.emoji, centerX, textY, textPaint)
-    return bitmap
+    val emojiY = pinCenterY - (emojiPaint.ascent() + emojiPaint.descent()) / 2f
+    canvas.drawText(category.emoji, centerX, emojiY, emojiPaint)
+
+    val chipRect = RectF(centerX - chipWidth / 2f, chipTopY, centerX + chipWidth / 2f, chipTopY + chipHeight)
+    val chipRadius = chipHeight / 2f
+    canvas.drawRoundRect(
+        chipRect,
+        chipRadius,
+        chipRadius,
+        Paint().apply {
+            color = Color.argb(60, 0, 0, 0)
+            isAntiAlias = true
+            maskFilter = BlurMaskFilter(3f, BlurMaskFilter.Blur.NORMAL)
+        },
+    )
+    canvas.drawRoundRect(chipRect, chipRadius, chipRadius, Paint().apply { color = Color.WHITE; isAntiAlias = true })
+    val textY = chipTopY + chipHeight / 2f - (textPaint.ascent() + textPaint.descent()) / 2f
+    canvas.drawText(landmark.name, centerX, textY, textPaint)
+
+    return BuiltPin(bitmap, PointF(0.5f, pinTipY / height))
 }

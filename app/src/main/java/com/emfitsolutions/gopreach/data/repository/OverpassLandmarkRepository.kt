@@ -46,7 +46,15 @@ data class Landmark(val name: String, val lat: Double, val lng: Double, val cate
  * driveways, ...), which still draw, just unlabeled. */
 data class StreetSegment(val points: List<Pair<Double, Double>>, val name: String? = null)
 
-data class MapDetails(val landmarks: List<Landmark>, val streets: List<StreetSegment>)
+/** A labeled stretch of land — a real OSM name if the area has one, else a
+ * plain description of what it actually is ("Rice Field", "Forest", ...)
+ * derived from its own `landuse`/`natural` tag, placed at the area's own
+ * centroid. Lets the map describe what's actually on the ground (the
+ * farmland/ricefields this app's rural provinces are mostly made of)
+ * instead of only ever labeling roads and named businesses. */
+data class AreaFeature(val name: String, val lat: Double, val lng: Double)
+
+data class MapDetails(val landmarks: List<Landmark>, val streets: List<StreetSegment>, val areas: List<AreaFeature> = emptyList())
 
 /**
  * Live, best-effort landmark + street lookup for a boundary's bounding box —
@@ -97,13 +105,19 @@ class OverpassLandmarkRepository @Inject constructor() {
                 // round trip — cheaper than two separate requests against the
                 // same bounding box, and this public service is already
                 // best shared sparingly.
-                val query = "[out:json][timeout:10];(" +
+                val query = "[out:json][timeout:15];(" +
                     "node[\"name\"][\"amenity\"~\"^(school|place_of_worship|hospital|clinic|pharmacy|marketplace|townhall|police|fire_station)$\"]($bbox);" +
                     "node[\"name\"][\"shop\"]($bbox);" +
                     "node[\"name\"][\"tourism\"~\"^(attraction|museum|viewpoint)$\"]($bbox);" +
                     "node[\"name\"][\"office\"=\"government\"]($bbox);" +
                     ");out body 40;" +
-                    "way[\"highway\"]($bbox);out geom 150;"
+                    "way[\"highway\"]($bbox);out geom 150;" +
+                    // What's actually on the ground — farmland (ricefields in
+                    // this app's own rural provinces), orchards, forest,
+                    // water — so the map can describe land, not just roads
+                    // and named businesses.
+                    "way[\"landuse\"~\"^(farmland|orchard|forest|meadow|vineyard|aquaculture)$\"]($bbox);out geom 60;" +
+                    "way[\"natural\"~\"^(wood|water)$\"]($bbox);out geom 30;"
                 // overpass-api.de itself started rejecting every request with
                 // a bare "406 Not Acceptable" (confirmed both from this app
                 // on-device and independently via curl — not a client/query
@@ -135,9 +149,11 @@ class OverpassLandmarkRepository @Inject constructor() {
                     val name = tags.get("name")?.asString ?: return@mapNotNull null
                     Landmark(name, lat, lon, classify(tags))
                 }
-                val streets = elements.mapNotNull { el ->
+                val ways = elements.filter { it.asJsonObject.get("type")?.asString == "way" }
+                val streets = ways.mapNotNull { el ->
                     val obj = el.asJsonObject
-                    if (obj.get("type")?.asString != "way") return@mapNotNull null
+                    val tags = obj.getAsJsonObject("tags")
+                    if (tags?.has("highway") != true) return@mapNotNull null
                     val geometry = obj.getAsJsonArray("geometry") ?: return@mapNotNull null
                     val points = geometry.mapNotNull { g ->
                         val point = g.asJsonObject
@@ -145,11 +161,41 @@ class OverpassLandmarkRepository @Inject constructor() {
                         val lon = point.get("lon")?.asDouble ?: return@mapNotNull null
                         lat to lon
                     }
-                    val name = obj.getAsJsonObject("tags")?.get("name")?.asString
+                    val name = tags.get("name")?.asString
                     if (points.size >= 2) StreetSegment(points, name) else null
                 }
-                Log.i(TAG, "Overpass query found ${landmarks.size} landmark(s), ${streets.size} street(s) of ${elements.size()} element(s)")
-                MapDetails(landmarks, streets)
+                val rawAreas = ways.mapNotNull { el ->
+                    val obj = el.asJsonObject
+                    val tags = obj.getAsJsonObject("tags") ?: return@mapNotNull null
+                    if (tags.has("highway")) return@mapNotNull null
+                    val name = areaFeatureName(tags) ?: return@mapNotNull null
+                    val geometry = obj.getAsJsonArray("geometry") ?: return@mapNotNull null
+                    val points = geometry.mapNotNull { g ->
+                        val point = g.asJsonObject
+                        val lat = point.get("lat")?.asDouble ?: return@mapNotNull null
+                        val lon = point.get("lon")?.asDouble ?: return@mapNotNull null
+                        lat to lon
+                    }
+                    if (points.isEmpty()) return@mapNotNull null
+                    AreaFeature(name, points.map { it.first }.average(), points.map { it.second }.average())
+                }
+                // A river/pond is commonly split across several adjacent OSM
+                // ways that each carry the same `natural=water` tag — left
+                // as-is, that drew 2-3 "Water" labels stacked directly on
+                // top of each other (confirmed on-device). Collapsing any
+                // same-named area within ~200m of one already kept turns
+                // that into the single label it should have been.
+                val areas = mutableListOf<AreaFeature>()
+                rawAreas.forEach { candidate ->
+                    val tooClose = areas.any {
+                        it.name == candidate.name &&
+                            kotlin.math.abs(it.lat - candidate.lat) < 0.002 &&
+                            kotlin.math.abs(it.lng - candidate.lng) < 0.002
+                    }
+                    if (!tooClose) areas.add(candidate)
+                }
+                Log.i(TAG, "Overpass query found ${landmarks.size} landmark(s), ${streets.size} street(s), ${areas.size} area(s) of ${elements.size()} element(s)")
+                MapDetails(landmarks, streets, areas)
             }.onFailure { Log.w(TAG, "Overpass fetch threw", it) }.getOrDefault(MapDetails(emptyList(), emptyList()))
         }
 
@@ -174,6 +220,31 @@ class OverpassLandmarkRepository @Inject constructor() {
             tags.has("tourism") -> LandmarkCategory.TOURISM
             tags.has("shop") -> LandmarkCategory.SHOP
             else -> LandmarkCategory.OTHER
+        }
+    }
+
+    /** What to label a `landuse`/`natural` area as — its own OSM `name` if
+     * it has one, else a plain description of what the tag itself says it
+     * is. `landuse=farmland` has no crop-specific tag in practice for this
+     * app's own rural provinces, so it maps to "Rice Field" (the actual,
+     * near-universal crop here) rather than the more generic but less
+     * useful "Farmland". Returns null for anything neither named nor one of
+     * the recognized values, so an unrelated `landuse` this app doesn't
+     * care about never becomes a mystery label. */
+    private fun areaFeatureName(tags: com.google.gson.JsonObject): String? {
+        tags.get("name")?.asString?.let { if (it.isNotBlank()) return it }
+        val landuse = tags.get("landuse")?.asString
+        val natural = tags.get("natural")?.asString
+        return when {
+            landuse == "farmland" -> "Rice Field"
+            landuse == "orchard" -> "Orchard"
+            landuse == "forest" -> "Forest"
+            landuse == "meadow" -> "Grassland"
+            landuse == "vineyard" -> "Vineyard"
+            landuse == "aquaculture" -> "Fish Pond"
+            natural == "wood" -> "Forest"
+            natural == "water" -> "Water"
+            else -> null
         }
     }
 
