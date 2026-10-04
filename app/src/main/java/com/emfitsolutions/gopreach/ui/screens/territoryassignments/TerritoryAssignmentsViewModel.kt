@@ -127,11 +127,12 @@ class TerritoryAssignmentsViewModel @Inject constructor(
     /** Real polygon boundary for one claimed barangay, for the "tap a
      * barangay -> show its boundary" map preview — see
      * [com.emfitsolutions.gopreach.data.repository.TerritoryBoundaryRepository]'s
-     * own doc comment for why this can legitimately come back null (only
-     * Nueva Vizcaya is bundled today) and why that's a graceful "not
-     * available yet," not an error. */
-    suspend fun boundaryGeometry(municipality: String, barangay: String): String? =
-        territoryBoundaryRepository.barangayGeometry(municipality, barangay)
+     * own doc comment for the bundled-Nueva-Vizcaya-first, live-fetch-
+     * elsewhere fallback this now runs through; still legitimately null
+     * (offline, or genuinely not found anywhere), a graceful "not available
+     * yet," never an error. */
+    suspend fun boundaryGeometry(province: String, municipality: String, barangay: String): String? =
+        territoryBoundaryRepository.barangayGeometry(province, municipality, barangay)
 
     /** "Add my location, then compare the distance to the selected barangay"
      * — thin pass-through to the shared [LocationTracker] (same fused-location

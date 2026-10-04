@@ -132,9 +132,9 @@ class TerritoryAssignmentWizardViewModel @Inject constructor(
      * bundled province's coverage is silently skipped here, same graceful-
      * miss convention [TerritoryBoundaryRepository] already documents for
      * every other boundary lookup in this app. */
-    suspend fun boundaryGeometries(municipalityName: String, barangays: List<PsgcOption>): List<NamedBoundary> =
+    suspend fun boundaryGeometries(provinceName: String, municipalityName: String, barangays: List<PsgcOption>): List<NamedBoundary> =
         barangays.mapNotNull { barangay ->
-            territoryBoundaryRepository.barangayGeometry(municipalityName, barangay.name)
+            territoryBoundaryRepository.barangayGeometry(provinceName, municipalityName, barangay.name)
                 ?.let { NamedBoundary(barangay.name, it) }
         }
 }

@@ -2059,7 +2059,7 @@ private fun TerritoryLiveMap(
     // or null when this province isn't covered by the bundled boundary asset
     // yet (see [TerritoryBoundaryRepository]'s own doc comment); that null
     // case is the only time the circle below is still drawn.
-    boundaryGeometry: suspend (String, String?) -> String?,
+    boundaryGeometry: suspend (String, String, String?) -> String?,
     // "Snap the small [Group Territory] shape to real streets/blocks where
     // possible" — see [OverpassStreetRepository]'s own doc comment; `null`
     // (offline, timeout, rate-limited) means the caller falls back to that
@@ -2690,7 +2690,7 @@ private fun TerritoryLiveMap(
         // on-device Geocoder (already found flaky on this session's own
         // non-genuine-GMS test device) as a last resort, once there isn't
         // even a point on screen to build a scope boundary from.
-        val geometry = selectedAreaNames?.let { (muni, brgy) -> boundaryGeometry(muni, brgy) }
+        val geometry = selectedAreaNames?.let { (muni, brgy) -> province?.let { p -> boundaryGeometry(p, muni, brgy) } }
         // "Do not remove or replace the existing municipality line
         // barriers... the municipality boundary must remain visible at all
         // times [while Field Service Group barriers are also shown]" — bug

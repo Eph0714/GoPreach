@@ -42,6 +42,7 @@ import kotlinx.coroutines.withContext
 @Singleton
 class TerritoryBoundaryRepository @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val remoteBarangayBoundaryRepository: RemoteBarangayBoundaryRepository,
 ) {
     private var loaded = false
     private var municipalities: JsonObject? = null
@@ -101,11 +102,16 @@ class TerritoryBoundaryRepository @Inject constructor(
     }
 
     /** Same as [municipalityGeometry], for one Barangay within a Municipality —
-     * both names are needed since Barangay names repeat across Municipalities. */
-    suspend fun barangayGeometry(municipality: String, barangay: String): String? {
+     * both names are needed since Barangay names repeat across Municipalities.
+     * [province] is only used if the bundled Nueva Vizcaya extract misses
+     * (i.e. for every other province) — see [RemoteBarangayBoundaryRepository]'s
+     * own doc comment for why that live fallback exists at all instead of
+     * this method just returning null for anywhere outside Nueva Vizcaya. */
+    suspend fun barangayGeometry(province: String, municipality: String, barangay: String): String? {
         ensureLoaded()
         val key = normalize(municipality) + "|" + normalize(barangay)
-        val element = barangays?.get(key) ?: return null
-        return if (element.isJsonNull) null else element.toString()
+        val element = barangays?.get(key)
+        val bundled = if (element == null || element.isJsonNull) null else element.toString()
+        return bundled ?: remoteBarangayBoundaryRepository.barangayGeometry(province, municipality, barangay)
     }
 }

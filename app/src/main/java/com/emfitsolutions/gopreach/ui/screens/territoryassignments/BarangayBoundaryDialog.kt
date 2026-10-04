@@ -68,6 +68,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BarangayBoundaryDialog(
+    province: String,
     municipality: String,
     barangayName: String,
     onDismiss: () -> Unit,
@@ -88,9 +89,9 @@ fun BarangayBoundaryDialog(
     var isLiveLocationOn by remember(municipality, barangayName) { mutableStateOf(false) }
     var isPickModeOn by remember(municipality, barangayName) { mutableStateOf(false) }
 
-    LaunchedEffect(municipality, barangayName) {
+    LaunchedEffect(province, municipality, barangayName) {
         isLoading = true
-        geometryJson = viewModel.boundaryGeometry(municipality, barangayName)
+        geometryJson = viewModel.boundaryGeometry(province, municipality, barangayName)
         isLoading = false
     }
 

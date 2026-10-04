@@ -259,6 +259,7 @@ fun TerritoryAssignmentWizardScreen(
                         viewModel = viewModel,
                         congregationId = congregationId,
                         excludeGroupId = selectedGroupId,
+                        province = provinceOption,
                         municipalities = selectedMunicipalities,
                         barangaysByMuncity = barangaysByMuncity,
                         onBarangaysChange = { muncityId, barangays -> barangaysByMuncity = barangaysByMuncity + (muncityId to barangays) },
@@ -475,6 +476,7 @@ private fun BarangaysStep(
     viewModel: TerritoryAssignmentWizardViewModel,
     congregationId: String?,
     excludeGroupId: String?,
+    province: PsgcOption?,
     municipalities: List<PsgcOption>,
     barangaysByMuncity: Map<Int, List<PsgcOption>>,
     onBarangaysChange: (muncityId: Int, barangays: List<PsgcOption>) -> Unit,
@@ -522,11 +524,12 @@ private fun BarangaysStep(
     // Reloads every time the checklist below changes, but only while the
     // preview is actually open — no point fetching/parsing boundary GeoJSON
     // for a panel the user isn't looking at.
-    LaunchedEffect(showMap, barangaysByMuncity, municipalities) {
+    LaunchedEffect(showMap, barangaysByMuncity, municipalities, province) {
         if (!showMap) return@LaunchedEffect
+        val provinceName = province?.name ?: return@LaunchedEffect
         isLoadingBoundaries = true
         boundaries = municipalities.flatMap { m ->
-            viewModel.boundaryGeometries(m.name, barangaysByMuncity[m.id] ?: emptyList())
+            viewModel.boundaryGeometries(provinceName, m.name, barangaysByMuncity[m.id] ?: emptyList())
         }
         isLoadingBoundaries = false
     }
@@ -637,12 +640,15 @@ private fun BarangaysStep(
         }
     }
     previewTarget?.let { (muncityName, barangay) ->
-        BarangayPreviewDialog(
-            viewModel = viewModel,
-            municipality = muncityName,
-            barangay = barangay,
-            onDismiss = { previewTarget = null },
-        )
+        if (province != null) {
+            BarangayPreviewDialog(
+                viewModel = viewModel,
+                province = province.name,
+                municipality = muncityName,
+                barangay = barangay,
+                onDismiss = { previewTarget = null },
+            )
+        }
     }
     }
 }
@@ -658,6 +664,7 @@ private fun BarangaysStep(
 @Composable
 private fun BarangayPreviewDialog(
     viewModel: TerritoryAssignmentWizardViewModel,
+    province: String,
     municipality: String,
     barangay: PsgcOption,
     onDismiss: () -> Unit,
@@ -666,9 +673,9 @@ private fun BarangayPreviewDialog(
     var boundaries by remember(barangay.id) { mutableStateOf<List<NamedBoundary>>(emptyList()) }
     var isLoading by remember(barangay.id) { mutableStateOf(true) }
 
-    LaunchedEffect(municipality, barangay.id) {
+    LaunchedEffect(province, municipality, barangay.id) {
         isLoading = true
-        boundaries = viewModel.boundaryGeometries(municipality, listOf(barangay))
+        boundaries = viewModel.boundaryGeometries(province, municipality, listOf(barangay))
         isLoading = false
     }
 

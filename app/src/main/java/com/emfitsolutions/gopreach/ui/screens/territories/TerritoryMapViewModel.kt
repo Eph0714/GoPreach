@@ -268,8 +268,8 @@ class TerritoryMapViewModel @Inject constructor(
      * comment. Null means this province isn't covered by the bundled
      * boundary asset yet, not an error — callers fall back to the
      * best-effort circle in that case. */
-    suspend fun boundaryGeometry(municipality: String, barangay: String?): String? =
-        if (barangay != null) territoryBoundaryRepository.barangayGeometry(municipality, barangay)
+    suspend fun boundaryGeometry(province: String, municipality: String, barangay: String?): String? =
+        if (barangay != null) territoryBoundaryRepository.barangayGeometry(province, municipality, barangay)
         else territoryBoundaryRepository.municipalityGeometry(municipality)
 
     /** "PROVINCE-WIDE COLOR CODING... the initial map view must clearly show

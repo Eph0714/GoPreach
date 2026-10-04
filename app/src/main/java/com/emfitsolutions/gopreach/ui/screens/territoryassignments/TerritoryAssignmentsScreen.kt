@@ -108,9 +108,10 @@ fun TerritoryAssignmentsScreen(
     // single card is currently expanded; collapsing one when another is
     // tapped open keeps the list from growing unreadably long.
     var expandedKey by remember { mutableStateOf<Pair<String, Int>?>(null) }
-    // "If a barangay is selected show the boundary map" — municipality name
-    // + barangay name for the currently-open boundary dialog, null when none.
-    var selectedBarangay by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // "If a barangay is selected show the boundary map" — province +
+    // municipality + barangay name for the currently-open boundary dialog,
+    // null when none.
+    var selectedBarangay by remember { mutableStateOf<Triple<String, String, String>?>(null) }
     val removeResult by viewModel.removeResult.collectAsStateWithLifecycle()
     val showToast = rememberActionToast()
 
@@ -299,7 +300,7 @@ fun TerritoryAssignmentsScreen(
                                             Row(
                                                 modifier = Modifier.fillMaxWidth()
                                                     .clickable {
-                                                        selectedBarangay = municipality.assignment.muncityName to barangay.barangayName
+                                                        selectedBarangay = Triple(row.provinceName, municipality.assignment.muncityName, barangay.barangayName)
                                                     }
                                                     .padding(vertical = 6.dp, horizontal = 8.dp),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -372,8 +373,9 @@ fun TerritoryAssignmentsScreen(
         )
     }
 
-    selectedBarangay?.let { (municipality, barangayName) ->
+    selectedBarangay?.let { (province, municipality, barangayName) ->
         BarangayBoundaryDialog(
+            province = province,
             municipality = municipality,
             barangayName = barangayName,
             onDismiss = { selectedBarangay = null },
