@@ -23,6 +23,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.rounded.Print
+import androidx.compose.ui.platform.LocalContext
+import com.emfitsolutions.gopreach.data.print.ReportPrinter
+import com.emfitsolutions.gopreach.data.print.ReportTable
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -44,6 +48,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.emfitsolutions.gopreach.ui.components.GroupColorPalette
 import com.emfitsolutions.gopreach.ui.components.map.NamedBoundary
+import com.emfitsolutions.gopreach.ui.components.map.HideSystemBarsEffect
 import com.emfitsolutions.gopreach.ui.components.map.OsmBoundaryMap
 
 private enum class AllTerritoriesMode(val label: String) { MAP("Map View"), LIST("List View") }
@@ -73,17 +78,38 @@ fun AllTerritoriesDialog(
     viewModel: TerritoryAssignmentsViewModel = hiltViewModel(),
 ) {
     var mode by remember { mutableStateOf(AllTerritoriesMode.MAP) }
+    val context = LocalContext.current
+    var fullScreenRequested by remember { mutableStateOf(false) }
+    val fullScreen = fullScreenRequested && mode == AllTerritoriesMode.MAP
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = { if (fullScreen) fullScreenRequested = false else onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        HideSystemBarsEffect(fullScreen)
         Scaffold(
             topBar = {
-                Column {
+                if (!fullScreen) Column {
                     TopAppBar(
                         title = { Text("All Territories") },
                         navigationIcon = {
                             IconButton(onClick = onDismiss) {
                                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Close")
                             }
+                        },
+                        actions = {
+                            // "Print / PDF" of the Municipality x FS Group list (system print dialog, Save as PDF).
+                            IconButton(onClick = {
+                                ReportPrinter.print(
+                                    context,
+                                    ReportTable(
+                                        title = "All Territories",
+                                        columns = listOf("Municipality", "FS Group", "Barangays"),
+                                        rows = rows.flatMap { row ->
+                                            row.municipalities.map { m ->
+                                                listOf(m.assignment.muncityName, row.group?.name ?: "Unknown Group", m.barangays.joinToString(", ") { it.barangayName })
+                                            }
+                                        }.sortedWith(compareBy({ it[0] }, { it[1] })),
+                                    ),
+                                )
+                            }) { Icon(Icons.Rounded.Print, contentDescription = "Print or save as PDF") }
                         },
                     )
                     Row(
@@ -103,7 +129,13 @@ fun AllTerritoriesDialog(
         ) { padding ->
             Box(modifier = Modifier.fillMaxSize().padding(padding)) {
                 when (mode) {
-                    AllTerritoriesMode.MAP -> AllTerritoriesMapView(rows = rows, viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                    AllTerritoriesMode.MAP -> AllTerritoriesMapView(
+                        rows = rows,
+                        viewModel = viewModel,
+                        fullScreen = fullScreen,
+                        onFullScreenChange = { fullScreenRequested = it },
+                        modifier = Modifier.fillMaxSize(),
+                    )
                     AllTerritoriesMode.LIST -> AllTerritoriesListView(rows = rows, modifier = Modifier.fillMaxSize())
                 }
             }
@@ -115,7 +147,9 @@ fun AllTerritoriesDialog(
 private fun AllTerritoriesMapView(
     rows: List<GroupTerritoryRow>,
     viewModel: TerritoryAssignmentsViewModel,
-    modifier: Modifier,
+
+    fullScreen: Boolean,
+    onFullScreenChange: (Boolean) -> Unit,    modifier: Modifier,
 ) {
     val entries = remember(rows) {
         rows.flatMap { row ->
@@ -161,6 +195,8 @@ private fun AllTerritoriesMapView(
                 boundaries = resolved,
                 onBoundaryClick = { name -> drillDown = entries.find { it.barangay.barangayName == name } },
                 exportTitle = "All Territories",
+                fullScreen = fullScreen,
+                onFullScreenChange = onFullScreenChange,
                 modifier = Modifier.fillMaxSize(),
             )
         }

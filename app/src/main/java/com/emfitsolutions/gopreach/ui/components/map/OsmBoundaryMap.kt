@@ -1,16 +1,13 @@
 package com.emfitsolutions.gopreach.ui.components.map
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.RectF
-import android.graphics.drawable.BitmapDrawable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +15,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Print
@@ -33,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -50,18 +50,28 @@ import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.export.MapImageExporter
 import com.emfitsolutions.gopreach.data.repository.AreaFeature
 import com.emfitsolutions.gopreach.data.repository.Landmark
-import org.osmdroid.config.Configuration
-import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
-import org.osmdroid.util.BoundingBox
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.util.MapTileIndex
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.MapEventsOverlay
-import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Overlay
-import org.osmdroid.views.overlay.Polygon
-import org.osmdroid.views.overlay.Polyline
+import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.FillExtrusionLayer
+import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.style.sources.VectorSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
+import org.maplibre.geojson.Point
+import org.maplibre.geojson.Polygon
 
 /** One named boundary to draw — a list since a future caller could overlay
  * more than one, though [BarangayBoundaryDialog][com.emfitsolutions.gopreach
@@ -72,59 +82,59 @@ import org.osmdroid.views.overlay.Polyline
  * on one shared map, rather than every boundary sharing one color. */
 data class NamedBoundary(val name: String, val geometryJson: String, val colorHex: String? = null)
 
-private enum class MapStyle(val label: String) {
-    SATELLITE("Satellite"),
-    STANDARD("Standard"),
-    NIGHT("Night"),
+private enum class MapStyle(val label: String, val maptilerId: String) {
+    SATELLITE("Satellite", "hybrid-v4"),
+    STANDARD("Standard", "outdoor-v4"),
+    NIGHT("Night", "basic-v2-dark"),
 }
 
-/** MapTiler's "Hybrid v4" basemap (satellite imagery with road/label
- * overlay) for "Satellite" — same key as [mapTilerNightSource]. */
-private fun mapTilerSatelliteSource(): OnlineTileSourceBase =
-    object : OnlineTileSourceBase("MapTilerHybridV4", 0, 19, 256, ".jpg", arrayOf("")) {
-        override fun getTileURLString(pMapTileIndex: Long): String {
-            val z = MapTileIndex.getZoom(pMapTileIndex)
-            val x = MapTileIndex.getX(pMapTileIndex)
-            val y = MapTileIndex.getY(pMapTileIndex)
-            return "https://api.maptiler.com/maps/hybrid-v4/256/$z/$x/$y.jpg?key=${BuildConfig.MAPTILER_API_KEY}"
-        }
-    }
+/** MapTiler vector style per [MapStyle] (needs [BuildConfig.MAPTILER_API_KEY]);
+ * without a key, Standard falls back to OpenFreeMap's keyless "Liberty" style
+ * and the other two to it as well, so the map is never blank. */
+private fun styleUrl(style: MapStyle): String =
+    if (BuildConfig.MAPTILER_API_KEY.isBlank()) "https://tiles.openfreemap.org/styles/liberty"
+    else "https://api.maptiler.com/maps/${style.maptilerId}/style.json?key=${BuildConfig.MAPTILER_API_KEY}"
 
-/** MapTiler's "Basic Dark" basemap (OpenStreetMap data, MapTiler's own
- * rendering/hosting) for "Night" — needs [BuildConfig.MAPTILER_API_KEY], a
- * free-tier key from a MapTiler account, same per-developer-secret handling
- * as the old TomTom key (see app/build.gradle.kts). */
-private fun mapTilerNightSource(): OnlineTileSourceBase =
-    object : OnlineTileSourceBase("MapTilerBasicDark", 0, 19, 256, ".png", arrayOf("")) {
-        override fun getTileURLString(pMapTileIndex: Long): String {
-            val z = MapTileIndex.getZoom(pMapTileIndex)
-            val x = MapTileIndex.getX(pMapTileIndex)
-            val y = MapTileIndex.getY(pMapTileIndex)
-            return "https://api.maptiler.com/maps/basic-v2-dark/256/$z/$x/$y.png?key=${BuildConfig.MAPTILER_API_KEY}"
-        }
-    }
+private const val SRC_BOUNDARY = "gp-boundary-src"
+private const val LYR_BOUNDARY_FILL = "gp-boundary-fill"
+private const val LYR_BOUNDARY_LINE = "gp-boundary-line"
+private const val SRC_LANDMARKS = "gp-landmarks-src"
+private const val LYR_LANDMARKS = "gp-landmarks"
+private const val SRC_AREAS = "gp-areas-src"
+private const val LYR_AREAS = "gp-areas"
+private const val SRC_ME = "gp-me-src"
+private const val LYR_ME = "gp-me"
+private const val LYR_ME_LABEL = "gp-me-label"
+private const val SRC_ME_LINE = "gp-me-line-src"
+private const val LYR_ME_LINE = "gp-me-line"
+private const val SRC_PT = "gp-pt-src"
+private const val LYR_PT = "gp-pt"
+private const val SRC_PT_LINE = "gp-pt-line-src"
+private const val LYR_PT_LINE = "gp-pt-line"
+private const val LYR_3D = "gp-3d-buildings"
+private const val IMG_ME = "gp-img-me"
+private const val IMG_PT = "gp-img-pt"
 
-/** MapTiler's "Outdoor v4" basemap for "Standard" — same key as [mapTilerNightSource]. */
-private fun mapTilerStandardSource(): OnlineTileSourceBase =
-    object : OnlineTileSourceBase("MapTilerOutdoorV4", 0, 19, 256, ".png", arrayOf("")) {
-        override fun getTileURLString(pMapTileIndex: Long): String {
-            val z = MapTileIndex.getZoom(pMapTileIndex)
-            val x = MapTileIndex.getX(pMapTileIndex)
-            val y = MapTileIndex.getY(pMapTileIndex)
-            return "https://api.maptiler.com/maps/outdoor-v4/256/$z/$x/$y.png?key=${BuildConfig.MAPTILER_API_KEY}"
-        }
-    }
+private val OUR_LAYERS = listOf(LYR_3D, LYR_PT, LYR_PT_LINE, LYR_ME_LABEL, LYR_ME, LYR_ME_LINE, LYR_LANDMARKS, LYR_AREAS, LYR_BOUNDARY_LINE, LYR_BOUNDARY_FILL)
+private val OUR_SOURCES = listOf(SRC_PT, SRC_PT_LINE, SRC_ME, SRC_ME_LINE, SRC_LANDMARKS, SRC_AREAS, SRC_BOUNDARY)
+
+private fun emptyCollection() = FeatureCollection.fromFeatures(emptyList<Feature>())
+
+private fun pointFeature(lat: Double, lng: Double, vararg props: Pair<String, String>): Feature =
+    Feature.fromGeometry(Point.fromLngLat(lng, lat)).also { f -> props.forEach { (k, v) -> f.addStringProperty(k, v) } }
+
+private fun toLatLng(p: Pair<Double, Double>) = LatLng(p.first, p.second)
 
 /**
- * Native OpenStreetMap preview for Territory Assignment's Barangay Boundary
- * dialog — a real osmdroid `MapView` (no WebView, no JS mapping library),
- * same Satellite/Standard/Night choice the app has always offered, now all
- * three via MapTiler: "Hybrid v4" for Satellite, "Outdoor v4" for Standard
- * (the default style on open), and "Basic Dark" for Night — built from
- * OpenStreetMap data, requiring [BuildConfig.MAPTILER_API_KEY].
- * Roads and buildings are the base map's own tiles, not a separately drawn
- * overlay — only the boundary polygon, named landmarks, and area labels are
- * drawn on top.
+ * MapLibre (native, vector) boundary map for Territory Assignment — replaces
+ * the earlier osmdroid raster map. Same Satellite/Standard/Night choice via
+ * MapTiler's vector styles, plus a 3D toggle (tilted camera + extruded
+ * buildings where the style carries building data). Only the boundary
+ * outline, landmark pins, area labels, and the user's own markers are drawn
+ * by this component; roads and buildings are the style's own layers.
+ *
+ * The public signature is unchanged from the osmdroid version so the three
+ * call sites (barangay, group, all territories) needed no edits.
  */
 @Composable
 fun OsmBoundaryMap(
@@ -135,7 +145,7 @@ fun OsmBoundaryMap(
      * [com.emfitsolutions.gopreach.ui.components.GroupColorPalette] color, so
      * the boundary reads as "whose territory is this" the same way Group
      * color already does everywhere else in the app. Null (no Group
-     * assigned) falls back to a plain neutral blue/yellow. */
+     * assigned) falls back to a plain neutral blue. */
     boundaryColorHex: String? = null,
     /** Fires with the tapped [NamedBoundary.name] when a boundary polygon is
      * clicked — e.g. [com.emfitsolutions.gopreach.ui.screens
@@ -153,267 +163,344 @@ fun OsmBoundaryMap(
     onPointDistanceComputed: (meters: Double) -> Unit = {},
     onPointNeedsLocation: () -> Unit = {},
     onOpenDirections: (originLat: Double, originLng: Double, destLat: Double, destLng: Double) -> Unit = { _, _, _, _ -> },
+    /** Full-screen mode is owned by the caller (it hides its own app bar/chrome);
+     * pass [onFullScreenChange] to show the toggle button on the map. */
+    fullScreen: Boolean = false,
+    onFullScreenChange: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-
-    // osmdroid refuses to fetch tiles without a user-agent (tile servers
-    // reject the default one) and needs a writable cache location — both
-    // are process-global, one-time setup.
-    remember {
-        Configuration.getInstance().apply {
-            load(context, context.getSharedPreferences("osmdroid_prefs", Context.MODE_PRIVATE))
-            userAgentValue = context.packageName
-        }
-    }
+    remember { MapLibre.getInstance(context) }
 
     var selectedStyle by remember { mutableStateOf(MapStyle.STANDARD) }
-    var selectedPoint by remember { mutableStateOf<GeoPoint?>(null) }
-    var boundaryCenter by remember { mutableStateOf<GeoPoint?>(null) }
+    var is3d by remember { mutableStateOf(false) }
+    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    // Bumped every time a style finishes loading — switching style wipes every
+    // source/layer/image, so everything below re-adds itself off this.
+    var styleVersion by remember { mutableIntStateOf(0) }
+    var selectedPoint by remember { mutableStateOf<LatLng?>(null) }
+    var boundaryCenter by remember { mutableStateOf<LatLng?>(null) }
     var hasFitBoundary by remember { mutableStateOf(false) }
     var hasFitMyLocation by remember { mutableStateOf(false) }
-
-    val tileSources = remember {
-        mapOf(
-            MapStyle.SATELLITE to mapTilerSatelliteSource(),
-            MapStyle.STANDARD to mapTilerStandardSource(),
-            MapStyle.NIGHT to mapTilerNightSource(),
-        )
-    }
+    val imageIds = remember { mutableListOf<String>() }
 
     val latestPickMode = rememberUpdatedState(pickModeEnabled)
     val latestMyLocation = rememberUpdatedState(myLocation)
+    val latestSelectedPoint = rememberUpdatedState(selectedPoint)
     val latestOnPointNeedsLocation = rememberUpdatedState(onPointNeedsLocation)
     val latestOnBoundaryClick = rememberUpdatedState(onBoundaryClick)
+    val latestOnOpenDirections = rememberUpdatedState(onOpenDirections)
 
     val mapView = remember {
         MapView(context).apply {
-            setMultiTouchControls(true)
-            setTileSource(tileSources.getValue(MapStyle.STANDARD))
-            minZoomLevel = 3.0
-            maxZoomLevel = 20.0
-            controller.setZoom(14.0)
-            isTilesScaledToDpi = true
-            // Bottom of the overlay stack — markers/polygons added after
-            // this (always appended, never inserted before it) get first
-            // chance at a tap, so tapping a marker never also registers as
-            // "pick a new point here".
-            overlays.add(
-                MapEventsOverlay(
-                    object : MapEventsReceiver {
-                        override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
-                            if (!latestPickMode.value) return false
-                            if (latestMyLocation.value == null) {
-                                latestOnPointNeedsLocation.value()
-                                return true
-                            }
-                            selectedPoint = p
-                            return true
-                        }
+            onCreate(null)
+            getMapAsync { m ->
+                m.uiSettings.isLogoEnabled = false
+                m.setMinZoomPreference(3.0)
+                m.setMaxZoomPreference(20.0)
+                m.cameraPosition = CameraPosition.Builder().target(LatLng(12.8797, 121.7740)).zoom(5.0).build()
 
-                        // "Long press open Google Maps exactly on the pressed
-                        // location" — a plain search deep link (not a
-                        // package-specific intent) so it still works through
-                        // whatever the device resolves it to (Google Maps if
-                        // installed, a browser fallback otherwise), same
-                        // tolerant approach [BarangayBoundaryDialog]'s own
-                        // directions link already takes.
-                        override fun longPressHelper(p: GeoPoint): Boolean {
-                            val uri = android.net.Uri.parse(
-                                "https://www.google.com/maps/search/?api=1&query=${p.latitude},${p.longitude}",
-                            )
-                            runCatching {
-                                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
-                            }
-                            return true
+                m.addOnMapClickListener { latLng ->
+                    val screen = m.projection.toScreenLocation(latLng)
+                    // A tap on the picked point opens directions to it.
+                    val me = latestMyLocation.value
+                    val picked = latestSelectedPoint.value
+                    if (me != null && picked != null && m.queryRenderedFeatures(screen, LYR_PT).isNotEmpty()) {
+                        latestOnOpenDirections.value(me.first, me.second, picked.latitude, picked.longitude)
+                        return@addOnMapClickListener true
+                    }
+                    if (latestOnBoundaryClick.value != null) {
+                        val name = m.queryRenderedFeatures(screen, LYR_BOUNDARY_FILL)
+                            .firstNotNullOfOrNull { if (it.hasProperty("name")) it.getStringProperty("name") else null }
+                        if (name != null) {
+                            latestOnBoundaryClick.value?.invoke(name)
+                            return@addOnMapClickListener true
                         }
-                    },
-                ),
-            )
-        }
-    }
+                    }
+                    if (!latestPickMode.value) return@addOnMapClickListener false
+                    if (latestMyLocation.value == null) {
+                        latestOnPointNeedsLocation.value()
+                        return@addOnMapClickListener true
+                    }
+                    selectedPoint = latLng
+                    true
+                }
 
-    val myLocationMarker = remember { Marker(mapView).apply { setInfoWindow(null) } }
-    val myLocationLine = remember {
-        Polyline().apply {
-            outlinePaint.color = Color.argb(255, 26, 115, 232)
-            outlinePaint.strokeWidth = 4f
-            outlinePaint.pathEffect = DashPathEffect(floatArrayOf(14f, 14f), 0f)
+                // "Long press open Google Maps exactly on the pressed location"
+                // — a plain search deep link so it works through whatever the
+                // device resolves it to.
+                m.addOnMapLongClickListener { latLng ->
+                    val uri = android.net.Uri.parse(
+                        "https://www.google.com/maps/search/?api=1&query=${latLng.latitude},${latLng.longitude}",
+                    )
+                    runCatching {
+                        context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, uri))
+                    }
+                    true
+                }
+                map = m
+            }
         }
     }
-    val pointMarker = remember { Marker(mapView).apply { setInfoWindow(null) } }
-    val pointLine = remember {
-        Polyline().apply {
-            outlinePaint.color = Color.argb(255, 232, 113, 10)
-            outlinePaint.strokeWidth = 4f
-            outlinePaint.pathEffect = DashPathEffect(floatArrayOf(8f, 16f), 0f)
-        }
-    }
-    val dataOverlays = remember { mutableListOf<Overlay>() }
 
     DisposableEffect(lifecycle, mapView) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
+                Lifecycle.Event.ON_START -> mapView.onStart()
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
                 Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_STOP -> mapView.onStop()
                 else -> Unit
             }
         }
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
-            mapView.onDetach()
+            mapView.onPause()
+            mapView.onStop()
+            mapView.onDestroy()
         }
     }
 
-    LaunchedEffect(selectedStyle) {
-        mapView.setTileSource(tileSources.getValue(selectedStyle))
-        mapView.invalidate()
+    // (Re)load the style; everything else re-adds itself when it finishes.
+    LaunchedEffect(map, selectedStyle) {
+        val m = map ?: return@LaunchedEffect
+        m.setStyle(Style.Builder().fromUri(styleUrl(selectedStyle))) { styleVersion++ }
     }
 
-    // Rebuilds the boundary polygon, area labels, and landmark pins whenever
-    // the data changes. Roads and buildings are left to the base map's own
-    // tiles (Standard/Night already draw real OSM streets/buildings;
-    // Satellite shows the real rooftops in imagery) rather than a separately
-    // drawn overlay.
-    LaunchedEffect(boundaries, landmarks, areas, boundaryColorHex) {
-        val newOverlays = mutableListOf<Overlay>()
-        val allRings = boundaries.flatMap { BoundaryGeometry.outerRings(it.geometryJson) }
-        val allPoints = mutableListOf<GeoPoint>()
-        val baseColor = boundaryColorHex?.let { runCatching { Color.parseColor(it) }.getOrNull() } ?: Color.argb(255, 66, 133, 244)
+    // Boundary outline, area labels, and landmark pins.
+    LaunchedEffect(map, styleVersion, boundaries, landmarks, areas, boundaryColorHex) {
+        val m = map ?: return@LaunchedEffect
+        val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
 
+        OUR_LAYERS.forEach { style.removeLayer(it) }
+        OUR_SOURCES.forEach { style.removeSource(it) }
+        imageIds.forEach { style.removeImage(it) }
+        imageIds.clear()
+
+        val allRings = boundaries.flatMap { BoundaryGeometry.outerRings(it.geometryJson) }
+        val allPoints = mutableListOf<LatLng>()
+        val defaultColor = boundaryColorHex?.takeIf { runCatching { Color.parseColor(it) }.isSuccess } ?: "#4285F4"
+
+        val boundaryFeatures = mutableListOf<Feature>()
         boundaries.forEach { boundary ->
-            val ownColor = boundary.colorHex?.let { runCatching { Color.parseColor(it) }.getOrNull() } ?: baseColor
+            val color = boundary.colorHex?.takeIf { runCatching { Color.parseColor(it) }.isSuccess } ?: defaultColor
             BoundaryGeometry.outerRings(boundary.geometryJson).forEach { ring ->
-                val points = ring.map { (lat, lng) -> GeoPoint(lat, lng) }
-                if (points.size >= 3) {
-                    allPoints.addAll(points)
-                    newOverlays.add(
-                        Polygon(mapView).apply {
-                            setPoints(points)
-                            fillColor = Color.TRANSPARENT
-                            strokeColor = Color.argb(240, Color.red(ownColor), Color.green(ownColor), Color.blue(ownColor))
-                            strokeWidth = 6f
-                            if (onBoundaryClick != null) {
-                                setOnClickListener { _, _, _ -> latestOnBoundaryClick.value?.invoke(boundary.name); true }
-                            }
-                        },
-                    )
+                if (ring.size >= 3) {
+                    allPoints.addAll(ring.map(::toLatLng))
+                    val closed = if (ring.first() == ring.last()) ring else ring + ring.first()
+                    val polygon = Polygon.fromLngLats(listOf(closed.map { (lat, lng) -> Point.fromLngLat(lng, lat) }))
+                    boundaryFeatures += Feature.fromGeometry(polygon).also {
+                        it.addStringProperty("name", boundary.name)
+                        it.addStringProperty("color", color)
+                    }
                 }
             }
         }
         boundaryCenter = if (allPoints.isNotEmpty()) {
-            val box = BoundingBox.fromGeoPoints(allPoints)
-            GeoPoint((box.latNorth + box.latSouth) / 2, (box.lonEast + box.lonWest) / 2)
+            val b = LatLngBounds.Builder().includes(allPoints).build()
+            LatLng((b.latitudeNorth + b.latitudeSouth) / 2, (b.longitudeEast + b.longitudeWest) / 2)
         } else {
             null
         }
+        style.addSource(GeoJsonSource(SRC_BOUNDARY, FeatureCollection.fromFeatures(boundaryFeatures)))
+        // The near-transparent fill exists so taps inside the outline can be hit-tested.
+        style.addLayer(
+            FillLayer(LYR_BOUNDARY_FILL, SRC_BOUNDARY).withProperties(
+                PropertyFactory.fillColor(Expression.get("color")),
+                PropertyFactory.fillOpacity(0.05f),
+            ),
+        )
+        style.addLayer(
+            LineLayer(LYR_BOUNDARY_LINE, SRC_BOUNDARY).withProperties(
+                PropertyFactory.lineColor(Expression.get("color")),
+                PropertyFactory.lineWidth(3f),
+                PropertyFactory.lineOpacity(0.95f),
+            ),
+        )
 
         // What's actually on the ground (rice fields, orchards, forest, ...).
-        areas.forEach { area ->
+        val areaFeatures = areas.mapIndexed { i, area ->
             val inside = BoundaryGeometry.containsPoint(allRings, area.lat, area.lng)
-            newOverlays.add(
-                Marker(mapView).apply {
-                    position = GeoPoint(area.lat, area.lng)
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    icon = BitmapDrawable(
-                        context.resources,
-                        buildTextLabelBitmap(area.name, dimmed = !inside, dark = false, italic = true),
-                    )
-                    setInfoWindow(null)
-                },
-            )
+            val id = "gp-area-$i"
+            style.addImage(id, buildTextLabelBitmap(area.name, dimmed = !inside, dark = false, italic = true))
+            imageIds += id
+            pointFeature(area.lat, area.lng, "icon" to id)
         }
+        style.addSource(GeoJsonSource(SRC_AREAS, FeatureCollection.fromFeatures(areaFeatures)))
+        style.addLayer(
+            SymbolLayer(LYR_AREAS, SRC_AREAS).withProperties(
+                PropertyFactory.iconImage(Expression.get("icon")),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+            ),
+        )
 
-        // Real named landmarks.
-        landmarks.forEach { landmark ->
+        // Real named landmarks. Every pin bitmap has the same height, so one
+        // offset puts each pin's tip (not its name chip) on the coordinate.
+        var tipOffsetY = 0f
+        val landmarkFeatures = landmarks.mapIndexed { i, landmark ->
             val inside = BoundaryGeometry.containsPoint(allRings, landmark.lat, landmark.lng)
             val built = buildLandmarkPinBitmap(landmark, dimmed = !inside)
-            newOverlays.add(
-                Marker(mapView).apply {
-                    position = GeoPoint(landmark.lat, landmark.lng)
-                    setAnchor(built.tipAnchor.x, built.tipAnchor.y)
-                    icon = BitmapDrawable(context.resources, built.bitmap)
-                    setInfoWindow(null)
-                },
-            )
+            tipOffsetY = built.bitmap.height / 2f - built.tipAnchor.y * built.bitmap.height
+            val id = "gp-landmark-$i"
+            style.addImage(id, built.bitmap)
+            imageIds += id
+            pointFeature(landmark.lat, landmark.lng, "icon" to id)
         }
+        style.addSource(GeoJsonSource(SRC_LANDMARKS, FeatureCollection.fromFeatures(landmarkFeatures)))
+        style.addLayer(
+            SymbolLayer(LYR_LANDMARKS, SRC_LANDMARKS).withProperties(
+                PropertyFactory.iconImage(Expression.get("icon")),
+                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+                PropertyFactory.iconOffset(arrayOf(0f, tipOffsetY)),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+            ),
+        )
 
-        mapView.overlays.removeAll(dataOverlays)
-        dataOverlays.clear()
-        dataOverlays.addAll(newOverlays)
-        mapView.overlays.addAll(newOverlays)
-        mapView.invalidate()
+        // The user's own location + picked point (data filled by the effects below).
+        style.addImage(IMG_ME, buildMyLocationDotBitmap())
+        style.addImage(IMG_PT, buildPickedPointBitmap())
+        imageIds += IMG_ME
+        imageIds += IMG_PT
+        style.addSource(GeoJsonSource(SRC_ME_LINE, emptyCollection()))
+        style.addLayer(
+            LineLayer(LYR_ME_LINE, SRC_ME_LINE).withProperties(
+                PropertyFactory.lineColor("#1A73E8"),
+                PropertyFactory.lineWidth(2.5f),
+                PropertyFactory.lineDasharray(arrayOf(3f, 3f)),
+            ),
+        )
+        style.addSource(GeoJsonSource(SRC_ME, emptyCollection()))
+        style.addLayer(
+            SymbolLayer(LYR_ME, SRC_ME).withProperties(
+                PropertyFactory.iconImage(IMG_ME),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+            ),
+        )
+        style.addLayer(
+            SymbolLayer(LYR_ME_LABEL, SRC_ME).withProperties(
+                PropertyFactory.textField("You Are Here"),
+                PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
+                PropertyFactory.textSize(12.5f),
+                PropertyFactory.textColor("#1A73E8"),
+                PropertyFactory.textHaloColor("#FFFFFF"),
+                PropertyFactory.textHaloWidth(2f),
+                PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
+                PropertyFactory.textOffset(arrayOf(0f, 1.3f)),
+                PropertyFactory.textAllowOverlap(true),
+                PropertyFactory.textIgnorePlacement(true),
+            ),
+        )
+        style.addSource(GeoJsonSource(SRC_PT_LINE, emptyCollection()))
+        style.addLayer(
+            LineLayer(LYR_PT_LINE, SRC_PT_LINE).withProperties(
+                PropertyFactory.lineColor("#E8710A"),
+                PropertyFactory.lineWidth(2.5f),
+                PropertyFactory.lineDasharray(arrayOf(2f, 4f)),
+            ),
+        )
+        style.addSource(GeoJsonSource(SRC_PT, emptyCollection()))
+        style.addLayer(
+            SymbolLayer(LYR_PT, SRC_PT).withProperties(
+                PropertyFactory.iconImage(IMG_PT),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+            ),
+        )
 
-        if (!hasFitBoundary && allPoints.isNotEmpty()) {
+        if (!hasFitBoundary && allPoints.size >= 2) {
             hasFitBoundary = true
-            mapView.post { mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(allPoints), false, 80) }
+            m.moveCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes(allPoints).build(), 80))
         }
     }
 
-    // "Add my location, then compare the distance to the selected barangay"
-    // — called on every fix of a continuous location subscription (not a
-    // one-shot fetch) by the caller, so the marker tracks live.
-    LaunchedEffect(myLocation) {
-        val fix = myLocation
-        if (fix == null) {
-            mapView.overlays.remove(myLocationMarker)
-            mapView.overlays.remove(myLocationLine)
-            mapView.overlays.remove(pointMarker)
-            mapView.overlays.remove(pointLine)
-            selectedPoint = null
-            hasFitMyLocation = false
-            mapView.invalidate()
-            return@LaunchedEffect
-        }
-        val point = GeoPoint(fix.first, fix.second)
-        myLocationMarker.position = point
-        myLocationMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-        myLocationMarker.icon = BitmapDrawable(context.resources, buildMyLocationDotBitmap())
-        if (myLocationMarker !in mapView.overlays) mapView.overlays.add(myLocationMarker)
-
-        val center = boundaryCenter
-        if (center != null) {
-            myLocationLine.setPoints(listOf(point, center))
-            if (myLocationLine !in mapView.overlays) mapView.overlays.add(myLocationLine)
-            onDistanceToCenterComputed(point.distanceToAsDouble(center))
-        }
-        if (!hasFitMyLocation) {
-            hasFitMyLocation = true
-            val boxPoints = listOfNotNull(point, center)
-            if (boxPoints.size >= 2) {
-                mapView.post { mapView.zoomToBoundingBox(BoundingBox.fromGeoPoints(boxPoints), true, 100) }
+    // 3D: tilted camera + extruded buildings from the style's own vector
+    // building data (where it has any — the satellite style usually doesn't).
+    LaunchedEffect(map, styleVersion, is3d) {
+        val m = map ?: return@LaunchedEffect
+        val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
+        style.removeLayer(LYR_3D)
+        if (is3d) {
+            val source = style.sources.filterIsInstance<VectorSource>().firstOrNull()
+            if (source != null) {
+                val layer = FillExtrusionLayer(LYR_3D, source.id).apply {
+                    sourceLayer = "building"
+                    minZoom = 14f
+                    setProperties(
+                        PropertyFactory.fillExtrusionColor("#D9D9D9"),
+                        PropertyFactory.fillExtrusionOpacity(0.85f),
+                        PropertyFactory.fillExtrusionHeight(
+                            Expression.coalesce(Expression.get("render_height"), Expression.literal(8)),
+                        ),
+                        PropertyFactory.fillExtrusionBase(
+                            Expression.coalesce(Expression.get("render_min_height"), Expression.literal(0)),
+                        ),
+                    )
+                }
+                if (style.getLayer(LYR_BOUNDARY_FILL) != null) style.addLayerBelow(layer, LYR_BOUNDARY_FILL) else style.addLayer(layer)
             }
         }
-        mapView.invalidate()
+        m.animateCamera(CameraUpdateFactory.tiltTo(if (is3d) 60.0 else 0.0), 600)
     }
 
-    // "Let the user select a point then calculate the distance from
-    // location" — [selectedPoint] is set from the map-tap handler above
-    // while [pickModeEnabled] is on.
-    LaunchedEffect(selectedPoint, myLocation) {
+    // "Add my location, then compare the distance to the selected barangay" —
+    // called on every fix of a continuous location subscription by the caller.
+    LaunchedEffect(map, styleVersion, myLocation, boundaryCenter) {
+        val m = map ?: return@LaunchedEffect
+        val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
+        val meSource = style.getSourceAs<GeoJsonSource>(SRC_ME)
+        val meLineSource = style.getSourceAs<GeoJsonSource>(SRC_ME_LINE)
+        val fix = myLocation
+        if (fix == null) {
+            meSource?.setGeoJson(emptyCollection())
+            meLineSource?.setGeoJson(emptyCollection())
+            selectedPoint = null
+            hasFitMyLocation = false
+            return@LaunchedEffect
+        }
+        val point = LatLng(fix.first, fix.second)
+        meSource?.setGeoJson(pointFeature(point.latitude, point.longitude))
+        val center = boundaryCenter
+        if (center != null) {
+            meLineSource?.setGeoJson(
+                Feature.fromGeometry(
+                    LineString.fromLngLats(listOf(Point.fromLngLat(point.longitude, point.latitude), Point.fromLngLat(center.longitude, center.latitude))),
+                ),
+            )
+            onDistanceToCenterComputed(point.distanceTo(center))
+        }
+        if (!hasFitMyLocation && center != null) {
+            hasFitMyLocation = true
+            m.animateCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().include(point).include(center).build(), 100), 600)
+        }
+    }
+
+    // "Let the user select a point then calculate the distance from location"
+    // — [selectedPoint] is set by the tap handler while [pickModeEnabled] is on.
+    LaunchedEffect(map, styleVersion, selectedPoint, myLocation) {
+        val m = map ?: return@LaunchedEffect
+        val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
+        val ptSource = style.getSourceAs<GeoJsonSource>(SRC_PT)
+        val ptLineSource = style.getSourceAs<GeoJsonSource>(SRC_PT_LINE)
         val point = selectedPoint
         val fix = myLocation
         if (point == null || fix == null) {
-            mapView.overlays.remove(pointMarker)
-            mapView.overlays.remove(pointLine)
-            mapView.invalidate()
+            ptSource?.setGeoJson(emptyCollection())
+            ptLineSource?.setGeoJson(emptyCollection())
             return@LaunchedEffect
         }
-        val origin = GeoPoint(fix.first, fix.second)
-        pointMarker.position = point
-        pointMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-        pointMarker.icon = BitmapDrawable(context.resources, buildPickedPointBitmap())
-        pointMarker.setOnMarkerClickListener { _, _ ->
-            onOpenDirections(fix.first, fix.second, point.latitude, point.longitude)
-            true
-        }
-        if (pointMarker !in mapView.overlays) mapView.overlays.add(pointMarker)
-        pointLine.setPoints(listOf(origin, point))
-        if (pointLine !in mapView.overlays) mapView.overlays.add(pointLine)
-        onPointDistanceComputed(origin.distanceToAsDouble(point))
-        mapView.invalidate()
+        val origin = LatLng(fix.first, fix.second)
+        ptSource?.setGeoJson(pointFeature(point.latitude, point.longitude))
+        ptLineSource?.setGeoJson(
+            Feature.fromGeometry(
+                LineString.fromLngLats(listOf(Point.fromLngLat(origin.longitude, origin.latitude), Point.fromLngLat(point.longitude, point.latitude))),
+            ),
+        )
+        onPointDistanceComputed(origin.distanceTo(point))
     }
 
     Box(modifier = modifier) {
@@ -438,6 +525,22 @@ fun OsmBoundaryMap(
                         ),
                     )
                 }
+                FilterChip(
+                    selected = is3d,
+                    onClick = { is3d = !is3d },
+                    label = { Text("3D") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+                )
+            }
+            if (onFullScreenChange != null) {
+                FilledTonalIconButton(onClick = { onFullScreenChange(!fullScreen) }, modifier = Modifier.padding(top = 4.dp)) {
+                    Icon(
+                        if (fullScreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
+                        contentDescription = if (fullScreen) "Exit full screen" else "Full screen",
+                    )
+                }
             }
             Box(modifier = Modifier.padding(top = 4.dp)) {
                 var exportMenuExpanded by remember { mutableStateOf(false) }
@@ -450,7 +553,8 @@ fun OsmBoundaryMap(
                         leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) },
                         onClick = {
                             exportMenuExpanded = false
-                            MapImageExporter.exportAsImage(context, mapView, exportTitle)
+                            // A GL map can't be drawn into a Canvas — ask it for a snapshot.
+                            map?.snapshot { bitmap -> MapImageExporter.exportBitmapAsImage(context, bitmap, exportTitle) }
                         },
                     )
                     DropdownMenuItem(
@@ -458,7 +562,7 @@ fun OsmBoundaryMap(
                         leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) },
                         onClick = {
                             exportMenuExpanded = false
-                            MapImageExporter.exportAsPdf(context, mapView, exportTitle)
+                            map?.snapshot { bitmap -> MapImageExporter.exportBitmapAsPdf(context, bitmap, exportTitle) }
                         },
                     )
                 }

@@ -1,5 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.sharelocation
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +25,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -35,7 +40,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,16 +47,114 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.data.location.formatCoordinatesDms
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.ui.components.isValidLatitude
 import com.emfitsolutions.gopreach.ui.components.isValidLongitude
-import com.emfitsolutions.gopreach.ui.components.map.LeafletMapView
+import com.emfitsolutions.gopreach.ui.components.map.MapLibreHost
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
-import com.emfitsolutions.gopreach.ui.components.map.rememberLeafletMapController
+import com.emfitsolutions.gopreach.ui.components.map.maptilerStyleUrl
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.sources.GeoJsonOptions
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
+
+private enum class ShareMapStyle(val label: String, val styleId: String) {
+    SATELLITE("Satellite", "hybrid-v4"),
+    STANDARD("Standard", "outdoor-v4"),
+    NIGHT("Night", "basic-v2-dark"),
+}
+
+private const val SRC_SHARE = "share-src"
+private const val LYR_CLUSTER = "share-cluster"
+private const val LYR_CLUSTER_COUNT = "share-cluster-count"
+private const val LYR_PIN = "share-pin"
+private const val IMG_PIN = "share-img-pin"
+private const val IMG_PIN_SELECTED = "share-img-pin-selected"
+private val LABEL_FONT = arrayOf("Noto Sans Regular")
+
+/** The blue round "👤" marker the Leaflet version used (bigger, gold-ringed
+ * when selected), drawn once per style load and registered as a map image. */
+private fun buildSharePinBitmap(selected: Boolean, density: Float): Bitmap {
+    val size = ((if (selected) 34f else 26f) * density).toInt()
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val c = size / 2f
+    val border = (if (selected) 3f else 2f) * density
+    canvas.drawCircle(c, c, c, Paint().apply { color = if (selected) android.graphics.Color.rgb(0xFF, 0xD6, 0x00) else android.graphics.Color.WHITE; isAntiAlias = true })
+    canvas.drawCircle(c, c, c - border, Paint().apply { color = android.graphics.Color.rgb(0x1A, 0x73, 0xE8); isAntiAlias = true })
+    val emojiPaint = Paint().apply {
+        textSize = (if (selected) 16f else 13f) * density
+        textAlign = Paint.Align.CENTER
+        isAntiAlias = true
+    }
+    canvas.drawText("👤", c, c - (emojiPaint.ascent() + emojiPaint.descent()) / 2f, emojiPaint)
+    return bitmap
+}
+
+private fun addShareLayers(style: Style, density: Float) {
+    style.addImage(IMG_PIN, buildSharePinBitmap(selected = false, density = density))
+    style.addImage(IMG_PIN_SELECTED, buildSharePinBitmap(selected = true, density = density))
+    style.addSource(
+        GeoJsonSource(
+            SRC_SHARE,
+            FeatureCollection.fromFeatures(emptyList<Feature>()),
+            GeoJsonOptions().withCluster(true).withClusterRadius(50).withClusterMaxZoom(15),
+        ),
+    )
+    style.addLayer(
+        CircleLayer(LYR_CLUSTER, SRC_SHARE).withFilter(Expression.has("point_count")).withProperties(
+            PropertyFactory.circleColor("#1A73E8"),
+            PropertyFactory.circleRadius(18f),
+            PropertyFactory.circleStrokeColor("#FFFFFF"),
+            PropertyFactory.circleStrokeWidth(2f),
+        ),
+    )
+    style.addLayer(
+        SymbolLayer(LYR_CLUSTER_COUNT, SRC_SHARE).withFilter(Expression.has("point_count")).withProperties(
+            PropertyFactory.textField(Expression.get("point_count_abbreviated")),
+            PropertyFactory.textFont(LABEL_FONT),
+            PropertyFactory.textSize(13f),
+            PropertyFactory.textColor("#FFFFFF"),
+            PropertyFactory.textAllowOverlap(true),
+        ),
+    )
+    style.addLayer(
+        SymbolLayer(LYR_PIN, SRC_SHARE).withFilter(Expression.not(Expression.has("point_count"))).withProperties(
+            PropertyFactory.iconImage(
+                Expression.switchCase(
+                    Expression.eq(Expression.get("sel"), Expression.literal("1")),
+                    Expression.literal(IMG_PIN_SELECTED),
+                    Expression.literal(IMG_PIN),
+                ),
+            ),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.textField(Expression.get("name")),
+            PropertyFactory.textFont(LABEL_FONT),
+            PropertyFactory.textSize(12f),
+            PropertyFactory.textAnchor(Property.TEXT_ANCHOR_LEFT),
+            PropertyFactory.textOffset(arrayOf(1.6f, 0f)),
+            PropertyFactory.textColor("#202124"),
+            PropertyFactory.textHaloColor("#FFFFFF"),
+            PropertyFactory.textHaloWidth(1.5f),
+            PropertyFactory.textOptional(true),
+        ),
+    )
+}
 
 /** "Publisher Type Filter" — the exact four dropdown entries the spec asks
  * for, no more (deliberately not every [PublisherCategory] — Irregular/
@@ -73,15 +175,16 @@ private data class SharePoint(
 )
 
 /**
- * "Shared Location Module — List View and Map View... use the same working
- * map implementation and functionality as the Territory Map Module" — built
- * on [LeafletMapView], the exact same reusable WebView wrapper Territory Map
- * itself is built on (see that composable's own doc comment for every
- * container-sizing/lifecycle/duplicate-init fix that implies), so this map
- * can't go blank for a different reason than Territory Map's already-solved
- * one. [rows] is the *same* list List View shows (own-scoped/searched
- * already, one shared source of truth for both views); this composable only
- * adds the Publisher-type dropdown filter on top of it.
+ * "Shared Location Module — List View and Map View" — a native MapLibre map
+ * (see [MapLibreHost]) with the same Publisher-type filter, clustering,
+ * marker selection and details sheet the Leaflet version had. [rows] is the
+ * *same* list List View shows (own-scoped/searched already, one shared source
+ * of truth for both views); this composable only adds the Publisher-type
+ * dropdown filter on top of it.
+ *
+ * Live location updates only call `setGeoJson` on one source — the map, its
+ * style and the camera are never reloaded for a data change, and the camera
+ * only re-fits on the first load and when the filter itself changes.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,11 +194,10 @@ fun ShareLocationMapView(
     modifier: Modifier = Modifier,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
+    val density = LocalContext.current.resources.displayMetrics.density
 
-    // STEP — validate every coordinate before it ever reaches the map, same
-    // as Territory Map: not null (SharedLocation.lat/lng are non-nullable
-    // Doubles here, but NaN/Infinite still slip through arithmetic), and
-    // within real lat/lng range.
+    // STEP — validate every coordinate before it ever reaches the map: not
+    // NaN/Infinite, and within real lat/lng range.
     val allPoints = remember(rows) {
         rows.mapNotNull { row ->
             val lat = row.location.lat
@@ -119,51 +221,44 @@ fun ShareLocationMapView(
     var selectedRowId by remember { mutableStateOf<String?>(null) }
     val selectedRow = remember(selectedRowId, allPoints) { allPoints.firstOrNull { it.id == selectedRowId }?.row }
 
-    // "Fix the delay in the Shared Location feature... avoid reloading the
-    // entire map when only marker coordinates change" — [html] is now built
-    // exactly once per mount (empty initial marker set), never re-derived
-    // from [allPoints]/[rows], so a live location update from
-    // ShareLocationViewModel's Firestore listener can never trigger
-    // LeafletMapView's own reload-on-html-change path. Every marker
-    // add/move/remove after the very first load goes through
-    // [window.syncMarkers] instead — see that JS function's own comment.
-    val html = remember { buildShareLocationMapHtml() }
+    var mapStyle by remember { mutableStateOf(ShareMapStyle.SATELLITE) }
     var reloadToken by remember { mutableIntStateOf(0) }
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
-    val consoleMessages = remember { mutableStateListOf<String>() }
-    val controller = rememberLeafletMapController()
-
-    // Incremental sync — "Update existing markers efficiently... prevent
-    // duplicate markers... remove old markers when a Publisher stops
-    // sharing" — [window.syncMarkers] diffs against its own already-existing
-    // marker set every time (moves an existing marker's L.marker in place
-    // via setLatLng rather than destroying/recreating it, adds only genuinely
-    // new ids, removes only ids no longer present at all), and also carries
-    // the current filter's visible-id set so a brand-new marker respects the
-    // active Publisher-type filter immediately rather than flashing visible
-    // first. Re-fits the camera only the first time this runs after a (re)
-    // load, and again whenever [selectedFilter] itself actually changes —
-    // never on a plain data refresh, so the camera doesn't jump every time
-    // someone's coordinates update.
+    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    // Bumped each time a style finishes loading (a style switch wipes every
+    // source/layer) so the data below is pushed again.
+    var styleVersion by remember { mutableIntStateOf(0) }
     var lastFitFilter by remember { mutableStateOf<PublisherTypeFilter?>(null) }
-    LaunchedEffect(loadState, allPoints, filteredPoints) {
-        if (loadState != MapLoadState.LOADED) return@LaunchedEffect
-        val pointsLiteral = allPoints.joinToString(",", prefix = "[", postfix = "]") { p ->
-            val label = p.row.groupName?.let { "${p.row.person.fullName} (${it})" } ?: p.row.person.fullName
-            """{id:"${jsEscapeShare(p.id)}",lat:${p.lat},lng:${p.lng},name:"${jsEscapeShare(label)}"}"""
+
+    // Pushes the current (filtered) set into the map's one source; re-fits the
+    // camera only on the first non-empty load and when the filter changes.
+    LaunchedEffect(map, styleVersion, filteredPoints, selectedRowId, selectedFilter) {
+        val m = map ?: return@LaunchedEffect
+        val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
+        val source = style.getSourceAs<GeoJsonSource>(SRC_SHARE) ?: return@LaunchedEffect
+        val features = filteredPoints.map { p ->
+            val label = p.row.groupName?.let { "${p.row.person.fullName} ($it)" } ?: p.row.person.fullName
+            Feature.fromGeometry(Point.fromLngLat(p.lng, p.lat)).also {
+                it.addStringProperty("id", p.id)
+                it.addStringProperty("name", label)
+                it.addStringProperty("sel", if (p.id == selectedRowId) "1" else "0")
+            }
         }
-        val visibleIdsLiteral = filteredPoints.joinToString(",", prefix = "[", postfix = "]") { "\"${jsEscapeShare(it.id)}\"" }
-        controller.evaluateJavascript("if (window.syncMarkers) { window.syncMarkers($pointsLiteral, $visibleIdsLiteral); }")
-        if (lastFitFilter != selectedFilter) {
+        source.setGeoJson(FeatureCollection.fromFeatures(features))
+        if (filteredPoints.isNotEmpty() && lastFitFilter != selectedFilter) {
             lastFitFilter = selectedFilter
-            controller.evaluateJavascript("if (window.fitToVisible) { window.fitToVisible(); }")
+            if (filteredPoints.size == 1) {
+                m.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(filteredPoints[0].lat, filteredPoints[0].lng), 16.0))
+            } else {
+                val bounds = LatLngBounds.Builder().includes(filteredPoints.map { LatLng(it.lat, it.lng) }).build()
+                m.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100))
+            }
         }
     }
 
-    // "System message for actions" — mirrors Territory Map's own "no
-    // locations found for the selected category" Snackbar, fired once per
-    // filter change rather than persistently (the inline empty-state text
-    // below already covers "still empty" for as long as it stays that way).
+    // "System message for actions" — fired once per filter change rather than
+    // persistently (the inline empty-state text below already covers "still
+    // empty" for as long as it stays that way).
     LaunchedEffect(selectedFilter) {
         if (loadState == MapLoadState.LOADED && filteredPoints.isEmpty() && allPoints.isNotEmpty()) {
             snackbarHostState.showSnackbar("No Publisher matches the selected filter.")
@@ -171,15 +266,32 @@ fun ShareLocationMapView(
     }
 
     Box(modifier = modifier) {
-        LeafletMapView(
-            html = html,
-            mapGlobalVarName = "shareLocationMap",
-            controller = controller,
+        MapLibreHost(
+            styleUrl = maptilerStyleUrl(mapStyle.styleId),
             reloadToken = reloadToken,
-            onMarkerClick = { id -> selectedRowId = id },
             onLoadStateChange = { loadState = it },
-            onConsoleMessage = { consoleMessages.add(it) },
-            logTag = "ShareLocationMap",
+            onMapClick = { m, latLng ->
+                val screen = m.projection.toScreenLocation(latLng)
+                if (m.queryRenderedFeatures(screen, LYR_CLUSTER).isNotEmpty()) {
+                    // Tapping a cluster zooms in on it.
+                    m.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, m.cameraPosition.zoom + 2), 400)
+                    true
+                } else {
+                    val id = m.queryRenderedFeatures(screen, LYR_PIN)
+                        .firstNotNullOfOrNull { if (it.hasProperty("id")) it.getStringProperty("id") else null }
+                    if (id != null) {
+                        selectedRowId = id
+                        true
+                    } else {
+                        false
+                    }
+                }
+            },
+            onStyleReady = { m, style ->
+                addShareLayers(style, density)
+                map = m
+                styleVersion++
+            },
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -198,9 +310,6 @@ fun ShareLocationMapView(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                consoleMessages.lastOrNull()?.let {
-                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                }
                 OutlinedButton(onClick = { reloadToken++ }) { Text("Retry") }
             }
         } else if (filteredPoints.isEmpty()) {
@@ -263,6 +372,26 @@ fun ShareLocationMapView(
                         )
                     }
                 }
+            }
+        }
+
+        // Satellite / Standard / Night — the basemap choice the Leaflet layers
+        // control used to offer.
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(12.dp)
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                .padding(4.dp),
+        ) {
+            ShareMapStyle.entries.forEach { style ->
+                FilterChip(
+                    selected = style == mapStyle,
+                    onClick = { mapStyle = style },
+                    label = { Text(style.label) },
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primaryContainer),
+                )
             }
         }
 
@@ -344,173 +473,4 @@ private fun formatShareRelativeTime(updatedAtMillis: Long): String {
         minutes < 24 * 60 -> "${minutes / 60} hour${if (minutes / 60 == 1L) "" else "s"} ago"
         else -> "${minutes / (24 * 60)} day${if (minutes / (24 * 60) == 1L) "" else "s"} ago"
     }
-}
-
-private fun jsEscapeShare(text: String): String =
-    text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ")
-
-/** Same proven Leaflet+OpenStreetMap+marker-cluster structure as Territory
- * Map's own `buildTerritoryMapHtml` — cluster group, tile-error diagnostics,
- * the same triple `setTimeout` invalidateSize/fit fallback. Starts with an
- * empty marker set on purpose: every real point arrives afterward through
- * [window.syncMarkers], called from Kotlin — see [ShareLocationMapView]'s own
- * comment on why the map's initial HTML is never rebuilt from live data. */
-private fun buildShareLocationMapHtml(): String {
-    return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css">
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css">
-        <style>
-          html, body { height: 100%; margin: 0; padding: 0; }
-          #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
-          .share-label { background: rgba(255,255,255,0.9); border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.3); padding: 1px 6px; font-size: 12px; }
-          .share-marker { background: transparent; border: none; }
-        </style>
-        </head>
-        <body>
-        <div id="map"></div>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
-        <script>
-        try {
-          var map = L.map('map', { zoomControl: true });
-          window.shareLocationMap = map;
-          // "Make a choice for map view: satellite, 3D, and other" — see
-          // BarangayBoundaryDialog.kt's own comment on this same change for
-          // why 3D isn't offered (confirmed WebGL rendering failure on this
-          // exact device). Satellite / Standard / Night switch via Leaflet's
-          // own built-in layers control (top-right icon). Satellite is plain
-          // imagery only — no road-line overlay — per explicit request to
-          // drop the white hybrid-layer lines and show "just a real map".
-          var tiles = L.tileLayer('https://api.tomtom.com/map/1/tile/sat/main/{z}/{x}/{y}.jpg?key=${BuildConfig.TOMTOM_API_KEY}', {
-            maxZoom: 22,
-            attribution: '&copy; TomTom'
-          });
-          var satelliteLayer = tiles;
-          var standardLayer = L.tileLayer('https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${BuildConfig.TOMTOM_API_KEY}', {
-            maxZoom: 22, attribution: '&copy; TomTom'
-          });
-          var nightLayer = L.tileLayer('https://api.tomtom.com/map/1/tile/basic/night/{z}/{x}/{y}.png?key=${BuildConfig.TOMTOM_API_KEY}', {
-            maxZoom: 22, attribution: '&copy; TomTom'
-          });
-          satelliteLayer.addTo(map);
-          L.control.layers(
-            { 'Satellite': satelliteLayer, 'Standard': standardLayer, 'Night': nightLayer },
-            null,
-            { position: 'topright' }
-          ).addTo(map);
-          var tileErrorCount = 0;
-          tiles.on('tileerror', function(e) {
-            tileErrorCount++;
-            console.error('Tile load failed (' + tileErrorCount + '): ' + (e.tile && e.tile.src));
-          });
-
-          function buildIcon(selected) {
-            var size = selected ? 34 : 26;
-            var fontSize = selected ? 16 : 13;
-            var border = selected ? '3px solid #ffd600' : '2px solid #ffffff';
-            var html = '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:#1a73e8;border:' + border +
-              ';box-shadow:0 1px 3px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;font-size:' + fontSize + 'px;line-height:1;">👤</div>';
-            return L.divIcon({ className: 'share-marker', html: html, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
-          }
-
-          var selectedMarkerId = null;
-          window.setSelectedMarker = function(id) {
-            if (selectedMarkerId && selectedMarkerId !== id && markersById[selectedMarkerId]) {
-              markersById[selectedMarkerId].setIcon(buildIcon(false));
-            }
-            selectedMarkerId = id || null;
-            if (id && markersById[id]) { markersById[id].setIcon(buildIcon(true)); }
-          };
-
-          var cluster = L.markerClusterGroup();
-          var markers = [];
-          var markersById = {};
-          var lastVisible = [];
-          map.addLayer(cluster);
-
-          function fitTo(list) {
-            if (list.length === 1) {
-              map.setView(list[0].getLatLng(), 16);
-            } else if (list.length > 1) {
-              map.fitBounds(L.featureGroup(list).getBounds().pad(0.2));
-            }
-          }
-          // Re-fits the camera to whatever's currently visible — called by
-          // Kotlin only on first load and on an explicit filter change, per
-          // [window.syncMarkers]'s own comment, never on a plain data
-          // refresh (so the camera doesn't jump every time someone's
-          // coordinates update).
-          window.fitToVisible = function() { fitTo(lastVisible); };
-
-          // "Fix the delay in the Shared Location feature... update Publisher
-          // markers dynamically... avoid reloading the entire map when only
-          // marker coordinates change... update existing markers
-          // efficiently... prevent duplicate markers... remove old markers
-          // when a Publisher stops sharing" — [points] is the *complete*
-          // current set of shared-location markers (every call passes the
-          // full set, not a delta) and [visibleIds] is which of those should
-          // actually be shown (the current Publisher-type filter, already
-          // applied in Kotlin). A marker whose id already exists just moves
-          // in place via setLatLng — its identity, click handler, and
-          // selection state are all untouched, so nothing flickers or
-          // duplicates. A marker whose id no longer appears in [points] at
-          // all (that Publisher stopped sharing, or their location expired)
-          // is removed for good.
-          window.syncMarkers = function(points, visibleIds) {
-            var seen = {};
-            var visible = [];
-            points.forEach(function(p) {
-              seen[p.id] = true;
-              var shouldShow = visibleIds.indexOf(p.id) !== -1;
-              var marker = markersById[p.id];
-              if (!marker) {
-                marker = L.marker([p.lat, p.lng], { icon: buildIcon(selectedMarkerId === p.id) });
-                marker.bindTooltip('👤 ' + p.name, { permanent: true, direction: 'right', offset: [8, 0], className: 'share-label' });
-                marker.on('click', function() {
-                  window.setSelectedMarker(p.id);
-                  if (window.AndroidBridge) { AndroidBridge.showDetails(p.id); }
-                });
-                marker._id = p.id;
-                marker._inCluster = false;
-                markersById[p.id] = marker;
-                markers.push(marker);
-              } else {
-                marker.setLatLng([p.lat, p.lng]);
-                marker.setTooltipContent('👤 ' + p.name);
-              }
-              if (shouldShow && !marker._inCluster) { cluster.addLayer(marker); marker._inCluster = true; }
-              if (!shouldShow && marker._inCluster) { cluster.removeLayer(marker); marker._inCluster = false; }
-              if (shouldShow) visible.push(marker);
-            });
-            markers = markers.filter(function(m) {
-              if (seen[m._id]) return true;
-              if (m._inCluster) { cluster.removeLayer(m); }
-              delete markersById[m._id];
-              return false;
-            });
-            lastVisible = visible;
-          };
-
-          window.addEventListener('resize', function() { map.invalidateSize(); fitTo(lastVisible); });
-          setTimeout(function() {
-            map.invalidateSize();
-            var size = map.getSize();
-            var container = document.getElementById('map');
-            console.log('Diag: map size=' + size.x + 'x' + size.y + ', container clientWidth/Height=' + container.clientWidth + '/' + container.clientHeight + ', markers=' + markers.length);
-          }, 100);
-          setTimeout(function() { map.invalidateSize(); }, 500);
-          setTimeout(function() { map.invalidateSize(); }, 1500);
-        } catch (e) {
-          console.error('Share location map script threw: ' + e.message);
-        }
-        </script>
-        </body>
-        </html>
-    """.trimIndent()
 }

@@ -48,6 +48,7 @@ import com.emfitsolutions.gopreach.data.export.BoundaryKmlExporter
 import com.emfitsolutions.gopreach.data.repository.AreaFeature
 import com.emfitsolutions.gopreach.data.repository.Landmark
 import com.emfitsolutions.gopreach.ui.components.map.NamedBoundary
+import com.emfitsolutions.gopreach.ui.components.map.HideSystemBarsEffect
 import com.emfitsolutions.gopreach.ui.components.map.OsmBoundaryMap
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -183,10 +184,12 @@ fun BarangayBoundaryDialog(
     // content actually span the full screen instead of being capped to
     // Android's default dialog max-width, same as every other full-screen
     // Dialog in this app.
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    var fullScreen by remember { mutableStateOf(false) }
+    Dialog(onDismissRequest = { if (fullScreen) fullScreen = false else onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        HideSystemBarsEffect(fullScreen)
         Scaffold(
             topBar = {
-                TopAppBar(
+                if (!fullScreen) TopAppBar(
                     title = {
                         Column {
                             Text(barangayName)
@@ -272,6 +275,8 @@ fun BarangayBoundaryDialog(
                             areas = areas,
                             boundaryColorHex = boundaryColorHex,
                             exportTitle = "$barangayName $municipality",
+                            fullScreen = fullScreen,
+                            onFullScreenChange = { fullScreen = it },
                             myLocation = myLocationFix,
                             pickModeEnabled = isPickModeOn,
                             onDistanceToCenterComputed = { meters ->

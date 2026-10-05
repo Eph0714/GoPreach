@@ -171,7 +171,8 @@ class TerritoryAssignmentsViewModel @Inject constructor(
      * repeated one-shot [currentLocation] polling, so the marker moves as
      * the device does instead of staying frozen at whatever fix was current
      * when the user tapped the button. */
-    fun locationUpdates(): Flow<LatLng> = locationTracker.requestLocationUpdatesFlow()
+    // Near-real-time (a fix every ~3 s) so "You Are Here" follows the user live.
+    fun locationUpdates(): Flow<LatLng> = locationTracker.requestLocationUpdatesFlow(intervalMillis = 3_000L, minUpdateIntervalMillis = 1_000L)
 
     private val _removeResult = MutableStateFlow<TerritoryAssignmentResult?>(null)
     val removeResult: StateFlow<TerritoryAssignmentResult?> = _removeResult

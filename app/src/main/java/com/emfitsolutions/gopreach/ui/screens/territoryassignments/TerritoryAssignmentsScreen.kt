@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -37,6 +38,13 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
+import androidx.compose.material.icons.rounded.Print
+import androidx.compose.ui.platform.LocalContext
+import com.emfitsolutions.gopreach.data.print.ReportPrinter
+import com.emfitsolutions.gopreach.data.print.ReportTable
+import com.emfitsolutions.gopreach.ui.components.map.HideSystemBarsEffect
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -146,14 +154,40 @@ fun TerritoryAssignmentsScreen(
     val totalMunicipalities = rows.sumOf { it.municipalities.size }
     val totalBarangays = rows.sumOf { it.totalBarangays }
 
+    val context = LocalContext.current
+    // Full screen: hides the app bar and system bars; Back exits it first.
+    var fullScreen by remember { mutableStateOf(false) }
+    BackHandler(enabled = fullScreen) { fullScreen = false }
+    HideSystemBarsEffect(fullScreen)
+    // "Print / PDF": the list as currently searched/filtered, via the system print dialog (Save as PDF).
+    fun printList() {
+        ReportPrinter.print(
+            context,
+            ReportTable(
+                title = "Territory Assignments",
+                columns = listOf("FS Group", "Province", "Municipality", "Barangays"),
+                rows = rows.flatMap { row ->
+                    row.municipalities.map { m ->
+                        listOf(row.group?.name ?: "Unknown Group", row.provinceName, m.assignment.muncityName, m.barangays.joinToString(", ") { it.barangayName })
+                    }
+                },
+                totals = listOf("Assignments" to rows.size.toString(), "Municipalities" to totalMunicipalities.toString(), "Barangays" to totalBarangays.toString()),
+            ),
+        )
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
+            if (!fullScreen) TopAppBar(
                 title = { Text("Territory Assignment") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                     }
+                },
+                actions = {
+                    IconButton(onClick = { printList() }) { Icon(Icons.Rounded.Print, contentDescription = "Print or save as PDF") }
+                    IconButton(onClick = { fullScreen = true }) { Icon(Icons.Rounded.Fullscreen, contentDescription = "Full screen") }
                 },
             )
         },
@@ -165,7 +199,14 @@ fun TerritoryAssignmentsScreen(
             }
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 88.dp)) {
+            item(key = "header") { Column(modifier = Modifier.fillMaxWidth()) {
+            if (fullScreen) {
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.End) {
+                    IconButton(onClick = { printList() }) { Icon(Icons.Rounded.Print, contentDescription = "Print or save as PDF") }
+                    IconButton(onClick = { fullScreen = false }) { Icon(Icons.Rounded.FullscreenExit, contentDescription = "Exit full screen") }
+                }
+            }
             if (fixedCongregationId == null) {
                 CongregationFilterDropdown(
                     congregations = congregations,
@@ -217,9 +258,11 @@ fun TerritoryAssignmentsScreen(
                 Text("Show All Territories (Map View, List View)")
             }
 
+            } }
             if (rows.isEmpty()) {
+              item(key = "empty") {
                 Column(
-                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
@@ -231,17 +274,13 @@ fun TerritoryAssignmentsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
+              }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
                     items(rows, key = { it.groupId to it.provinceId }) { row ->
                         val key = row.groupId to row.provinceId
                         val isExpanded = expandedKey == key
                         Card(
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
                                 .clickable { expandedKey = if (isExpanded) null else key },
                         ) {
                             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -377,7 +416,6 @@ fun TerritoryAssignmentsScreen(
                             }
                         }
                     }
-                }
             }
         }
     }

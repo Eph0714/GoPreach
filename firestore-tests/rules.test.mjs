@@ -434,6 +434,28 @@ async function run() {
     record("Publisher CAN read app settings", true);
   })().catch((e) => record("Publisher CAN read app settings", false, e.message));
 
+  // ============ TEST 12: Territory Map pins ============
+  const pinTests = [
+    ["Publisher CAN create their own pin in their congregation", asPubA, "pin1", { congregationId: "congA", createdByPersonId: "pubA", text: "Dog at gate", lat: 1, lng: 2 }, true],
+    ["Publisher CANNOT create a pin as someone else", asPubA, "pin2", { congregationId: "congA", createdByPersonId: "pubB", text: "x", lat: 1, lng: 2 }, false],
+    ["Publisher CANNOT create a pin in another congregation", asPubA, "pin3", { congregationId: "congB", createdByPersonId: "pubA", text: "x", lat: 1, lng: 2 }, false],
+  ];
+  for (const [name, ctx, id, data, ok] of pinTests) {
+    await (async () => {
+      const op = setDoc(doc(ctx, "mapPins", id), data);
+      await (ok ? assertSucceeds(op) : assertFails(op));
+      record(name, true);
+    })().catch((e) => record(name, false, e.message));
+  }
+  await (async () => {
+    await assertFails(deleteDoc(doc(asPubB, "mapPins", "pin1")));
+    record("Another publisher CANNOT delete someone else's pin", true);
+  })().catch((e) => record("Another publisher CANNOT delete someone else's pin", false, e.message));
+  await (async () => {
+    await assertSucceeds(deleteDoc(doc(asAdminA, "mapPins", "pin1")));
+    record("Admin CAN delete a pin in their congregation", true);
+  })().catch((e) => record("Admin CAN delete a pin in their congregation", false, e.message));
+
   await testEnv.cleanup();
 
   console.log("\n=== SUMMARY ===");

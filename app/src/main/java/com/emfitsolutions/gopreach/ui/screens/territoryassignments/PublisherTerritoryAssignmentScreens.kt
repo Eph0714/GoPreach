@@ -15,6 +15,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Print
+import com.emfitsolutions.gopreach.data.print.ReportPrinter
+import com.emfitsolutions.gopreach.data.print.ReportTable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -216,6 +219,7 @@ fun PublisherTerritoryAssignmentsScreen(
     val rows = all.filter { fixedCongregationId == null || it.congregationId == fixedCongregationId }
     var pendingDelete by remember { mutableStateOf<PublisherTerritoryAssignment?>(null) }
     val showToast = rememberActionToast()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Scaffold(
         topBar = {
@@ -223,6 +227,20 @@ fun PublisherTerritoryAssignmentsScreen(
                 title = { Text("Per Publisher Assignment") },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
+                },
+                actions = {
+                    // "Print / PDF" of the list as shown (system print dialog, Save as PDF).
+                    IconButton(onClick = {
+                        ReportPrinter.print(
+                            context,
+                            ReportTable(
+                                title = "Per Publisher Territory Assignments",
+                                columns = listOf("Publisher", "Barangay", "Municipality", "Province", "Return Visits"),
+                                rows = rows.map { listOf(it.publisherName, it.barangayName, it.muncityName, it.provinceName, it.returnVisitNames.joinToString(", ")) },
+                                totals = listOf("Assignments" to rows.size.toString()),
+                            ),
+                        )
+                    }) { Icon(Icons.Rounded.Print, contentDescription = "Print or save as PDF") }
                 },
             )
         },

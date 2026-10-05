@@ -42,8 +42,13 @@ object MapImageExporter {
 
     /** PNG, shared via [Intent.ACTION_SEND] — [title] names both the export
      * file and the share sheet's own suggested name. */
-    fun exportAsImage(context: Context, mapView: View, title: String) {
-        val bitmap = captureBitmap(mapView)
+    fun exportAsImage(context: Context, mapView: View, title: String) =
+        exportBitmapAsImage(context, captureBitmap(mapView), title)
+
+    /** Same as [exportAsImage] for a bitmap the caller already has — a GL map
+     * (MapLibre) can't be drawn into a Canvas, so it hands over its own
+     * `snapshot()` instead. */
+    fun exportBitmapAsImage(context: Context, bitmap: Bitmap, title: String) {
         val dir = File(context.cacheDir, "exports").apply { mkdirs() }
         val file = File(dir, "${safeFileName(title)}-map.png")
         FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
@@ -53,8 +58,10 @@ object MapImageExporter {
     /** Single-page PDF, the captured map image filling the whole page at its
      * own native pixel size (no extra scaling/margins — this is a map, not a
      * document, so there's no "paper size" to fit). */
-    fun exportAsPdf(context: Context, mapView: View, title: String) {
-        val bitmap = captureBitmap(mapView)
+    fun exportAsPdf(context: Context, mapView: View, title: String) =
+        exportBitmapAsPdf(context, captureBitmap(mapView), title)
+
+    fun exportBitmapAsPdf(context: Context, bitmap: Bitmap, title: String) {
         val document = PdfDocument()
         val pageInfo = PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, 1).create()
         val page = document.startPage(pageInfo)

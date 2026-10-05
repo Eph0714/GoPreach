@@ -395,6 +395,22 @@ service cloud.firestore {
       allow delete: if canManageTerritoryAssignmentsFor(database, resource.data.get('congregationId', null));
     }
 
+    // Territory Map pins (a spot + text mark, dropped by long-press). Everyone
+    // signed in may read (the app filters to the user's own congregation — a
+    // whole-collection listener can't satisfy a per-document congregation
+    // check); a pin can only be created as oneself, and removed by its creator
+    // or by a role with territory access in that congregation.
+    match /mapPins/{pinId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+        request.resource.data.get('createdByPersonId', null) == personIdFromToken() &&
+        inMyActiveCongregation(database, request.resource.data.get('congregationId', null));
+      allow update, delete: if isSignedIn() && (
+        resource.data.get('createdByPersonId', null) == personIdFromToken() ||
+        canManageTerritoryAssignmentsFor(database, resource.data.get('congregationId', null))
+      );
+    }
+
     // One doc per claimed barangay, id == "${congregationId}_${barangayId}"
     // (see TerritoryAssignmentBarangay's own doc comment) — that deterministic
     // id, combined with the create rule below, is what makes "a barangay can
@@ -1013,7 +1029,7 @@ service cloud.firestore {
         'forwardRequests', 'publisherForwardRequests', 'houseHolderAssignments', 'territories', 'schedules', 'elderTitles',
         'appSettings', 'auditLog', 'sharedLocations', 'savedLocations', 'cartAssignments',
         'locationSharingSettings', 'midweekMeetingSchedules', 'publicTalkSchedules', 'announcements',
-        'creditHourCategories', 'publisherTerritoryAssignments', 'plannerDays', 'monthlyPlannerGoals', 'weeklyPlannerGoals',
+        'creditHourCategories', 'publisherTerritoryAssignments', 'mapPins', 'plannerDays', 'monthlyPlannerGoals', 'weeklyPlannerGoals',
         'yearlyPlannerGoals', 'creditHourRecords', 'ministryTimerSessions',
         'territoryAssignments', 'territoryAssignmentBarangays'
       ]);

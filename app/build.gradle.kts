@@ -179,10 +179,11 @@ dependencies {
     // Location / Maps (Share Location, GPS capture)
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
-    // Native OpenStreetMap rendering (Territory Assignment's Barangay
-    // Boundary map) — a real MapView/Marker/Polygon/Polyline API, not a
-    // WebView wrapping a JS mapping library.
-    implementation("org.osmdroid:osmdroid-android:6.1.20")
+
+    // MapLibre Native — vector maps with tilt/rotate and 3D buildings. Replaces
+    // osmdroid and the Leaflet WebViews stage by stage (restore point: git tag
+    // `restore-before-maplibre`).
+    implementation("org.maplibre.gl:android-sdk:11.13.5")
 
     // Coil (logo / image loading)
     implementation("io.coil-kt:coil-compose:2.7.0")

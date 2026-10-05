@@ -28,6 +28,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.emfitsolutions.gopreach.ui.components.map.NamedBoundary
+import com.emfitsolutions.gopreach.ui.components.map.HideSystemBarsEffect
 import com.emfitsolutions.gopreach.ui.components.map.OsmBoundaryMap
 
 /** One barangay to look up a boundary for — [province]/[municipality] are
@@ -69,10 +70,12 @@ fun GroupTerritoryMapDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    var fullScreen by remember { mutableStateOf(false) }
+    Dialog(onDismissRequest = { if (fullScreen) fullScreen = false else onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        HideSystemBarsEffect(fullScreen)
         Scaffold(
             topBar = {
-                TopAppBar(
+                if (!fullScreen) TopAppBar(
                     title = {
                         Column {
                             Text(groupName)
@@ -112,6 +115,8 @@ fun GroupTerritoryMapDialog(
                         boundaryColorHex = boundaryColorHex,
                         onBoundaryClick = { name -> drillDownBarangay = barangays.find { it.barangayName == name } },
                         exportTitle = groupName,
+                        fullScreen = fullScreen,
+                        onFullScreenChange = { fullScreen = it },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
