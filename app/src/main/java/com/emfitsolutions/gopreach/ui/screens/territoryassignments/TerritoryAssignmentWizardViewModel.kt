@@ -10,7 +10,9 @@ import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.MunicipalitySelection
 import com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository
 import com.emfitsolutions.gopreach.data.repository.PsgcOption
+import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentRepository
+import com.emfitsolutions.gopreach.domain.PermissionChecker
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
@@ -42,6 +44,7 @@ class TerritoryAssignmentWizardViewModel @Inject constructor(
     private val territoryAssignmentRepository: TerritoryAssignmentRepository,
     private val groupRepository: GroupRepository,
     private val philippineLocationRepository: PhilippineLocationRepository,
+    private val roleAssignmentRepository: RoleAssignmentRepository,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -113,6 +116,13 @@ class TerritoryAssignmentWizardViewModel @Inject constructor(
     ) {
         _uiState.update { it.copy(isSaving = true, saveResult = null) }
         viewModelScope.launch {
+            val actorAssignments = roleAssignmentRepository.observeForPerson(actorPersonId).first()
+            if (PermissionChecker.fullCrudAssignment(actorAssignments) == null) {
+                _uiState.update {
+                    it.copy(isSaving = false, saveResult = TerritoryAssignmentResult.Error(PermissionChecker.NO_ACCESS_MESSAGE))
+                }
+                return@launch
+            }
             val result = territoryAssignmentRepository.saveGroupTerritoryForProvince(
                 congregationId, groupId, groupName, provinceId, provinceName, municipalities, actorPersonId,
             )

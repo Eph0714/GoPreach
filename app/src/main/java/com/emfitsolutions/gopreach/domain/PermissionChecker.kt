@@ -40,6 +40,26 @@ object PermissionChecker {
         a.status == RoleAssignmentStatus.ACTIVE && a.resolvedRoleTypeOrNull() is RoleType.Publisher
     }
 
+    /** Roles with full CRUD on Territory Assignment, Publishers, Ministerial
+     * Servants and Elders within their own congregation. Mirrors
+     * `canManageRoleAssignmentsFor`/`canManageTerritoryAssignmentsFor` in
+     * firestore.rules (Super-Admin is congregation-agnostic). */
+    val FULL_CRUD_ROLES: Set<AdminRole> = setOf(
+        AdminRole.SUPER_ADMIN,
+        AdminRole.ADMIN_PER_CONGREGATION,
+        AdminRole.COORDINATOR_ELDER,
+        AdminRole.SERVICE_OVERSEER,
+        AdminRole.SECRETARY,
+    )
+
+    const val NO_ACCESS_MESSAGE = "No access. Contact Admin"
+
+    /** The first active [FULL_CRUD_ROLES] assignment among [assignments], if any. */
+    fun fullCrudAssignment(assignments: List<RoleAssignment>): RoleAssignment? = assignments.firstOrNull { a ->
+        a.status == RoleAssignmentStatus.ACTIVE &&
+            (a.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in FULL_CRUD_ROLES
+    }
+
     /** The most senior Admin-track role among [assignments], if any — for deciding
      * which Control Panel / management screens to surface after login.
      *

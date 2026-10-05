@@ -97,16 +97,16 @@ class MinisterialServantEnrollmentViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val enrollerAssignments = roleAssignmentRepository.observeForPerson(enrollingPersonId).first()
+                val enrollerAssignment = PermissionChecker.fullCrudAssignment(enrollerAssignments)
+                if (enrollerAssignment == null) {
+                    _uiState.update { it.copy(isSaving = false, errorMessage = PermissionChecker.NO_ACCESS_MESSAGE) }
+                    return@launch
+                }
                 val congregationId = if (PermissionChecker.hasAdminRole(enrollerAssignments, AdminRole.SUPER_ADMIN)) {
                     state.selectedCongregationId
                 } else {
-                    // Unlike Coordinator Elder enrollment (Admin only), this
-                    // screen is also reachable by a Coordinator Elder — so both
-                    // of their own-congregation roles need checking here.
-                    enrollerAssignments.firstOrNull {
-                        val role = (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role
-                        role == AdminRole.ADMIN_PER_CONGREGATION || role == AdminRole.COORDINATOR_ELDER
-                    }?.congregationId
+                    // Admin, Coordinator Elder, Service Overseer or Secretary.
+                    enrollerAssignment.congregationId
                 }
                 if (congregationId == null) {
                     _uiState.update { it.copy(isSaving = false, errorMessage = "Select a congregation.") }

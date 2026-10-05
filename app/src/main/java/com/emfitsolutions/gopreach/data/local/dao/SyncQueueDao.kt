@@ -82,4 +82,9 @@ interface SyncQueueDao {
      * or [lastError], so the history of what happened is never lost. */
     @Query("UPDATE pending_sync_operations SET isPermanentFailure = 0 WHERE id = :id")
     suspend fun retryPermanentFailure(id: Long)
+
+    /** Same as [retryPermanentFailure] for every permanently-failed row at
+     * once — what "Sync to Server" does so one tap re-attempts everything. */
+    @Query("UPDATE pending_sync_operations SET isPermanentFailure = 0 WHERE isPermanentFailure = 1")
+    suspend fun retryAllPermanentFailures()
 }

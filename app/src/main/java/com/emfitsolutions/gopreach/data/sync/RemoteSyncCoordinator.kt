@@ -97,6 +97,7 @@ class RemoteSyncCoordinator @Inject constructor(
     private val elderTitleRepository: ElderTitleRepository,
     private val territoryRepository: TerritoryRepository,
     private val territoryAssignmentRepository: TerritoryAssignmentRepository,
+    private val publisherTerritoryAssignmentRepository: com.emfitsolutions.gopreach.data.repository.PublisherTerritoryAssignmentRepository,
     private val scheduleRepository: ScheduleRepository,
     private val interestedPersonRepository: InterestedPersonRepository,
     private val forwardRequestRepository: ForwardRequestRepository,
@@ -286,6 +287,7 @@ class RemoteSyncCoordinator @Inject constructor(
         elderTitleRepository.startRemoteSync().startTracked(uidChanged)
         territoryRepository.startRemoteSync().startTracked(uidChanged)
         territoryAssignmentRepository.startRemoteSync().startTracked(uidChanged)
+        publisherTerritoryAssignmentRepository.startRemoteSync().startTracked(uidChanged)
         scheduleRepository.startRemoteSync().startTracked(uidChanged)
         interestedPersonRepository.startRemoteSync().startTracked(uidChanged)
         forwardRequestRepository.startRemoteSync().startTracked(uidChanged)

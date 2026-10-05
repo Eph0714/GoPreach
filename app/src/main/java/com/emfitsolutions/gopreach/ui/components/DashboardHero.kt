@@ -84,31 +84,13 @@ fun DashboardHero(
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
-                val statusCaption = buildString {
-                    if (roleLabel != null) {
-                        append(roleLabel)
-                        append(" · ")
-                    }
-                    append(if (isOnline) "Online" else "Offline")
-                    append(" · ")
-                    append(if (pendingSyncCount > 0) "$pendingSyncCount pending sync" else "All synced")
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // "Show the icon if online and the other online users
-                    // just like before" — restores the 🟢/🔴 connectivity
-                    // glyph and the tappable Online Users count next to it,
-                    // same as the old SyncStatusIndicator row.
-                    Text(if (isOnline) "🟢 " else "🔴 ", style = MaterialTheme.typography.bodyMedium)
+                // "Remove All Synced and Online Users" — only the role label
+                // remains under the greeting.
+                if (roleLabel != null) {
                     Text(
-                        statusCaption,
+                        roleLabel,
                         color = Color.White.copy(alpha = 0.85f),
                         style = MaterialTheme.typography.bodyMedium,
-                    )
-                    OnlineUsersIndicator(
-                        modifier = Modifier.padding(start = 12.dp),
-                        textColor = Color.White.copy(alpha = 0.85f),
-                        onlineTint = Color(0xFF69F0AE),
-                        offlineTint = Color(0xFFFF8A80),
                     )
                 }
             }

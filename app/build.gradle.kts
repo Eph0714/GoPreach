@@ -17,10 +17,17 @@ plugins {
 // HTML string the app loads at runtime, readable by anyone who inspects
 // network traffic or decompiles the APK — there is no way to fully hide a
 // client-side map-tile key, this is just "don't also leak it via git history."
-val tomtomApiKey: String = Properties().apply {
+val localProperties = Properties().apply {
     val localPropertiesFile = rootProject.file("local.properties")
     if (localPropertiesFile.exists()) localPropertiesFile.inputStream().use { load(it) }
-}.getProperty("tomtomApiKey", "")
+}
+val tomtomApiKey: String = localProperties.getProperty("tomtomApiKey", "")
+
+// MapTiler's "Dark" basemap (Territory Assignment's Barangay Boundary map,
+// Night mode) — same per-developer-secret reasoning as the TomTom key above:
+// lives only in local.properties (gitignored), not safe from extraction once
+// embedded in a running app, just kept out of git history.
+val mapTilerApiKey: String = localProperties.getProperty("mapTilerApiKey", "")
 
 android {
     namespace = "com.emfitsolutions.gopreach"
@@ -35,15 +42,14 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+        // Still consumed by a few raster tile URLs elsewhere (Share Location,
+        // Territory Map's satellite layer, Location Preview) — the native
+        // TomTom Maps SDK itself is no longer a dependency of this app (see
+        // dependencies block below); Territory Assignment's Barangay
+        // Boundary map now renders entirely on free/keyless OpenStreetMap-
+        // backed tiles.
         buildConfigField("String", "TOMTOM_API_KEY", "\"$tomtomApiKey\"")
-        // TomTom's "complete" flavor needs no extra credentials (unlike
-        // "extended", which TomTom only grants on request) — see
-        // settings.gradle.kts for the Maven repo this resolves against.
-        missingDimensionStrategy("tomtom-sdk-version", "complete")
-        // TomTom only ships native libs for these two ABIs anyway (its docs'
-        // own requirement) — without this filter Gradle still packages every
-        // other ABI's .so from every other dependency, unsplit, into one APK.
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        buildConfigField("String", "MAPTILER_API_KEY", "\"$mapTilerApiKey\"")
     }
 
     // GoPreach is sideloaded (no Play Store), so every release has always
@@ -173,19 +179,10 @@ dependencies {
     // Location / Maps (Share Location, GPS capture)
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
-    // Native TomTom Maps SDK (Territory Assignment boundary preview, native
-    // polygon rendering) — map-display-premium is the View-based artifact;
-    // the official Compose wrapper has no polygon API as of 2.6.2. Requires
-    // API 26+/arm64-v8a or x86_64/Vulkan 1.0, so every call site must check
-    // com.emfitsolutions.gopreach.ui.components.map.NativeMapSupport before
-    // touching any class from this dependency — see that file's doc comment.
-    implementation("com.tomtom.sdk.maps:map-display-premium:2.6.2")
-    // MapOptions' simple mapKey-only constructor resolves its map-tile data
-    // provider through the SDK's global context — without TomTomSdk.initialize()
-    // having run first, MapView.onCreate throws "No valid data provider
-    // configured" (confirmed on-device), so this is not actually optional
-    // despite TomTom's own docs never saying so explicitly.
-    implementation("com.tomtom.sdk:init:2.6.2")
+    // Native OpenStreetMap rendering (Territory Assignment's Barangay
+    // Boundary map) — a real MapView/Marker/Polygon/Polyline API, not a
+    // WebView wrapping a JS mapping library.
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
 
     // Coil (logo / image loading)
     implementation("io.coil-kt:coil-compose:2.7.0")

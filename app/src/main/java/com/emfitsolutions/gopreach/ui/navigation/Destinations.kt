@@ -84,11 +84,19 @@ object Destinations {
     // ThemePreferenceRepository unchanged — no new storage, no new
     // permission gate (spec §24: preserve exactly who already had access).
     const val THEME_COLOR_SETTINGS = "theme_color_settings"
+    const val SESSION_TIMEOUT_SETTING = "session_timeout_setting"
 
     // Phase 4
     const val MANAGE_PUBLISHERS = "manage_publishers"
     const val MANAGE_GROUPS = "manage_groups"
+    // Landing page offering the two Territory Assignment modules; every
+    // existing entry point (side panel, etc.) still navigates here.
     const val MANAGE_TERRITORY_ASSIGNMENTS = "manage_territory_assignments"
+    // "FS Group Assignment" — the original Territory Assignment dashboard.
+    const val FS_GROUP_TERRITORY_ASSIGNMENTS = "fs_group_territory_assignments"
+    // "Per Publisher Assignment" — list, then the add form.
+    const val PUBLISHER_TERRITORY_ASSIGNMENTS = "publisher_territory_assignments"
+    const val PUBLISHER_TERRITORY_ASSIGNMENT_FORM = "publisher_territory_assignment_form"
     // "new" sentinel in {congregationId}/{groupId}/{provinceId} means Add
     // rather than Edit (a brand-new session, nothing picked yet) — see
     // GoPreachNavGraph's own composable() block for this route. A Group's

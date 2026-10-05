@@ -67,7 +67,7 @@ fun pendingChangesPhrase(count: Int): String =
 class ManualSyncViewModel @Inject constructor(
     private val connectivityObserver: ConnectivityObserver,
     private val syncScheduler: SyncScheduler,
-    offlineFirestoreRepository: OfflineFirestoreRepository,
+    private val offlineFirestoreRepository: OfflineFirestoreRepository,
 ) : ViewModel() {
 
     val pendingCount: StateFlow<Int> = offlineFirestoreRepository.observePendingSyncCount()
@@ -96,8 +96,12 @@ class ManualSyncViewModel @Inject constructor(
             return
         }
         _uiState.value = ManualSyncState.Syncing(done = 0, total = 0)
-        val requestId = syncScheduler.requestSyncNow()
         viewModelScope.launch {
+            // "Fix it at once in clicking Sync to Server" — previously-rejected
+            // changes (e.g. PERMISSION_DENIED before a rules fix) go back into
+            // the queue so this one tap re-attempts them along with the rest.
+            offlineFirestoreRepository.retryAllPermanentSyncFailures()
+            val requestId = syncScheduler.requestSyncNow()
             syncScheduler.observeWorkInfo(requestId).collect { info ->
                 if (info == null) return@collect
                 val progress = info.progress

@@ -4,10 +4,10 @@ import com.emfitsolutions.gopreach.data.repository.LandmarkGroup
 
 /** "Add a feature for the user to select what he wants to see specifically
  * ... make it checkbox so that the user can select a specific feature he
- * wants" — a multi-select filter both [TomTomBoundaryMap] and the Leaflet
- * fallback's own boundary map offer as their own checkbox picker. The
- * boundary tint and street lines themselves are never gated by this — only
- * which landmark pins, street name labels, and building footprints draw.
+ * wants" — a multi-select filter the Leaflet boundary map offers as its own
+ * checkbox picker. The boundary tint and street lines themselves are never
+ * gated by this — only which landmark pins, street name labels, and building
+ * footprints draw.
  * There is no `ALL` entry here: "All" is just every entry checked, handled
  * by the picker UI as a master checkbox rather than a member of this set. */
 enum class MapLayer(val label: String) {

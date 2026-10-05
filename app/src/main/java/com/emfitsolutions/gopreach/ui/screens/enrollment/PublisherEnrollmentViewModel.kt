@@ -14,6 +14,8 @@ import com.emfitsolutions.gopreach.data.repository.AuthRepository
 import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository
+import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
+import com.emfitsolutions.gopreach.domain.PermissionChecker
 import com.emfitsolutions.gopreach.data.repository.TempCredentials
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -74,6 +77,7 @@ class PublisherEnrollmentViewModel @Inject constructor(
     private val groupRepository: GroupRepository,
     private val locationTracker: LocationTracker,
     private val philippineLocationRepository: PhilippineLocationRepository,
+    private val roleAssignmentRepository: RoleAssignmentRepository,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -200,6 +204,11 @@ class PublisherEnrollmentViewModel @Inject constructor(
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
         viewModelScope.launch {
             try {
+                val enrollerAssignments = roleAssignmentRepository.observeForPerson(enrollingPersonId).first()
+                if (PermissionChecker.fullCrudAssignment(enrollerAssignments) == null) {
+                    _uiState.update { it.copy(isSaving = false, errorMessage = PermissionChecker.NO_ACCESS_MESSAGE) }
+                    return@launch
+                }
                 val credentials = authRepository.createAccountWithTempCredentials(
                     person = Person(
                         lastName = state.lastName.trim(),

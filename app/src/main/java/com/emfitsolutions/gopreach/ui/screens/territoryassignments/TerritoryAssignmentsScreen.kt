@@ -26,6 +26,8 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,6 +38,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -111,7 +114,14 @@ fun TerritoryAssignmentsScreen(
     // "If a barangay is selected show the boundary map" — province +
     // municipality + barangay name for the currently-open boundary dialog,
     // null when none.
-    var selectedBarangay by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    var selectedBarangay by remember { mutableStateOf<SelectedBarangay?>(null) }
+    // "Show all Territory" next to a Group's name — every barangay currently
+    // assigned to that Group, null when no such overview is open.
+    var selectedGroupTerritory by remember { mutableStateOf<SelectedGroupTerritory?>(null) }
+    // "Show All Territories" — every barangay across every Field Service
+    // Group at once (Map View / List View), independent of the current
+    // search/province filter.
+    var showAllTerritories by remember { mutableStateOf(false) }
     val removeResult by viewModel.removeResult.collectAsStateWithLifecycle()
     val showToast = rememberActionToast()
 
@@ -198,6 +208,14 @@ fun TerritoryAssignmentsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
+            OutlinedButton(
+                onClick = { showAllTerritories = true },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Icon(Icons.Rounded.Map, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Show All Territories (Map View, List View)")
+            }
 
             if (rows.isEmpty()) {
                 Column(
@@ -269,6 +287,33 @@ fun TerritoryAssignmentsScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                                val groupColor = GroupColorPalette.parseHex(row.group?.color ?: GroupColorPalette.UNASSIGNED_COLOR)
+                                AssistChip(
+                                    onClick = {
+                                        selectedGroupTerritory = SelectedGroupTerritory(
+                                            groupName = row.group?.name ?: "Unknown Group",
+                                            groupColorHex = row.group?.color,
+                                            barangays = row.municipalities.flatMap { municipality ->
+                                                municipality.barangays.map { barangay ->
+                                                    GroupTerritoryBarangay(row.provinceName, municipality.assignment.muncityName, barangay.barangayName)
+                                                }
+                                            },
+                                        )
+                                    },
+                                    label = { Text("Show Territories") },
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.Map, contentDescription = null, modifier = Modifier.size(18.dp), tint = groupColor)
+                                    },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = groupColor.copy(alpha = 0.12f),
+                                        labelColor = groupColor,
+                                    ),
+                                    border = AssistChipDefaults.assistChipBorder(
+                                        enabled = true,
+                                        borderColor = groupColor.copy(alpha = 0.4f),
+                                    ),
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
                                 if (isExpanded) {
                                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                                     row.municipalities.forEach { municipality ->
@@ -300,7 +345,12 @@ fun TerritoryAssignmentsScreen(
                                             Row(
                                                 modifier = Modifier.fillMaxWidth()
                                                     .clickable {
-                                                        selectedBarangay = Triple(row.provinceName, municipality.assignment.muncityName, barangay.barangayName)
+                                                        selectedBarangay = SelectedBarangay(
+                                                            province = row.provinceName,
+                                                            municipality = municipality.assignment.muncityName,
+                                                            barangayName = barangay.barangayName,
+                                                            groupColorHex = row.group?.color,
+                                                        )
                                                     }
                                                     .padding(vertical = 6.dp, horizontal = 8.dp),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -373,15 +423,55 @@ fun TerritoryAssignmentsScreen(
         )
     }
 
-    selectedBarangay?.let { (province, municipality, barangayName) ->
+    selectedBarangay?.let { selection ->
         BarangayBoundaryDialog(
-            province = province,
-            municipality = municipality,
-            barangayName = barangayName,
+            province = selection.province,
+            municipality = selection.municipality,
+            barangayName = selection.barangayName,
+            boundaryColorHex = selection.groupColorHex,
             onDismiss = { selectedBarangay = null },
         )
     }
+
+    selectedGroupTerritory?.let { selection ->
+        GroupTerritoryMapDialog(
+            groupName = selection.groupName,
+            boundaryColorHex = selection.groupColorHex,
+            barangays = selection.barangays,
+            onDismiss = { selectedGroupTerritory = null },
+        )
+    }
+
+    if (showAllTerritories) {
+        AllTerritoriesDialog(
+            rows = allRows,
+            onDismiss = { showAllTerritories = false },
+        )
+    }
 }
+
+/** What [GroupTerritoryMapDialog] needs about the Group whose "Show all
+ * Territory" button was just tapped — every barangay assigned to it across
+ * every municipality in [barangays], and the same [groupColorHex] the
+ * Group's own swatch in this list already shows. */
+private data class SelectedGroupTerritory(
+    val groupName: String,
+    val groupColorHex: String?,
+    val barangays: List<GroupTerritoryBarangay>,
+)
+
+/** What [BarangayBoundaryDialog] needs about the barangay just tapped —
+ * [groupColorHex] (the assigned Field Service Group's own
+ * [com.emfitsolutions.gopreach.ui.components.GroupColorPalette] color, null
+ * if unassigned) lets the dialog draw the boundary in that Group's color
+ * instead of a fixed one, so "whose territory is this" reads at a glance the
+ * same way it already does everywhere else Group color is shown. */
+private data class SelectedBarangay(
+    val province: String,
+    val municipality: String,
+    val barangayName: String,
+    val groupColorHex: String?,
+)
 
 /** Small read-only searchable-free dropdown shared by the Province/Sort
  * filter row — few enough options in both cases that a plain

@@ -55,6 +55,41 @@ class TerritoryBoundaryRepository @Inject constructor(
             .trim()
             .uppercase()
 
+    // Bug fix ("two adjacent barangays' boundaries visibly cross/overlap on
+    // the map instead of sharing a clean edge") — the bundled HDX extract is
+    // itself inconsistent about "Santa"/"Santo": Bagabag's own entries
+    // abbreviate it ("STA CRUZ", "STA LUCIA") while Bayombong's spell it in
+    // full ("SANTA ROSA"), so neither a plain lookup nor a blanket
+    // full<->abbreviated rewrite matches every entry. A barangay whose own
+    // stored name used the OTHER form than its bundled entry silently missed
+    // the bundled (precise) geometry and fell through to
+    // [RemoteBarangayBoundaryRepository]'s cruder, differently-sourced
+    // fallback instead — a different data source than its bundled neighbor
+    // almost never shares the exact same edge, so the two boundaries visibly
+    // crossed instead of touching. Trying both forms of the key (only when
+    // "SANTA"/"STA"/"SANTO"/"STO" actually appears, so every other lookup is
+    // the one plain key as before) finds the bundled entry regardless of
+    // which form it happens to use.
+    private fun keyVariants(normalized: String): List<String> {
+        if (!Regex("\\b(SANTA|STA|SANTO|STO)\\b").containsMatchIn(normalized)) return listOf(normalized)
+        val abbreviated = normalized.replace(Regex("\\bSANTA\\b"), "STA").replace(Regex("\\bSANTO\\b"), "STO")
+        val full = normalized.replace(Regex("\\bSTA\\b"), "SANTA").replace(Regex("\\bSTO\\b"), "SANTO")
+        return listOf(normalized, abbreviated, full).distinct()
+    }
+
+    // Same bug, different cause: a handful of Bayombong "Poblacion district"
+    // barangays (e.g. "District III (D.M.P.)", "Don Domingo Maddela") are
+    // bundled with a trailing " POB" the barangay's own stored name doesn't
+    // include ("BAYOMBONG|DISTRICT III POB" vs. the stored "District III
+    // (D.M.P.)", which normalizes to just "DISTRICT III" once the
+    // parenthetical is stripped) — same silent miss -> cruder remote
+    // fallback -> visibly crossing boundary as the Santa/Sta case above.
+    // Tried only as a barangay-key suffix (never for the municipality side,
+    // where "POB" would never legitimately belong) so this never changes
+    // behavior for the vast majority of barangays that already match plainly.
+    private fun barangayKeyVariants(normalized: String): List<String> =
+        keyVariants(normalized).flatMap { listOf(it, "$it POB") }.distinct()
+
     private suspend fun ensureLoaded() {
         if (loaded) return
         withContext(Dispatchers.IO) {
@@ -96,9 +131,11 @@ class TerritoryBoundaryRepository @Inject constructor(
      * every caller's existing "not available yet" fallback actually fires. */
     suspend fun municipalityGeometry(municipality: String): String? {
         ensureLoaded()
-        val key = normalize(municipality)
-        val element = municipalities?.get(key) ?: return null
-        return if (element.isJsonNull) null else element.toString()
+        for (key in keyVariants(normalize(municipality))) {
+            val element = municipalities?.get(key) ?: continue
+            return if (element.isJsonNull) null else element.toString()
+        }
+        return null
     }
 
     /** Same as [municipalityGeometry], for one Barangay within a Municipality —
@@ -109,9 +146,17 @@ class TerritoryBoundaryRepository @Inject constructor(
      * this method just returning null for anywhere outside Nueva Vizcaya. */
     suspend fun barangayGeometry(province: String, municipality: String, barangay: String): String? {
         ensureLoaded()
-        val key = normalize(municipality) + "|" + normalize(barangay)
-        val element = barangays?.get(key)
-        val bundled = if (element == null || element.isJsonNull) null else element.toString()
+        val municipalityKeys = keyVariants(normalize(municipality))
+        val barangayKeys = barangayKeyVariants(normalize(barangay))
+        var bundled: String? = null
+        outer@ for (m in municipalityKeys) {
+            for (b in barangayKeys) {
+                val element = barangays?.get("$m|$b") ?: continue
+                if (element.isJsonNull) continue
+                bundled = element.toString()
+                break@outer
+            }
+        }
         return bundled ?: remoteBarangayBoundaryRepository.barangayGeometry(province, municipality, barangay)
     }
 }

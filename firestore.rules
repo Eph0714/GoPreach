@@ -154,6 +154,24 @@ function canManageCreditHourCategories(db) {
   );
 }
 
+// Full CRUD on Publisher / Elder / Ministerial Servant records: the same role
+// set as [canManageRoleAssignmentsFor], editing the `people` profile of someone
+// in their own congregation. A target's congregation is its denormalized
+// `activeCongregationId`, which is null until that person first signs in, so a
+// never-signed-in target is accepted too (the only scope signal available).
+function canEditPersonProfile(db, targetPersonId) {
+  return isSignedIn() && exists(/databases/$(db)/documents/people/$(personIdFromToken())) && (
+    isSuperAdmin(db) || (
+      myPerson(db).get('activeAdminRole', null) in
+        ['ADMIN_PER_CONGREGATION', 'COORDINATOR_ELDER', 'SERVICE_OVERSEER', 'SECRETARY'] &&
+      myPerson(db).get('activeCongregationId', null) != null &&
+      exists(/databases/$(db)/documents/people/$(targetPersonId)) &&
+      get(/databases/$(db)/documents/people/$(targetPersonId)).data.get('activeCongregationId', null) in
+        [null, myPerson(db).get('activeCongregationId', null)]
+    )
+  );
+}
+
 function isPrivilegedRoleType(roleType) {
   return roleType == 'ADMIN:SUPER_ADMIN' || roleType == 'ADMIN:CIRCUIT_OVERSEER';
 }
@@ -259,6 +277,15 @@ function restrictedAllowsPermission(db, permission) {
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Super-Admin override: full read/write on every collection. Rules from
+    // overlapping matches are OR'd, so this only ever adds access — it also
+    // covers collection-wide listeners (e.g. `userAccessGrants`,
+    // `dashboardModuleLayouts`) that the per-document own-record rules below
+    // can't authorize, which showed up as a permanent "Sync error".
+    match /{document=**} {
+      allow read, write: if isSuperAdmin(database);
+    }
+
     // Public write-only mailbox: spec §4.5 "forgot password" is submitted by
     // someone who, by definition, cannot sign in yet.
     match /passwordResetRequests/{requestId} {
@@ -307,6 +334,7 @@ service cloud.firestore {
         request.resource.data.get('isSuperAdmin', false) == resource.data.get('isSuperAdmin', false) &&
         (
           personId == personIdFromToken() ||
+          canEditPersonProfile(database, personId) ||
           (
             canManageCredentialsFor(database, personId) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['username', 'accountStatus'])
@@ -351,6 +379,17 @@ service cloud.firestore {
       allow create: if canManageTerritoryAssignmentsFor(database, request.resource.data.get('congregationId', null));
       // congregationId is immutable on edit — a congregation is a fixed
       // scope for this record, never reassignable.
+      allow update: if canManageTerritoryAssignmentsFor(database, resource.data.get('congregationId', null)) &&
+        request.resource.data.get('congregationId', null) == resource.data.get('congregationId', null);
+      allow delete: if canManageTerritoryAssignmentsFor(database, resource.data.get('congregationId', null));
+    }
+
+    // Per Publisher Assignment — one barangay (plus optional Return Visits)
+    // assigned to one Publisher. Same role set/congregation scope as the FS
+    // Group territory assignments above; congregationId is immutable.
+    match /publisherTerritoryAssignments/{assignmentId} {
+      allow read: if isSignedIn();
+      allow create: if canManageTerritoryAssignmentsFor(database, request.resource.data.get('congregationId', null));
       allow update: if canManageTerritoryAssignmentsFor(database, resource.data.get('congregationId', null)) &&
         request.resource.data.get('congregationId', null) == resource.data.get('congregationId', null);
       allow delete: if canManageTerritoryAssignmentsFor(database, resource.data.get('congregationId', null));
@@ -884,7 +923,16 @@ service cloud.firestore {
     match /territories/{territoryId} { allow read, write: if isSignedIn(); }
     match /schedules/{scheduleId} { allow read, write: if isSignedIn(); }
     match /elderTitles/{titleId} { allow read, write: if isSignedIn(); }
-    match /appSettings/{settingId} { allow read, write: if isSignedIn(); }
+    // App-wide settings (logo, Session Timeout Setting): every signed-in user
+    // reads them; only Super-Admin, Admins and Elders may change them.
+    match /appSettings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isSuperAdmin(database) || (
+        exists(/databases/$(database)/documents/people/$(personIdFromToken())) &&
+        myPerson(database).get('activeAdminRole', null) in
+          ['ADMIN_PER_CONGREGATION', 'COORDINATOR_ELDER', 'REGULAR_ELDER', 'SERVICE_OVERSEER', 'SECRETARY']
+      ));
+    }
     match /auditLog/{logId} { allow read, write: if isSignedIn(); }
     match /sharedLocations/{locationId} { allow read, write: if isSignedIn(); }
     match /savedLocations/{locationId} { allow read, write: if isSignedIn(); }
@@ -965,7 +1013,7 @@ service cloud.firestore {
         'forwardRequests', 'publisherForwardRequests', 'houseHolderAssignments', 'territories', 'schedules', 'elderTitles',
         'appSettings', 'auditLog', 'sharedLocations', 'savedLocations', 'cartAssignments',
         'locationSharingSettings', 'midweekMeetingSchedules', 'publicTalkSchedules', 'announcements',
-        'creditHourCategories', 'plannerDays', 'monthlyPlannerGoals', 'weeklyPlannerGoals',
+        'creditHourCategories', 'publisherTerritoryAssignments', 'plannerDays', 'monthlyPlannerGoals', 'weeklyPlannerGoals',
         'yearlyPlannerGoals', 'creditHourRecords', 'ministryTimerSessions',
         'territoryAssignments', 'territoryAssignmentBarangays'
       ]);

@@ -483,6 +483,28 @@ fun GoPreachNavGraph(
             )
         }
         composable(Destinations.MANAGE_TERRITORY_ASSIGNMENTS) {
+            com.emfitsolutions.gopreach.ui.screens.territoryassignments.TerritoryAssignmentHomeScreen(
+                onBack = { navController.popBackStack() },
+                onOpenFsGroup = { navController.navigate(Destinations.FS_GROUP_TERRITORY_ASSIGNMENTS) },
+                onOpenPerPublisher = { navController.navigate(Destinations.PUBLISHER_TERRITORY_ASSIGNMENTS) },
+            )
+        }
+        composable(Destinations.PUBLISHER_TERRITORY_ASSIGNMENTS) {
+            com.emfitsolutions.gopreach.ui.screens.territoryassignments.PublisherTerritoryAssignmentsScreen(
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+                currentPersonId = currentPersonId,
+                onBack = { navController.popBackStack() },
+                onAddNew = { navController.navigate(Destinations.PUBLISHER_TERRITORY_ASSIGNMENT_FORM) },
+            )
+        }
+        composable(Destinations.PUBLISHER_TERRITORY_ASSIGNMENT_FORM) {
+            com.emfitsolutions.gopreach.ui.screens.territoryassignments.PublisherTerritoryAssignmentFormScreen(
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
+                currentPersonId = currentPersonId,
+                onDone = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.FS_GROUP_TERRITORY_ASSIGNMENTS) {
             TerritoryAssignmentsScreen(
                 fixedCongregationId = ownCongregationId,
                 currentPersonId = currentPersonId,
@@ -1031,6 +1053,12 @@ fun GoPreachNavGraph(
         // way, no duplicate screen.
         composable(Destinations.THEME_COLOR_SETTINGS) {
             com.emfitsolutions.gopreach.ui.screens.settings.ThemeColorSettingsScreen(
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.SESSION_TIMEOUT_SETTING) {
+            com.emfitsolutions.gopreach.ui.screens.settings.SessionTimeoutSettingScreen(
+                currentPersonId = currentPersonId,
                 onBack = { navController.popBackStack() },
             )
         }

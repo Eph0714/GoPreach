@@ -9,6 +9,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
@@ -42,16 +43,42 @@ class AppSettingsRepository @Inject constructor(
         val ref = storage.reference.child("app-settings/logo.png")
         ref.putFile(imageUri).await()
         val downloadUrl = ref.downloadUrl.await().toString()
+        // copy() of the current doc, not a fresh AppSettings(): this document
+        // also carries the session-timeout settings, which must survive a logo change.
+        val current = observe().first()
         offline.save(
             COLLECTION,
             AppSettings.GLOBAL_ID,
-            AppSettings(
+            current.copy(
                 logoUrl = downloadUrl,
                 updatedAt = System.currentTimeMillis(),
                 updatedByPersonId = updatedByPersonId,
             ),
         )
         auditLogRepository.log(actorPersonId = updatedByPersonId, action = "UPLOAD_LOGO")
+    }
+
+    /** "Session Timeout Setting" — turn the inactivity logout on/off and set
+     * its limit. Access (Super-Admin/Admins/Elders) is enforced by the screen's
+     * visibility and by firestore.rules on `appSettings`. */
+    suspend fun saveSessionTimeout(enabled: Boolean, minutes: Int, updatedByPersonId: String) {
+        val current = observe().first()
+        val clamped = minutes.coerceIn(AppSettings.MIN_SESSION_TIMEOUT_MINUTES, AppSettings.MAX_SESSION_TIMEOUT_MINUTES)
+        offline.save(
+            COLLECTION,
+            AppSettings.GLOBAL_ID,
+            current.copy(
+                sessionTimeoutEnabled = enabled,
+                sessionTimeoutMinutes = clamped,
+                updatedAt = System.currentTimeMillis(),
+                updatedByPersonId = updatedByPersonId,
+            ),
+        )
+        auditLogRepository.log(
+            actorPersonId = updatedByPersonId,
+            action = "UPDATE_SESSION_TIMEOUT",
+            details = "enabled=$enabled, minutes=$clamped",
+        )
     }
 
     fun startRemoteSync(): Flow<Unit> =

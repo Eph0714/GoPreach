@@ -470,6 +470,9 @@ fun AdminHomeScreen(
                 canManageUsers = canManageUsers,
                 canManageAccountCredentials = canManageAccountCredentials,
                 canViewContactRecord = canViewContactRecord,
+                // Same role set: Super-Admin, Admin, Coordinator Elder, Regular
+                // Elder, Service Overseer, Secretary.
+                canManageSessionTimeout = canViewContactRecord,
                 canViewInterestedPeopleScope = canViewInterestedPeopleScope,
                 onSwitchToPublisher = onSwitchToPublisher?.let { switchAction ->
                     { coroutineScope.launch { drawerState.close() }; switchAction() }

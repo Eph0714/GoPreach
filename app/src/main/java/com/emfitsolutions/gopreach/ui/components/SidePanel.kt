@@ -118,6 +118,8 @@ fun GoPreachSidePanelContent(
     /** "Contact Record" module — Super-Admin, Coordinator Elder, and Regular
      * Elder only (not Admin, not Service Overseer/Ministerial Servant). */
     canViewContactRecord: Boolean,
+    /** "Session Timeout Setting" — Super-Admin, every Admin, every Elder. */
+    canManageSessionTimeout: Boolean,
     /** Spec §15 — "Elders should be able to see Interested Person information
      * according to their existing Congregation/Group access scope": Admin/
      * Coordinator Elder/Service Overseer/Regular Elder, read-only, scoped to
@@ -265,6 +267,7 @@ fun GoPreachSidePanelContent(
             // listed under Control Panel doesn't narrow who could already
             // reach it (spec §34).
             add(SideItem(stringResource(R.string.side_theme_color_settings), Icons.Rounded.Palette, Destinations.THEME_COLOR_SETTINGS))
+            if (canManageSessionTimeout) add(SideItem("Session Timeout Setting", Icons.Rounded.Timer, Destinations.SESSION_TIMEOUT_SETTING))
             if (canManageUsers) add(SideItem(stringResource(R.string.side_user_management), Icons.Rounded.ManageAccounts, Destinations.MANAGE_USERS))
             if (canManageAccountCredentials) add(SideItem(stringResource(R.string.side_account_management), Icons.Rounded.ManageAccounts, Destinations.ACCOUNT_MANAGEMENT))
             if (canAccessControlPanel) add(SideItem(stringResource(R.string.side_credit_hour_categories), Icons.Rounded.Timer, Destinations.CREDIT_HOUR_CATEGORIES))

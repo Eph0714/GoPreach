@@ -13,10 +13,18 @@ import com.google.firebase.firestore.DocumentId
 data class AppSettings(
     @DocumentId val id: String = GLOBAL_ID,
     val logoUrl: String? = null,
+    /** "Session Timeout Setting" — log everyone out after [sessionTimeoutMinutes]
+     * of no interaction while [sessionTimeoutEnabled]. App-wide (one value for
+     * every user), editable by Super-Admin/Admins/Elders. */
+    val sessionTimeoutEnabled: Boolean = true,
+    val sessionTimeoutMinutes: Int = DEFAULT_SESSION_TIMEOUT_MINUTES,
     val updatedAt: Long = 0L,
     val updatedByPersonId: String? = null,
 ) {
     companion object {
         const val GLOBAL_ID = "global"
+        const val DEFAULT_SESSION_TIMEOUT_MINUTES = 5
+        const val MIN_SESSION_TIMEOUT_MINUTES = 1
+        const val MAX_SESSION_TIMEOUT_MINUTES = 120
     }
 }

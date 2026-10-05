@@ -381,6 +381,59 @@ async function run() {
     record("Publisher CAN delete their own presence doc (sign-out cleanup)", true);
   })().catch((e) => record("Publisher CAN delete their own presence doc (sign-out cleanup)", false, e.message));
 
+  // ============ TEST 9: full CRUD on people profiles for admin-track roles ============
+  const profileTests = [
+    ["Admin CAN edit a same-congregation publisher's profile", asAdminA, "pubA", true],
+    ["Secretary CAN edit a same-congregation publisher's profile", asSecretaryA, "pubA", true],
+    ["Admin CANNOT edit another congregation's publisher profile", asAdminA, "pubOtherCong", false],
+    ["Publisher CANNOT edit another publisher's profile", asPubA, "pubB", false],
+    ["Regular Elder CANNOT edit a publisher's profile", asElderRegA, "pubA", false],
+  ];
+  for (const [name, ctx, target, ok] of profileTests) {
+    await (async () => {
+      const op = updateDoc(doc(ctx, "people", target), { contact: "09170000000" });
+      await (ok ? assertSucceeds(op) : assertFails(op));
+      record(name, true);
+    })().catch((e) => record(name, false, e.message));
+  }
+
+  // ============ TEST 10: per-publisher territory assignments ============
+  const pta = { congregationId: "congA", publisherPersonId: "pubA", barangayId: 1 };
+  const ptaTests = [
+    ["Admin CAN create a per-publisher territory assignment in own congregation", asAdminA, "p1", pta, true],
+    ["Secretary CAN create a per-publisher territory assignment in own congregation", asSecretaryA, "p2", pta, true],
+    ["Admin CANNOT create one for another congregation", asAdminA, "p3", { ...pta, congregationId: "congB" }, false],
+    ["Publisher CANNOT create a per-publisher territory assignment", asPubA, "p4", pta, false],
+    ["Super Admin CAN create one for any congregation", asSuperAdmin, "p5", { ...pta, congregationId: "congB" }, true],
+  ];
+  for (const [name, ctx, id, data, ok] of ptaTests) {
+    await (async () => {
+      const op = setDoc(doc(ctx, "publisherTerritoryAssignments", id), data);
+      await (ok ? assertSucceeds(op) : assertFails(op));
+      record(name, true);
+    })().catch((e) => record(name, false, e.message));
+  }
+
+  // ============ TEST 11: appSettings (Session Timeout Setting) ============
+  const stTests = [
+    ["Admin CAN change app settings", asAdminA, true],
+    ["Regular Elder CAN change app settings", asElderRegA, true],
+    ["Secretary CAN change app settings", asSecretaryA, true],
+    ["Super Admin CAN change app settings", asSuperAdmin, true],
+    ["Publisher CANNOT change app settings", asPubA, false],
+  ];
+  for (const [name, ctx, ok] of stTests) {
+    await (async () => {
+      const op = setDoc(doc(ctx, "appSettings", "global"), { sessionTimeoutEnabled: true, sessionTimeoutMinutes: 10 });
+      await (ok ? assertSucceeds(op) : assertFails(op));
+      record(name, true);
+    })().catch((e) => record(name, false, e.message));
+  }
+  await (async () => {
+    await assertSucceeds(getDoc(doc(asPubA, "appSettings", "global")));
+    record("Publisher CAN read app settings", true);
+  })().catch((e) => record("Publisher CAN read app settings", false, e.message));
+
   await testEnv.cleanup();
 
   console.log("\n=== SUMMARY ===");

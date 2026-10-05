@@ -627,7 +627,7 @@ private fun ConfirmStep(
  * screen's own file-level doc comment). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PsgcSearchField(
+internal fun PsgcSearchField(
     label: String,
     selected: PsgcOption?,
     enabled: Boolean,
@@ -680,7 +680,7 @@ private fun PsgcSearchField(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SimpleDropdown(
+internal fun SimpleDropdown(
     label: String,
     selectedLabel: String,
     options: List<Pair<String, String>>,

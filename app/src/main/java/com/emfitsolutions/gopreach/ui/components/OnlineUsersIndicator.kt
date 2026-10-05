@@ -202,6 +202,7 @@ fun OnlineUsersIndicator(
     textColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     onlineTint: Color = OnlineUsersGreen,
     offlineTint: Color = MaterialTheme.colorScheme.error,
+    showIcon: Boolean = true,
     viewModel: OnlineUsersViewModel = hiltViewModel(),
 ) {
     val onlineUsers by viewModel.onlineUsers.collectAsStateWithLifecycle()
@@ -214,12 +215,14 @@ fun OnlineUsersIndicator(
         // "Change the online user icon to a man icon. Green if there is
         // online, red if there is 0 online" — a person glyph instead of the
         // plain colored dot, tinted by whether anyone is actually online.
-        Icon(
-            Icons.Rounded.Person,
-            contentDescription = null,
-            tint = if (onlineUsers.isNotEmpty()) onlineTint else offlineTint,
-            modifier = Modifier.padding(end = 6.dp).size(18.dp),
-        )
+        if (showIcon) {
+            Icon(
+                Icons.Rounded.Person,
+                contentDescription = null,
+                tint = if (onlineUsers.isNotEmpty()) onlineTint else offlineTint,
+                modifier = Modifier.padding(end = 6.dp).size(18.dp),
+            )
+        }
         Text(
             "Online Users: ${onlineUsers.size}",
             style = MaterialTheme.typography.bodySmall,

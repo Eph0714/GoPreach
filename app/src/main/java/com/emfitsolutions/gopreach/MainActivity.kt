@@ -27,6 +27,8 @@ import com.emfitsolutions.gopreach.ui.components.SyncMessageHost
 import com.emfitsolutions.gopreach.ui.components.update.UpdateHost
 import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
 import com.emfitsolutions.gopreach.ui.navigation.GoPreachNavGraph
+import com.emfitsolutions.gopreach.ui.screens.settings.InactivityTracker
+import com.emfitsolutions.gopreach.ui.screens.settings.SessionTimeoutHost
 import com.emfitsolutions.gopreach.ui.theme.GoPreachTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -50,6 +52,15 @@ class MainActivity : AppCompatActivity() {
 
     @Inject
     lateinit var remoteSyncCoordinator: RemoteSyncCoordinator
+
+    @Inject
+    lateinit var inactivityTracker: InactivityTracker
+
+    /** Any touch/key/trackball event counts as "using the app" for Session Timeout. */
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        inactivityTracker.touch()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -140,6 +151,10 @@ class MainActivity : AppCompatActivity() {
                     // instance for the whole process, same reasoning as
                     // UpdateHost above.
                     SyncMessageHost()
+
+                    // "Session Timeout Setting" — logs the user out after the
+                    // configured period of inactivity.
+                    SessionTimeoutHost()
                 }
             }
         }

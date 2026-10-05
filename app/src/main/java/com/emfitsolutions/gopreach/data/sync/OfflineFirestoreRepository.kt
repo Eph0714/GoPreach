@@ -235,6 +235,11 @@ class OfflineFirestoreRepository @Inject constructor(
         syncQueueDao.retryPermanentFailure(operation.id)
     }
 
+    /** Puts every permanently-failed operation back into the retry queue. */
+    suspend fun retryAllPermanentSyncFailures() {
+        syncQueueDao.retryAllPermanentFailures()
+    }
+
     /** Discards a permanently-failed operation outright — the one case this
      * app *does* delete a pending operation without it ever reaching the
      * server, and only after the Publisher explicitly chose to (never
