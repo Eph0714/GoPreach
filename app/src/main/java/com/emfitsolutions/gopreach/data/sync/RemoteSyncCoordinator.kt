@@ -116,6 +116,7 @@ class RemoteSyncCoordinator @Inject constructor(
     private val publisherVisibilitySettingsRepository: com.emfitsolutions.gopreach.data.repository.PublisherVisibilitySettingsRepository,
     private val savedLocationRepository: SavedLocationRepository,
     private val mapPinRepository: com.emfitsolutions.gopreach.data.repository.MapPinRepository,
+    private val territoryDrawingRepository: com.emfitsolutions.gopreach.data.repository.TerritoryDrawingRepository,
     private val bibleTextCategoryRepository: BibleTextCategoryRepository,
     private val bibleTextRecordRepository: BibleTextRecordRepository,
     private val midweekMeetingScheduleRepository: MidweekMeetingScheduleRepository,
@@ -309,6 +310,8 @@ class RemoteSyncCoordinator @Inject constructor(
         publisherVisibilitySettingsRepository.startRemoteSync().startTracked(uidChanged)
         savedLocationRepository.startRemoteSync().startTracked(uidChanged)
         mapPinRepository.startRemoteSync().startTracked(uidChanged)
+        territoryDrawingRepository.startRemoteSync().startTracked(uidChanged)
+        territoryDrawingRepository.startBoundsRemoteSync().startTracked(uidChanged)
         startTrackedForPublisher { pid -> bibleTextCategoryRepository.startRemoteSync(pid) }
         startTrackedForPublisher { pid -> bibleTextRecordRepository.startRemoteSync(pid) }
         midweekMeetingScheduleRepository.startRemoteSync().startTracked(uidChanged)

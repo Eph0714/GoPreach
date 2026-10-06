@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.emfitsolutions.gopreach.ui.components.map.MapLibreHost
+import com.emfitsolutions.gopreach.ui.components.map.rememberCurrentLocation
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
 import com.emfitsolutions.gopreach.ui.components.map.maptilerStyleUrl
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -45,12 +46,14 @@ private const val PREVIEW_LAYER = "preview-pin"
 @Composable
 fun LocationPreviewMap(lat: Double, lng: Double, modifier: Modifier = Modifier) {
     var loadState by remember { mutableStateOf(MapLoadState.LOADING) }
+    val myLocation by rememberCurrentLocation()
 
     Box(modifier = modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(12.dp))) {
         MapLibreHost(
             // Plain satellite imagery — "just a real map", rooftops visible.
             styleUrl = maptilerStyleUrl("satellite"),
             interactive = false,
+            myLocation = myLocation,
             onLoadStateChange = { loadState = it },
             onStyleReady = { map, style ->
                 style.addSource(GeoJsonSource(PREVIEW_SOURCE, Feature.fromGeometry(Point.fromLngLat(lng, lat))))

@@ -105,9 +105,6 @@ private const val SRC_LANDMARKS = "gp-landmarks-src"
 private const val LYR_LANDMARKS = "gp-landmarks"
 private const val SRC_AREAS = "gp-areas-src"
 private const val LYR_AREAS = "gp-areas"
-private const val SRC_ME = "gp-me-src"
-private const val LYR_ME = "gp-me"
-private const val LYR_ME_LABEL = "gp-me-label"
 private const val SRC_ME_LINE = "gp-me-line-src"
 private const val LYR_ME_LINE = "gp-me-line"
 private const val SRC_PT = "gp-pt-src"
@@ -115,11 +112,10 @@ private const val LYR_PT = "gp-pt"
 private const val SRC_PT_LINE = "gp-pt-line-src"
 private const val LYR_PT_LINE = "gp-pt-line"
 private const val LYR_3D = "gp-3d-buildings"
-private const val IMG_ME = "gp-img-me"
 private const val IMG_PT = "gp-img-pt"
 
-private val OUR_LAYERS = listOf(LYR_3D, LYR_PT, LYR_PT_LINE, LYR_ME_LABEL, LYR_ME, LYR_ME_LINE, LYR_LANDMARKS, LYR_AREAS, LYR_BOUNDARY_LINE, LYR_BOUNDARY_FILL)
-private val OUR_SOURCES = listOf(SRC_PT, SRC_PT_LINE, SRC_ME, SRC_ME_LINE, SRC_LANDMARKS, SRC_AREAS, SRC_BOUNDARY)
+private val OUR_LAYERS = listOf(LYR_3D, LYR_PT, LYR_PT_LINE, LYR_ME_LINE, LYR_LANDMARKS, LYR_AREAS, LYR_BOUNDARY_LINE, LYR_BOUNDARY_FILL)
+private val OUR_SOURCES = listOf(SRC_PT, SRC_PT_LINE, SRC_ME_LINE, SRC_LANDMARKS, SRC_AREAS, SRC_BOUNDARY)
 
 private fun emptyCollection() = FeatureCollection.fromFeatures(emptyList<Feature>())
 
@@ -178,11 +174,6 @@ fun OsmBoundaryMap(
 
     var selectedStyle by remember { mutableStateOf(MapStyle.STANDARD) }
     var is3d by remember { mutableStateOf(false) }
-    // Street View (Mapillary): coverage overlay + tap-for-photos.
-    var streetView by remember { mutableStateOf(false) }
-    var streetImages by remember { mutableStateOf<List<MapillaryImage>?>(null) }
-    var showStreetViewSetup by remember { mutableStateOf(false) }
-    val streetScope = rememberCoroutineScope()
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     // Bumped every time a style finishes loading — switching style wipes every
     // source/layer/image, so everything below re-adds itself off this.
@@ -193,27 +184,24 @@ fun OsmBoundaryMap(
     var hasFitMyLocation by remember { mutableStateOf(false) }
     val imageIds = remember { mutableListOf<String>() }
 
+    // Shared compass + orientation behavior (same as every MapLibreHost map).
+    val heading by rememberDeviceHeading(myLocation)
+    val latestHeading = rememberUpdatedState(heading)
+    var orientationMode by remember { mutableStateOf(OrientationMode.NORTH_UP) }
+    androidx.compose.runtime.LaunchedEffect(heading == null) { if (heading == null) orientationMode = OrientationMode.NORTH_UP }
+
     val latestPickMode = rememberUpdatedState(pickModeEnabled)
     val latestMyLocation = rememberUpdatedState(myLocation)
     val latestSelectedPoint = rememberUpdatedState(selectedPoint)
     val latestOnPointNeedsLocation = rememberUpdatedState(onPointNeedsLocation)
     val latestOnBoundaryClick = rememberUpdatedState(onBoundaryClick)
     val latestOnOpenDirections = rememberUpdatedState(onOpenDirections)
-    val latestStreetView = rememberUpdatedState(streetView)
-    val latestOnStreetViewTap = rememberUpdatedState<(Double, Double) -> Unit> { lat, lng ->
-        streetScope.launch {
-            Toast.makeText(context, "Looking for street-level photos...", Toast.LENGTH_SHORT).show()
-            val found = Mapillary.imagesNear(lat, lng)
-            if (found.isEmpty()) Toast.makeText(context, "No street-level photos here. Tap near a green line.", Toast.LENGTH_LONG).show()
-            else streetImages = found
-        }
-    }
-
     val mapView = remember {
         MapView(context).apply {
             onCreate(null)
             getMapAsync { m ->
                 m.uiSettings.isLogoEnabled = false
+                m.uiSettings.isCompassEnabled = false
                 m.setMinZoomPreference(3.0)
                 m.setMaxZoomPreference(20.0)
                 m.cameraPosition = CameraPosition.Builder().target(LatLng(12.8797, 121.7740)).zoom(5.0).build()
@@ -223,6 +211,10 @@ fun OsmBoundaryMap(
                     // A tap on the picked point opens directions to it.
                     val me = latestMyLocation.value
                     val picked = latestSelectedPoint.value
+                    if (me != null && CurrentLocationLayer.isHit(m, screen, me, 24f * context.resources.displayMetrics.density)) {
+                        m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(me.first, me.second), maxOf(m.cameraPosition.zoom, 16.0)), 400)
+                        return@addOnMapClickListener true
+                    }
                     if (me != null && picked != null && m.queryRenderedFeatures(screen, LYR_PT).isNotEmpty()) {
                         latestOnOpenDirections.value(me.first, me.second, picked.latitude, picked.longitude)
                         return@addOnMapClickListener true
@@ -234,10 +226,6 @@ fun OsmBoundaryMap(
                             latestOnBoundaryClick.value?.invoke(name)
                             return@addOnMapClickListener true
                         }
-                    }
-                    if (latestStreetView.value) {
-                        latestOnStreetViewTap.value(latLng.latitude, latLng.longitude)
-                        return@addOnMapClickListener true
                     }
                     if (!latestPickMode.value) return@addOnMapClickListener false
                     if (latestMyLocation.value == null) {
@@ -295,6 +283,7 @@ fun OsmBoundaryMap(
         val m = map ?: return@LaunchedEffect
         val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
 
+        CurrentLocationLayer.remove(style)
         OUR_LAYERS.forEach { style.removeLayer(it) }
         OUR_SOURCES.forEach { style.removeSource(it) }
         imageIds.forEach { style.removeImage(it) }
@@ -381,10 +370,9 @@ fun OsmBoundaryMap(
             ),
         )
 
-        // The user's own location + picked point (data filled by the effects below).
-        style.addImage(IMG_ME, buildMyLocationDotBitmap())
+        // The picked point (data filled by the effects below). The user's own location is the shared
+        // CurrentLocationLayer, installed last (below) so it stays above everything here.
         style.addImage(IMG_PT, buildPickedPointBitmap())
-        imageIds += IMG_ME
         imageIds += IMG_PT
         style.addSource(GeoJsonSource(SRC_ME_LINE, emptyCollection()))
         style.addLayer(
@@ -392,28 +380,6 @@ fun OsmBoundaryMap(
                 PropertyFactory.lineColor("#1A73E8"),
                 PropertyFactory.lineWidth(2.5f),
                 PropertyFactory.lineDasharray(arrayOf(3f, 3f)),
-            ),
-        )
-        style.addSource(GeoJsonSource(SRC_ME, emptyCollection()))
-        style.addLayer(
-            SymbolLayer(LYR_ME, SRC_ME).withProperties(
-                PropertyFactory.iconImage(IMG_ME),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-            ),
-        )
-        style.addLayer(
-            SymbolLayer(LYR_ME_LABEL, SRC_ME).withProperties(
-                PropertyFactory.textField("You Are Here"),
-                PropertyFactory.textFont(arrayOf("Noto Sans Bold")),
-                PropertyFactory.textSize(12.5f),
-                PropertyFactory.textColor("#1A73E8"),
-                PropertyFactory.textHaloColor("#FFFFFF"),
-                PropertyFactory.textHaloWidth(2f),
-                PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
-                PropertyFactory.textOffset(arrayOf(0f, 1.3f)),
-                PropertyFactory.textAllowOverlap(true),
-                PropertyFactory.textIgnorePlacement(true),
             ),
         )
         style.addSource(GeoJsonSource(SRC_PT_LINE, emptyCollection()))
@@ -433,6 +399,10 @@ fun OsmBoundaryMap(
             ),
         )
 
+        // Shared "You Are Here" radar indicator — always the topmost layer.
+        CurrentLocationLayer.install(style, context.resources.displayMetrics.density)
+        CurrentLocationLayer.setLocation(style, latestMyLocation.value)
+
         if (!hasFitBoundary && allPoints.size >= 2) {
             hasFitBoundary = true
             m.moveCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes(allPoints).build(), 80))
@@ -441,13 +411,6 @@ fun OsmBoundaryMap(
 
     // 3D: tilted camera + extruded buildings from the style's own vector
     // building data (where it has any — the satellite style usually doesn't).
-    // Street View: Mapillary coverage drawn under the boundary.
-    LaunchedEffect(map, styleVersion, streetView) {
-        val m = map ?: return@LaunchedEffect
-        val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
-        if (streetView) Mapillary.addCoverage(style, belowLayerId = LYR_BOUNDARY_FILL) else Mapillary.removeCoverage(style)
-    }
-
     LaunchedEffect(map, styleVersion, is3d) {
         val m = map ?: return@LaunchedEffect
         val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
@@ -480,18 +443,15 @@ fun OsmBoundaryMap(
     LaunchedEffect(map, styleVersion, myLocation, boundaryCenter) {
         val m = map ?: return@LaunchedEffect
         val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
-        val meSource = style.getSourceAs<GeoJsonSource>(SRC_ME)
         val meLineSource = style.getSourceAs<GeoJsonSource>(SRC_ME_LINE)
         val fix = myLocation
         if (fix == null) {
-            meSource?.setGeoJson(emptyCollection())
             meLineSource?.setGeoJson(emptyCollection())
             selectedPoint = null
             hasFitMyLocation = false
             return@LaunchedEffect
         }
         val point = LatLng(fix.first, fix.second)
-        meSource?.setGeoJson(pointFeature(point.latitude, point.longitude))
         val center = boundaryCenter
         if (center != null) {
             meLineSource?.setGeoJson(
@@ -531,11 +491,27 @@ fun OsmBoundaryMap(
         onPointDistanceComputed(origin.distanceTo(point))
     }
 
-    streetImages?.let { StreetViewDialog(it, onDismiss = { streetImages = null }) }
-    if (showStreetViewSetup) StreetViewSetupDialog(onDismiss = { showStreetViewSetup = false })
+
+    CurrentLocationUpdater(map, styleVersion, myLocation, heading)
+    MapOrientationEffects(map, heading, orientationMode)
+    val mapBearing by rememberMapBearing(map)
 
     Box(modifier = modifier) {
         AndroidView(factory = { mapView }, modifier = Modifier.matchParentSize())
+        MapOrientationIndicator(
+            mapBearing = mapBearing,
+            headingDeg = heading,
+            mode = orientationMode,
+            onClick = {
+                if (heading != null && orientationMode == OrientationMode.NORTH_UP) {
+                    orientationMode = OrientationMode.FOLLOW_HEADING
+                } else {
+                    orientationMode = OrientationMode.NORTH_UP
+                    map?.animateCamera(CameraUpdateFactory.bearingTo(0.0), 300)
+                }
+            },
+            modifier = Modifier.align(Alignment.CenterStart).padding(8.dp),
+        )
         Column(
             modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
             horizontalAlignment = Alignment.End,
@@ -560,21 +536,6 @@ fun OsmBoundaryMap(
                     selected = is3d,
                     onClick = { is3d = !is3d },
                     label = { Text("3D") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                    ),
-                )
-                FilterChip(
-                    selected = streetView,
-                    onClick = {
-                        if (!Mapillary.isConfigured) {
-                            showStreetViewSetup = true
-                        } else {
-                            streetView = !streetView
-                            if (streetView) Toast.makeText(context, "Street View: tap the map near a green line.", Toast.LENGTH_LONG).show()
-                        }
-                    },
-                    label = { Text("Street View") },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                     ),
@@ -625,16 +586,6 @@ private fun dimIf(dim: Boolean, argb: Int): Int {
     return Color.argb(alpha, Color.red(argb), Color.green(argb), Color.blue(argb))
 }
 
-private fun buildMyLocationDotBitmap(): Bitmap {
-    val size = 32
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    val center = size / 2f
-    canvas.drawCircle(center, center, 11f, Paint().apply { color = Color.argb(90, 26, 115, 232); isAntiAlias = true })
-    canvas.drawCircle(center, center, 8f, Paint().apply { color = Color.WHITE; isAntiAlias = true })
-    canvas.drawCircle(center, center, 6f, Paint().apply { color = Color.argb(255, 26, 115, 232); isAntiAlias = true })
-    return bitmap
-}
 
 private fun buildPickedPointBitmap(): Bitmap {
     val size = 24

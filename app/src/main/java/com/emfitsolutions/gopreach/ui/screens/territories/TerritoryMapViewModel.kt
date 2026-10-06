@@ -52,6 +52,10 @@ data class TerritoryArea(
     val provinceName: String,
     val municipality: String,
     val barangay: String,
+    /** Stable PSGC ids (never just names — two municipalities can share a Barangay name). */
+    val provinceId: Int = 0,
+    val muncityId: Int = 0,
+    val barangayId: Int = 0,
 )
 
 /** A Searching / Return Visit / Bible Study record with a saved GPS location,
@@ -150,7 +154,13 @@ class TerritoryMapViewModel @Inject constructor(
      * ever means all three types of *this* group. [areas] (the group's own
      * territories) is used only to tag each record with its territory.
      * Scoped to [congregationId] (null = Super-Admin, every congregation). */
-    fun recordsFor(congregationId: String?, groupId: String?, areas: List<TerritoryArea>): Flow<List<LocationRecord>> =
+    fun recordsFor(
+        congregationId: String?,
+        groupId: String?,
+        areas: List<TerritoryArea>,
+        /** Optional GPS locator: the territory a point lies inside. Used when the name on the record does not match one. */
+        locate: (Double, Double) -> TerritoryArea? = { _, _ -> null },
+    ): Flow<List<LocationRecord>> =
         combine(
             interestedPersonRepository.observeAll(),
             roleAssignmentRepository.observeAll(),
@@ -173,11 +183,13 @@ class TerritoryMapViewModel @Inject constructor(
                 .filter { congregationId == null || it.congregationId == congregationId }
                 .mapNotNull { person ->
                     val key = placeKey(person.cityMunicipality, person.barangay)
+                    val located = locate(person.gpsLat!!, person.gpsLng!!)
                     val belongsTo = groupByPerson[person.publisherPersonId]
                         ?: key?.let { claimGroupByKey["${person.congregationId}|$it"] }
+                        ?: located?.groupId
                     // A specific group: only its records. All groups (groupId == null): every record that has a group.
                     if (belongsTo == null || (groupId != null && belongsTo != groupId)) return@mapNotNull null
-                    val ownArea = key?.let { areaByKey[it] }
+                    val ownArea = located ?: key?.let { areaByKey[it] }
                     LocationRecord(
                         person = person,
                         type = RecordType.of(person.pipelineStage),
@@ -245,5 +257,8 @@ private object TerritoryAssignmentAreaFactory {
         provinceName = provinceName,
         municipality = claim.muncityName,
         barangay = claim.barangayName,
+        provinceId = claim.provinceId,
+        muncityId = claim.muncityId,
+        barangayId = claim.barangayId,
     )
 }

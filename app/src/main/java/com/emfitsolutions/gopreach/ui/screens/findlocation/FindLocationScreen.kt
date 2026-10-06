@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.rounded.DirectionsBike
 import androidx.compose.material.icons.automirrored.rounded.DirectionsWalk
 import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Directions
 import androidx.compose.material.icons.rounded.DirectionsBus
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Explore
@@ -80,15 +81,6 @@ import com.emfitsolutions.gopreach.ui.components.requiredFieldsMessage
 import kotlinx.coroutines.launch
 import androidx.compose.ui.window.DialogProperties
 
-/** A way to get to the destination — mirrors Google Maps' own `travelmode`
- * values, covering both "by walking" and "different kinds of vehicle" (car,
- * bicycle, public transit) per the feature request. */
-private enum class TravelMode(val label: String, val icon: ImageVector, val travelModeParam: String) {
-    WALKING("Walking", Icons.AutoMirrored.Rounded.DirectionsWalk, "walking"),
-    DRIVING("Car", Icons.Rounded.DirectionsCar, "driving"),
-    BICYCLING("Bicycle", Icons.AutoMirrored.Rounded.DirectionsBike, "bicycling"),
-    TRANSIT("Transit", Icons.Rounded.DirectionsBus, "transit"),
-}
 
 /**
  * "Find Location" — a Publisher types in a destination's GPS coordinates by
@@ -325,19 +317,12 @@ fun FindLocationScreen(
                     }
                 }
 
-                Text("Choose how you're traveling:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    TravelMode.entries.forEach { mode ->
-                        RoundIconActionButton(
-                            label = mode.label,
-                            icon = mode.icon,
-                            onClick = { openDirections(context, lat, lng, mode.travelModeParam) },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
+                OutlinedButton(onClick = { openDirections(context, lat, lng) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.Directions, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
+                    Text("Get Directions")
                 }
                 Text(
-                    "Opens Google Maps for turn-by-turn directions and the fastest route in the mode you picked, starting from your current location.",
+                    "Opens Google Maps for turn-by-turn directions, starting from your current location.",
                     style = MaterialTheme.typography.bodySmall,
                     textAlign = TextAlign.Start,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -629,8 +614,8 @@ private fun SelectCongregationDialog(
  * the device's current location to ([lat], [lng]) — the same
  * `ACTION_VIEW`-a-`Uri` pattern [com.emfitsolutions.gopreach.ui.screens
  * .sharelocation.ShareLocationScreen] already uses for its `geo:` links. */
-private fun openDirections(context: android.content.Context, lat: Double, lng: Double, mode: String) {
-    val uri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=$mode")
+private fun openDirections(context: android.content.Context, lat: Double, lng: Double) {
+    val uri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$lat,$lng")
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, uri))
     } catch (_: ActivityNotFoundException) {

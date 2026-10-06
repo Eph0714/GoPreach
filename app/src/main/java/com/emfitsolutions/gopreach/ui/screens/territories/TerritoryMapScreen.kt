@@ -23,6 +23,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -36,6 +39,8 @@ import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Print
 import androidx.compose.material.icons.rounded.Streetview
@@ -112,11 +117,17 @@ import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.data.repository.MapPinResult
 import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.GroupColorPalette
+import com.emfitsolutions.gopreach.domain.map.DrawingAccess
+import com.emfitsolutions.gopreach.ui.components.map.DrawingDock
+import com.emfitsolutions.gopreach.domain.map.DrawingGeometry
+import com.emfitsolutions.gopreach.domain.map.GeoPoint
+import com.emfitsolutions.gopreach.ui.components.map.BoundaryGeometry
+import com.emfitsolutions.gopreach.ui.components.map.StatusBar
+import com.emfitsolutions.gopreach.ui.components.map.MapDrawingState
+import com.emfitsolutions.gopreach.ui.components.map.MapDrawingViewModel
+import com.emfitsolutions.gopreach.ui.components.map.TerritoryBoundaryInput
+import com.emfitsolutions.gopreach.ui.components.map.territoryBoundaries
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
-import com.emfitsolutions.gopreach.ui.components.map.Mapillary
-import com.emfitsolutions.gopreach.ui.components.map.MapillaryImage
-import com.emfitsolutions.gopreach.ui.components.map.StreetViewDialog
-import com.emfitsolutions.gopreach.ui.components.map.StreetViewSetupDialog
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelinePersonDetailScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineViewModel
 import com.emfitsolutions.gopreach.ui.screens.territoryassignments.BarangayBoundaryDialog
@@ -223,9 +234,16 @@ fun TerritoryMapScreen(
     var scope by rememberSaveable { mutableStateOf(GroupScope.MINE) }
     var otherGroupId by rememberSaveable { mutableStateOf<String?>(null) }
     var showGroupPicker by rememberSaveable { mutableStateOf(false) }
+    // Province -> Municipality -> Barangay selection (kept across the group scopes: picking a Barangay shows the whole
+    // Barangay, every FS Group's part of it) plus the FS Group filter that applies once a Barangay is picked.
+    var provinceFilter by rememberSaveable(congregationId) { mutableStateOf<String?>(null) }
+    var municipalityFilter by rememberSaveable(congregationId) { mutableStateOf<String?>(null) }
+    var territoryFilter by rememberSaveable(congregationId) { mutableStateOf<String?>(null) }
+    var barangayGroupFilter by rememberSaveable(congregationId) { mutableStateOf<String?>(null) }
     // The three FS Group viewing modes: My FS Group / Other FS Group / Show All FS Groups.
     val effectiveScope = when {
         scope == GroupScope.ALL -> GroupScope.ALL
+        territoryFilter != null -> GroupScope.ALL // a selected Barangay shows every FS Group's drawings and records in it
         hasMine -> scope
         else -> GroupScope.OTHER
     }
@@ -254,11 +272,8 @@ fun TerritoryMapScreen(
     var pinDraftText by remember { mutableStateOf("") }
     var isSavingPin by remember { mutableStateOf(false) }
     var selectedPinId by remember { mutableStateOf<String?>(null) }
+    var stackIds by remember { mutableStateOf<List<String>?>(null) } // records sharing one spot (a stack marker was tapped)
     var barangayDialogArea by remember { mutableStateOf<TerritoryArea?>(null) }
-    // Street View (Mapillary).
-    var streetView by remember { mutableStateOf(false) }
-    var streetImages by remember { mutableStateOf<List<MapillaryImage>?>(null) }
-    var showStreetViewSetup by remember { mutableStateOf(false) }
 
     // ---- Territories + records of the selected group only -----------------
     // Every loaded dataset is tagged with the group it was loaded for, and only
@@ -274,15 +289,10 @@ fun TerritoryMapScreen(
     }.collectAsStateWithLifecycle(initialValue = null)
     val areasState: List<TerritoryArea>? = areasTagged?.takeIf { it.first == datasetKey }?.second
     val areas = areasState.orEmpty()
-    val recordsTagged by remember(congregationId, datasetKey, areasState) {
-        val key = datasetKey
-        val a = areasState
-        if (key == null || a == null) flowOf<Pair<String, List<LocationRecord>>?>(null)
-        else viewModel.recordsFor(congregationId, if (showingAll) null else selectedGroupId, a).map { key to it }
-    }.collectAsStateWithLifecycle(initialValue = null)
-    val recordsState: List<LocationRecord>? = recordsTagged?.takeIf { it.first == datasetKey }?.second
-    val isLoading = datasetKey != null && (areasState == null || recordsState == null)
-
+    // Every claimed Barangay of the congregation (all FS Groups) — what the Province/Municipality/Barangay pickers list.
+    val allAreas by remember(congregationId) {
+        if (congregationId == null) flowOf(emptyList<TerritoryArea>()) else viewModel.areasFor(null, congregationId)
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
     // Boundaries load lazily, only for the territories of what is on screen.
     val boundaryJson = remember(datasetKey) { mutableStateMapOf<String, String>() }
     var attemptedAreaIds by remember(datasetKey) { mutableStateOf<Set<String>>(emptySet()) }
@@ -295,22 +305,94 @@ fun TerritoryMapScreen(
         }
     }
 
+    // Which loaded territory a GPS point lies inside (so a record is placed by WHERE it is, not only by the barangay name typed on it).
+    val areaLocator: (Double, Double) -> TerritoryArea? = remember(boundaryJson.size, areasState) {
+        val rings = areas.mapNotNull { a ->
+            boundaryJson[a.id]?.let { json -> a to BoundaryGeometry.outerRings(json).filter { it.size >= 3 }.map { r -> r.map { (lat, lng) -> GeoPoint(lat, lng) } } }
+        }
+        val locate: (Double, Double) -> TerritoryArea? = { lat, lng -> val p = GeoPoint(lat, lng); rings.firstOrNull { (_, rs) -> rs.any { DrawingGeometry.contains(it, p) } }?.first }
+        locate
+    }
+    val recordsTagged by remember(congregationId, datasetKey, areasState, areaLocator) {
+        val key = datasetKey
+        val a = areasState
+        if (key == null || a == null) flowOf<Pair<String, List<LocationRecord>>?>(null)
+        else viewModel.recordsFor(congregationId, if (showingAll) null else selectedGroupId, a, areaLocator).map { key to it }
+    }.collectAsStateWithLifecycle(initialValue = null)
+    val recordsState: List<LocationRecord>? = recordsTagged?.takeIf { it.first == datasetKey }?.second
+    val isLoading = datasetKey != null && (areasState == null || recordsState == null)
+
+    // ---- Drawing (long-press -> Drawing Mode; shared with every map module) -------
+    val drawingViewModel: MapDrawingViewModel = hiltViewModel()
+    val drawingAccess by remember(currentPersonId) { drawingViewModel.access(currentPersonId) }
+        .collectAsStateWithLifecycle(initialValue = DrawingAccess.NONE)
+    // Admin / Service Overseer / Coordinator Elder / Secretary open on "Show FS Group" (every group of the congregation) once, as the initial choice.
+    var initialScopeApplied by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(drawingAccess.scope) {
+        if (!initialScopeApplied && drawingAccess.scope is com.emfitsolutions.gopreach.domain.GroupAccessScope.Congregation) {
+            scope = GroupScope.ALL
+            initialScopeApplied = true
+        }
+    }
+    val drawingState = remember { MapDrawingState() }
+    val allDrawings by remember { drawingViewModel.drawings() }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val boundarySnapshot = boundaryJson.toMap()
+    // The drawings on the map. With a Barangay selected: EVERY drawing in it — whoever drew it, whichever FS Group it
+    // belongs to — i.e. made on that Barangay's territory or lying inside its boundary, narrowed by the FS Group filter.
+    // (Seeing a drawing is not permission to edit it: that is decided per drawing by DrawingAccess.canManage.)
+    val visibleDrawings = remember(allDrawings, areas, congregationId, territoryFilter, barangayGroupFilter, boundarySnapshot) {
+        if (territoryFilter != null) {
+            val rings = boundarySnapshot[territoryFilter]?.let { json ->
+                BoundaryGeometry.outerRings(json).filter { it.size >= 3 }.map { r -> r.map { (lat, lng) -> GeoPoint(lat, lng) } }
+            }.orEmpty()
+            val selArea = areas.firstOrNull { it.id == territoryFilter }
+            allDrawings.filter { d ->
+                d.congregationId == congregationId &&
+                    (barangayGroupFilter == null || d.groupId == barangayGroupFilter) &&
+                    (
+                        d.territoryId == territoryFilter ||
+                            (d.barangayId != 0 && d.barangayId == selArea?.barangayId && d.muncityId == selArea.muncityId) ||
+                            DrawingGeometry.parsePolygon(d.geometryJson)?.let { ring ->
+                                val p = DrawingGeometry.interiorPoint(ring)
+                                rings.any { DrawingGeometry.contains(it, p) }
+                            } == true
+                        )
+            }
+        } else {
+            val ids = areas.map { it.id }.toSet()
+            allDrawings.filter { it.territoryId in ids || (it.territoryId.isBlank() && it.congregationId == congregationId) }
+        }
+    }
+    val statusCounts = remember(visibleDrawings) {
+        val c = visibleDrawings.groupingBy { it.status }.eachCount()
+        com.emfitsolutions.gopreach.data.model.DrawingStatus.entries.associateWith { c[it] ?: 0 }
+    }
+    // The territories on screen, with their real boundaries — what a drawing is validated against.
+    val drawingTerritories = remember(areas, boundarySnapshot, congregationId) {
+        territoryBoundaries(
+            congregationId.orEmpty(),
+            areas.mapNotNull { a -> boundarySnapshot[a.id]?.let { TerritoryBoundaryInput(a.id, a.barangay, a.groupId, it, a.provinceId, a.muncityId, a.barangayId) } },
+        )
+    }
+
     // ---- Current location --------------------------------------------------
     var myLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var myAccuracy by remember { mutableStateOf<Float?>(null) }
+    var permissionAsked by rememberSaveable { mutableStateOf(false) }
     var locationIssue by remember { mutableStateOf<LocationIssue?>(null) }
     var locationRefreshKey by remember { mutableIntStateOf(0) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { locationRefreshKey++ }
     LaunchedEffect(locationRefreshKey) {
         if (!viewModel.hasLocationPermission()) {
             locationIssue = LocationIssue.NO_PERMISSION
-            if (locationRefreshKey == 0) permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            if (locationRefreshKey == 0) { permissionAsked = true; permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }
             return@LaunchedEffect
         }
         if (!viewModel.isLocationServicesEnabled()) {
             locationIssue = LocationIssue.SERVICES_OFF
             return@LaunchedEffect
         }
-        runCatching { viewModel.currentLocation() }.getOrNull()?.let { myLocation = it.lat to it.lng; locationIssue = null }
+        runCatching { viewModel.currentLocation() }.getOrNull()?.let { myLocation = it.lat to it.lng; myAccuracy = it.accuracyMeters; locationIssue = null }
             ?: run { if (myLocation == null) locationIssue = LocationIssue.UNAVAILABLE }
         // Live updates only while this screen is visible; small moves are ignored.
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -319,6 +401,7 @@ fun TerritoryMapScreen(
                     val prev = myLocation
                     if (prev == null || haversineMeters(prev.first, prev.second, fix.lat, fix.lng) >= MIN_MOVE_METERS) {
                         myLocation = fix.lat to fix.lng
+                        myAccuracy = fix.accuracyMeters
                     }
                     locationIssue = null
                 }
@@ -328,8 +411,6 @@ fun TerritoryMapScreen(
 
     // ---- Filters / ordering / view mode -----------------------------------
     var typeFilter by rememberSaveable { mutableStateOf(TypeFilter.ALL) }
-    var municipalityFilter by rememberSaveable(datasetKey) { mutableStateOf<String?>(null) }
-    var territoryFilter by rememberSaveable(datasetKey) { mutableStateOf<String?>(null) }
     // Nothing is auto-selected on load. "Show Next Nearest/Farthest" steps through the
     // current (filtered) records by distance; stepping restarts whenever a filter changes.
     var stepOrder by remember(datasetKey, typeFilter, municipalityFilter, territoryFilter) { mutableStateOf<SortOrder?>(null) }
@@ -337,7 +418,8 @@ fun TerritoryMapScreen(
     var viewMode by rememberSaveable { mutableStateOf(ViewMode.MAP) }
     // Full-screen Map View: hides the app bar, the controls above the map and
     // the system bars so the map fills the display; Back exits it first.
-    var fullScreen by rememberSaveable { mutableStateOf(false) }
+    // The Territory Map opens in full screen (the controls come back with Exit); the user can leave it at any time.
+    var fullScreen by rememberSaveable { mutableStateOf(true) }
     val fullScreenActive = fullScreen && viewMode == ViewMode.MAP
     BackHandler(enabled = fullScreenActive) { fullScreen = false }
     DisposableEffect(fullScreenActive) {
@@ -354,14 +436,69 @@ fun TerritoryMapScreen(
     var reloadToken by remember { mutableIntStateOf(0) }
     var mapLoadState by remember { mutableStateOf(MapLoadState.LOADING) }
 
+    // ---- Re-center ("My location"): camera only — never touches the selected group / barangay / permissions ------------
+    var locationHelp by remember { mutableStateOf<LocationIssue?>(null) } // a "go to settings" explanation
+    fun requestLocationPermission() {
+        permissionAsked = true
+        permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+    }
+    fun recenter() {
+        when {
+            !viewModel.hasLocationPermission() -> {
+                val activity = context as? Activity
+                val canAskAgain = activity == null || !permissionAsked ||
+                    androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.ACCESS_FINE_LOCATION)
+                if (canAskAgain) {
+                    Toast.makeText(context, "Location permission is needed to re-center the map on you.", Toast.LENGTH_SHORT).show()
+                    requestLocationPermission()
+                } else {
+                    // Permanently denied: the system will not ask again — offer the app's settings.
+                    locationHelp = LocationIssue.NO_PERMISSION
+                }
+            }
+            !viewModel.isLocationServicesEnabled() -> locationHelp = LocationIssue.SERVICES_OFF
+            myLocation == null -> {
+                // Non-blocking: the map stays usable while the location is found.
+                Toast.makeText(context, "Your location isn't available yet. Looking for it...", Toast.LENGTH_SHORT).show()
+                locationRefreshKey++
+            }
+            else -> recenterToken++
+        }
+    }
+    locationHelp?.let { issue ->
+        AlertDialog(
+            onDismissRequest = { locationHelp = null },
+            title = { Text(if (issue == LocationIssue.NO_PERMISSION) "Location permission needed" else "Location is turned off") },
+            text = {
+                Text(
+                    if (issue == LocationIssue.NO_PERMISSION) "Allow location for GoPreach in the app settings to use Re-center and see where you are on the map."
+                    else "Turn on your device's location to use Re-center and see where you are on the map.",
+                )
+            },
+            dismissButton = { TextButton(onClick = { locationHelp = null }) { Text("Not now") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    locationHelp = null
+                    val intent = if (issue == LocationIssue.NO_PERMISSION) {
+                        Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
+                    } else {
+                        Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                    }
+                    runCatching { context.startActivity(intent) }
+                }) { Text("Open Settings") }
+            },
+        )
+    }
+
     val visibleAreas = areas.filter { a ->
+        (provinceFilter == null || normalizePlaceName(a.provinceName) == normalizePlaceName(provinceFilter)) &&
         (municipalityFilter == null || normalizePlaceName(a.municipality) == normalizePlaceName(municipalityFilter)) &&
             (territoryFilter == null || a.id == territoryFilter)
     }
     val visibleRecords = recordsState.orEmpty().filter { r ->
         (typeFilter.type == null || r.type == typeFilter.type) &&
             (municipalityFilter == null || normalizePlaceName(r.municipality) == normalizePlaceName(municipalityFilter)) &&
-            (territoryFilter == null || r.areaId == territoryFilter)
+            (territoryFilter == null || (r.areaId == territoryFilter && (barangayGroupFilter == null || r.groupId == barangayGroupFilter)))
     }
     val here = myLocation
     val recordsWithDistance = visibleRecords
@@ -419,9 +556,32 @@ fun TerritoryMapScreen(
         selectedRecordId = null
         sheetOpen = false
     }
-    var selectedAreaId by rememberSaveable(datasetKey) { mutableStateOf<String?>(null) }
+    var selectedAreaId by rememberSaveable(congregationId) { mutableStateOf<String?>(null) }
+    // ---- Single-Barangay navigation -----------------------------------------------
+    // Selecting a Barangay remembers the view it came from; Back returns one level up — never wider than the user's access:
+    //  - congregation-wide roles / Super Admin (authorized for FS Groups): the "Show FS Group" list view (their authorized FS Groups);
+    //  - everyone else: the view they came from (a Group Overseer/Servant/Assistant: their own FS Group's territory).
+    // Province / Municipality and the type filter are kept; the map re-frames to the level shown.
+    var scopeBeforeBarangay by rememberSaveable { mutableStateOf<GroupScope?>(null) }
+    val hasFsGroupOverview = drawingAccess.scope is com.emfitsolutions.gopreach.domain.GroupAccessScope.Congregation ||
+        drawingAccess.scope == com.emfitsolutions.gopreach.domain.GroupAccessScope.AllCongregations
+    fun selectBarangay(id: String) {
+        if (territoryFilter == null) scopeBeforeBarangay = scope
+        territoryFilter = id
+        selectedAreaId = id
+        barangayGroupFilter = null
+    }
+    fun backFromBarangay() {
+        territoryFilter = null
+        selectedAreaId = null
+        barangayGroupFilter = null
+        scope = if (hasFsGroupOverview) GroupScope.ALL else (scopeBeforeBarangay ?: if (hasMine) GroupScope.MINE else GroupScope.OTHER)
+        scopeBeforeBarangay = null
+    }
+    BackHandler(enabled = territoryFilter != null && !drawingState.active) { if (fullScreenActive) fullScreen = false else backFromBarangay() }
 
-    val fitKey = "$datasetKey|${typeFilter.name}|$municipalityFilter|$territoryFilter"
+    // Re-fit when a boundary finishes loading too, so a selected Barangay is always framed whole (fit-to-screen).
+    val fitKey = "$datasetKey|${typeFilter.name}|$municipalityFilter|$territoryFilter|${barangayGroupFilter}|b${visibleAreas.count { it.id in boundaryJson }}"
     val fitReady = !isLoading && datasetKey != null && visibleAreas.all { it.id in attemptedAreaIds }
     val focus = if (focusLat != null && focusLng != null) Triple(focusLat, focusLng, focusName.orEmpty()) else null
 
@@ -431,7 +591,7 @@ fun TerritoryMapScreen(
                 TopAppBar(
                     title = { Text("Territory Map") },
                     navigationIcon = {
-                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
+                        IconButton(onClick = { if (territoryFilter != null && !drawingState.active) backFromBarangay() else onBack() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
                     },
                 )
             }
@@ -527,26 +687,71 @@ fun TerritoryMapScreen(
                     TypeFilter.entries.forEach { f ->
                         FilterChip(selected = typeFilter == f, onClick = { typeFilter = f }, label = { Text(f.label) })
                     }
-                    val municipalities = areas.map { it.municipality }.distinct()
+                    // Province -> Municipality -> Barangay, over every claimed Barangay of the congregation. Picking a
+                    // Barangay zooms to it and shows everything in it (all FS Groups), subject to the same viewing rules.
+                    val provinces = allAreas.map { it.provinceName }.filter { it.isNotBlank() }.distinct()
+                    if (provinces.size > 1) {
+                        DropdownChip(
+                            label = "Province",
+                            value = provinceFilter,
+                            placeholder = "Province",
+                            options = listOf<Pair<String?, String>>(null to "All provinces") + provinces.map { it to it },
+                            onSelect = { provinceFilter = it; municipalityFilter = null; territoryFilter = null; barangayGroupFilter = null; selectedAreaId = null },
+                        )
+                    }
+                    val inProvince = allAreas.filter { provinceFilter == null || normalizePlaceName(it.provinceName) == normalizePlaceName(provinceFilter) }
+                    val municipalities = inProvince.map { it.municipality }.distinct()
                     if (municipalities.size > 1) {
                         DropdownChip(
                             label = "Municipality",
                             value = municipalityFilter,
                             placeholder = "Municipality",
                             options = listOf<Pair<String?, String>>(null to "All municipalities") + municipalities.map { it to it },
-                            onSelect = { municipalityFilter = it; territoryFilter = null },
+                            onSelect = { municipalityFilter = it; territoryFilter = null; barangayGroupFilter = null; selectedAreaId = null },
                         )
                     }
-                    val territoryChoices = areas.filter { municipalityFilter == null || normalizePlaceName(it.municipality) == normalizePlaceName(municipalityFilter) }
-                    if (territoryChoices.size > 1) {
+                    val barangayChoices = inProvince.filter { municipalityFilter == null || normalizePlaceName(it.municipality) == normalizePlaceName(municipalityFilter) }
+                    if (barangayChoices.isNotEmpty()) {
                         DropdownChip(
-                            label = "Territory",
-                            value = territoryChoices.firstOrNull { it.id == territoryFilter }?.barangay,
-                            placeholder = "Territory",
-                            options = listOf<Pair<String?, String>>(null to "All territories") + territoryChoices.map { it.id to it.barangay },
-                            onSelect = { territoryFilter = it; selectedAreaId = it },
+                            label = "Barangay",
+                            value = barangayChoices.firstOrNull { it.id == territoryFilter }?.barangay,
+                            placeholder = "Barangay",
+                            options = listOf<Pair<String?, String>>(null to "All barangays") +
+                                barangayChoices.sortedWith(compareBy({ it.municipality.lowercase() }, { it.barangay.lowercase() }))
+                                    .map { it.id to (if (municipalityFilter == null) "${it.barangay} · ${it.municipality}" else it.barangay) },
+                            onSelect = { if (it == null) backFromBarangay() else selectBarangay(it) },
                         )
                     }
+                    // FS Group filter for the selected Barangay: all permitted FS Groups, or one.
+                    if (territoryFilter != null && groups.isNotEmpty()) {
+                        DropdownChip(
+                            label = "FS Group",
+                            value = groups.firstOrNull { it.id == barangayGroupFilter }?.name,
+                            placeholder = "All FS Groups",
+                            options = listOf<Pair<String?, String>>(null to "All FS Groups") + groups.map { it.id to it.name },
+                            onSelect = { barangayGroupFilter = it },
+                        )
+                    }
+                }
+                // Selected Barangay summary (counts follow the FS Group filter; they are what this user can see).
+                if (territoryFilter != null) {
+                    val inBarangay = recordsState.orEmpty().filter { r -> r.areaId == territoryFilter && (barangayGroupFilter == null || r.groupId == barangayGroupFilter) }
+                    val byType = inBarangay.groupingBy { it.type }.eachCount()
+                    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+                            Text("Barangay: " + (allAreas.firstOrNull { it.id == territoryFilter }?.barangay ?: ""), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                Text("Territory Drawings: ${visibleDrawings.size}", style = MaterialTheme.typography.bodySmall)
+                                Text("Search Records: ${byType[RecordType.SEARCHING] ?: 0}", style = MaterialTheme.typography.bodySmall)
+                                Text("Return Visits: ${byType[RecordType.RETURN_VISIT] ?: 0}", style = MaterialTheme.typography.bodySmall)
+                                Text("Bible Studies: ${byType[RecordType.BIBLE_STUDY] ?: 0}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                // Territory Status + filter: a single row up here, never over the map.
+                if (!drawingState.active && (drawingAccess.canUseDrawingTools || statusCounts.values.any { it > 0 })) {
+                    StatusBar(counts = statusCounts, filter = drawingState.statusFilter, onFilter = { drawingState.statusFilter = it })
                 }
                 locationIssue?.let { issue ->
                     LocationBanner(
@@ -576,6 +781,7 @@ fun TerritoryMapScreen(
                         selectedAreaId = selectedAreaId,
                         selectedRecordId = selectedRecordId,
                         myLocation = myLocation,
+                        myAccuracyMeters = myAccuracy,
                         focus = focus,
                         basemap = basemap,
                         reloadToken = reloadToken,
@@ -584,30 +790,33 @@ fun TerritoryMapScreen(
                         recenterToken = recenterToken,
                         flyToRecord = flyToRecord,
                         onRecordTap = { selectRecord(it, fly = false) },
-                        // Tapping a barangay opens that one barangay on its own - the same single-barangay
-                        // boundary view Territory Assignment opens from its territory maps.
+                        // Tapping a barangay SELECTS it: the map zooms to it and shows everything in it - every FS Group's
+                        // drawings plus its Search / Return Visit / Bible Study records - right on this map.
                         onAreaTap = { id ->
-                            areas.firstOrNull { it.id == id }?.let { selectedAreaId = id; barangayDialogArea = it }
-                        },
-                        // Long-press asks: Create a Pin, or Open Google Maps at that exact spot.
-                        onLongPress = { lat, lng -> longPressPoint = lat to lng },
-                        pins = pins,
-                        onPinTap = { selectedPinId = it },
-                        streetView = streetView,
-                        onStreetViewTap = { lat, lng ->
-                            coroutineScope.launch {
-                                Toast.makeText(context, "Looking for street-level photos...", Toast.LENGTH_SHORT).show()
-                                val found = Mapillary.imagesNear(lat, lng)
-                                if (found.isEmpty()) Toast.makeText(context, "No street-level photos here. Tap near a green line.", Toast.LENGTH_LONG).show()
-                                else streetImages = found
+                            areas.firstOrNull { it.id == id }?.let { a ->
+                                selectBarangay(id)
                             }
                         },
+                        // Long-press asks: Create a Pin, or Open Google Maps at that exact spot.
+                        // For someone who may draw, a long press turns Drawing Mode on; everyone else keeps the old choice.
+                        // Long press: a small menu — Draw (only where the role allows it) and Open Google Maps.
+                        onLongPress = { lat, lng -> if (!drawingState.active) longPressPoint = lat to lng },
+                        drawingState = drawingState,
+                        drawingAccess = drawingAccess,
+                        drawingTerritories = drawingTerritories,
+                        drawingCongregationId = congregationId.orEmpty(),
+                        hideMarkers = drawingState.markersHidden,
+                        onStackTap = { stackIds = it },
+                        drawings = visibleDrawings,
+                        pins = pins,
+                        onPinTap = { selectedPinId = it },
                         onLoadStateChange = { mapLoadState = it },
                         modifier = Modifier.fillMaxSize(),
                     )
                     // Map chrome: basemap + my-location buttons.
                     Column(
-                        modifier = Modifier.align(Alignment.TopEnd).padding(10.dp),
+                        // Kept clear of the status bar / camera cut-out whenever the system bars are showing, so a tap never lands on them.
+                        modifier = Modifier.align(Alignment.TopEnd).windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.Companion.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top)).padding(10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalAlignment = Alignment.End,
                     ) {
@@ -616,18 +825,12 @@ fun TerritoryMapScreen(
                             label = if (fullScreenActive) "Exit" else "Full screen",
                             onClick = { fullScreen = !fullScreen },
                         )
+                        // Hide / Show Icons: one setting for every Territory Map view (all groups, a group, a municipality, a Barangay).
                         MapToolButton(
-                            icon = Icons.Rounded.Streetview,
-                            label = "Street View",
-                            active = streetView,
-                            onClick = {
-                                if (!Mapillary.isConfigured) {
-                                    showStreetViewSetup = true
-                                } else {
-                                    streetView = !streetView
-                                    if (streetView) Toast.makeText(context, "Street View: tap the map near a green line.", Toast.LENGTH_LONG).show()
-                                }
-                            },
+                            icon = if (drawingState.markersHidden) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                            label = if (drawingState.markersHidden) "Show Icons" else "Hide Icons",
+                            active = drawingState.markersHidden,
+                            onClick = { drawingState.markersHidden = !drawingState.markersHidden },
                         )
                         MapToolButton(
                             icon = Icons.Rounded.Layers,
@@ -637,7 +840,7 @@ fun TerritoryMapScreen(
                         MapToolButton(
                             icon = Icons.Rounded.MyLocation,
                             label = "My location",
-                            onClick = { if (myLocation != null) recenterToken++ else locationRefreshKey++ },
+                            onClick = { recenter() },
                         )
                     }
                     // Full screen: the controls above the map are hidden, so keep the
@@ -645,7 +848,7 @@ fun TerritoryMapScreen(
                     // record-type filter.
                     if (fullScreenActive) {
                         Column(
-                            modifier = Modifier.align(Alignment.TopStart).padding(10.dp).fillMaxWidth(0.82f),
+                            modifier = Modifier.align(Alignment.TopStart).windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.Companion.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top)).padding(10.dp).fillMaxWidth(0.82f),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -670,7 +873,7 @@ fun TerritoryMapScreen(
                             }
                         }
                     }
-                    if (datasetKey != null && !isLoading && mapLoadState == MapLoadState.LOADED) {
+                    if (datasetKey != null && !isLoading && mapLoadState == MapLoadState.LOADED && !drawingState.active && drawingState.selectedDrawingId == null) {
                         Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
                             if (areas.isEmpty()) {
                                 MessageCard("No territories have been assigned to this FS Group yet.", Modifier.padding(12.dp))
@@ -738,11 +941,11 @@ fun TerritoryMapScreen(
                     }
                 }
             }
+            // Drawing controls (status, remarks, tools, save) live here, BELOW the map, so the canvas is never covered.
+            DrawingDock(drawingState)
         }
     }
 
-    streetImages?.let { StreetViewDialog(it, onDismiss = { streetImages = null }) }
-    if (showStreetViewSetup) StreetViewSetupDialog(onDismiss = { showStreetViewSetup = false })
 
     // A tapped barangay: that barangay only, in its FS Group's color.
     barangayDialogArea?.let { a ->
@@ -759,22 +962,20 @@ fun TerritoryMapScreen(
     longPressPoint?.let { (lat, lng) ->
         AlertDialog(
             onDismissRequest = { longPressPoint = null },
-            title = { Text("What would you like to do here?") },
+            title = { Text("What would you like to do?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("%.5f, %.5f".format(lat, lng), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(
-                        onClick = {
-                            longPressPoint = null
-                            if (congregationId == null) {
-                                Toast.makeText(context, "Select a congregation first.", Toast.LENGTH_SHORT).show()
-                            } else {
-                                pinDraftText = ""
-                                pinDraftPoint = lat to lng
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                    ) { Text("Create a Pin") }
+                    val here = com.emfitsolutions.gopreach.domain.map.GeoPoint(lat, lng)
+                    val canDraw = congregationId != null && !isLoading && drawingAccess.canDrawAt(here, drawingTerritories, congregationId)
+                    // Draw is offered only where this role may draw (inside the assigned territory for group-level users,
+                    // anywhere on their congregation's map for the wider roles); Open Google Maps is always available.
+                    if (canDraw) {
+                        Button(
+                            onClick = { longPressPoint = null; drawingState.enter(here) },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                        ) { Text("Draw") }
+                    }
                     OutlinedButton(
                         onClick = { longPressPoint = null; openGoogleMaps(lat, lng) },
                         modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -898,6 +1099,33 @@ fun TerritoryMapScreen(
                 selectedRecordId = null
             },
         )
+    }
+
+    // A numbered stack marker: the records sharing (almost) the same spot, as a clean list — pick one to open it.
+    stackIds?.let { ids ->
+        val stacked = recordsWithDistance.filter { it.record.id in ids }
+        ModalBottomSheet(onDismissRequest = { stackIds = null }, sheetState = rememberModalBottomSheetState()) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text("${stacked.size} records at this location", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                stacked.forEach { rd ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { stackIds = null; selectRecord(rd.record.id, fly = false) }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(Modifier.size(14.dp).clip(CircleShape).background(markerColor(rd.record.type)))
+                        Column(Modifier.weight(1f)) {
+                            Text(rd.record.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            Text(rd.record.type.label + (rd.record.groupName?.let { " · $it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text(formatDistance(rd.meters), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
     }
 
     val sheetRecord = selectedRecord
@@ -1288,11 +1516,11 @@ private fun RecordSheet(item: RecordWithDistance, onDismiss: () -> Unit, onViewD
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
             )
-            val place = listOfNotNull(r.barangay?.let { "Barangay $it" }, listOfNotNull(r.municipality, r.province).joinToString(", ").ifBlank { null })
-            place.forEach { Text(it, style = MaterialTheme.typography.bodyLarge) }
-            if (r.person.address.isNotBlank()) {
-                Text(r.person.address, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            val currentAddress = listOfNotNull(r.barangay?.let { "Barangay $it" }, r.municipality, r.province).joinToString(", ")
+            Text("Place of Origin: " + r.person.address.ifBlank { "—" }, style = MaterialTheme.typography.bodyMedium)
+            Text("Current Address: " + currentAddress.ifBlank { "—" }, style = MaterialTheme.typography.bodyMedium)
+            r.person.contact?.takeIf { it.isNotBlank() }?.let { Text("Contact: $it", style = MaterialTheme.typography.bodyMedium) }
+            r.person.notes?.takeIf { it.isNotBlank() }?.let { Text("Notes: $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             r.groupName?.let { Text("FS Group: $it", style = MaterialTheme.typography.bodyMedium) }
             r.territoryName?.let { Text("Territory: $it", style = MaterialTheme.typography.bodyMedium) }
             Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {

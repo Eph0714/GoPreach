@@ -4,10 +4,12 @@ import com.emfitsolutions.gopreach.data.local.dao.SyncQueueDao
 import com.emfitsolutions.gopreach.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -59,12 +61,24 @@ class SyncStatusCenter @Inject constructor(
         }
     }
 
-    /** Called by [SyncWorker] at the start of every flush attempt, manual or
-     * automatic. No-op today (the real-time badge that used to render a
-     * "Syncing…" state from this has been replaced by the plain Online/Offline
-     * indicator) — kept as a call site so a future "syncing right now"
-     * affordance has somewhere to hang without touching [SyncWorker] again. */
-    fun onSyncStarted() = Unit
+    private val _isSyncing = MutableStateFlow(false)
+
+    /** True only while [SyncWorker] is actually uploading queued rows — what lets a
+     * record's own "Pending Sync" badge become "Syncing" for the moment it is in
+     * flight (see [com.emfitsolutions.gopreach.data.repository.TerritoryDrawingRepository]).
+     * Deliberately not an Online/Offline indicator — that's [ConnectivityObserver]'s job. */
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    /** Called by [SyncWorker] at the start of every flush attempt that has
+     * something to upload, manual or automatic. */
+    fun onSyncStarted() {
+        _isSyncing.value = true
+    }
+
+    /** Called by [SyncWorker] once the upload loop has finished (or bailed out). */
+    fun onSyncEnded() {
+        _isSyncing.value = false
+    }
 
     /** Called by [SyncWorker] once a flush attempt finishes (whether or not
      * everything in it succeeded). [isManual] gates the toast — see this

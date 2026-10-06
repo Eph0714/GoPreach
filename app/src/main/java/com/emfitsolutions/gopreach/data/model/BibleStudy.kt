@@ -115,6 +115,8 @@ data class InterestedPerson(
      * from [religion] (a specific field with its own semantics) rather than
      * folding general notes into it. */
     val notes: String? = null,
+    /** Optional contact info (mobile, telephone, or anything else) — Search Record, Return Visit and Bible Study alike. Absent on older records. */
+    val contact: String? = null,
     val createdAt: Long = 0L,
     /** Stamped by [com.emfitsolutions.gopreach.data.repository
      * .InterestedPersonRepository.save] on every write; `0` only on a record

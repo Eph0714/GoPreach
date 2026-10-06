@@ -56,6 +56,7 @@ import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.ui.components.isValidLatitude
 import com.emfitsolutions.gopreach.ui.components.isValidLongitude
 import com.emfitsolutions.gopreach.ui.components.map.MapLibreHost
+import com.emfitsolutions.gopreach.ui.components.map.rememberCurrentLocation
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
 import com.emfitsolutions.gopreach.ui.components.map.maptilerStyleUrl
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -196,6 +197,7 @@ fun ShareLocationMapView(
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val density = LocalContext.current.resources.displayMetrics.density
+    val myLocation by rememberCurrentLocation()
 
     // STEP — validate every coordinate before it ever reaches the map: not
     // NaN/Infinite, and within real lat/lng range.
@@ -269,6 +271,7 @@ fun ShareLocationMapView(
     Box(modifier = modifier) {
         MapLibreHost(
             styleUrl = maptilerStyleUrl(mapStyle.styleId),
+            myLocation = myLocation,
             reloadToken = reloadToken,
             onLoadStateChange = { loadState = it },
             onMapClick = { m, latLng ->

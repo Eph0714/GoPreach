@@ -156,31 +156,35 @@ class SyncWorker @AssistedInject constructor(
         // connection; whatever already reached the server above stays
         // synced, everything from here on stays exactly PENDING, untouched.
         var lostConnectivityMidRun = false
-        for ((index, op) in pending.withIndex()) {
-            if (!connectivityObserver.isOnline()) {
-                lostConnectivityMidRun = true
-                break
+        try {
+            for ((index, op) in pending.withIndex()) {
+                if (!connectivityObserver.isOnline()) {
+                    lostConnectivityMidRun = true
+                    break
+                }
+                setProgress(workDataOf("done" to index, KEY_TOTAL to pending.size))
+                val ok = runCatching { applyOperation(op) }
+                val error = ok.exceptionOrNull()
+                when {
+                    ok.isSuccess -> {
+                        syncQueueDao.remove(op)
+                        cacheDao.updateSyncState(op.collectionPath, op.documentId, SyncState.SYNCED.name)
+                        uploaded++
+                    }
+                    isPermanentFailure(error!!) -> {
+                        permanentlyFailed++
+                        syncQueueDao.markPermanentFailure(op.id, error.message ?: "Unknown error")
+                        cacheDao.updateSyncState(op.collectionPath, op.documentId, SyncState.FAILED.name)
+                    }
+                    else -> {
+                        failed++
+                        syncQueueDao.recordFailure(op.id, error.message ?: "Unknown error")
+                        cacheDao.updateSyncState(op.collectionPath, op.documentId, SyncState.FAILED.name)
+                    }
+                }
             }
-            setProgress(workDataOf("done" to index, KEY_TOTAL to pending.size))
-            val ok = runCatching { applyOperation(op) }
-            val error = ok.exceptionOrNull()
-            when {
-                ok.isSuccess -> {
-                    syncQueueDao.remove(op)
-                    cacheDao.updateSyncState(op.collectionPath, op.documentId, SyncState.SYNCED.name)
-                    uploaded++
-                }
-                isPermanentFailure(error!!) -> {
-                    permanentlyFailed++
-                    syncQueueDao.markPermanentFailure(op.id, error.message ?: "Unknown error")
-                    cacheDao.updateSyncState(op.collectionPath, op.documentId, SyncState.FAILED.name)
-                }
-                else -> {
-                    failed++
-                    syncQueueDao.recordFailure(op.id, error.message ?: "Unknown error")
-                    cacheDao.updateSyncState(op.collectionPath, op.documentId, SyncState.FAILED.name)
-                }
-            }
+        } finally {
+            syncStatusCenter.onSyncEnded()
         }
         // Published via setProgress (not the terminal Result's output data) so the
         // manual "Sync to Server" UI gets an immediate summary of *this* attempt even

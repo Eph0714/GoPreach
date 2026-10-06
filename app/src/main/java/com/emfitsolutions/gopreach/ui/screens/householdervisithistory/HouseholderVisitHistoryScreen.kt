@@ -167,7 +167,7 @@ fun HouseholderVisitHistoryScreen(
             countLabel = "Total House Holders",
             columns = listOf(
                 "House Holder", "Status", "Assigned Publisher", "Congregation", "Place of Origin",
-                "Province", "Municipality/City", "Barangay", "House Holder GPS",
+                "Province", "Municipality/City", "Barangay", "Contact", "House Holder GPS",
                 "Visit Date", "Visit Status", "Remarks", "Visit Coordinates", "Recorded By",
             ),
             rows = uiState.rows.flatMap { row ->
@@ -180,6 +180,7 @@ fun HouseholderVisitHistoryScreen(
                     row.person.province.orEmpty(),
                     row.person.cityMunicipality.orEmpty(),
                     row.person.barangay.orEmpty(),
+                    row.person.contact.orEmpty(),
                     if (row.person.hasGpsLocation) formatGpsDecimal(row.person.gpsLat!!, row.person.gpsLng!!) else "",
                 )
                 val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
@@ -413,6 +414,7 @@ private fun buildHouseholderVisitHistoryPrintHtml(rows: List<HouseholderRow>, pe
                 .append("</p>")
             val currentAddress = listOfNotNull(person.barangay, person.cityMunicipality, person.province).filter { it.isNotBlank() }.joinToString(", ")
             append("<p class=\"field\"><b>Place of Origin:</b> ").append(esc(person.address.ifBlank { "—" })).append("</p>")
+            append("<p class=\"field\"><b>Contact:</b> ").append(esc(person.contact?.takeIf { it.isNotBlank() } ?: "—")).append("</p>")
             append("<p class=\"field\"><b>Current Address:</b> ").append(esc(currentAddress.ifBlank { "—" })).append("</p>")
             if (row.visits.isEmpty()) {
                 append("<div class=\"visit\"><p>No visit history recorded.</p></div>")

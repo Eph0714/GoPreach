@@ -195,6 +195,7 @@ private fun InterestedPersonReadOnlyDialog(person: InterestedPerson, publisherNa
                 person.language?.let { if (it.isNotBlank()) ReadOnlyRow("Language", it) }
                 person.religion?.let { if (it.isNotBlank()) ReadOnlyRow("Religion", it) }
                 person.literaturePlace?.let { if (it.isNotBlank()) ReadOnlyRow("Literature Left At", it) }
+                person.contact?.let { if (it.isNotBlank()) ReadOnlyRow("Contact", it) }
                 if (person.hasGpsLocation) {
                     ReadOnlyRow("GPS", "${person.gpsLat}, ${person.gpsLng}")
                 }

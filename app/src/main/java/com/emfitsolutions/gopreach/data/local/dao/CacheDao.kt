@@ -8,6 +8,9 @@ import androidx.room.Query
 import com.emfitsolutions.gopreach.data.local.CachedDocumentEntity
 import kotlinx.coroutines.flow.Flow
 
+/** Projection of [CachedDocumentEntity] for [CacheDao.observeSyncStates]. */
+data class DocSyncRow(val documentId: String, val syncState: String)
+
 @Dao
 interface CacheDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -15,6 +18,11 @@ interface CacheDao {
 
     @Query("SELECT * FROM cached_documents WHERE collectionPath = :collectionPath ORDER BY updatedAt DESC")
     fun observeCollection(collectionPath: String): Flow<List<CachedDocumentEntity>>
+
+    /** Just each document's [DocSyncRow.syncState] in [collectionPath] — cheap enough to
+     * observe for a per-record "Pending Sync / Synced / Sync Failed" badge. */
+    @Query("SELECT documentId, syncState FROM cached_documents WHERE collectionPath = :collectionPath")
+    fun observeSyncStates(collectionPath: String): Flow<List<DocSyncRow>>
 
     /** Same as [observeCollection], but for cross-cutting subcollections keyed
      * by a variable parent id — e.g. every "visits" row under every

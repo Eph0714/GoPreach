@@ -464,6 +464,126 @@ service cloud.firestore {
       );
     }
 
+    // ---- Map drawings: completed-territory polygons and pins -------------------
+    //
+    // Who may draw (matches the app's DrawingAccess / GroupAccessScope):
+    //   * Super-Admin ........................ anywhere
+    //   * Admin / Coordinator Elder /
+    //     Service Overseer / Secretary ....... any FS Group territory of their own congregation
+    //   * Group Overseer / Servant / Assistant  only the FS Group whose slot they hold ...
+    //     ... AND, geometrically, only inside that territory.
+    //
+    // Rules cannot loop over coordinates, so the geometric half is enforced the only way
+    // rules can: every drawing carries its bounding box (minLat..maxLng), and a group-level
+    // caller's box must sit inside the territory's published box in `territoryBounds/{id}`
+    // — which only congregation-wide roles can write, never the group-level users it
+    // constrains. The exact polygon test runs in the app before anything is saved
+    // (DrawingValidator); a modified client that skips it is still held to the box here.
+    // (An exact server-side polygon test would need a Cloud Function, i.e. the Blaze plan.)
+    // Super-Admin, or Admin / Coordinator Elder / Service Overseer / Secretary acting for [congregationId]
+    // (canManageTerritoryAssignmentsFor already includes the Super-Admin).
+    function slotDrawFor(db, congregationId, groupId) {
+      return isSignedIn() && isSlotHolderOfGroup(db, groupId) &&
+        get(/databases/$(db)/documents/groups/$(groupId)).data.get('congregationId', null) == congregationId;
+    }
+
+    function canDrawFor(db, congregationId, groupId) {
+      return isSignedIn() && (canManageTerritoryAssignmentsFor(db, congregationId) || slotDrawFor(db, congregationId, groupId));
+    }
+
+    // The drawing sits in a real territory (claimed barangay) of the group/congregation it names.
+    function drawingTerritoryOk(db, d) {
+      let tid = d.get('territoryId', null);
+      let claim = get(/databases/$(db)/documents/territoryAssignmentBarangays/$(tid)).data;
+      return tid is string && tid.size() > 0 &&
+        exists(/databases/$(db)/documents/territoryAssignmentBarangays/$(tid)) &&
+        claim.get('congregationId', null) == d.get('congregationId', null) &&
+        claim.get('groupId', null) == d.get('groupId', null);
+    }
+
+    // The drawing's bounding box lies inside the territory's published bounding box.
+    function drawingInsideTerritoryBounds(db, d) {
+      let tid = d.get('territoryId', null);
+      let b = get(/databases/$(db)/documents/territoryBounds/$(tid)).data;
+      return exists(/databases/$(db)/documents/territoryBounds/$(tid)) &&
+        b.get('congregationId', null) == d.get('congregationId', null) &&
+        b.get('groupId', null) == d.get('groupId', null) &&
+        b.minLat <= d.minLat && b.maxLat >= d.maxLat && b.minLng <= d.minLng && b.maxLng >= d.maxLng;
+    }
+
+    function drawingShapeOk(d) {
+      return d.minLat is number && d.maxLat is number && d.minLng is number && d.maxLng is number &&
+        d.minLat >= -90 && d.maxLat <= 90 && d.minLng >= -180 && d.maxLng <= 180 &&
+        d.minLat <= d.maxLat && d.minLng <= d.maxLng &&
+        d.geometryJson is string && d.geometryJson.size() > 0 && d.geometryJson.size() <= 60000 &&
+        drawingPolygonOk(d);
+    }
+
+    // A polygon always has a status, and its color IS the status color (green / amber / red) — never arbitrary.
+    function drawingPolygonOk(d) {
+      let s = d.get('status', null);
+      let c = d.get('fillColor', null);
+      let o = d.get('fillOpacity', -1);
+      let r = d.get('remarks', '');
+      let nm = d.get('name', '');
+      return o >= 0 && o <= 1 && r is string && r.size() <= 1000 && nm is string && nm.size() <= 120 &&
+        ((s == 'FINISHED' && c == '#43A047') || (s == 'TO_CONTINUE' && c == '#FBC02D') || (s == 'TO_DO' && c == '#E53935'));
+    }
+
+
+    function drawingWriteOk(db, d) {
+      // Congregation-wide roles and the Super-Admin may draw across a territory; a group-level user
+      // must stay inside their own territory's published box.
+      let wide = canManageTerritoryAssignmentsFor(db, d.get('congregationId', null));
+      return drawingShapeOk(d) &&
+        d.get('updatedByUserId', null) == personIdFromToken() &&
+        (wide || slotDrawFor(db, d.get('congregationId', null), d.get('groupId', null))) &&
+        // Congregation-wide roles may also draw in an area no FS Group has claimed (territoryId ''); everyone else must name a real territory.
+        (d.get('territoryId', '') == '' ? wide : drawingTerritoryOk(db, d)) &&
+        (wide || drawingInsideTerritoryBounds(db, d));
+    }
+
+    match /territoryDrawings/{drawingId} {
+      allow read: if isSignedIn();
+      allow create: if drawingWriteOk(database, request.resource.data) &&
+        request.resource.data.get('userId', null) == personIdFromToken();
+      // The app saves with set(), so an edit of an existing drawing arrives here. The caller must be
+      // allowed to draw in the drawing's CURRENT group and in the new state; its author, congregation and
+      // creation time can never be rewritten.
+      allow update: if drawingWriteOk(database, request.resource.data) &&
+        canDrawFor(database, resource.data.get('congregationId', null), resource.data.get('groupId', null)) &&
+        request.resource.data.get('congregationId', null) == resource.data.get('congregationId', null) &&
+        request.resource.data.get('userId', null) == resource.data.get('userId', null) &&
+        request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null);
+      // Deleting something already gone (an unsynced draft deleted before it ever uploaded) is harmless.
+      allow delete: if isSignedIn() && (
+        resource == null ||
+        canDrawFor(database, resource.data.get('congregationId', null), resource.data.get('groupId', null))
+      );
+    }
+
+    // Audit trail of drawing actions — append-only; congregation-wide roles read it.
+    match /territoryDrawingAudits/{auditId} {
+      allow read: if canManageTerritoryAssignmentsFor(database, resource.data.get('congregationId', null));
+      allow create: if isSignedIn() &&
+        request.resource.data.get('userId', null) == personIdFromToken() &&
+        canDrawFor(database, request.resource.data.get('congregationId', null), request.resource.data.get('groupId', null));
+      allow update, delete: if false;
+    }
+
+    // Territory bounding boxes the drawing rules compare against. Only congregation-wide roles write them.
+    match /territoryBounds/{territoryId} {
+      allow read: if isSignedIn();
+      allow create, update: if canManageTerritoryAssignmentsFor(database, request.resource.data.get('congregationId', null)) &&
+        exists(/databases/$(database)/documents/territoryAssignmentBarangays/$(territoryId)) &&
+        get(/databases/$(database)/documents/territoryAssignmentBarangays/$(territoryId)).data.get('congregationId', null) == request.resource.data.get('congregationId', null) &&
+        get(/databases/$(database)/documents/territoryAssignmentBarangays/$(territoryId)).data.get('groupId', null) == request.resource.data.get('groupId', null) &&
+        request.resource.data.minLat is number && request.resource.data.maxLat is number &&
+        request.resource.data.minLng is number && request.resource.data.maxLng is number &&
+        request.resource.data.minLat <= request.resource.data.maxLat && request.resource.data.minLng <= request.resource.data.maxLng;
+      allow delete: if canManageTerritoryAssignmentsFor(database, resource.data.get('congregationId', null));
+    }
+
     // One doc per claimed barangay, id == "${congregationId}_${barangayId}"
     // (see TerritoryAssignmentBarangay's own doc comment) — that deterministic
     // id, combined with the create rule below, is what makes "a barangay can
@@ -1105,7 +1225,8 @@ service cloud.firestore {
         'locationSharingSettings', 'midweekMeetingSchedules', 'publicTalkSchedules', 'announcements',
         'creditHourCategories', 'publisherTerritoryAssignments', 'mapPins', 'plannerDays', 'monthlyPlannerGoals', 'weeklyPlannerGoals',
         'yearlyPlannerGoals', 'creditHourRecords', 'ministryTimerSessions',
-        'territoryAssignments', 'territoryAssignmentBarangays', 'deletedRecords'
+        'territoryAssignments', 'territoryAssignmentBarangays', 'deletedRecords',
+        'territoryDrawings', 'territoryDrawingAudits', 'territoryBounds'
       ]);
     }
   }

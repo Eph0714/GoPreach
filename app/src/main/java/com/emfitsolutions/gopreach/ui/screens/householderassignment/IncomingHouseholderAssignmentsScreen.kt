@@ -149,6 +149,7 @@ fun IncomingHouseholderAssignmentsScreen(
                     person?.let { p ->
                         p.gender?.let { Text("Gender: ${it.name.lowercase().replaceFirstChar(Char::uppercase)}") }
                         p.ageYears?.let { Text("Age: $it") }
+                        p.contact?.let { if (it.isNotBlank()) Text("Contact: $it") }
                     }
                     (assignment.notesSnapshot ?: person?.notes)?.let { if (it.isNotBlank()) Text("Notes: $it") }
                     Text("Assigned By: ${assignment.assignedByNameSnapshot}")

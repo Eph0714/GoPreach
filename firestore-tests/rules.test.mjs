@@ -571,6 +571,118 @@ async function run() {
   await gt("Group Overseer CANNOT change a member's role type", () => updateDoc(doc(asElderRegA, "roleAssignments", "ra_m1"), { roleType: "ADMIN:SUPER_ADMIN" }), false);
   await gt("Publisher CANNOT edit a group", () => updateDoc(doc(asPubA, "groups", "g1"), { name: "x" }), false);
 
+  // ============ Map drawings: completed-territory polygons / pins ============
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    for (const [id, role] of [["servantA", null], ["assistA", null], ["coordA", "COORDINATOR_ELDER"], ["svcA", "SERVICE_OVERSEER"]]) {
+      await setDoc(doc(db, "people", id), { isSuperAdmin: false, activeAdminRole: role, activeCongregationId: "congA" });
+    }
+    await setDoc(doc(db, "people", "coordB"), { isSuperAdmin: false, activeAdminRole: "COORDINATOR_ELDER", activeCongregationId: "congB" });
+    await setDoc(doc(db, "groups", "gd1"), { congregationId: "congA", name: "GD1", status: "ACTIVE", overseerPersonId: "elderRegA", servantPersonId: "servantA", assistantPersonId: "assistA" });
+    await setDoc(doc(db, "groups", "gd2"), { congregationId: "congA", name: "GD2", status: "ACTIVE", overseerPersonId: "someoneElse" });
+    await setDoc(doc(db, "groups", "gdB"), { congregationId: "congB", name: "GDB", status: "ACTIVE", overseerPersonId: "someoneB" });
+    await setDoc(doc(db, "territoryAssignmentBarangays", "congA_t1"), { congregationId: "congA", groupId: "gd1", barangayName: "Uno" });
+    await setDoc(doc(db, "territoryAssignmentBarangays", "congA_t2"), { congregationId: "congA", groupId: "gd2", barangayName: "Dos" });
+    await setDoc(doc(db, "territoryAssignmentBarangays", "congA_t3"), { congregationId: "congA", groupId: "gd1", barangayName: "Tres (no bounds yet)" });
+    await setDoc(doc(db, "territoryAssignmentBarangays", "congB_tb"), { congregationId: "congB", groupId: "gdB", barangayName: "Bee" });
+    // Published bounds: t1 = lat 10..11, lng 120..121.
+    await setDoc(doc(db, "territoryBounds", "congA_t1"), { congregationId: "congA", groupId: "gd1", minLat: 10, maxLat: 11, minLng: 120, maxLng: 121 });
+    await setDoc(doc(db, "territoryBounds", "congA_t2"), { congregationId: "congA", groupId: "gd2", minLat: 20, maxLat: 21, minLng: 120, maxLng: 121 });
+    await setDoc(doc(db, "territoryDrawings", "existingG1"), {
+      geometryJson: "{}", fillOpacity: 0.3, status: "FINISHED", userId: "coordA", updatedByUserId: "coordA",
+      congregationId: "congA", groupId: "gd1", territoryId: "congA_t1", minLat: 10.1, maxLat: 10.2, minLng: 120.1, maxLng: 120.2, createdAt: 1,
+    });
+    await setDoc(doc(db, "territoryDrawings", "existingG2"), {
+      geometryJson: "{}", fillOpacity: 0.3, status: "FINISHED", userId: "coordA", updatedByUserId: "coordA",
+      congregationId: "congA", groupId: "gd2", territoryId: "congA_t2", minLat: 20.1, maxLat: 20.2, minLng: 120.1, maxLng: 120.2, createdAt: 1,
+    });
+  });
+  const asServantA = testEnv.authenticatedContext("servantA", { email: "servantA@x.com" }).firestore();
+  const asAssistA = testEnv.authenticatedContext("assistA", { email: "assistA@x.com" }).firestore();
+  const asCoordA = testEnv.authenticatedContext("coordA", { email: "coordA@x.com" }).firestore();
+  const asSvcA = testEnv.authenticatedContext("svcA", { email: "svcA@x.com" }).firestore();
+  const asCoordB = testEnv.authenticatedContext("coordB", { email: "coordB@x.com" }).firestore();
+  const drawing = (who, o = {}) => ({
+    geometryJson: '{"type":"Polygon","coordinates":[]}', fillColor: "#43A047", fillOpacity: 0.35, borderColor: "#2E7D32",
+    status: "FINISHED", userId: who, updatedByUserId: who, congregationId: "congA", groupId: "gd1", territoryId: "congA_t1",
+    minLat: 10.2, maxLat: 10.4, minLng: 120.2, maxLng: 120.4, createdAt: 1, updatedAt: 1, ...o,
+  });
+  const dd = (name, ctx, id, data, ok) => gt("Drawing: " + name, () => setDoc(doc(ctx, "territoryDrawings", id), data), ok);
+
+  await dd("Group Overseer CAN draw inside own territory", asElderRegA, "d1", drawing("elderRegA"), true);
+  await dd("Group Servant CAN draw inside own territory", asServantA, "d2", drawing("servantA"), true);
+  await dd("Group Assistant CAN draw inside own territory", asAssistA, "d3", drawing("assistA"), true);
+  await dd("Group Overseer CANNOT draw beyond own territory's bounds (edited bbox)", asElderRegA, "d5", drawing("elderRegA", { maxLat: 12 }), false);
+  await dd("Group Overseer CANNOT draw in another FS Group's territory", asElderRegA, "d6",
+    drawing("elderRegA", { groupId: "gd2", territoryId: "congA_t2", minLat: 20.2, maxLat: 20.4 }), false);
+  await dd("Group Overseer CANNOT file a drawing under another group while using own territory", asElderRegA, "d7", drawing("elderRegA", { groupId: "gd2" }), false);
+  await dd("Group Overseer CANNOT draw where the territory has no published bounds", asElderRegA, "d8", drawing("elderRegA", { territoryId: "congA_t3" }), false);
+  await dd("Group Overseer CANNOT spoof another user as the author", asElderRegA, "d9", drawing("pubB"), false);
+  await dd("Group Overseer CANNOT omit the editor stamp", asElderRegA, "d10", drawing("elderRegA", { updatedByUserId: "pubB" }), false);
+  await dd("Plain publisher (no group slot) CANNOT draw", asPubA, "d11", drawing("pubA"), false);
+  await dd("Publisher in another congregation CANNOT draw", testEnv.authenticatedContext("pubOtherCong", { email: "pubOtherCong@x.com" }).firestore(), "d12", drawing("pubOtherCong"), false);
+  await dd("Coordinator Elder CAN draw in any FS Group territory of own congregation", asCoordA, "d13",
+    drawing("coordA", { groupId: "gd2", territoryId: "congA_t2", minLat: 20.2, maxLat: 20.4 }), true);
+  await dd("Coordinator Elder CAN draw outside the published box (congregation-wide)", asCoordA, "d14", drawing("coordA", { maxLat: 12 }), true);
+  await dd("Service Overseer CAN draw in another group's territory", asSvcA, "d15", drawing("svcA", { groupId: "gd2", territoryId: "congA_t2", minLat: 20.2, maxLat: 20.4 }), true);
+  await dd("Secretary CAN draw in any FS Group territory of own congregation", asSecretaryA, "d16", drawing("secretaryA"), true);
+  await dd("Coordinator Elder CANNOT draw in another congregation", asCoordA, "d17",
+    drawing("coordA", { congregationId: "congB", groupId: "gdB", territoryId: "congB_tb" }), false);
+  await dd("Coordinator Elder CANNOT file a drawing with a territory of another congregation", asCoordA, "d18",
+    drawing("coordA", { territoryId: "congB_tb" }), false);
+  await dd("Super Admin CAN draw in any congregation", asSuperAdmin, "d19",
+    drawing("superAdmin1", { congregationId: "congB", groupId: "gdB", territoryId: "congB_tb" }), true);
+  await dd("Coordinator of another congregation CANNOT draw in congA", asCoordB, "d20", drawing("coordB"), false);
+  const unassigned = (who, o = {}) => drawing(who, { groupId: "", territoryId: "", territoryName: "", ...o });
+  await dd("Coordinator Elder CAN draw in an area outside any FS Group territory", asCoordA, "u1", unassigned("coordA"), true);
+  await dd("Secretary CAN draw in an unassigned area of own congregation", asSecretaryA, "u2", unassigned("secretaryA"), true);
+  await dd("Service Overseer CAN draw in an unassigned area of own congregation", asSvcA, "u3", unassigned("svcA"), true);
+  await dd("Admin CAN draw in an unassigned area of own congregation", asAdminA, "u4", unassigned("adminA"), true);
+  await dd("Super Admin CAN draw in an unassigned area of any congregation", asSuperAdmin, "u5", unassigned("superAdmin1", { congregationId: "congB" }), true);
+  await dd("Coordinator of another congregation CANNOT draw in an unassigned area of congA", asCoordB, "u6", unassigned("coordB"), false);
+  await dd("Admin CANNOT draw in another congregation's unassigned area", asAdminA, "u7", unassigned("adminA", { congregationId: "congB" }), false);
+  await dd("Group Overseer CANNOT draw in an unassigned area", asElderRegA, "u8", unassigned("elderRegA"), false);
+  await dd("Group Servant CANNOT draw in an unassigned area", asServantA, "u9", unassigned("servantA"), false);
+  await dd("Plain publisher CANNOT draw in an unassigned area", asPubA, "u10", unassigned("pubA"), false);
+
+  await gt("Drawing: Group Overseer CAN edit a drawing in own group (made by someone else)",
+    () => setDoc(doc(asElderRegA, "territoryDrawings", "existingG1"), drawing("coordA", { updatedByUserId: "elderRegA", status: "TO_DO", fillColor: "#E53935" })), true);
+  await gt("Drawing: Group Overseer CANNOT edit another group's drawing",
+    () => setDoc(doc(asElderRegA, "territoryDrawings", "existingG2"), drawing("coordA", { groupId: "gd2", territoryId: "congA_t2", minLat: 20.1, maxLat: 20.2, updatedByUserId: "elderRegA" })), false);
+  await gt("Drawing: edit CANNOT rewrite the original author",
+    () => setDoc(doc(asElderRegA, "territoryDrawings", "existingG1"), drawing("elderRegA")), false);
+  await gt("Drawing: Group Overseer CAN delete a drawing in own group", () => deleteDoc(doc(asElderRegA, "territoryDrawings", "d1")), true);
+  await gt("Drawing: Group Overseer CANNOT delete another group's drawing", () => deleteDoc(doc(asElderRegA, "territoryDrawings", "existingG2")), false);
+  await gt("Drawing: deleting an already-missing drawing is harmless", () => deleteDoc(doc(asElderRegA, "territoryDrawings", "neverUploaded")), true);
+  await gt("Drawing: any signed-in user CAN read drawings", () => getDoc(doc(asPubB, "territoryDrawings", "existingG1")), true);
+
+  await gt("Bounds: Group Overseer CANNOT widen their own territory's bounds",
+    () => setDoc(doc(asElderRegA, "territoryBounds", "congA_t1"), { congregationId: "congA", groupId: "gd1", minLat: 0, maxLat: 90, minLng: 0, maxLng: 180 }), false);
+  await gt("Bounds: Coordinator Elder CAN publish bounds for a territory in own congregation",
+    () => setDoc(doc(asCoordA, "territoryBounds", "congA_t3"), { congregationId: "congA", groupId: "gd1", minLat: 30, maxLat: 31, minLng: 120, maxLng: 121 }), true);
+  await gt("Bounds: bounds CANNOT name a group that doesn't own the territory",
+    () => setDoc(doc(asCoordA, "territoryBounds", "congA_t3"), { congregationId: "congA", groupId: "gd2", minLat: 30, maxLat: 31, minLng: 120, maxLng: 121 }), false);
+  await dd("Group Overseer CAN draw once the territory's bounds are published", asElderRegA, "d21", drawing("elderRegA", { territoryId: "congA_t3", minLat: 30.2, maxLat: 30.4 }), true);
+  await dd("Polygon CANNOT be saved without a status", asElderRegA, "s1", (() => { const p = drawing("elderRegA"); delete p.status; return p; })(), false);
+  await dd("Polygon CANNOT use an arbitrary color for its status", asElderRegA, "s2", drawing("elderRegA", { fillColor: "#0000FF" }), false);
+  await dd("To Continue polygon must be amber", asElderRegA, "s3", drawing("elderRegA", { status: "TO_CONTINUE", fillColor: "#FBC02D" }), true);
+  await dd("To Do polygon must be red", asElderRegA, "s4", drawing("elderRegA", { status: "TO_DO", fillColor: "#E53935" }), true);
+  await dd("To Do polygon CANNOT be green", asElderRegA, "s5", drawing("elderRegA", { status: "TO_DO", fillColor: "#43A047" }), false);
+  await dd("Old status names are rejected", asElderRegA, "s6", drawing("elderRegA", { status: "COMPLETED" }), false);
+  await dd("Polygon CAN carry multi-line remarks", asElderRegA, "r1", drawing("elderRegA", { remarks: "Covered the east side. Continue from the main road.", fillOpacity: 0.1 }), true);
+  await dd("Polygon remarks CANNOT be absurdly long", asElderRegA, "r2", drawing("elderRegA", { remarks: "x".repeat(1001) }), false);
+  await dd("Polygon CAN carry a name", asElderRegA, "n1", drawing("elderRegA", { name: "East of the highway" }), true);
+  await dd("Polygon name CANNOT be absurdly long", asElderRegA, "n2", drawing("elderRegA", { name: "x".repeat(121) }), false);
+
+  const audit = (who, o = {}) => ({ drawingId: "d2", action: "CREATED", userId: who, userRole: "Group Overseer", congregationId: "congA", groupId: "gd1", territoryId: "congA_t1", at: 1, syncInfo: "PENDING", ...o });
+  await gt("Audit: Group Overseer CAN append an audit row for own group", () => setDoc(doc(asElderRegA, "territoryDrawingAudits", "a1"), audit("elderRegA")), true);
+  await gt("Audit: CANNOT append a row as someone else", () => setDoc(doc(asElderRegA, "territoryDrawingAudits", "a2"), audit("pubB")), false);
+  await gt("Audit: CANNOT append a row for another group", () => setDoc(doc(asElderRegA, "territoryDrawingAudits", "a3"), audit("elderRegA", { groupId: "gd2" })), false);
+  await gt("Audit: rows can never be edited", () => updateDoc(doc(asElderRegA, "territoryDrawingAudits", "a1"), { action: "DELETED" }), false);
+  await gt("Audit: rows can never be deleted", () => deleteDoc(doc(asCoordA, "territoryDrawingAudits", "a1")), false);
+  await gt("Audit: Coordinator Elder CAN read the audit trail", () => getDoc(doc(asCoordA, "territoryDrawingAudits", "a1")), true);
+  await gt("Audit: a publisher CANNOT read the audit trail", () => getDoc(doc(asPubA, "territoryDrawingAudits", "a1")), false);
+
   await testEnv.cleanup();
 
   console.log("\n=== SUMMARY ===");

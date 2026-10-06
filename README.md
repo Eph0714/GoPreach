@@ -65,3 +65,15 @@ feature set from the original spec is implemented. Known scoped-down spots
   client SDK can only change the *signed-in* account's own password;
   resetting someone else's needs a Cloud Function (Firebase Admin SDK), which
   needs the Blaze plan this project isn't on yet (see BUILD_PLAN.md's Phase 55).
+
+## Territory map drawing
+
+Long-press the Territory Map (if your role allows drawing) to enter Drawing Mode: lasso a worked area, pick its
+status (Finished green / To Continue amber / To Do red), or drop a pin with a required date and notes.
+Drawings are GeoJSON in `territoryDrawings`, saved offline-first and synced like everything else; every change
+is audited in `territoryDrawingAudits`. Shared pieces live in `ui/components/map/` (`MapLibreHost`,
+`MapDrawingOverlay`, `CurrentLocationLayer`, `MapOrientation`) and `domain/map/` (geometry + permissions).
+Rules for these collections are in `firestore.rules` (tests in `firestore-tests/`). The server checks role, FS
+Group, territory membership and the territory's bounding box (`territoryBounds`, published by
+Coordinator Elder / Service Overseer / Secretary / Admin / Super Admin when they open the map); the exact
+polygon-inside-territory test runs in the app before saving.

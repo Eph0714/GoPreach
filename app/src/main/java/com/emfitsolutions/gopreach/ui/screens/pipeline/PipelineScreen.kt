@@ -437,6 +437,7 @@ internal fun PipelinePersonDialog(
     var literaturePlace by remember { mutableStateOf(existingPerson?.literaturePlace.orEmpty()) }
     var remarks by remember { mutableStateOf(existingPerson?.remarks.orEmpty()) }
     var notes by remember { mutableStateOf(existingPerson?.notes.orEmpty()) }
+    var contact by remember { mutableStateOf(existingPerson?.contact.orEmpty()) }
     var gender by remember { mutableStateOf(existingPerson?.gender) }
     var image by remember { mutableStateOf(existingPerson?.primarySupportingImage) }
     val originalCoordinates = remember(existingPerson) {
@@ -530,6 +531,7 @@ internal fun PipelinePersonDialog(
                 literaturePlace = literaturePlace.trim().ifBlank { null },
                 remarks = remarks.trim().ifBlank { null },
                 notes = notes.trim().ifBlank { null },
+                contact = contact.trim().ifBlank { null },
                 supportingImages = listOfNotNull(image),
                 gpsLat = coordinates?.lat,
                 gpsLng = coordinates?.lng,
@@ -555,7 +557,7 @@ internal fun PipelinePersonDialog(
             children != existingPerson?.children.orEmpty() || religion != existingPerson?.religion.orEmpty() ||
             ageText != existingPerson?.ageYears?.toString().orEmpty() ||
             language != existingPerson?.language.orEmpty() || literaturePlace != existingPerson?.literaturePlace.orEmpty() ||
-            remarks != existingPerson?.remarks.orEmpty() || notes != existingPerson?.notes.orEmpty() ||
+            remarks != existingPerson?.remarks.orEmpty() || notes != existingPerson?.notes.orEmpty() || contact != existingPerson?.contact.orEmpty() ||
             gender != existingPerson?.gender || image != existingPerson?.primarySupportingImage ||
             coordinates != originalCoordinates || assignedPublisherId != publisherPersonId,
     ) {
@@ -613,6 +615,7 @@ internal fun PipelinePersonDialog(
                 OutlinedTextField(value = literaturePlace, onValueChange = { literaturePlace = it.uppercase() }, label = { Text("Literature Place (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = remarks, onValueChange = { remarks = it }, label = { Text("Remarks (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("Notes (optional)") }, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = contact, onValueChange = { contact = it }, label = { Text("Contact (optional)") }, singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth())
 
                 EditSectionHeader("Supporting Information")
                 SupportingImageSection(currentImage = image, onImageConfirmed = { image = it }, onClear = { image = null })
@@ -939,6 +942,7 @@ internal fun PipelinePersonDetailScreen(
                 Text("Language: ${livePerson.language ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Literature Place: ${livePerson.literaturePlace ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Congregation: $congregationName", style = MaterialTheme.typography.bodyMedium)
+                Text("Contact: ${livePerson.contact?.takeIf { it.isNotBlank() } ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Remarks: ${livePerson.remarks ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 SupportingImagePreview(livePerson.primarySupportingImage)
             }

@@ -5,8 +5,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
-import android.os.SystemClock
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -16,17 +16,18 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
 import com.emfitsolutions.gopreach.data.model.MapPin
 import com.emfitsolutions.gopreach.ui.components.map.BoundaryGeometry
+import com.emfitsolutions.gopreach.ui.components.map.CurrentLocationLayer
+import com.emfitsolutions.gopreach.domain.map.DrawingAccess
+import com.emfitsolutions.gopreach.domain.map.TerritoryBoundary
+import com.emfitsolutions.gopreach.ui.components.map.MapDrawingLayers
+import com.emfitsolutions.gopreach.ui.components.map.MapDrawingOverlay
+import com.emfitsolutions.gopreach.ui.components.map.MapDrawingState
+import com.emfitsolutions.gopreach.ui.components.map.polygonCornerGestures
 import com.emfitsolutions.gopreach.ui.components.map.MapLibreHost
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
-import com.emfitsolutions.gopreach.ui.components.map.Mapillary
 import com.emfitsolutions.gopreach.ui.components.map.maptilerStyleUrl
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -40,6 +41,7 @@ import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.style.sources.GeoJsonOptions
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
@@ -63,15 +65,19 @@ private const val LYR_AREA_LABELS = "tm-area-labels"
 private const val SRC_RECORDS = "tm-records-src"
 private const val LYR_RECORDS = "tm-records"
 private const val LYR_RECORD_LABELS = "tm-record-labels"
+private const val LYR_CLUSTER = "tm-cluster"
+private const val LYR_CLUSTER_COUNT = "tm-cluster-count"
+private const val LYR_STACK = "tm-stack"
+private const val LYR_STACK_COUNT = "tm-stack-count"
+private const val SRC_SELECTED = "tm-selected-src"
+
+/** From this zoom on, records sharing one spot fan out into separate icons around it; below it they show as one numbered stack. */
+private const val SPREAD_ZOOM = 18.0
+private const val LYR_SELECTED = "tm-selected"
 private const val SRC_PINS = "tm-pins-src"
 private const val LYR_PINS = "tm-pins"
 private const val LYR_PIN_LABELS = "tm-pin-labels"
 private const val IMG_NOTE_PIN = "tm-img-note-pin"
-private const val SRC_ME = "tm-me-src"
-private const val LYR_PULSE = "tm-me-pulse"
-private const val LYR_ME_RING = "tm-me-ring"
-private const val LYR_ME_DOT = "tm-me-dot"
-private const val LYR_ME_LABEL = "tm-me-label"
 private const val SRC_FOCUS = "tm-focus-src"
 private const val LYR_FOCUS = "tm-focus"
 private const val IMG_FOCUS = "tm-img-focus"
@@ -155,12 +161,10 @@ fun TerritoryMapCanvas(
     /** Text pins dropped by long-press ("Create a Pin"), saved online. */
     pins: List<MapPin>,
     onPinTap: (String) -> Unit,
-    /** Street View (Mapillary) mode: coverage is drawn and a tap asks for photos at that spot. */
-    streetView: Boolean,
-    onStreetViewTap: (lat: Double, lng: Double) -> Unit,
     selectedAreaId: String?,
     selectedRecordId: String?,
     myLocation: Pair<Double, Double>?,
+    myAccuracyMeters: Float? = null,
     focus: Triple<Double, Double, String>?,
     basemap: TerritoryBasemap,
     reloadToken: Int,
@@ -174,10 +178,20 @@ fun TerritoryMapCanvas(
     /** Long-press on the map — the exact (lat, lng) pressed. */
     onLongPress: (lat: Double, lng: Double) -> Unit,
     onLoadStateChange: (MapLoadState) -> Unit,
+    /** The shared drawing system (see MapDrawingOverlay): its UI state, who may draw, and the
+     * territories (with boundaries) currently on the map that drawings are validated against. */
+    drawingState: MapDrawingState,
+    drawingAccess: DrawingAccess,
+    drawingTerritories: List<TerritoryBoundary>,
+    drawings: List<com.emfitsolutions.gopreach.data.model.TerritoryDrawing>,
+    drawingCongregationId: String,
+    /** Draw Mode's "Hide Markers": hides every record / pin marker (data and permissions untouched). */
+    hideMarkers: Boolean = false,
+    /** A numbered stack marker (several records at the same spot) was tapped: the ids of all its records. */
+    onStackTap: (List<String>) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val density = LocalContext.current.resources.displayMetrics.density
-    val lifecycleOwner = LocalLifecycleOwner.current
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var styleVersion by remember { mutableIntStateOf(0) }
     var lastFitKey by remember { mutableStateOf<String?>(null) }
@@ -187,16 +201,71 @@ fun TerritoryMapCanvas(
     val latestOnAreaTap = rememberUpdatedState(onAreaTap)
     val latestOnLongPress = rememberUpdatedState(onLongPress)
     val latestOnPinTap = rememberUpdatedState(onPinTap)
-    val latestStreetView = rememberUpdatedState(streetView)
-    val latestOnStreetViewTap = rememberUpdatedState(onStreetViewTap)
+    val latestOnStackTap = rememberUpdatedState(onStackTap)
 
     MapLibreHost(
         styleUrl = maptilerStyleUrl(basemap.styleId),
         reloadToken = reloadToken,
         onLoadStateChange = onLoadStateChange,
+        myLocation = myLocation,
+        myAccuracyMeters = myAccuracyMeters,
+        drawingLayers = true,
+        recenterOnArrowTap = false,
+        content = { m, styleVer ->
+            MapDrawingOverlay(
+                state = drawingState,
+                map = m,
+                styleVersion = styleVer,
+                access = drawingAccess,
+                territories = drawingTerritories,
+                congregationId = drawingCongregationId,
+                drawings = drawings,
+            )
+        },
         onMapClick = { m, latLng ->
+            // Drawing Mode owns every tap while it is on.
+            // Drawing Mode owns every tap: it places the next polygon corner (see MapDrawingOverlay).
+            if (drawingState.active) return@MapLibreHost drawingState.mapTapHandler?.invoke(latLng) ?: true
             val screen = m.projection.toScreenLocation(latLng)
-            val recordId = m.queryRenderedFeatures(screen, LYR_RECORDS)
+            val drawingId = MapDrawingLayers.hitTest(m, screen)
+            // A cluster zooms in; a stack opens the list of its records; otherwise a single record.
+            m.queryRenderedFeatures(screen, LYR_CLUSTER).firstOrNull()?.let { cluster ->
+                // Zoom to frame exactly the records this cluster stands for (so a tap always reveals them).
+                val leaves = m.style?.getSourceAs<GeoJsonSource>(SRC_RECORDS)?.getClusterLeaves(cluster, 500L, 0L)?.features().orEmpty()
+                val pts = leaves.mapNotNull { (it.geometry() as? Point)?.let { p -> LatLng(p.latitude(), p.longitude()) } }
+                val p = cluster.geometry() as? Point
+                // Zooming in separates a cluster into its icons. Only when it truly cannot (already at the closest zoom, or its records are within a
+                // couple of metres of each other) does it open as a list instead, so EVERY number on the map can still be opened.
+                val tiny = pts.size < 2 || run {
+                    val b = LatLngBounds.Builder().includes(pts).build()
+                    Math.hypot((b.latitudeNorth - b.latitudeSouth) * 110_540.0, (b.longitudeEast - b.longitudeWest) * 111_320.0) < 2.0
+                }
+                if (tiny || m.cameraPosition.zoom >= 21.5) {
+                    // Records on (almost) one spot: zoom in and they fan out into separate icons (see the records effect).
+                    if (p != null && m.cameraPosition.zoom < SPREAD_ZOOM) {
+                        m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(p.latitude(), p.longitude()), SPREAD_ZOOM + 0.5), 450)
+                        return@MapLibreHost true
+                    }
+                    val ids = leaves.flatMap { f -> f.getStringProperty("ids")?.split(",").orEmpty() }.filter { it.isNotBlank() }.distinct()
+                    if (ids.isNotEmpty()) { latestOnStackTap.value(ids); return@MapLibreHost true }
+                }
+                when {
+                    pts.size >= 2 -> m.animateCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes(pts).build(), 140), 500)
+                    p != null -> m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(p.latitude(), p.longitude()), maxOf(m.cameraPosition.zoom + 2, 16.0).coerceAtMost(21.0)), 450)
+                }
+                return@MapLibreHost true
+            }
+            m.queryRenderedFeatures(screen, LYR_STACK).firstOrNull()?.let { f ->
+                // Zoom in on the spot: the records fan out into separate icons; at the closest zoom the list is the fallback.
+                val sp = f.geometry() as? Point
+                if (sp != null && m.cameraPosition.zoom < SPREAD_ZOOM) {
+                    m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(sp.latitude(), sp.longitude()), SPREAD_ZOOM + 0.5), 450)
+                    return@MapLibreHost true
+                }
+                val ids = f.getStringProperty("ids")?.split(",").orEmpty().filter { it.isNotBlank() }
+                if (ids.isNotEmpty()) { latestOnStackTap.value(ids); return@MapLibreHost true }
+            }
+            val recordId = (m.queryRenderedFeatures(screen, LYR_SELECTED) + m.queryRenderedFeatures(screen, LYR_RECORDS))
                 .firstNotNullOfOrNull { if (it.hasProperty("id")) it.getStringProperty("id") else null }
             val pinId = if (recordId != null) null else m.queryRenderedFeatures(screen, LYR_PINS)
                 .firstNotNullOfOrNull { if (it.hasProperty("id")) it.getStringProperty("id") else null }
@@ -206,8 +275,12 @@ fun TerritoryMapCanvas(
             } else if (pinId != null) {
                 latestOnPinTap.value(pinId)
                 true
-            } else if (latestStreetView.value) {
-                latestOnStreetViewTap.value(latLng.latitude, latLng.longitude)
+            } else if (myLocation != null && CurrentLocationLayer.isHit(m, screen, myLocation, 24f * density)) {
+                // The My Location arrow (drawn below the records, so records and clusters win a shared tap first).
+                m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(myLocation.first, myLocation.second), maxOf(m.cameraPosition.zoom, 16.0)), 450)
+                true
+            } else if (drawingId != null) {
+                drawingState.selectedDrawingId = drawingId
                 true
             } else {
                 val areaId = m.queryRenderedFeatures(screen, LYR_AREA_FILL)
@@ -270,18 +343,35 @@ fun TerritoryMapCanvas(
                 ).also { it.minZoom = 10f },
             )
 
-            style.addSource(GeoJsonSource(SRC_RECORDS, FeatureCollection.fromFeatures(emptyList<Feature>())))
+            // Records are CLUSTERED by MapLibre itself (one GeoJSON source, symbol/circle layers — no per-marker views):
+            // zoomed out they merge into numbered clusters, zooming in separates them, and records at (almost) the same
+            // spot arrive here already merged into one numbered "stack" marker (see the effect below).
+            style.addSource(
+                GeoJsonSource(
+                    SRC_RECORDS,
+                    FeatureCollection.fromFeatures(emptyList<Feature>()),
+                    GeoJsonOptions()
+                        .withCluster(true)
+                        // Tiles (and so cluster splits) must exist for the deep zooms, or a cluster stays one blob past zoom 18.
+                        .withMaxZoom(22)
+                        .withClusterRadius(44)
+                        .withClusterMaxZoom(21)
+                        // "total" = how many records a cluster stands for (a stack counts as all of its records).
+                        .withClusterProperty("total", Expression.sum(Expression.accumulated(), Expression.get("total")), Expression.get("count")),
+                ),
+            )
+            val single = Expression.all(Expression.not(Expression.has("point_count")), Expression.eq(Expression.get("count"), Expression.literal(1)))
+            val stack = Expression.all(Expression.not(Expression.has("point_count")), Expression.gt(Expression.get("count"), Expression.literal(1)))
             style.addLayer(
-                SymbolLayer(LYR_RECORDS, SRC_RECORDS).withProperties(
+                SymbolLayer(LYR_RECORDS, SRC_RECORDS).withFilter(single).withProperties(
                     PropertyFactory.iconImage(Expression.get("img")),
                     PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
                     PropertyFactory.iconAllowOverlap(true),
                     PropertyFactory.iconIgnorePlacement(true),
-                    PropertyFactory.symbolSortKey(Expression.get("order")),
                 ),
             )
             style.addLayer(
-                SymbolLayer(LYR_RECORD_LABELS, SRC_RECORDS).withProperties(
+                SymbolLayer(LYR_RECORD_LABELS, SRC_RECORDS).withFilter(single).withProperties(
                     PropertyFactory.textField(Expression.get("name")),
                     PropertyFactory.textFont(FONT),
                     PropertyFactory.textSize(11f),
@@ -290,8 +380,57 @@ fun TerritoryMapCanvas(
                     PropertyFactory.textColor("#202124"),
                     PropertyFactory.textHaloColor("#FFFFFF"),
                     PropertyFactory.textHaloWidth(1.6f),
+                    // Labels yield to each other (collision detection) instead of piling up.
                     PropertyFactory.textOptional(true),
                 ).also { it.minZoom = 14.5f },
+            )
+            // Cluster of several markers: a numbered circle; tapping it zooms into that area.
+            style.addLayer(
+                CircleLayer(LYR_CLUSTER, SRC_RECORDS).withFilter(Expression.has("point_count")).withProperties(
+                    PropertyFactory.circleColor("#5E35B1"),
+                    PropertyFactory.circleRadius(Expression.step(Expression.get("total"), Expression.literal(16f), Expression.stop(10, 20f), Expression.stop(50, 25f))),
+                    PropertyFactory.circleStrokeColor("#FFFFFF"),
+                    PropertyFactory.circleStrokeWidth(2.5f),
+                ),
+            )
+            style.addLayer(
+                SymbolLayer(LYR_CLUSTER_COUNT, SRC_RECORDS).withFilter(Expression.has("point_count")).withProperties(
+                    PropertyFactory.textField(Expression.toString(Expression.get("total"))),
+                    PropertyFactory.textFont(FONT_BOLD),
+                    PropertyFactory.textSize(13f),
+                    PropertyFactory.textColor("#FFFFFF"),
+                    PropertyFactory.textAllowOverlap(true),
+                    PropertyFactory.textIgnorePlacement(true),
+                ),
+            )
+            // Several records at the same / nearly the same coordinates: one numbered marker; tapping opens the list.
+            style.addLayer(
+                CircleLayer(LYR_STACK, SRC_RECORDS).withFilter(stack).withProperties(
+                    PropertyFactory.circleColor("#37474F"),
+                    PropertyFactory.circleRadius(15f),
+                    PropertyFactory.circleStrokeColor("#FFFFFF"),
+                    PropertyFactory.circleStrokeWidth(3f),
+                ),
+            )
+            style.addLayer(
+                SymbolLayer(LYR_STACK_COUNT, SRC_RECORDS).withFilter(stack).withProperties(
+                    PropertyFactory.textField(Expression.toString(Expression.get("count"))),
+                    PropertyFactory.textFont(FONT_BOLD),
+                    PropertyFactory.textSize(13f),
+                    PropertyFactory.textColor("#FFFFFF"),
+                    PropertyFactory.textAllowOverlap(true),
+                    PropertyFactory.textIgnorePlacement(true),
+                ),
+            )
+            // The selected record always stays visible and on top, whatever cluster it would otherwise be inside.
+            style.addSource(GeoJsonSource(SRC_SELECTED, FeatureCollection.fromFeatures(emptyList<Feature>())))
+            style.addLayer(
+                SymbolLayer(LYR_SELECTED, SRC_SELECTED).withProperties(
+                    PropertyFactory.iconImage(Expression.get("img")),
+                    PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+                    PropertyFactory.iconAllowOverlap(true),
+                    PropertyFactory.iconIgnorePlacement(true),
+                ),
             )
 
             style.addImage(IMG_NOTE_PIN, drawPin("#D93025", "📌", false, density))
@@ -319,41 +458,6 @@ fun TerritoryMapCanvas(
                     PropertyFactory.textAllowOverlap(true),
                 ),
             )
-            style.addSource(GeoJsonSource(SRC_ME, FeatureCollection.fromFeatures(emptyList<Feature>())))
-            style.addLayer(
-                CircleLayer(LYR_PULSE, SRC_ME).withProperties(
-                    PropertyFactory.circleColor("#1A73E8"),
-                    PropertyFactory.circleRadius(10f),
-                    PropertyFactory.circleOpacity(0.3f),
-                    PropertyFactory.circlePitchAlignment(Property.CIRCLE_PITCH_ALIGNMENT_MAP),
-                ),
-            )
-            style.addLayer(
-                CircleLayer(LYR_ME_RING, SRC_ME).withProperties(
-                    PropertyFactory.circleColor("#FFFFFF"),
-                    PropertyFactory.circleRadius(9.5f),
-                ),
-            )
-            style.addLayer(
-                CircleLayer(LYR_ME_DOT, SRC_ME).withProperties(
-                    PropertyFactory.circleColor("#1A73E8"),
-                    PropertyFactory.circleRadius(6.5f),
-                ),
-            )
-            style.addLayer(
-                SymbolLayer(LYR_ME_LABEL, SRC_ME).withProperties(
-                    PropertyFactory.textField("You Are Here"),
-                    PropertyFactory.textFont(FONT_BOLD),
-                    PropertyFactory.textSize(12.5f),
-                    PropertyFactory.textColor("#1A73E8"),
-                    PropertyFactory.textHaloColor("#FFFFFF"),
-                    PropertyFactory.textHaloWidth(2f),
-                    PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
-                    PropertyFactory.textOffset(arrayOf(0f, 1.3f)),
-                    PropertyFactory.textAllowOverlap(true),
-                    PropertyFactory.textIgnorePlacement(true),
-                ),
-            )
             style.addSource(GeoJsonSource(SRC_FOCUS, FeatureCollection.fromFeatures(emptyList<Feature>())))
             style.addLayer(
                 SymbolLayer(LYR_FOCUS, SRC_FOCUS).withProperties(
@@ -364,7 +468,8 @@ fun TerritoryMapCanvas(
             map = m
             styleVersion++
         },
-        modifier = modifier,
+        // Polygon Lasso corner gestures ride on the map itself, so the map still pans / zooms freely away from a corner.
+        modifier = modifier.polygonCornerGestures(drawingState, map, density, drawingAccess.restrictedRings(drawingTerritories)),
     )
 
     // Territory boundaries + labels.
@@ -396,32 +501,91 @@ fun TerritoryMapCanvas(
         style.getSourceAs<GeoJsonSource>(SRC_AREA_LABELS)?.setGeoJson(FeatureCollection.fromFeatures(labels))
     }
 
-    // Record markers (selected one drawn last / largest).
-    LaunchedEffect(map, styleVersion, records, selectedRecordId, groupColors, showAllGroups) {
+    // Half-zoom steps: the stacks re-fan (their ring is sized in screen terms) as the user zooms.
+    var zoomStep by remember { mutableIntStateOf(0) }
+    DisposableEffect(map) {
+        val m = map ?: return@DisposableEffect onDispose { }
+        val listener = MapLibreMap.OnCameraIdleListener { zoomStep = Math.floor(m.cameraPosition.zoom * 2).toInt() }
+        m.addOnCameraIdleListener(listener)
+        onDispose { m.removeOnCameraIdleListener(listener) }
+    }
+    // Record markers. Records at (almost) the same coordinates are merged into ONE numbered stack marker so icons never
+    // sit on top of each other; everything else is clustered / separated by MapLibre by zoom level. The selected record
+    // is drawn separately (always visible, on top).
+    LaunchedEffect(map, styleVersion, records, selectedRecordId, groupColors, showAllGroups, zoomStep) {
         val m = map ?: return@LaunchedEffect
         val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
-        val features = records.map { rd ->
-            val r = rd.record
-            val selected = r.id == selectedRecordId
+        fun imageFor(r: LocationRecord, selected: Boolean): String {
             val ring = if (showAllGroups) r.groupId?.let { groupColors[it] } else null
             val imageId = recordImage(r.type, selected, ring)
             if (style.getImage(imageId) == null) style.addImage(imageId, buildPin(r.type, selected, density, ring))
-            Feature.fromGeometry(pointOf(r.lat, r.lng)).also {
-                it.addStringProperty("id", r.id)
-                it.addStringProperty("name", r.name)
-                it.addStringProperty("img", imageId)
-                it.addNumberProperty("order", if (selected) 1 else 0)
+            return imageId
+        }
+        // Only records at (virtually) the SAME coordinates (within ~2 m: one point, GPS noise) become ONE stack marker — anything else separates as you zoom in. Distance-based,
+        // not a grid, so two records a metre apart can never straddle a cell edge and stay as a separate pair.
+        val groups = ArrayList<MutableList<RecordWithDistance>>()
+        records.forEach { rd ->
+            val r = rd.record
+            val home = groups.firstOrNull { g ->
+                val c0 = g.first().record
+                Math.hypot((c0.lat - r.lat) * 110_540.0, (c0.lng - r.lng) * 111_320.0 * Math.cos(Math.toRadians(c0.lat))) <= 2.0
+            }
+            if (home != null) home += rd else groups += mutableListOf(rd)
+        }
+        val spread = m.cameraPosition.zoom >= SPREAD_ZOOM
+        val features = groups.flatMap { g ->
+            if (g.size > 1 && spread) {
+                // Zoomed in: fan the records of one spot out on a small ring (in screen terms ~30dp), each its own icon.
+                val centerLat = g.map { it.record.lat }.average()
+                val centerLng = g.map { it.record.lng }.average()
+                val radiusMeters = 30f * density * m.projection.getMetersPerPixelAtLatitude(centerLat)
+                g.mapIndexed { i, rd ->
+                    val a = 2 * Math.PI * i / g.size - Math.PI / 2
+                    val lat = centerLat + radiusMeters * Math.sin(a) / 110_540.0
+                    val lng = centerLng + radiusMeters * Math.cos(a) / (111_320.0 * Math.cos(Math.toRadians(centerLat)))
+                    Feature.fromGeometry(pointOf(lat, lng)).also {
+                        it.addNumberProperty("count", 1)
+                        it.addNumberProperty("total", 1)
+                        it.addStringProperty("ids", rd.record.id)
+                        it.addStringProperty("id", rd.record.id)
+                        it.addStringProperty("name", rd.record.name)
+                        it.addStringProperty("img", imageFor(rd.record, selected = false))
+                    }
+                }
+            } else {
+                val first = g.first().record
+                listOf(
+                    Feature.fromGeometry(pointOf(g.map { it.record.lat }.average(), g.map { it.record.lng }.average())).also {
+                        it.addNumberProperty("count", g.size)
+                        it.addNumberProperty("total", g.size)
+                        it.addStringProperty("ids", g.joinToString(",") { rd -> rd.record.id })
+                        it.addStringProperty("id", first.id)
+                        it.addStringProperty("name", first.name)
+                        it.addStringProperty("img", imageFor(first, selected = false))
+                    },
+                )
             }
         }
         style.getSourceAs<GeoJsonSource>(SRC_RECORDS)?.setGeoJson(FeatureCollection.fromFeatures(features))
+        val sel = records.firstOrNull { it.record.id == selectedRecordId }?.record
+        style.getSourceAs<GeoJsonSource>(SRC_SELECTED)?.setGeoJson(
+            if (sel == null) FeatureCollection.fromFeatures(emptyList<Feature>())
+            else FeatureCollection.fromFeature(Feature.fromGeometry(pointOf(sel.lat, sel.lng)).also {
+                it.addStringProperty("id", sel.id)
+                it.addStringProperty("img", imageFor(sel, selected = true))
+            }),
+        )
     }
 
-    // Street View: Mapillary coverage under the territories.
-    LaunchedEffect(map, styleVersion, streetView) {
-        val m = map ?: return@LaunchedEffect
-        val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
-        if (streetView) Mapillary.addCoverage(style, belowLayerId = LYR_AREA_FILL) else Mapillary.removeCoverage(style)
+    // Draw Mode's "Hide Markers": every record / pin marker layer off (boundaries, drawings, My Location stay). Hidden
+    // layers render nothing and answer no taps; the data is untouched, so Show Markers restores them as they were.
+    LaunchedEffect(map, styleVersion, hideMarkers) {
+        val style = map?.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
+        val visibility = PropertyFactory.visibility(if (hideMarkers) Property.NONE else Property.VISIBLE)
+        listOf(LYR_RECORDS, LYR_RECORD_LABELS, LYR_CLUSTER, LYR_CLUSTER_COUNT, LYR_STACK, LYR_STACK_COUNT, LYR_SELECTED, LYR_PINS, LYR_PIN_LABELS, LYR_FOCUS)
+            .forEach { style.getLayer(it)?.setProperties(visibility) }
     }
+
 
     // Text pins.
     LaunchedEffect(map, styleVersion, pins) {
@@ -434,38 +598,6 @@ fun TerritoryMapCanvas(
             }
         }
         style.getSourceAs<GeoJsonSource>(SRC_PINS)?.setGeoJson(FeatureCollection.fromFeatures(features))
-    }
-
-    // Current-location dot; the pulse ring is animated below.
-    LaunchedEffect(map, styleVersion, myLocation) {
-        val m = map ?: return@LaunchedEffect
-        val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
-        val src = style.getSourceAs<GeoJsonSource>(SRC_ME) ?: return@LaunchedEffect
-        if (myLocation == null) src.setGeoJson(FeatureCollection.fromFeatures(emptyList<Feature>()))
-        else src.setGeoJson(Feature.fromGeometry(pointOf(myLocation.first, myLocation.second)))
-    }
-
-    // Subtle expanding/fading ring around "my location" — only runs while the
-    // screen is RESUMED and a location is known, so nothing animates in the
-    // background or after leaving the module.
-    val hasLocation = myLocation != null
-    LaunchedEffect(map, styleVersion, hasLocation) {
-        if (!hasLocation) return@LaunchedEffect
-        val m = map ?: return@LaunchedEffect
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            val start = SystemClock.uptimeMillis()
-            while (isActive) {
-                val layer = m.style?.getLayerAs<CircleLayer>(LYR_PULSE)
-                if (layer != null) {
-                    val t = ((SystemClock.uptimeMillis() - start) % 1800L) / 1800f
-                    layer.setProperties(
-                        PropertyFactory.circleRadius(9f + 28f * t),
-                        PropertyFactory.circleOpacity(0.38f * (1f - t)),
-                    )
-                }
-                delay(60)
-            }
-        }
     }
 
     // Focus pin (Share Location's "open in Territory Map").
@@ -508,7 +640,8 @@ fun TerritoryMapCanvas(
     LaunchedEffect(recenterToken) {
         val m = map ?: return@LaunchedEffect
         val me = myLocation ?: return@LaunchedEffect
-        if (recenterToken > 0) m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(me.first, me.second), 16.0), 500)
+        // Camera only: keep the current zoom (within a sensible street-level range) so the map never jumps in too close.
+        if (recenterToken > 0) m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(me.first, me.second), m.cameraPosition.zoom.coerceIn(14.0, 17.0)), 600)
     }
 
     // Selecting a record from the list/panel flies the map to it.
