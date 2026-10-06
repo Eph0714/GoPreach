@@ -48,6 +48,9 @@ class MainActivity : AppCompatActivity() {
     lateinit var themePreferenceRepository: ThemePreferenceRepository
 
     @Inject
+    lateinit var nameOrderPreference: com.emfitsolutions.gopreach.data.repository.NameOrderPreference
+
+    @Inject
     lateinit var syncScheduler: SyncScheduler
 
     @Inject
@@ -81,6 +84,8 @@ class MainActivity : AppCompatActivity() {
             // is the user's own per-device accent color pick (Settings screen) instead;
             // customColor only matters when that pick is ThemeColorOption.CUSTOM (a
             // color wheel/eyedropper choice).
+            val nameOrder by nameOrderPreference.order.collectAsStateWithLifecycle()
+            androidx.compose.runtime.CompositionLocalProvider(com.emfitsolutions.gopreach.ui.components.LocalNameOrder provides nameOrder) {
             GoPreachTheme(darkTheme = darkTheme, dynamicColor = false, colorOption = colorOption, customColor = customColor) {
                 // enableEdgeToEdge() opts this app out of the system's automatic
                 // windowSoftInputMode="adjustResize" handling — Compose has to react to
@@ -156,6 +161,7 @@ class MainActivity : AppCompatActivity() {
                     // configured period of inactivity.
                     SessionTimeoutHost()
                 }
+            }
             }
         }
     }

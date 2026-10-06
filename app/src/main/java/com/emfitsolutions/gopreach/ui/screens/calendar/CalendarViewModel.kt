@@ -40,6 +40,7 @@ sealed class CalendarScope {
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
     private val scheduleRepository: ScheduleRepository,
+    private val recycleBinRepository: com.emfitsolutions.gopreach.data.repository.RecycleBinRepository,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -72,7 +73,20 @@ class CalendarViewModel @Inject constructor(
         viewModelScope.launch { scheduleRepository.save(schedule) }
     }
 
-    fun delete(scheduleId: String) {
-        viewModelScope.launch { scheduleRepository.delete(scheduleId) }
+    /** Moves the entry to Deleted Records (kept whole, restorable) and removes it from the calendar. */
+    fun delete(schedule: Schedule, actorPersonId: String) {
+        viewModelScope.launch {
+            recycleBinRepository.moveToTrash(
+                recordType = if (schedule.kind == ScheduleKind.PERSONAL_NOTE) "Personal Note" else "Calendar Entry",
+                module = "Calendar",
+                label = schedule.title,
+                congregationId = schedule.congregationId,
+                groupId = schedule.groupId,
+                originalCreatedAt = schedule.createdAt,
+                deletedByPersonId = actorPersonId,
+                items = listOf(recycleBinRepository.item("schedules", schedule.id, schedule)),
+            )
+            scheduleRepository.delete(schedule.id)
+        }
     }
 }

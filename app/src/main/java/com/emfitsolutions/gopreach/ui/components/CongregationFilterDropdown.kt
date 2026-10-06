@@ -46,9 +46,10 @@ fun CongregationFilterDropdown(
     onSelected: (String?) -> Unit,
     modifier: Modifier = Modifier,
     label: String = "Congregation",
+    requireSelection: Boolean = true,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedLabel = selectedCongregationId?.let { id -> congregations.firstOrNull { it.id == id }?.name } ?: "All Congregations"
+    val selectedLabel = selectedCongregationId?.let { id -> congregations.firstOrNull { it.id == id }?.name } ?: if (requireSelection) "Select Congregation" else "All Congregations"
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         OutlinedTextField(
             value = selectedLabel,
@@ -60,7 +61,7 @@ fun CongregationFilterDropdown(
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("All Congregations") }, onClick = { onSelected(null); expanded = false })
+            if (!requireSelection) DropdownMenuItem(text = { Text("All Congregations") }, onClick = { onSelected(null); expanded = false })
             congregations.sortedBy { it.name }.forEach { congregation ->
                 DropdownMenuItem(text = { Text(congregation.name) }, onClick = { onSelected(congregation.id); expanded = false })
             }

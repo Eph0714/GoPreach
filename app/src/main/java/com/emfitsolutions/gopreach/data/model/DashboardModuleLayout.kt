@@ -102,6 +102,10 @@ data class DashboardModuleLayout(
      * [PlannerSection]). Display preference only — hiding a section never
      * touches the records behind it; switching it back on shows them again. */
     val hiddenPlannerSections: List<String> = emptyList(),
+    /** Admin dashboard "Quick Access" card order (see QuickAccessItem ids); empty means the default order. */
+    val quickAccessOrder: List<String> = emptyList(),
+    /** True once the user has added, removed or reordered a Quick Access card: [quickAccessOrder] is then exactly what they chose (even empty). */
+    val quickAccessConfigured: Boolean = false,
     val updatedAt: Long = 0L,
 )
 

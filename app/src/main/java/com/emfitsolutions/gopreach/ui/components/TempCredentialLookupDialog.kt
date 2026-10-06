@@ -46,10 +46,14 @@ fun TempCredentialLookupDialog(person: Person, onDismiss: () -> Unit) {
         title = { Text("Temporary Sign-In") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "${person.fullName} hasn't signed in and changed their password yet. Share this again if needed:",
-                )
-                Text("Username: ${person.username}", fontWeight = FontWeight.Bold)
+                if (tempPassword == null) {
+                    // The Publisher already chose their own credentials (first-time setup is finishing), so the
+                    // temporary ones no longer work and their new username is theirs alone.
+                    Text("${person.fullName} has already chosen their own username and password and is finishing first-time setup. There is no temporary sign-in left to share.")
+                } else {
+                    Text("${person.fullName} hasn't signed in and changed their password yet. Share this again if needed:")
+                    Text("Username: ${person.username}", fontWeight = FontWeight.Bold)
+                }
                 if (tempPassword != null) {
                     Text("Temporary Password: $tempPassword", fontWeight = FontWeight.Bold)
                     Row(
@@ -67,8 +71,6 @@ fun TempCredentialLookupDialog(person: Person, onDismiss: () -> Unit) {
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Share", color = MaterialTheme.colorScheme.primary)
                     }
-                } else {
-                    Text("No temporary password on file for this account — it may have been created before this feature, or the record needs re-syncing.")
                 }
             }
         },

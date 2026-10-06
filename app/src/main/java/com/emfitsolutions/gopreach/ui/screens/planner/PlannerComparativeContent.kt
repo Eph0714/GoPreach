@@ -27,6 +27,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.FilterChip
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Box
+import com.emfitsolutions.gopreach.ui.components.DualPeriodFilter
+import com.emfitsolutions.gopreach.ui.components.MonthRange
+import com.emfitsolutions.gopreach.ui.components.GraphMetric
+import com.emfitsolutions.gopreach.ui.components.ComparativeGraphReport
+import com.emfitsolutions.gopreach.ui.components.hoursFormat
+import com.emfitsolutions.gopreach.ui.components.countFormat
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -73,6 +84,16 @@ internal fun PlannerComparativeContent(currentPersonId: String, viewModel: Plann
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        var compareMode by rememberSaveable { mutableStateOf(false) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !compareMode, onClick = { compareMode = false }, label = { Text("One range", fontSize = 12.sp) })
+            FilterChip(selected = compareMode, onClick = { compareMode = true }, label = { Text("Compare two ranges", fontSize = 12.sp) })
+        }
+        if (compareMode) {
+            DualPeriodComparison(currentPersonId = currentPersonId, viewModel = viewModel)
+            return@Column
+        }
 
         ValueEditRow(label = "Start Month", value = monthFormat.format(Date(startMonth)), onEdit = { showStartPicker = true })
         ValueEditRow(label = "End Month", value = monthFormat.format(Date(endMonth)), onEdit = { showEndPicker = true })
@@ -162,3 +183,53 @@ private fun TableRow(cells: List<String>, emphasize: Boolean, borderColor: Color
         }
     }
 }
+
+/**
+ * Compare two separate month ranges (Period A vs Period B, any lengths) using the shared [DualPeriodFilter]. Each
+ * period keeps its own month-by-month rows for the line graph and table, and the totals are shown side by side on wide
+ * screens or stacked on narrow ones. Nothing runs until Compare is tapped.
+ */
+@Composable
+private fun DualPeriodComparison(currentPersonId: String, viewModel: PlannerComparativeViewModel) {
+    val context = LocalContext.current
+    var applied by remember { mutableStateOf<Pair<MonthRange, MonthRange>?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        DualPeriodFilter(
+            initialA = MonthRange(MonthRange.monthStart(11), MonthRange.monthStart(6)),
+            initialB = MonthRange(MonthRange.monthStart(5), MonthRange.monthStart(0)),
+            onApply = { a, b -> applied = a to b },
+        )
+        val (a, b) = applied ?: return@Column
+        val rowsA by remember(currentPersonId, a) { viewModel.rowsFor(currentPersonId, a) }.collectAsStateWithLifecycle(initialValue = emptyList())
+        val rowsB by remember(currentPersonId, b) { viewModel.rowsFor(currentPersonId, b) }.collectAsStateWithLifecycle(initialValue = emptyList())
+        val labelA = a.label()
+        val labelB = b.label()
+        // The graph sits directly in the report, labelled with the actual ranges chosen above.
+        val metrics = remember(rowsA, rowsB) {
+            listOf(
+                GraphMetric("Hours / Minutes", ::hoursFormat, rowsA.map { it.totalMinutes / 60.0 }, rowsB.map { it.totalMinutes / 60.0 }),
+                GraphMetric("Return Visits", ::countFormat, rowsA.map { it.returnVisitCount.toDouble() }, rowsB.map { it.returnVisitCount.toDouble() }),
+                GraphMetric("Bible Studies", ::countFormat, rowsA.map { it.bibleStudyCount.toDouble() }, rowsB.map { it.bibleStudyCount.toDouble() }),
+            )
+        }
+        var metricIndex by remember { mutableStateOf(0) }
+        Text("$labelA vs $labelB", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        ComparativeGraphReport(labelA, labelB, rowsA.map { it.monthStart }, rowsB.map { it.monthStart }, metrics, metricIndex) { metricIndex = it }
+        val tableFormat = remember { SimpleDateFormat("MMM yyyy", Locale.getDefault()) }
+        Text(labelA, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        if (rowsA.isEmpty()) PlannerEmptyHint("No data in this range.") else ComparativeTable(rows = rowsA, monthFormat = tableFormat)
+        Text(labelB, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        if (rowsB.isEmpty()) PlannerEmptyHint("No data in this range.") else ComparativeTable(rows = rowsB, monthFormat = tableFormat)
+        Button(
+            onClick = { ComparativeReportPdfExporter.exportPeriods(context, labelA, rowsA, labelB, rowsB) },
+            enabled = rowsA.isNotEmpty() || rowsB.isNotEmpty(),
+            colors = ButtonDefaults.buttonColors(containerColor = PlannerAccent.Hours),
+            modifier = Modifier.fillMaxWidth().height(40.dp),
+        ) {
+            Icon(Icons.Rounded.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Export / Print both periods", fontSize = 13.sp)
+        }
+    }
+}
+

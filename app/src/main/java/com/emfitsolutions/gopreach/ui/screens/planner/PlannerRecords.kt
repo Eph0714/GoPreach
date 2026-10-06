@@ -70,10 +70,13 @@ internal fun List<CreditHourRecord>.inPeriod(bounds: TimeBounds): List<CreditHou
  * Categories come from the admin-managed `creditHourCategories` collection
  * (see [CreditHourCategoryRepository]) — never a hard-coded list.
  */
+private const val SUBMITTED_MONTH_MESSAGE = "This Record is Already Submitted"
+
 @HiltViewModel
 class CreditHourEntryViewModel @Inject constructor(
     private val recordRepository: CreditHourRecordRepository,
     private val categoryRepository: CreditHourCategoryRepository,
+    private val monthlyReportRepository: com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository,
 ) : ViewModel() {
 
     init {
@@ -125,6 +128,13 @@ class CreditHourEntryViewModel @Inject constructor(
             updatedAt = now,
         )
         viewModelScope.launch {
+            // A month whose report is already submitted is closed — for the new date and the old one.
+            if (monthlyReportRepository.isMonthSubmitted(publisherPersonId, alignedDay) ||
+                (existing != null && monthlyReportRepository.isMonthSubmitted(publisherPersonId, existing.resolvedDayStart()))
+            ) {
+                _messages.trySend(SUBMITTED_MONTH_MESSAGE)
+                return@launch
+            }
             runCatching { recordRepository.save(record) }
                 .onSuccess { _messages.trySend(if (existing == null) "Credit Hours saved." else "Credit Hours updated.") }
                 .onFailure { _messages.trySend("Could not save Credit Hours: ${it.message ?: "unknown error"}") }
@@ -133,6 +143,10 @@ class CreditHourEntryViewModel @Inject constructor(
 
     fun delete(record: CreditHourRecord) {
         viewModelScope.launch {
+            if (monthlyReportRepository.isMonthSubmitted(record.publisherPersonId, record.resolvedDayStart())) {
+                _messages.trySend(SUBMITTED_MONTH_MESSAGE)
+                return@launch
+            }
             runCatching { recordRepository.delete(record.id) }
                 .onSuccess { _messages.trySend("Credit Hours entry deleted.") }
                 .onFailure { _messages.trySend("Could not delete entry: ${it.message ?: "unknown error"}") }

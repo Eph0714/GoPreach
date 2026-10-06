@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.householderassignment
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -91,6 +92,7 @@ fun IncomingHouseholderAssignmentsScreen(
     ) { padding ->
         if (assignments.isEmpty()) {
             Column(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                RecordFound(0)
                 Text("No incoming House Holder Assignments.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
@@ -99,6 +101,7 @@ fun IncomingHouseholderAssignmentsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(assignments.size) }
                 items(assignments, key = { it.id }) { assignment ->
                     val personFlow = remember(assignment.interestedPersonId) { viewModel.personFor(assignment.interestedPersonId) }
                     val person by personFlow.collectAsStateWithLifecycle(initialValue = null)

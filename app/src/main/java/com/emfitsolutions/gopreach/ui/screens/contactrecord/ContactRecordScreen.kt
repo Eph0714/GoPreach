@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.contactrecord
 
 import android.content.ActivityNotFoundException
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -81,7 +82,11 @@ fun ContactRecordScreen(
     val context = LocalContext.current
     val showToast = rememberActionToast()
     val isSuperAdmin = visibleCongregationId == null
-    val rowsFlow = remember(visibleCongregationId) { viewModel.rowsFor(visibleCongregationId) }
+    var congregationFilter by com.emfitsolutions.gopreach.ui.components.rememberCongregationContext("contact_records")
+    val needsCongregation = isSuperAdmin && congregationFilter == null
+    val rowsFlow = remember(visibleCongregationId, congregationFilter) {
+        if (needsCongregation) kotlinx.coroutines.flow.flowOf(emptyList()) else viewModel.rowsFor(visibleCongregationId ?: congregationFilter)
+    }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     // "Add an additional Congregation filter" — Super-Admin only; every
     // other role's rows are already fixed to their own single congregation
@@ -90,7 +95,6 @@ fun ContactRecordScreen(
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
 
     var roleFilter by remember { mutableStateOf<String?>(null) }
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     // "Debounce text search... do not repeatedly reload the entire contact
     // database for every keystroke" — the data itself is already a live,
@@ -187,11 +191,14 @@ fun ContactRecordScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
-            if (filteredRows.isEmpty()) {
+            if (needsCongregation) {
+                com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt()
+            } else if (filteredRows.isEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxSize().padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    RecordFound(0)
                     Text(
                         // "No contact records found." / "No contacts match
                         // your search." — spec §14's own two distinct
@@ -206,6 +213,7 @@ fun ContactRecordScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    item { RecordFound(filteredRows.size) }
                     items(filteredRows, key = { "${it.name}|${it.congregationName}|${it.sourceLabels}" }) { row ->
                         ContactRowCard(
                             row = row,
@@ -238,19 +246,18 @@ private fun ContactCongregationDropdown(
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: "All Congregations/Groups"
+    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: "Select Congregation"
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         OutlinedTextField(
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation/Group") },
+            label = { Text("Congregation") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("All Congregations/Groups") }, onClick = { onSelected(null); expanded = false })
             congregations.forEach { c ->
                 DropdownMenuItem(text = { Text(c.name) }, onClick = { onSelected(c.id); expanded = false })
             }
@@ -372,7 +379,7 @@ private fun ContactDetailsSheet(
                     )
                 }
             }
-            Text("Congregation/Group: ${row.congregationName}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 16.dp))
+            Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 16.dp))
             if (row.contact.isNotBlank()) {
                 Text("Mobile: ${row.contact}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
             }

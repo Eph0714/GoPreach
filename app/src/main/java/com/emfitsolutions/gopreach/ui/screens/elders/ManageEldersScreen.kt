@@ -1,6 +1,9 @@
 package com.emfitsolutions.gopreach.ui.screens.elders
 
 import androidx.compose.foundation.clickable
+import com.emfitsolutions.gopreach.ui.components.RecordFound
+import com.emfitsolutions.gopreach.data.model.displayName
+import com.emfitsolutions.gopreach.ui.components.NameFieldsInOrder
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -53,6 +56,8 @@ import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
 import com.emfitsolutions.gopreach.data.model.displayLabel
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
@@ -91,9 +96,10 @@ fun ManageEldersScreen(
     // never sees this control at all (fixedCongregationId != null), so this
     // local pick can only ever matter for Super-Admin, same convention every
     // other Manage screen here already uses.
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("elders")
     val effectiveCongregationId = fixedCongregationId ?: congregationFilter
-    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
+    val needsCongregation = fixedCongregationId == null && congregationFilter == null
+    val rowsFlow = remember(effectiveCongregationId, needsCongregation) { if (needsCongregation) kotlinx.coroutines.flow.flowOf(emptyList()) else viewModel.rowsFor(effectiveCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     ManageEldersContent(
@@ -206,8 +212,11 @@ private fun ManageEldersContent(
                     Text("Show Inactive")
                 }
             }
-            if (visibleRows.isEmpty()) {
+            if (fixedCongregationId == null && selectedCongregationId == null) {
+                SelectCongregationPrompt()
+            } else if (visibleRows.isEmpty()) {
                 Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    RecordFound(0)
                     Text("None enrolled yet. Tap + to enroll one.", style = MaterialTheme.typography.bodyMedium)
                 }
             } else {
@@ -216,6 +225,7 @@ private fun ManageEldersContent(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    item { RecordFound(visibleRows.size) }
                     items(visibleRows, key = { it.person.id }) { row ->
                         Card(
                             modifier = Modifier.fillMaxWidth().clickable(enabled = row.person.isTemporaryCredential) { lookupTarget = row.person },
@@ -234,7 +244,7 @@ private fun ManageEldersContent(
                                             AssistChip(onClick = {}, label = { Text(groupRole.regularElderRoleDisplayLabel(), style = MaterialTheme.typography.labelSmall) })
                                         }
                                         row.publisherCategory?.let { category ->
-                                            AssistChip(onClick = {}, label = { Text(category.name.replace('_', ' '), style = MaterialTheme.typography.labelSmall) })
+                                            AssistChip(onClick = {}, label = { Text(category.displayName, style = MaterialTheme.typography.labelSmall) })
                                         }
                                     }
                                     Text("Contact: ${row.person.contact}", style = MaterialTheme.typography.bodySmall)
@@ -377,13 +387,19 @@ private fun EditElderDialog(
         maxContentHeight = 620.dp,
     ) {
         EditSectionHeader("Personal Information")
-        OutlinedTextField(
-            value = firstName, onValueChange = { firstName = it.uppercase() }, label = { Text("First Name") },
-            singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = lastName, onValueChange = { lastName = it.uppercase() }, label = { Text("Last Name") },
-            singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth(),
+        NameFieldsInOrder(
+            first = {
+                OutlinedTextField(
+                value = firstName, onValueChange = { firstName = it.uppercase() }, label = { Text("First Name") },
+                singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth(),
+            )
+            },
+            last = {
+                OutlinedTextField(
+                value = lastName, onValueChange = { lastName = it.uppercase() }, label = { Text("Last Name") },
+                singleLine = true, visualTransformation = VisualTransformation.None, modifier = Modifier.fillMaxWidth(),
+            )
+            },
         )
         OutlinedTextField(
             value = address, onValueChange = { address = it.uppercase() }, label = { Text("Address") },
@@ -446,7 +462,7 @@ private fun EditElderDialog(
             PublisherCategory.REGULAR_PIONEER to "Regular Pioneer",
             PublisherCategory.SPECIAL_PIONEER to "Special Pioneer",
             PublisherCategory.AUXILIARY_PIONEER to "Auxiliary Pioneer",
-            PublisherCategory.REGULAR_PUBLISHER to "Regular Publisher",
+            PublisherCategory.REGULAR_PUBLISHER to "Publisher",
         ).forEach { (category, label) ->
             val enabled = publisherCategory == null || publisherCategory == category
             Row(verticalAlignment = Alignment.CenterVertically) {

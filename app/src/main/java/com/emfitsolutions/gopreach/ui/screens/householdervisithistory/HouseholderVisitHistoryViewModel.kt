@@ -199,7 +199,7 @@ class HouseholderVisitHistoryViewModel @Inject constructor(
         val visitsByPerson = visits.groupBy { it.interestedPersonId }
         people
             .filter { it.status == RecordStatus.ACTIVE }
-            .filter { effectiveCongregationId == null || it.congregationId == effectiveCongregationId }
+            .filter { effectiveCongregationId != null && it.congregationId == effectiveCongregationId }
             .map { person ->
                 HouseholderRow(
                     person = person,

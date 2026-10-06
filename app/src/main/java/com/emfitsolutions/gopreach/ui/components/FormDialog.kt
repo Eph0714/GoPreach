@@ -128,7 +128,8 @@ fun FormDialog(
         text = {
             Column(
                 modifier = Modifier
-                    .heightIn(max = maxContentHeight)
+                    // Never taller than the screen allows (landscape / small phones): scroll inside instead of overflowing.
+                    .heightIn(max = minOf(maxContentHeight, (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.62f).dp))
                     .verticalScroll(rememberScrollState())
                     .imePadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),

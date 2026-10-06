@@ -42,7 +42,7 @@ data class LineSeries(val label: String, val color: Color, val points: List<Floa
  * above it.
  */
 @Composable
-fun MultiSeriesLineChart(series: List<LineSeries>, xLabels: List<String>, modifier: Modifier = Modifier) {
+fun MultiSeriesLineChart(series: List<LineSeries>, xLabels: List<String>, modifier: Modifier = Modifier, sharedScale: Boolean = false) {
     var progress by remember(series) { mutableFloatStateOf(0f) }
     val animatedProgress by animateFloatAsState(targetValue = progress, animationSpec = tween(700), label = "lineChartProgress")
     LaunchedEffect(series) { progress = 1f }
@@ -54,7 +54,8 @@ fun MultiSeriesLineChart(series: List<LineSeries>, xLabels: List<String>, modifi
             val pointCount = series.first().points.size
             val stepX = size.width / (pointCount - 1)
             series.forEach { s ->
-                val maxValue = max(s.points.maxOrNull() ?: 0f, 0.0001f)
+                // [sharedScale]: every line on one y-axis (same unit, e.g. counts per month); default is one scale per line.
+                val maxValue = max(if (sharedScale) series.maxOf { it.points.maxOrNull() ?: 0f } else (s.points.maxOrNull() ?: 0f), 0.0001f)
                 val visiblePointCount = (1 + animatedProgress * (pointCount - 1))
                 val fullPoints = (pointCount - 1).coerceAtMost((visiblePointCount).toInt())
                 val path = androidx.compose.ui.graphics.Path()

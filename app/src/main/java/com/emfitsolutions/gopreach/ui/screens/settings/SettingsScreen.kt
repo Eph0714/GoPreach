@@ -85,6 +85,9 @@ fun SettingsScreen(
     // screen always had) and from the Control Panel drawer section; this
     // screen keeps only Appearance (light/dark)/Notifications/App Version.
     onNavigateToThemeColorSettings: () -> Unit,
+    currentPersonId: String = "",
+    showDeletedRecordsSettings: Boolean = false,
+    onOpenDeletedRecords: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val theme by viewModel.theme.collectAsStateWithLifecycle()
@@ -144,7 +147,20 @@ fun SettingsScreen(
                 )
             }
 
+            com.emfitsolutions.gopreach.ui.components.NameOrderSettingsSection()
+
+            PrintSettingsSection()
+
             NotificationSoundSection(viewModel = viewModel)
+
+            // Everyone can open their own deleted records; only the roles that manage them see the retention setting.
+            if (currentPersonId.isNotBlank()) {
+                DataManagementSection(
+                    currentPersonId = currentPersonId,
+                    canChangeRetention = showDeletedRecordsSettings,
+                    onOpenDeletedRecords = onOpenDeletedRecords,
+                )
+            }
 
             AppVersionSection(updateViewModel = updateViewModel)
         }

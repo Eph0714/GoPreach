@@ -1,6 +1,10 @@
 package com.emfitsolutions.gopreach.ui.screens.publishers
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
+import androidx.compose.foundation.layout.Box
+import com.emfitsolutions.gopreach.data.model.displayName
+import com.emfitsolutions.gopreach.ui.components.NameFieldsInOrder
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -9,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -19,8 +24,11 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.RestoreFromTrash
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
@@ -47,6 +55,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.material.icons.rounded.Print
+import androidx.compose.material.icons.rounded.TableChart
+import androidx.compose.material.icons.rounded.PictureAsPdf
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -59,7 +76,10 @@ import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
+import com.emfitsolutions.gopreach.ui.components.PublisherFormFields
+import com.emfitsolutions.gopreach.ui.components.PublisherFormState
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
+import kotlinx.coroutines.launch
 import com.emfitsolutions.gopreach.ui.components.TempCredentialLookupDialog
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -87,24 +107,45 @@ fun ManagePublishersScreen(
     // Super-Admin only (visibleCongregationId == null from the caller) — an
     // Admin/Coordinator Elder is already scoped to their own single
     // congregation upstream, so there's nothing for them to filter.
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
-    val effectiveCongregationId = visibleCongregationId ?: congregationFilter
     val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
+    // A Super-Admin must pick a congregation before any publisher is shown; it stays the module's context (and is what
+    // Add Publisher starts in) until they change it. Everyone else is fixed to their own congregation.
+    val selectedCongregationId by viewModel.selectedCongregationId.collectAsStateWithLifecycle()
+    // Opened from a Quick Access card (Regular Pioneers, ...): start filtered to that category until cleared.
+    var categoryFilter by remember { mutableStateOf(PublisherListPreset.take()) }
+    val effectiveCongregationId = visibleCongregationId ?: selectedCongregationId
+    if (effectiveCongregationId == null) {
+        SelectCongregationGate(congregations = congregations, onContinue = viewModel::selectCongregation, onBack = onBack)
+        return
+    }
+    val congregationName = congregations.firstOrNull { it.id == effectiveCongregationId }?.name
+    // Search + filter. Changing the congregation clears the text and puts the filter back to "All" (they are keyed on it).
+    var filterMode by remember(effectiveCongregationId) { mutableStateOf(PublisherFilterMode.ALL) }
+    var searchQuery by remember(effectiveCongregationId) { mutableStateOf("") }
+    var groupFilterId by remember(effectiveCongregationId) { mutableStateOf<String?>(null) }
+    var statusFilter by remember(effectiveCongregationId) { mutableStateOf<AccountStatus?>(null) }
+    val groupChoices by remember(effectiveCongregationId) { viewModel.groupsFor(effectiveCongregationId) }.collectAsStateWithLifecycle(initialValue = emptyList())
     val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
     val allRows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showInactive by remember { mutableStateOf(false) }
-    val rows = allRows.filter { showInactive || it.category != PublisherCategory.REMOVED_PUBLISHER }
+    val shown = allRows.filter { showInactive || it.category != PublisherCategory.REMOVED_PUBLISHER }
+        .filter { categoryFilter == null || it.category == categoryFilter }
+    // The same filtered rows drive the list AND the count above it. They are already limited to this congregation.
+    val filter = PublisherListFilter(filterMode, searchQuery, groupFilterId, statusFilter)
+    val rows = filter.apply(shown)
+    val countText = filter.countLabel(rows.size, groupChoices.firstOrNull { it.id == groupFilterId }?.name ?: if (groupFilterId == NO_GROUP_FILTER) "Unassigned" else null)
+    val filtering = filter.query.isNotBlank() || (filterMode == PublisherFilterMode.GROUP && groupFilterId != null) || (filterMode == PublisherFilterMode.STATUS && statusFilter != null)
     var lookupTarget by remember { mutableStateOf<Person?>(null) }
     var pendingEdit by remember { mutableStateOf<PublisherRow?>(null) }
     var pendingDelete by remember { mutableStateOf<PublisherRow?>(null) }
     val showToast = rememberActionToast()
-    var permanentDeleteImpactSummary by remember { mutableStateOf<String?>(null) }
+    var permanentDeleteImpact by remember { mutableStateOf<ManagePublishersViewModel.DeleteImpact?>(null) }
     var permanentDeleteChecked by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Publishers") },
+                title = { Text(if (congregationName != null) "Publishers – $congregationName" else "Publishers") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -134,11 +175,126 @@ fun ManagePublishersScreen(
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (visibleCongregationId == null) {
-                CongregationFilterDropdown(
+                // Switching congregation refreshes the list, filters, counts and clears the search (it is keyed on the id).
+                CongregationSwitcher(
                     congregations = congregations,
-                    selectedId = congregationFilter,
-                    onSelected = { congregationFilter = it },
+                    selectedId = effectiveCongregationId,
+                    onSelected = viewModel::selectCongregation,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // The input follows the filter: text for All / By Name, the group list for By Group, the status list for By Status.
+                Box(modifier = Modifier.weight(1f)) {
+                    when (filterMode) {
+                        PublisherFilterMode.GROUP -> FilterChoiceDropdown(
+                            label = "Field Service Group",
+                            selectedText = when (groupFilterId) {
+                                null -> "All groups"
+                                NO_GROUP_FILTER -> "Unassigned"
+                                else -> groupChoices.firstOrNull { it.id == groupFilterId }?.name.orEmpty()
+                            },
+                            options = listOf<Pair<String?, String>>(null to "All groups") + groupChoices.map { it.id to it.name } + (NO_GROUP_FILTER to "Unassigned"),
+                            onSelected = { groupFilterId = it },
+                        )
+                        PublisherFilterMode.STATUS -> FilterChoiceDropdown(
+                            label = "Status",
+                            selectedText = statusFilter?.let { PublisherListFilter.statusLabel(it) } ?: "All statuses",
+                            options = listOf<Pair<AccountStatus?, String>>(null to "All statuses") + AccountStatus.entries.map { it to PublisherListFilter.statusLabel(it) },
+                            onSelected = { statusFilter = it },
+                        )
+                        else -> OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search Publisher...") },
+                            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) { Icon(Icons.Rounded.Close, contentDescription = "Clear search") }
+                                }
+                            },
+                            singleLine = true,
+                            visualTransformation = VisualTransformation.None,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+                Box(modifier = Modifier.width(132.dp)) {
+                    FilterChoiceDropdown(
+                        label = "Filter",
+                        selectedText = filterMode.label,
+                        options = PublisherFilterMode.entries.map { it to it.label },
+                        onSelected = {
+                            filterMode = it
+                            // Each mode starts clean so a leftover search/choice from another mode never hides rows.
+                            searchQuery = ""; groupFilterId = null; statusFilter = null
+                        },
+                    )
+                }
+            }
+            categoryFilter?.let { category ->
+                androidx.compose.material3.InputChip(
+                    selected = true,
+                    onClick = { categoryFilter = null },
+                    label = { Text(category.name.lowercase().split("_").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } } + " only") },
+                    trailingIcon = { Icon(androidx.compose.material.icons.Icons.Rounded.Close, contentDescription = "Clear category filter") },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+            RecordFound(rows.size, Modifier.padding(horizontal = 16.dp))
+            // Print / Excel / PDF all use the same rows as the list below (current search, filter, group, status).
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var exportKind by remember { mutableStateOf<String?>(null) }
+            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+            androidx.compose.foundation.layout.FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                listOf(
+                    Triple("Print", Icons.Rounded.Print, "print"),
+                    Triple("Export Excel", Icons.Rounded.TableChart, "excel"),
+                    Triple("Export PDF", Icons.Rounded.PictureAsPdf, "pdf"),
+                ).forEach { (label, icon, kind) ->
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = { exportKind = kind },
+                        enabled = rows.isNotEmpty() || allRows.isNotEmpty(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier.height(34.dp),
+                    ) {
+                        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(label, fontSize = 12.sp)
+                    }
+                }
+            }
+            exportKind?.let { kind ->
+                val filterText = listOfNotNull(
+                    searchQuery.takeIf { it.isNotBlank() }?.let { "Search: $it" },
+                    if (filterMode == PublisherFilterMode.GROUP && groupFilterId != null) "Group: " + (groupChoices.firstOrNull { it.id == groupFilterId }?.name ?: "Unassigned") else null,
+                    if (filterMode == PublisherFilterMode.STATUS && statusFilter != null) "Status: " + PublisherListFilter.statusLabel(statusFilter!!) else null,
+                    categoryFilter?.let { "Category: " + it.displayName },
+                ).joinToString("; ")
+                PublisherExportDialog(
+                    kind = kind,
+                    filteredCount = rows.size,
+                    allCount = allRows.size,
+                    onDismiss = { exportKind = null },
+                    onConfirm = { all, format ->
+                        val chosen = if (all) allRows else rows
+                        val name = congregationName ?: "Congregation"
+                        val text = if (all) "All records" else filterText
+                        when (kind) {
+                            "print" -> com.emfitsolutions.gopreach.data.export.PublisherRecordsExporter.print(context, chosen, name, text, format)
+                            "pdf" -> com.emfitsolutions.gopreach.data.export.PublisherRecordsExporter.sharePdf(context, chosen, name, text, format)
+                            else -> com.emfitsolutions.gopreach.data.export.PublisherRecordsExporter.shareExcel(context, chosen, name)
+                        }
+                        exportKind = null
+                    },
                 )
             }
             Row(
@@ -153,7 +309,13 @@ fun ManagePublishersScreen(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("No publishers enrolled yet. Tap + to enroll one.", style = MaterialTheme.typography.bodyMedium)
+                if (filtering) {
+                    // A normal zero-result search is not an error.
+                    Text("No Publisher Found", style = MaterialTheme.typography.titleMedium)
+                    Text("No publisher matches the selected search/filter criteria.", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    Text("No publishers enrolled yet. Tap + to enroll one.", style = MaterialTheme.typography.bodyMedium)
+                }
             }
         } else {
             LazyColumn(
@@ -203,6 +365,7 @@ fun ManagePublishersScreen(
                             }
                             Text("Group: ${row.groupName}", style = MaterialTheme.typography.bodySmall)
                             Text("Contact: ${row.person.contact}", style = MaterialTheme.typography.bodySmall)
+                            row.person.remarks?.takeIf { it.isNotBlank() }?.let { Text("Remarks: $it", style = MaterialTheme.typography.bodySmall) }
                             if (row.possibleDuplicateOf != null) {
                                 // "Check if there are duplicate names,
                                 // evaluate it if they are the same person" —
@@ -217,7 +380,7 @@ fun ManagePublishersScreen(
                                 )
                             }
                             if (readOnly) {
-                                ReadOnlyField("Category", row.category.name.replace('_', ' '))
+                                ReadOnlyField("Category", row.category.displayName)
                             } else {
                                 CategoryDropdown(
                                     selected = row.category,
@@ -245,6 +408,9 @@ fun ManagePublishersScreen(
             row = toEdit,
             currentPersonId = currentPersonId,
             viewModel = viewModel,
+            // Only a Super-Admin (not tied to one congregation) may move a publisher to another congregation.
+            canChangeCongregation = visibleCongregationId == null,
+            congregations = congregations,
             onDismiss = { pendingEdit = null },
         )
     }
@@ -252,14 +418,16 @@ fun ManagePublishersScreen(
     val toDelete = pendingDelete
     if (toDelete != null) {
         LaunchedEffect(toDelete.person.id) {
-            permanentDeleteImpactSummary = viewModel.permanentDeleteImpactSummary(toDelete.person.id)
+            permanentDeleteImpact = viewModel.permanentDeleteImpact(toDelete.person.id)
             permanentDeleteChecked = true
         }
         if (permanentDeleteChecked) {
             DeleteChoiceDialog(
                 recordLabel = toDelete.person.fullName,
                 canPermanentlyDelete = canPermanentlyDelete,
-                permanentDeleteImpactSummary = permanentDeleteImpactSummary,
+                permanentDeleteImpactSummary = permanentDeleteImpact?.message(),
+                permanentWarningTitle = permanentDeleteImpact?.takeIf { it.relatedRecords > 0 }?.let { "⚠️ WARNING: This Publisher has assigned records." },
+                permanentConfirmLabel = permanentDeleteImpact?.takeIf { it.relatedRecords > 0 }?.let { "Yes, Delete Publisher" },
                 onDismiss = { pendingDelete = null; permanentDeleteChecked = false },
                 onMoveToInactive = { viewModel.changeCategory(toDelete, PublisherCategory.REMOVED_PUBLISHER, currentPersonId) },
                 onDeletePermanently = { viewModel.permanentlyDelete(toDelete, currentPersonId) },
@@ -282,167 +450,218 @@ private fun EditPublisherDialog(
     row: PublisherRow,
     currentPersonId: String,
     viewModel: ManagePublishersViewModel,
+    canChangeCongregation: Boolean,
+    congregations: List<Congregation>,
     onDismiss: () -> Unit,
 ) {
-    var firstName by remember { mutableStateOf(row.person.firstName) }
-    var lastName by remember { mutableStateOf(row.person.lastName) }
-    var middleInitial by remember { mutableStateOf(row.person.middleInitial.orEmpty()) }
-    var extensionName by remember { mutableStateOf(row.person.extensionName.orEmpty()) }
-    var gender by remember { mutableStateOf(row.person.gender) }
-    var email by remember { mutableStateOf(row.person.email.orEmpty()) }
-    var address by remember { mutableStateOf(row.person.address) }
-    var contact by remember { mutableStateOf(row.person.contact) }
-    var contactPerson by remember { mutableStateOf(row.person.contactPerson.orEmpty()) }
-    var contactPersonNumber by remember { mutableStateOf(row.person.contactPersonNumber.orEmpty()) }
-    var category by remember { mutableStateOf(row.category) }
-    var groupId by remember { mutableStateOf(row.assignment.groupId) }
-    // "Allow the user to Edit the Publishers Status" — this was a read-only
-    // System Information field; the account's actual sign-in eligibility,
-    // distinct from [category] (which already covers Publisher/Pioneer/
-    // Reproof/etc. standing) — see AccountStatus's own doc comment.
-    var accountStatus by remember { mutableStateOf(row.person.accountStatus) }
+    // Every Publisher field in one value — the same set the Add Publisher form asks for.
+    val initialForm = remember(row) { PublisherFormState.from(row.person, row.category, row.assignment.groupId, row.assignment.congregationId) }
+    var form by remember(row) { mutableStateOf(initialForm) }
+    var capturingLocation by remember { mutableStateOf(false) }
+    var locationError by remember { mutableStateOf<String?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val showToast = rememberActionToast()
 
-    val groupsFlow = remember(row.assignment.congregationId) { viewModel.groupsFor(row.assignment.congregationId) }
+    // The groups offered follow the congregation chosen in the form (they belong to it).
+    val groupsFlow = remember(form.congregationId) { viewModel.groupsFor(form.congregationId) }
+    var confirmCongregationMove by remember { mutableStateOf(false) }
     val groups by groupsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    fun submit() {
+    fun captureLocation() {
+        capturingLocation = true
+        locationError = null
+        scope.launch {
+            val captured = viewModel.captureLocation()
+            capturingLocation = false
+            if (captured == null) {
+                locationError = "Could not get a GPS fix. Make sure location is turned on and try again."
+            } else {
+                form = form.copy(
+                    latitudeText = captured.lat.toString(),
+                    longitudeText = captured.lng.toString(),
+                    province = captured.province ?: form.province,
+                    cityMunicipality = captured.city ?: form.cityMunicipality,
+                    barangay = captured.barangay ?: form.barangay,
+                )
+            }
+        }
+    }
+    val locationPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) captureLocation() }
+
+    fun submit(moveConfirmed: Boolean = false) {
         val message = requiredFieldsMessage(
-            "First Name" to firstName.isNotBlank(),
-            "Last Name" to lastName.isNotBlank(),
-            "Address" to address.isNotBlank(),
-            "Contact" to contact.isNotBlank(),
-        )
+            "First Name" to form.firstName.isNotBlank(),
+            "Last Name" to form.lastName.isNotBlank(),
+            "Full Address" to form.address.isNotBlank(),
+            "Contact" to form.contact.isNotBlank(),
+        ) ?: form.formProblem
         if (message != null) {
             errorMessage = message
             return
         }
-        viewModel.updatePerson(
-            row.person.copy(
-                firstName = firstName.trim(),
-                lastName = lastName.trim(),
-                middleInitial = middleInitial.trim().ifBlank { null },
-                extensionName = extensionName.trim().ifBlank { null },
-                gender = gender,
-                address = address.trim(),
-                contact = contact.trim(),
-                email = email.trim().ifBlank { null },
-                contactPerson = contactPerson.trim().ifBlank { null },
-                contactPersonNumber = contactPersonNumber.trim().ifBlank { null },
-                accountStatus = accountStatus,
-            ),
-        )
-        if (category != row.category) viewModel.changeCategory(row, category, currentPersonId)
-        if (groupId != row.assignment.groupId) viewModel.changeGroup(row, groupId, currentPersonId)
+        val newCongregationId = form.congregationId ?: row.assignment.congregationId
+        val movingCongregation = newCongregationId != null && newCongregationId != row.assignment.congregationId
+        // Changing someone's congregation is a deliberate act: ask first, save nothing until confirmed.
+        if (movingCongregation && !moveConfirmed) {
+            confirmCongregationMove = true
+            return
+        }
+        viewModel.updatePerson(form.applyTo(row.person))
+        val newCategory = form.category ?: row.category
+        if (newCategory != row.category) viewModel.changeCategory(row, newCategory, currentPersonId)
+        if (movingCongregation && newCongregationId != null) viewModel.changeCongregation(row, newCongregationId, form.groupId, currentPersonId)
+        else if (form.groupId != row.assignment.groupId) viewModel.changeGroup(row, form.groupId, currentPersonId)
         showToast("\"${row.person.fullName}\" saved.")
         onDismiss()
+    }
+
+    if (confirmCongregationMove) {
+        CongregationMoveConfirmation(
+            newName = congregations.firstOrNull { it.id == form.congregationId }?.name ?: "the selected congregation",
+            onConfirm = { confirmCongregationMove = false; submit(moveConfirmed = true) },
+            onDismiss = { confirmCongregationMove = false },
+        )
     }
 
     FormDialog(
         onDismissRequest = onDismiss,
         title = "Edit ${row.person.fullName}",
-        onConfirm = ::submit,
+        onConfirm = { submit() },
         confirmLabel = "Save Changes",
         errorMessage = errorMessage,
         maxContentHeight = 560.dp,
-        hasUnsavedChanges = firstName != row.person.firstName || lastName != row.person.lastName ||
-            middleInitial != row.person.middleInitial.orEmpty() || extensionName != row.person.extensionName.orEmpty() ||
-            gender != row.person.gender || email != row.person.email.orEmpty() ||
-            address != row.person.address || contact != row.person.contact ||
-            contactPerson != row.person.contactPerson.orEmpty() || contactPersonNumber != row.person.contactPersonNumber.orEmpty() ||
-            category != row.category || groupId != row.assignment.groupId || accountStatus != row.person.accountStatus,
+        hasUnsavedChanges = form != initialForm,
     ) {
-                EditSectionHeader("Personal Information")
-                OutlinedTextField(
-                    value = firstName,
-                    onValueChange = { firstName = it.uppercase() },
-                    label = { Text("First Name") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
+                EditSectionHeader("Publisher Information")
+                PublisherFormFields(
+                    form = form,
+                    onChange = { form = it },
+                    groups = groups,
+                    congregations = congregations,
+                    congregationEditable = canChangeCongregation,
+                    allowUnassigned = true,
+                    capturingLocation = capturingLocation,
+                    locationError = locationError,
+                    onUseCurrentLocation = {
+                        if (viewModel.hasLocationPermission()) captureLocation()
+                        else locationPermissionLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                    },
                 )
-                OutlinedTextField(
-                    value = middleInitial,
-                    onValueChange = { middleInitial = it.uppercase() },
-                    label = { Text("Middle Initial (optional)") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = lastName,
-                    onValueChange = { lastName = it.uppercase() },
-                    label = { Text("Last Name") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = extensionName,
-                    onValueChange = { extensionName = it.uppercase() },
-                    label = { Text("Extension Name (optional, e.g. Jr., III)") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row {
-                    Gender.entries.forEach { g ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = gender == g, onClick = { gender = g })
-                            Text(g.name.lowercase().replaceFirstChar { it.uppercase() })
-                        }
-                    }
-                }
-                OutlinedTextField(
-                    value = address,
-                    onValueChange = { address = it.uppercase() },
-                    label = { Text("Address") },
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = contact,
-                    onValueChange = { contact = it.uppercase() },
-                    label = { Text("Contact") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("Email (optional)") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = contactPerson,
-                    onValueChange = { contactPerson = it.uppercase() },
-                    label = { Text("Contact Person (optional)") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = contactPersonNumber,
-                    onValueChange = { contactPersonNumber = it.uppercase() },
-                    label = { Text("Contact Person Number (optional)") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                EditSectionHeader("Assignment")
-                CategoryDropdown(selected = category, onSelected = { category = it })
-                GroupDropdown(groups = groups, selectedGroupId = groupId, onSelected = { groupId = it })
 
                 EditSectionHeader("System Information")
                 ReadOnlyField("Username", row.person.username)
-                AccountStatusDropdown(selected = accountStatus, onSelected = { accountStatus = it })
                 ReadOnlyField("Date Added", formatRecordTimestamp(row.person.createdAt))
+    }
+}
+
+/** Confirms a deliberate change of a publisher's congregation (shown from [EditPublisherDialog]). */
+@Composable
+private fun CongregationMoveConfirmation(newName: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Change Congregation?") },
+        text = {
+            Text("This publisher will be moved to $newName. Their field service group is replaced by the one chosen here (or cleared). Reports and records they already made keep the congregation they were made in.")
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Change Congregation") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Super-Admin's first step in the Publisher module: choose the congregation whose publishers to work with. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectCongregationGate(congregations: List<Congregation>, onContinue: (String) -> Unit, onBack: () -> Unit) {
+    var pickedId by remember { mutableStateOf<String?>(null) }
+    var expanded by remember { mutableStateOf(false) }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Publishers") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") } },
+            )
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Select Congregation", style = MaterialTheme.typography.headlineSmall)
+            Text("Choose the congregation whose publishers you want to view and manage.", style = MaterialTheme.typography.bodyMedium)
+            ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                OutlinedTextField(
+                    value = congregations.firstOrNull { it.id == pickedId }?.name.orEmpty(),
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Congregation") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    visualTransformation = VisualTransformation.None,
+                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                )
+                ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    congregations.forEach { c ->
+                        DropdownMenuItem(text = { Text(c.name) }, onClick = { pickedId = c.id; expanded = false })
+                    }
+                }
+            }
+            Button(onClick = { pickedId?.let(onContinue) }, enabled = pickedId != null, modifier = Modifier.fillMaxWidth()) { Text("Continue") }
+        }
+    }
+}
+
+/** Switch the module's congregation (Super-Admin). Same list as the gate; no "All" — a congregation is always chosen. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CongregationSwitcher(
+    congregations: List<Congregation>,
+    selectedId: String?,
+    onSelected: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+        OutlinedTextField(
+            value = congregations.firstOrNull { it.id == selectedId }?.name.orEmpty(),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Congregation (tap to change)") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            congregations.forEach { c ->
+                DropdownMenuItem(text = { Text(c.name) }, onClick = { onSelected(c.id); expanded = false })
+            }
+        }
+    }
+}
+
+/** A small labelled dropdown over (key, label) options — the Publisher list's filter, group and status pickers. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> FilterChoiceDropdown(label: String, selectedText: String, options: List<Pair<T, String>>, onSelected: (T) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = selectedText,
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            visualTransformation = VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().menuAnchor(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (key, text) ->
+                DropdownMenuItem(text = { Text(text) }, onClick = { onSelected(key); expanded = false })
+            }
+        }
     }
 }
 
@@ -459,19 +678,19 @@ private fun CongregationFilterDropdown(
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: "All Congregations/Groups"
+    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: "All Congregations"
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         OutlinedTextField(
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation/Group") },
+            label = { Text("Congregation") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("All Congregations/Groups") }, onClick = { onSelected(null); expanded = false })
+            DropdownMenuItem(text = { Text("All Congregations") }, onClick = { onSelected(null); expanded = false })
             congregations.forEach { c ->
                 DropdownMenuItem(text = { Text(c.name) }, onClick = { onSelected(c.id); expanded = false })
             }
@@ -549,7 +768,7 @@ private fun CategoryDropdown(selected: PublisherCategory, onSelected: (Publisher
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
-            value = selected.name.replace('_', ' '),
+            value = selected.displayName,
             onValueChange = {},
             readOnly = true,
             label = { Text("Category") },
@@ -560,7 +779,7 @@ private fun CategoryDropdown(selected: PublisherCategory, onSelected: (Publisher
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             PublisherCategory.entries.forEach { category ->
                 DropdownMenuItem(
-                    text = { Text(category.name.replace('_', ' ')) },
+                    text = { Text(category.displayName) },
                     onClick = {
                         onSelected(category)
                         expanded = false
@@ -569,4 +788,48 @@ private fun CategoryDropdown(selected: PublisherCategory, onSelected: (Publisher
             }
         }
     }
+}
+
+/** Asks what to print/export: the records currently listed (with the active search and filters) or all of them, and — for print and PDF — table or detailed list. */
+@Composable
+private fun PublisherExportDialog(
+    kind: String,
+    filteredCount: Int,
+    allCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (all: Boolean, format: com.emfitsolutions.gopreach.data.export.PublisherPrintFormat) -> Unit,
+) {
+    var all by remember { mutableStateOf(false) }
+    var format by remember { mutableStateOf(com.emfitsolutions.gopreach.data.export.PublisherPrintFormat.TABLE) }
+    val count = if (all) allCount else filteredCount
+    val verb = when (kind) { "print" -> "Printing"; "pdf" -> "Exporting"; else -> "Exporting" }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(when (kind) { "print" -> "Print Publisher Records"; "pdf" -> "Export to PDF"; else -> "Export to Excel" }) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Records", style = MaterialTheme.typography.labelLarge)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.RadioButton(selected = !all, onClick = { all = false })
+                    Text("Current list ($filteredCount)", style = MaterialTheme.typography.bodyMedium)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.RadioButton(selected = all, onClick = { all = true })
+                    Text("All records ($allCount)", style = MaterialTheme.typography.bodyMedium)
+                }
+                if (kind != "excel") {
+                    Text("Print Format", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 6.dp))
+                    com.emfitsolutions.gopreach.data.export.PublisherPrintFormat.entries.forEach { f ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.RadioButton(selected = format == f, onClick = { format = f })
+                            Text(f.label, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+                Text("$verb $count Publisher Record${if (count == 1) "" else "s"}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(enabled = count > 0, onClick = { onConfirm(all, format) }) { Text(when (kind) { "print" -> "Print"; "pdf" -> "Export PDF"; else -> "Export Excel" }) } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

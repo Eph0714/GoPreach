@@ -47,13 +47,12 @@ import com.emfitsolutions.gopreach.ui.screens.territoryassignments.TerritoryAssi
 import com.emfitsolutions.gopreach.ui.screens.territoryassignments.TerritoryAssignmentsScreen
 import com.emfitsolutions.gopreach.ui.screens.home.AdminHomeScreen
 import com.emfitsolutions.gopreach.ui.screens.home.PublisherHomeScreen
-import com.emfitsolutions.gopreach.ui.screens.householderassignment.HouseholderAssignmentScreen
 import com.emfitsolutions.gopreach.ui.screens.householderassignment.IncomingHouseholderAssignmentsScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.ForwardRequestsScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherForwardRequestsScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.ElderInterestedRecordsScreen
-import com.emfitsolutions.gopreach.ui.screens.pipeline.SuperAdminInterestedRecordsScreen
+import com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherAssignmentScreen
 import com.emfitsolutions.gopreach.ui.screens.bibletext.BibleTextRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.preachingtime.PreachingTimeRecordScreen
 import com.emfitsolutions.gopreach.ui.screens.monthlyreport.MonthlyReportScreen
@@ -64,9 +63,6 @@ import com.emfitsolutions.gopreach.ui.screens.publishers.ManagePublishersScreen
 import com.emfitsolutions.gopreach.ui.screens.announcements.AnnouncementsScreen
 import com.emfitsolutions.gopreach.ui.screens.meetingassignments.MeetingAssignmentsScreen
 import com.emfitsolutions.gopreach.ui.screens.meetingassignments.MyAssignmentsScreen
-import com.emfitsolutions.gopreach.ui.screens.publisherreports.ManagePublisherReportsScreen
-import com.emfitsolutions.gopreach.ui.screens.reports.ConsolidatedReportScreen
-import com.emfitsolutions.gopreach.ui.screens.reports.ReportsScreen
 import com.emfitsolutions.gopreach.ui.screens.groupchat.GroupChatListScreen
 import com.emfitsolutions.gopreach.ui.screens.groupchat.GroupChatScreen
 import com.emfitsolutions.gopreach.ui.screens.settings.SettingsScreen
@@ -146,6 +142,31 @@ fun GoPreachNavGraph(
         session.isActivePublisherRole -> Destinations.PUBLISHER_HOME
         else -> Destinations.ADMIN_HOME // an Admin-track active role, and "no role at all" (shows an empty-state shell)
     }
+
+    // Deleted Records: with automatic permanent deletion switched on, sweep what has outlived its retention when
+    // someone signs in and every few hours while the app stays open. Only what this user manages is touched, and
+    // nothing before its calculated date; with the setting off this does nothing.
+    val trashMaintenance: com.emfitsolutions.gopreach.ui.screens.deletedrecords.DeletedRecordsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    LaunchedEffect(currentPersonId, currentRole, ownCongregationId) {
+        if (currentPersonId.isBlank()) return@LaunchedEffect
+        val access = com.emfitsolutions.gopreach.ui.screens.deletedrecords.DeletedRecordsAccess(
+            personId = currentPersonId,
+            isSuperAdmin = currentRole == AdminRole.SUPER_ADMIN,
+            manageableCongregationId = if (currentRole in setOf(
+                    AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY,
+                )
+            ) ownCongregationId else null,
+        )
+        while (true) {
+            trashMaintenance.purgeExpired(access)
+            kotlinx.coroutines.delay(6L * 60 * 60 * 1000)
+        }
+    }
+
+    // "Enable Biometric Login?" — offered once, right after a password sign-in.
+    com.emfitsolutions.gopreach.ui.screens.login.BiometricEnrollmentOfferHost(
+        signedIn = session.isSignedIn && !session.requiresPasswordChange,
+    )
 
     LaunchedEffect(targetRoute) {
         if (targetRoute != null && navController.currentDestination?.route != targetRoute) {
@@ -404,19 +425,7 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-        // "The super admin can see all congregation Search[ing]/Bible Study/
-        // Return Visit record[s]... Add, Edit, [and permanently] Delete the
-        // record" — Super-Admin only; route isn't reachable at all for any
-        // other role (see SidePanel, which only ever shows this item to
-        // isSuperAdmin), same "hidden AND unreachable" guarantee every other
-        // permanent-delete-capable screen in this app follows.
-        composable(Destinations.ALL_INTERESTED_RECORDS) {
-            SuperAdminInterestedRecordsScreen(
-                currentPersonId = currentPersonId,
-                onBack = { navController.popBackStack() },
-            )
-        }
-        // Spec §15 — read-only, scoped counterpart to [ALL_INTERESTED_RECORDS]
+        // Spec §15 — read-only, scoped interested-people list
         // above for Admin/Coordinator Elder/Service Overseer/Regular Elder.
         // [ownGroupAssignment]'s congregationId falls back the same way every
         // other `visibleCongregationId` call site in this file already does;
@@ -452,19 +461,6 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-        // "Preaching Time Records — Super Admin Management Module" — same
-        // "Super-Admin only, hidden AND unreachable for anyone else"
-        // guarantee as [ALL_INTERESTED_RECORDS] above (see SidePanel's
-        // `isSuperAdmin` gate); the real, unbypassable enforcement is
-        // firestore.rules' `preachingTimeRecords` `delete` rule, not this
-        // route's reachability alone.
-        composable(Destinations.ALL_PREACHING_TIME_RECORDS) {
-            com.emfitsolutions.gopreach.ui.screens.preachingtime.SuperAdminPreachingTimeRecordsScreen(
-                currentPersonId = currentPersonId,
-                currentPersonRoleLabel = currentRole?.name ?: "SUPER_ADMIN",
-                onBack = { navController.popBackStack() },
-            )
-        }
         composable(Destinations.MANAGE_PUBLISHERS) {
             ManagePublishersScreen(
                 currentPersonId = currentPersonId,
@@ -482,29 +478,8 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
+        // Territory Assignment opens the FS Group assignment screen directly (no hub, no Per Publisher Assignment).
         composable(Destinations.MANAGE_TERRITORY_ASSIGNMENTS) {
-            com.emfitsolutions.gopreach.ui.screens.territoryassignments.TerritoryAssignmentHomeScreen(
-                onBack = { navController.popBackStack() },
-                onOpenFsGroup = { navController.navigate(Destinations.FS_GROUP_TERRITORY_ASSIGNMENTS) },
-                onOpenPerPublisher = { navController.navigate(Destinations.PUBLISHER_TERRITORY_ASSIGNMENTS) },
-            )
-        }
-        composable(Destinations.PUBLISHER_TERRITORY_ASSIGNMENTS) {
-            com.emfitsolutions.gopreach.ui.screens.territoryassignments.PublisherTerritoryAssignmentsScreen(
-                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
-                currentPersonId = currentPersonId,
-                onBack = { navController.popBackStack() },
-                onAddNew = { navController.navigate(Destinations.PUBLISHER_TERRITORY_ASSIGNMENT_FORM) },
-            )
-        }
-        composable(Destinations.PUBLISHER_TERRITORY_ASSIGNMENT_FORM) {
-            com.emfitsolutions.gopreach.ui.screens.territoryassignments.PublisherTerritoryAssignmentFormScreen(
-                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else ownCongregationId,
-                currentPersonId = currentPersonId,
-                onDone = { navController.popBackStack() },
-            )
-        }
-        composable(Destinations.FS_GROUP_TERRITORY_ASSIGNMENTS) {
             TerritoryAssignmentsScreen(
                 fixedCongregationId = ownCongregationId,
                 currentPersonId = currentPersonId,
@@ -619,13 +594,28 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(Destinations.REPORTS) {
-            val canEditReports = currentRole == AdminRole.COORDINATOR_ELDER || currentRole == AdminRole.REGULAR_ELDER
-            ReportsScreen(
-                visibleCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
-                visibleGroupId = ownGroupAssignment?.groupId,
-                canEditReports = canEditReports,
-                onEditPublisher = { personId -> navController.navigate(Destinations.editMonthlyReport(personId)) },
+        composable(Destinations.DELETED_RECORDS) {
+            com.emfitsolutions.gopreach.ui.screens.deletedrecords.DeletedRecordsScreen(
+                access = com.emfitsolutions.gopreach.ui.screens.deletedrecords.DeletedRecordsAccess(
+                    personId = currentPersonId,
+                    isSuperAdmin = currentRole == AdminRole.SUPER_ADMIN,
+                    manageableCongregationId = if (currentRole in setOf(
+                            AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY,
+                        )
+                    ) ownCongregationId else null,
+                ),
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.FIELD_SERVICE_REPORT) {
+            com.emfitsolutions.gopreach.ui.screens.fieldservicereport.FieldServiceReportScreen(
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
+                currentPersonId = currentPersonId,
+                // Lock / Unlock a publisher's report: same role set the old Publisher Reports module allowed.
+                canManageLocks = currentRole in setOf(
+                    AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER,
+                    AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY,
+                ),
                 onBack = { navController.popBackStack() },
             )
         }
@@ -647,76 +637,6 @@ fun GoPreachNavGraph(
                 // this screen (Regular Elder/Ministerial Servant included).
                 canExport = currentRole == AdminRole.SUPER_ADMIN || currentRole == AdminRole.ADMIN_PER_CONGREGATION ||
                     currentRole == AdminRole.COORDINATOR_ELDER || currentRole == AdminRole.SERVICE_OVERSEER || currentRole == AdminRole.SECRETARY,
-                onBack = { navController.popBackStack() },
-            )
-        }
-        composable(Destinations.CONSOLIDATED_REPORT) {
-            // Only Super-Admin/Admin/Coordinator Elder/Service Overseer ever
-            // reach this route at all (see canViewConsolidatedReport's
-            // drawer gating) — scoped the same way their own Main Form
-            // dashboard already is, never falling back to a Regular Elder/
-            // Publisher's own group/congregation the way Dashboard Reports
-            // does, since neither of those roles should see this report.
-            ConsolidatedReportScreen(
-                visibleCongregationIds = if (currentRole == AdminRole.SUPER_ADMIN) null else setOfNotNull(ownCongregationId),
-                onBack = { navController.popBackStack() },
-            )
-        }
-        composable(Destinations.FIELD_SERVICE_GROUP_REPORT) {
-            // "For Super admin, he can see all congregation, other user can
-            // see only the record of their congregation" — same scoping
-            // convention as Consolidated Report above.
-            com.emfitsolutions.gopreach.ui.screens.reports.FieldServiceGroupReportScreen(
-                congregationIds = if (currentRole == AdminRole.SUPER_ADMIN) null else setOfNotNull(ownCongregationId),
-                onBack = { navController.popBackStack() },
-            )
-        }
-        composable(
-            route = Destinations.MANAGE_PUBLISHER_REPORTS_ROUTE,
-            arguments = listOf(navArgument("periodMonth") { type = NavType.StringType; nullable = true; defaultValue = null }),
-        ) { backStackEntry ->
-            // "If [a] report from [a] Publisher will be open[ed], open the
-            // exact month, not the default month of the module" — non-null
-            // only when arriving from the notification balloon's Monthly
-            // Report item (see Destinations.manageReportsForMonth); every
-            // other caller still navigates to the plain MANAGE_PUBLISHER_REPORTS
-            // route with no query arg and keeps the module's own default
-            // "This Month" filter, untouched.
-            val periodMonth = backStackEntry.arguments?.getString("periodMonth")?.toLongOrNull()
-            // Same access set/scoping as the Consolidated Report above —
-            // Super-Admin/Admin/Coordinator Elder/Regular Elder/Service
-            // Overseer, own congregation only for anyone but Super-Admin
-            // (naturally enforced: `fixedCongregationId` below already
-            // confines which rows a non-Super-Admin ever sees or acts on,
-            // so nothing outside their own congregation is ever reachable
-            // to begin with). A grant-based Circuit Overseer also reaches
-            // this route (see AdminHomeScreen.canManagePublisherReports)
-            // but always read-only — firestore.rules blocks every
-            // restricted user's `monthlyReports` write regardless of
-            // permission.
-            val canEditPublisherReports = currentRole in setOf(
-                AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER,
-                AdminRole.REGULAR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY,
-            )
-            // "The service overseer will click the POST button... the
-            // super admin, admin, and coordinator elder, regular elder can
-            // do so [too]" — same set as the general edit right above; once
-            // Posted, firestore.rules (not this set) is what actually shuts
-            // the Publisher's own edit access off (see monthlyReports'
-            // write rule) — this only governs who in the admin track sees
-            // the "Mark as Posted" action at all.
-            val canMarkPosted = canEditPublisherReports
-            ManagePublisherReportsScreen(
-                currentPersonId = currentPersonId,
-                // Falls back to a Regular Elder's own group's congregation
-                // (see MANAGE_ANNOUNCEMENTS above for the same fix/reasoning
-                // — `ownCongregationId` alone is null for them, and null
-                // here means "every congregation").
-                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
-                canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
-                canMarkPosted = canMarkPosted,
-                readOnly = !canEditPublisherReports,
-                initialPeriodMonth = periodMonth,
                 onBack = { navController.popBackStack() },
             )
         }
@@ -806,12 +726,16 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(Destinations.SEARCHING) {
+        composable(
+            route = Destinations.SEARCHING_ROUTE,
+            arguments = listOf(navArgument("personId") { type = NavType.StringType; nullable = true; defaultValue = null }),
+        ) { backStackEntry ->
             PipelineScreen(
                 publisherPersonId = currentPersonId,
                 currentPersonId = currentPersonId,
                 congregationId = ownPublisherAssignment?.congregationId.orEmpty(),
                 stage = PipelineStage.SEARCHING,
+                initialPersonId = backStackEntry.arguments?.getString("personId"),
                 // "Allow the publisher to permanently delete their own
                 // Return Visit/Bible Study/Searching record" — these three
                 // routes only ever show the signed-in session's own records
@@ -885,19 +809,30 @@ fun GoPreachNavGraph(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(Destinations.HOUSEHOLDER_ASSIGNMENT) {
-            // "House Holder Assignment" module — Super-Admin/Admin/Service
-            // Overseer (+Secretary, same access Service Overseer already
-            // gets everywhere in this app) only; a plain Publisher never
-            // reaches this route at all (spec: "Publisher... does not have
-            // access to create assignments"). Same congregation-scoping
-            // fallback chain as every other Service-Overseer-reachable
-            // module (see HOUSEHOLDER_VISIT_HISTORY's own comment on why
-            // this exact chain, not a shorter one).
-            HouseholderAssignmentScreen(
+        composable(Destinations.MANUAL_FIELD_SERVICE) {
+            // Super-Admin (picks a congregation first), Admin, Service Overseer, Secretary and Coordinator Elder — own congregation only;
+            // the screen and its ViewModel both re-check the role and the congregation.
+            com.emfitsolutions.gopreach.ui.screens.manualreport.ManualFieldServiceScreen(
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId),
+                currentPersonId = currentPersonId,
+                currentRole = currentRole,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.COMPARATIVE_REPORT) {
+            // Same access set and congregation scoping as PUBLISHER_ASSIGNMENT; Super-Admin picks a congregation first.
+            com.emfitsolutions.gopreach.ui.screens.reports.ComparativeReportScreen(
+                fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId ?: ownPublisherAssignment?.congregationId),
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Destinations.PUBLISHER_ASSIGNMENT) {
+            // "Publisher Assignment" — same congregation-scoping chain as every other Admin module;
+            // Super-Admin (null) picks a congregation on the screen itself. Search Coordinates reuses Find Location.
+            PublisherAssignmentScreen(
                 fixedCongregationId = if (currentRole == AdminRole.SUPER_ADMIN) null else (ownCongregationId ?: ownGroupAssignment?.congregationId ?: ownPublisherAssignment?.congregationId),
                 currentPersonId = currentPersonId,
-                currentPersonName = session.person?.fullName ?: "—",
+                onSearchCoordinates = { navController.navigate(Destinations.FIND_LOCATION) },
                 onBack = { navController.popBackStack() },
             )
         }
@@ -1025,6 +960,12 @@ fun GoPreachNavGraph(
             SettingsScreen(
                 onBack = { navController.popBackStack() },
                 onNavigateToThemeColorSettings = { navController.navigate(Destinations.THEME_COLOR_SETTINGS) },
+                // Settings → Data Management → Deleted Records: the roles that manage deleted records.
+                currentPersonId = currentPersonId,
+                showDeletedRecordsSettings = currentRole in setOf(
+                    AdminRole.SUPER_ADMIN, AdminRole.ADMIN_PER_CONGREGATION, AdminRole.COORDINATOR_ELDER, AdminRole.SERVICE_OVERSEER, AdminRole.SECRETARY,
+                ),
+                onOpenDeletedRecords = { navController.navigate(Destinations.DELETED_RECORDS) },
             )
         }
         // "Theme Color Settings — Simplified User Experience" (spec §16) —

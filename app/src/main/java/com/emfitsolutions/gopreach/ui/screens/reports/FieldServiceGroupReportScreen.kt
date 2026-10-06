@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.reports
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +34,8 @@ import androidx.compose.runtime.setValue
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.print.ReportPrinter
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 
 /** "Field Service Group Overseer"/"Servant"/"Assistant" already have a
  * shared label ([com.emfitsolutions.gopreach.ui.components.displayLabel] on
@@ -66,9 +69,10 @@ fun FieldServiceGroupReportScreen(
     // "Add a filter for Congregation" (Super-Admin only) — a real scoped
     // role's own [congregationIds] is already a fixed one-element set, so
     // this stays unused for them.
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("group_reports")
     val effectiveCongregationIds = congregationFilter?.let { setOf(it) } ?: congregationIds
-    val rowsFlow = remember(effectiveCongregationIds) { viewModel.rowsFor(effectiveCongregationIds) }
+    val needsCongregation = congregationIds == null && congregationFilter == null
+    val rowsFlow = remember(effectiveCongregationIds, needsCongregation) { if (needsCongregation) kotlinx.coroutines.flow.flowOf(emptyList()) else viewModel.rowsFor(effectiveCongregationIds) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     // Only worth labeling each block with its own congregation when more
     // than one could actually appear — a role scoped to their own single
@@ -99,8 +103,11 @@ fun FieldServiceGroupReportScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        if (rows.isEmpty()) {
+        if (needsCongregation) {
+            SelectCongregationPrompt()
+        } else if (rows.isEmpty()) {
             Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                RecordFound(0)
                 Text("No field service groups yet.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
@@ -109,6 +116,7 @@ fun FieldServiceGroupReportScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                item { RecordFound(rows.size) }
                 items(rows, key = { it.group.id }) { row ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -148,6 +156,7 @@ private fun buildFieldServiceGroupReportHtml(rows: List<FieldServiceGroupReportR
     append("p.role{margin:0;} ul{margin:4px 0 0 0;padding-left:18px;} li{list-style:none;margin-left:-18px;}")
     append("</style></head><body>")
     append("<h2>Field Service Group Report</h2>")
+    append("<p style=\"text-align:center;font-weight:bold;margin:0 0 6px 0\">Total Groups: ${rows.size}  •  Total Publishers: ${rows.sumOf { it.members.size }}</p>")
     var lastCongregationId: String? = null
     rows.forEach { row ->
         if (showCongregationHeadings && row.congregationId != lastCongregationId) {

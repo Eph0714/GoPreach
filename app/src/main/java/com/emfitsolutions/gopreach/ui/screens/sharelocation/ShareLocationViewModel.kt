@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.sharelocation
 
 import android.content.Context
+import com.emfitsolutions.gopreach.data.model.displayName
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.location.LatLng
@@ -190,7 +191,7 @@ class ShareLocationViewModel @Inject constructor(
                 .filter { row ->
                     searchQuery.isBlank() ||
                         row.person.fullName.contains(searchQuery, ignoreCase = true) ||
-                        row.category?.name?.replace('_', ' ')?.contains(searchQuery, ignoreCase = true) == true ||
+                        row.category?.displayName?.contains(searchQuery, ignoreCase = true) == true ||
                         row.groupName?.contains(searchQuery, ignoreCase = true) == true ||
                         row.congregationName.contains(searchQuery, ignoreCase = true)
                 }

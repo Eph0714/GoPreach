@@ -322,6 +322,65 @@ class AuthRepository @Inject constructor(
         }
     }
 
+    // --- First-time Publisher setup (change credentials -> verify details -> optional login methods -> re-login) ---
+
+    /** Step 1 of the Publisher wizard: the Publisher picks their own username and password. Unlike
+     * [forcedPasswordChange] this keeps the session open for the next steps and does NOT mark the account as
+     * finished: the temporary password stops working now (the Auth password changes and the stored copy is
+     * erased), but [Person.isTemporaryCredential] stays true until the re-login proves the new credentials. */
+    suspend fun changeCredentialsKeepingSession(newUsername: String, newPassword: String): AuthResult {
+        val user = firebaseAuth.currentUser ?: return AuthResult.Error("Session expired — please log in again.")
+        val personId = personIdFromAuthEmail(user.email) ?: return AuthResult.Error("Session expired — please log in again.")
+        val existing = findPersonByUsername(newUsername)
+        if (existing != null && existing.id != personId) return AuthResult.Error("That username is already taken.")
+        val person = personRepository.get(personId) ?: return AuthResult.Error("Account record not found.")
+        return try {
+            user.updatePassword(newPassword).await()
+            val updated = person.copy(username = newUsername, temporaryPassword = null)
+            // Synchronous as well as queued: the new username must exist on the server before anyone signs in with it.
+            firestore.collection("people").document(personId).set(updated).await()
+            personRepository.cacheFromServer(updated)
+            AuthResult.Success(updated, requiresPasswordChange = true)
+        } catch (e: Exception) {
+            AuthResult.Error(e.localizedMessage ?: "Couldn't update your credentials.")
+        }
+    }
+
+    /** Step 3: the Publisher explicitly confirmed their (possibly corrected) details. Saves them and stamps
+     * [Person.setupConfirmedAt]; the very next step is the mandatory sign-out and re-login. */
+    suspend fun confirmFirstLoginProfile(person: Person): AuthResult {
+        val personId = currentPersonId ?: return AuthResult.Error("Session expired — please log in again.")
+        if (person.id != personId) return AuthResult.Error("Account mismatch — please log in again.")
+        return try {
+            val confirmed = person.copy(setupConfirmedAt = System.currentTimeMillis())
+            firestore.collection("people").document(personId).set(confirmed).await()
+            personRepository.cacheFromServer(confirmed)
+            AuthResult.Success(confirmed, requiresPasswordChange = true)
+        } catch (e: Exception) {
+            AuthResult.Error(e.localizedMessage ?: "Couldn't save your information. Check your connection and try again.")
+        }
+    }
+
+    /** When this device last signed in to the server with a password (not a token refresh), or null if there is no
+     * server session (offline). Compared with [Person.setupConfirmedAt] to tell the required re-login apart from the
+     * wizard's own session. */
+    fun lastSignInAtMillis(): Long? = firebaseAuth.currentUser?.metadata?.lastSignInTimestamp
+
+    /** The Publisher signed in again with their new credentials: setup is finished. */
+    suspend fun completeFirstLogin(): AuthResult {
+        val personId = currentPersonId ?: return AuthResult.Error("Session expired — please log in again.")
+        val person = personRepository.get(personId) ?: return AuthResult.Error("Account record not found.")
+        return try {
+            val done = person.copy(isTemporaryCredential = false, temporaryPassword = null, setupCompletedAt = System.currentTimeMillis())
+            firestore.collection("people").document(personId).set(done).await()
+            personRepository.cacheFromServer(done)
+            auditLogRepository.log(actorPersonId = personId, action = "COMPLETE_FIRST_LOGIN_SETUP")
+            AuthResult.Success(done, requiresPasswordChange = false)
+        } catch (e: Exception) {
+            AuthResult.Error(e.localizedMessage ?: "Couldn't finish setup. Check your connection and try again.")
+        }
+    }
+
     /** Re-proves the signed-in user's identity with their *current* password —
      * required before either self-service credential change below, per spec §1
      * ("Require the current password before changing the username" / entering
@@ -336,6 +395,9 @@ class AuthRepository @Inject constructor(
      * password" report even when the user typed it correctly. Only an actual
      * [FirebaseAuthInvalidCredentialsException] means the credential itself was
      * rejected; every other failure now surfaces its real cause instead. */
+    /** Confirms the signed-in user's password — used before enabling biometric login in Settings. */
+    suspend fun verifyCurrentPassword(password: String): Result<Unit> = reauthenticate(password)
+
     private suspend fun reauthenticate(currentPassword: String): Result<Unit> {
         val user = firebaseAuth.currentUser ?: return Result.failure(IllegalStateException("Session expired — please log in again."))
         val email = user.email ?: return Result.failure(IllegalStateException("Session expired — please log in again."))

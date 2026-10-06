@@ -56,7 +56,7 @@ data class ContactRow(
  * own filter list doesn't mention them). */
 val CONTACT_ROLE_FILTERS = listOf(REGULAR_PUBLISHER, REGULAR_PIONEER, SPECIAL_PIONEER, AUXILIARY_PIONEER, SERVICE_OVERSEER, SECRETARY, CONGREGATION_ELDER, REGULAR_ELDER)
 
-const val REGULAR_PUBLISHER = "Regular Publisher"
+const val REGULAR_PUBLISHER = "Publisher"
 const val REGULAR_PIONEER = "Regular Pioneer"
 /** "Keep their category values distinct so the system can correctly
  * display and report REGULAR PIONEER versus SPECIAL PIONEER" — its own

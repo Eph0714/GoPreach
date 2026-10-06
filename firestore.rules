@@ -125,6 +125,19 @@ function canManageRoleAssignmentsFor(db, congregationId) {
 // [groups]/[congregations] use below — this is genuine per-role-per-
 // congregation server-side enforcement, closing that gap specifically for
 // this module.
+// Deleted Records management: Super-Admin, or Admin / Coordinator Elder / Service Overseer / Secretary active in
+// the record's own congregation.
+function canManageTrashFor(db, congregationId) {
+  return isSignedIn() && exists(/databases/$(db)/documents/people/$(personIdFromToken())) && (
+    isSuperAdmin(db) || (
+      congregationId != null &&
+      myPerson(db).get('activeCongregationId', null) == congregationId &&
+      myPerson(db).get('activeAdminRole', null) in
+        ['ADMIN_PER_CONGREGATION', 'COORDINATOR_ELDER', 'SERVICE_OVERSEER', 'SECRETARY']
+    )
+  );
+}
+
 function canManageTerritoryAssignmentsFor(db, congregationId) {
   return isSignedIn() && exists(/databases/$(db)/documents/people/$(personIdFromToken())) && (
     isSuperAdmin(db) || (
@@ -400,6 +413,23 @@ service cloud.firestore {
     // whole-collection listener can't satisfy a per-document congregation
     // check); a pin can only be created as oneself, and removed by its creator
     // or by a role with territory access in that congregation.
+    // Deleted Records (the recycle bin): every module's "Delete" moves a full snapshot here instead of erasing it.
+    // Only the person who deleted it, or an admin-track role of that congregation / the Super-Admin, may read,
+    // restore (= delete the entry after writing the originals back) or permanently delete it. An entry is only
+    // ever created as oneself and never edited.
+    match /deletedRecords/{recordId} {
+      allow read: if isSignedIn() && (
+        resource.data.get('deletedByPersonId', null) == personIdFromToken() ||
+        canManageTrashFor(database, resource.data.get('congregationId', null))
+      );
+      allow create: if isSignedIn() && request.resource.data.get('deletedByPersonId', null) == personIdFromToken();
+      allow update: if false;
+      allow delete: if isSignedIn() && (
+        resource.data.get('deletedByPersonId', null) == personIdFromToken() ||
+        canManageTrashFor(database, resource.data.get('congregationId', null))
+      );
+    }
+
     match /mapPins/{pinId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() &&
@@ -540,8 +570,21 @@ service cloud.firestore {
       // in this app (Dashboard totals, Consolidated Report, ...) already
       // uses — validated only for ownership, congregation, and the hours-
       // confirmation shape above.
+      //
+      // Duplicate-submission lock: once a report is SUBMITTED/CORRECTED, its own
+      // publisher can't overwrite it (a second device, a replayed request, another
+      // screen) — it only opens again when an admin-track role unlocks it or returns
+      // it (status becomes DRAFT/RETURNED). Reports have one fixed id per publisher
+      // and month, so a second submission for the same month lands on this same
+      // document and is rejected here. A write identical to what is already stored
+      // is still accepted, so a retried sync never turns into a permanent error.
       allow write: if !hasGrant(database) &&
         !(resource != null && resource.data.status == 'POSTED' && resource.data.publisherPersonId == personIdFromToken()) &&
+        !(resource != null && request.resource != null &&
+          resource.data.status in ['SUBMITTED', 'CORRECTED'] &&
+          resource.data.publisherPersonId == personIdFromToken() &&
+          !canManagePublisherReportsFor(database, resource.data.congregationId) &&
+          request.resource.data != resource.data) &&
         (
           request.resource == null ? isSuperAdmin(database) : (
             (request.resource.data.publisherPersonId == personIdFromToken() && hoursAdjustmentValid(request.resource.data)) ||
@@ -954,6 +997,7 @@ service cloud.firestore {
     match /savedLocations/{locationId} { allow read, write: if isSignedIn(); }
     match /cartAssignments/{assignmentId} { allow read, write: if isSignedIn(); }
     match /locationSharingSettings/{settingId} { allow read, write: if isSignedIn(); }
+    match /publisherVisibilitySettings/{settingId} { allow read, write: if isSignedIn(); }
     match /midweekMeetingSchedules/{scheduleId} { allow read, write: if isSignedIn(); }
     match /publicTalkSchedules/{scheduleId} { allow read, write: if isSignedIn(); }
     match /announcements/{announcementId} { allow read, write: if isSignedIn(); }
@@ -1031,7 +1075,7 @@ service cloud.firestore {
         'locationSharingSettings', 'midweekMeetingSchedules', 'publicTalkSchedules', 'announcements',
         'creditHourCategories', 'publisherTerritoryAssignments', 'mapPins', 'plannerDays', 'monthlyPlannerGoals', 'weeklyPlannerGoals',
         'yearlyPlannerGoals', 'creditHourRecords', 'ministryTimerSessions',
-        'territoryAssignments', 'territoryAssignmentBarangays'
+        'territoryAssignments', 'territoryAssignmentBarangays', 'deletedRecords'
       ]);
     }
   }

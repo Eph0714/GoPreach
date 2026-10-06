@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.groupchat
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -40,6 +41,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.model.GroupChat
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 
 /**
@@ -66,9 +69,11 @@ fun GroupChatListScreen(
     // for the manage view; a plain participant already only ever sees their
     // own chats via [GroupChatViewModel.myGroupChats], not a congregation-wide
     // list.
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("group_chats")
     val effectiveCongregationId = fixedCongregationId ?: congregationFilter
-    val chatsFlow = remember(canManage, effectiveCongregationId, currentPersonId) {
+    val needsCongregation = canManage && fixedCongregationId == null && congregationFilter == null
+    val chatsFlow = remember(canManage, effectiveCongregationId, currentPersonId, needsCongregation) {
+        if (needsCongregation) return@remember kotlinx.coroutines.flow.flowOf(emptyList())
         if (canManage) viewModel.managedGroupChats(effectiveCongregationId) else viewModel.myGroupChats(currentPersonId)
     }
     val chats by chatsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -102,11 +107,14 @@ fun GroupChatListScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        if (chats.isEmpty()) {
+        if (needsCongregation) {
+            SelectCongregationPrompt()
+        } else if (chats.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                RecordFound(0)
                 Text(
                     if (canManage) stringResource(R.string.chat_empty_manage) else stringResource(R.string.chat_empty_member),
                     style = MaterialTheme.typography.bodyMedium,
@@ -118,6 +126,7 @@ fun GroupChatListScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(chats.size) }
                 items(chats, key = { it.id }) { chat ->
                     val congregationName = congregations.firstOrNull { it.id == chat.congregationId }?.name
                     GroupChatRow(

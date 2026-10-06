@@ -68,7 +68,14 @@ data class ConsolidatedReportUiState(
     val isLoading: Boolean = true,
 ) {
     val visibleEntries: List<PublisherReportEntry>
-        get() = if (selectedCongregationId == null) entries else entries.filter { it.congregationId == selectedCongregationId }
+        get() = when {
+            selectedCongregationId != null -> entries.filter { it.congregationId == selectedCongregationId }
+            needsCongregation -> emptyList()
+            else -> entries
+        }
+
+    /** Super-Admin (several congregations in scope) must pick one before any record is shown. */
+    val needsCongregation: Boolean get() = selectedCongregationId == null && congregationsInScope.size > 1
 
     val totalBibleStudies: Int get() = visibleEntries.sumOf { it.bibleStudiesCount }
     val totalPreachingHours: Double get() = visibleEntries.filter { isPioneerCategory(it.category) }.sumOf { it.preachingHours }

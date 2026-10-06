@@ -153,7 +153,7 @@ internal fun CongregationDropdown(
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation/Group") },
+            label = { Text("Congregation") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

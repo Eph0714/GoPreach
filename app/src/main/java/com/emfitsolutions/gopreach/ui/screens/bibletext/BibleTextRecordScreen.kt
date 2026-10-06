@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.bibletext
 
 import android.net.Uri
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -363,6 +364,7 @@ private fun EventListScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(filtered.size) }
                 if (filtered.isEmpty()) {
                     item {
                         Text(
@@ -442,6 +444,8 @@ private fun bibleTextReportTable(items: List<EventWithTexts>): ReportTable {
     }
     return ReportTable(
         title = "My Bible Text Record",
+        count = rows.size,
+        countLabel = "Total Bible Texts",
         columns = listOf("Event", "Theme/Topic", "Speaker", "Reference", "Remarks", "Date Added"),
         rows = rows,
     )
@@ -790,8 +794,8 @@ private fun EventDetailScreen(
             text = { Text("Are you sure you want to delete this Bible text (${toDeleteText.referenceLabel()})?") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.deleteRecord(toDeleteText.id)
-                    showToast("Bible text deleted successfully.")
+                    viewModel.deleteRecord(toDeleteText, toDeleteText.referenceLabel(), publisherPersonId)
+                    showToast("Bible text moved to Deleted Records.")
                     pendingDeleteText = null
                 }) { Text("Delete") }
             },

@@ -29,16 +29,22 @@ val tomtomApiKey: String = localProperties.getProperty("tomtomApiKey", "")
 // embedded in a running app, just kept out of git history.
 val mapTilerApiKey: String = localProperties.getProperty("mapTilerApiKey", "")
 
+// Mapillary (free street-level photos for the Street View option on the maps): a
+// "Client Token" from mapillary.com/dashboard/developers, kept only in
+// local.properties as `mapillaryToken=MLY|...` (gitignored). Blank = Street View
+// tells the user it is not set up instead of failing.
+val mapillaryToken: String = localProperties.getProperty("mapillaryToken", "")
+
 android {
     namespace = "com.emfitsolutions.gopreach"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.emfitsolutions.gopreach"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 191
-        versionName = "1.130.0"
+        targetSdk = 36
+        versionCode = 192
+        versionName = "1.131.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -50,18 +56,19 @@ android {
         // backed tiles.
         buildConfigField("String", "TOMTOM_API_KEY", "\"$tomtomApiKey\"")
         buildConfigField("String", "MAPTILER_API_KEY", "\"$mapTilerApiKey\"")
+        buildConfigField("String", "MAPILLARY_TOKEN", "\"$mapillaryToken\"")
     }
 
-    // GoPreach is sideloaded (no Play Store), so every release has always
-    // been signed with the standard Android debug key -- confirmed by
-    // comparing v1.109.0's actual signer cert against
-    // ~/.android/debug.keystore's (identical SHA-256). Wiring it in here so
-    // `assembleRelease` produces an already-signed APK instead of silently
-    // shipping unsigned (the "parser did not find any certificates" install
-    // failure this fixes). Every dev machine building a release therefore
-    // needs its own local debug.keystore -- present automatically on any
-    // machine that has ever run/debugged an Android app from Android
-    // Studio or `gradlew`.
+    // Release signing. A production build is signed with GoPreach's own release key, read from
+    // keystore.properties (gitignored, never committed -- see SETUP.md "Release signing"):
+    //   storeFile=C:/path/to/gopreach-release.jks   storePassword=...   keyAlias=...   keyPassword=...
+    // Debug builds always use the standard debug key. Until a release keystore exists the release
+    // build falls back to the debug key so existing installs keep updating -- and says so loudly.
+    val keystoreProperties = Properties().apply {
+        val f = rootProject.file("keystore.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    val hasReleaseKey = keystoreProperties.getProperty("storeFile")?.let { file(it).exists() } == true
     val debugKeystore = file(System.getProperty("user.home") + "/.android/debug.keystore")
 
     signingConfigs {
@@ -71,19 +78,28 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
-        create("release") {
-            storeFile = debugKeystore
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
+            isDebuggable = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (hasReleaseKey) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn("WARNING: keystore.properties not found -- the release build is signed with the DEBUG key. Do not distribute it as a production build.")
+                signingConfigs.getByName("debug")
+            }
         }
         debug {
             isMinifyEnabled = false
@@ -163,7 +179,6 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
-    implementation("com.google.firebase:firebase-messaging-ktx")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
     // Room (offline cache)

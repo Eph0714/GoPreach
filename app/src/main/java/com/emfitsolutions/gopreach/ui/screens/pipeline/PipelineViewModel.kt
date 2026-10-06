@@ -11,6 +11,7 @@ import com.emfitsolutions.gopreach.data.model.InterestedPerson
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
+import com.emfitsolutions.gopreach.data.model.isVisibleToPublisher
 import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.RoleAssignmentStatus
@@ -59,6 +60,8 @@ class PipelineViewModel @Inject constructor(
     private val congregationRepository: CongregationRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val philippineLocationRepository: PhilippineLocationRepository,
+    private val publisherVisibilitySettingsRepository: com.emfitsolutions.gopreach.data.repository.PublisherVisibilitySettingsRepository,
+    private val recycleBinRepository: com.emfitsolutions.gopreach.data.repository.RecycleBinRepository,
 ) : ViewModel() {
 
     /** Bug fix: [save] used to let any exception from the repository/Room/
@@ -75,6 +78,72 @@ class PipelineViewModel @Inject constructor(
 
     fun personName(personId: String): Flow<String?> =
         personRepository.observeAll().map { people -> people.firstOrNull { it.id == personId }?.fullName }
+
+    /** personId -> full name for every known Person, so lists can show and search the assigned Publisher without a flow per row. */
+    val personNames: Flow<Map<String, String>> =
+        personRepository.observeAll().map { people -> people.associate { it.id to it.fullName } }
+
+    /** The Publisher's own Remarks, trimmed; null when empty or whitespace-only (nothing is invented). */
+    fun personRemarks(personId: String): Flow<String?> =
+        personRepository.observeAll().map { people -> people.firstOrNull { it.id == personId }?.remarks?.trim()?.takeIf { it.isNotEmpty() } }
+
+    fun observePerson(interestedPersonId: String): Flow<InterestedPerson?> =
+        interestedPersonRepository.observeAll().map { list -> list.firstOrNull { it.id == interestedPersonId } }
+
+    /** What a Publisher sees at [stage]: always their own records; plus, for Searching/Return Visit, every unassigned
+     * record of the congregation; plus (only when the Admin switched it on in Publisher Assignment) records assigned to
+     * other Publishers of the same congregation. Bible Studies of others are view-only — see
+     * [PipelinePersonDetailScreen]. */
+    fun visibleFor(publisherPersonId: String, congregationId: String, stage: PipelineStage): Flow<List<InterestedPerson>> =
+        combine(interestedPersonRepository.observeAll(), publisherVisibilitySettingsRepository.observeFor(congregationId)) { list, settings ->
+            list.filter { it.pipelineStage == stage && it.isVisibleToPublisher(publisherPersonId, congregationId, settings) }
+        }
+
+    fun visibilitySettingsFor(congregationId: String): Flow<com.emfitsolutions.gopreach.data.model.PublisherVisibilitySettings> =
+        publisherVisibilitySettingsRepository.observeFor(congregationId)
+
+    fun saveVisibilitySettings(settings: com.emfitsolutions.gopreach.data.model.PublisherVisibilitySettings, actorPersonId: String) {
+        viewModelScope.launch {
+            publisherVisibilitySettingsRepository.save(settings.copy(updatedByPersonId = actorPersonId))
+            auditLogRepository.log(
+                actorPersonId = actorPersonId,
+                action = "CHANGE_PUBLISHER_VISIBILITY",
+                targetType = "PublisherVisibilitySettings",
+                targetId = settings.id,
+                congregationId = settings.id,
+                details = "searching=${settings.showOthersSearching}, returnVisit=${settings.showOthersReturnVisit}, bibleStudy=${settings.showOthersBibleStudy}",
+            )
+        }
+    }
+
+    /** Every record of [congregationId] at [stage], assigned or not — the Publisher Assignment module's data source. */
+    fun recordsInCongregation(stage: PipelineStage, congregationId: String): Flow<List<InterestedPerson>> =
+        interestedPersonRepository.observeAll().map { list -> list.filter { it.pipelineStage == stage && it.congregationId == congregationId } }
+
+    /** Every record of [congregationId], all stages — for the tab counts. */
+    fun allRecordsInCongregation(congregationId: String): Flow<List<InterestedPerson>> =
+        interestedPersonRepository.observeAll().map { list -> list.filter { it.congregationId == congregationId } }
+
+    /** Assigns, reassigns or (blank [newPublisherPersonId]) unassigns a record. Only the assignment changes — the
+     * record, its visits and its history are untouched. */
+    fun assignPublisher(person: InterestedPerson, newPublisherPersonId: String, actorPersonId: String) {
+        viewModelScope.launch {
+            runCatching {
+                interestedPersonRepository.save(person.copy(publisherPersonId = newPublisherPersonId))
+                auditLogRepository.log(
+                    actorPersonId = actorPersonId,
+                    action = if (newPublisherPersonId.isBlank()) "UNASSIGN_INTERESTED_PERSON" else "ASSIGN_INTERESTED_PERSON",
+                    targetType = "InterestedPerson",
+                    targetId = person.id,
+                    congregationId = person.congregationId,
+                    details = "${person.name}: ${person.publisherPersonId.ifBlank { "unassigned" }} -> ${newPublisherPersonId.ifBlank { "unassigned" }}",
+                )
+            }.onFailure { e ->
+                Log.e("PipelineViewModel", "Failed to assign publisher", e)
+                _errorEvents.emit("Could not change the assignment: ${e.message ?: "unknown error"}")
+            }
+        }
+    }
 
     fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
     suspend fun captureCurrentLocation(): LatLng? = locationTracker.getCurrentLocation()
@@ -101,15 +170,6 @@ class PipelineViewModel @Inject constructor(
     fun peopleFor(publisherPersonId: String, stage: PipelineStage): Flow<List<InterestedPerson>> =
         interestedPersonRepository.observeAll()
             .map { list -> list.filter { it.publisherPersonId == publisherPersonId && it.pipelineStage == stage } }
-
-    /** "The super admin can see all congregation Search[ing]/Bible Study/
-     * Return Visit record[s]" — every [InterestedPerson] at [stage] regardless
-     * of which congregation or publisher owns it, unlike [peopleFor] which is
-     * always scoped to one publisher. Backs [SuperAdminInterestedRecordsScreen]
-     * only; every other caller of this ViewModel keeps using the scoped
-     * [peopleFor]. */
-    fun allPeopleFor(stage: PipelineStage): Flow<List<InterestedPerson>> =
-        interestedPersonRepository.observeAll().map { list -> list.filter { it.pipelineStage == stage } }
 
     /** Spec §15 — "Elders should be able to see Interested Person information
      * according to their existing Congregation/Group access scope": every
@@ -216,8 +276,26 @@ class PipelineViewModel @Inject constructor(
 
     fun permanentlyDelete(person: InterestedPerson, actorPersonId: String) {
         viewModelScope.launch {
-            visitRepository.observeForInterestedPerson(person.id).first()
-                .forEach { visit -> visitRepository.delete(person.id, visit.id) }
+            val visits = visitRepository.observeForInterestedPerson(person.id).first()
+            // Kept whole in Deleted Records (the person and every visit, same ids) before anything is removed.
+            recycleBinRepository.moveToTrash(
+                recordType = when (person.pipelineStage) {
+                    PipelineStage.BIBLE_STUDY -> "Bible Study"
+                    PipelineStage.RETURN_VISIT -> "Return Visit"
+                    else -> "Interested Person"
+                },
+                module = "Return Visit / Bible Study",
+                label = person.name,
+                congregationId = person.congregationId,
+                originalCreatedAt = person.createdAt,
+                originalModifiedAt = person.updatedAt,
+                deletedByPersonId = actorPersonId,
+                items = buildList {
+                    add(recycleBinRepository.item("interestedPeople", person.id, person))
+                    visits.forEach { add(recycleBinRepository.item("interestedPeople/${person.id}/visits", it.id, it)) }
+                },
+            )
+            visits.forEach { visit -> visitRepository.delete(person.id, visit.id) }
             interestedPersonRepository.delete(person.id)
             auditLogRepository.log(
                 actorPersonId = actorPersonId,
@@ -371,7 +449,20 @@ class PipelineViewModel @Inject constructor(
         val allowed = canManageAllVisitHistory ||
             if (stage == PipelineStage.BIBLE_STUDY) currentPersonId == enrolledPublisherId else visit.createdByPersonId == currentPersonId
         if (!allowed) return
-        viewModelScope.launch { visitRepository.delete(interestedPersonId, visit.id) }
+        viewModelScope.launch {
+            val person = interestedPersonRepository.observeAll().first().firstOrNull { it.id == interestedPersonId }
+            recycleBinRepository.moveToTrash(
+                recordType = "Visit",
+                module = "Return Visit / Bible Study",
+                label = "Visit on ${java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault()).format(java.util.Date(visit.visitDate))}" +
+                    (person?.name?.let { " — $it" } ?: ""),
+                congregationId = person?.congregationId,
+                originalCreatedAt = visit.createdAt,
+                deletedByPersonId = currentPersonId,
+                items = listOf(recycleBinRepository.item("interestedPeople/$interestedPersonId/visits", visit.id, visit)),
+            )
+            visitRepository.delete(interestedPersonId, visit.id)
+        }
     }
 
     /** "FORWARD TO OTHER CONGREGATION" spec flow — every other active

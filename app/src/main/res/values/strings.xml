@@ -127,7 +127,7 @@
     <string name="side_section_reports">REPORTS</string>
     <string name="side_section_control_panel">CONTROL PANEL</string>
     <string name="side_section_other">Other</string>
-    <string name="side_congregations_groups">Congregations/Groups</string>
+    <string name="side_congregations_groups">Congregations</string>
     <string name="side_admins">Admins</string>
     <!-- "Consolidate Elder, Coordinator Elder, Service Overseer and
          Secretary Enrollment" — one "Elders" item (renamed from "Regular
@@ -148,14 +148,12 @@
     <string name="side_field_service_group_report">Field Service Group Report</string>
     <string name="side_publisher_reports">Publisher Reports</string>
     <string name="side_forward_requests">Forward Request</string>
-    <string name="side_householder_assignment">House Holder Assignment</string>
+    <string name="side_publisher_assignment">Publisher Assignment</string>
     <string name="side_share_location_settings">Share Location Settings</string>
     <string name="side_user_logs">User Logs</string>
     <string name="side_contact_record">Contact Record</string>
-    <string name="side_interested_records_all_congregations">Interested Records (All Congregations)</string>
     <string name="side_interested_records_scoped">Interested People</string>
     <string name="side_householder_visit_history">House Holder Visit History</string>
-    <string name="side_preaching_time_records_all_congregations">Preaching Time Records (All Congregations)</string>
     <string name="side_user_management">User Management</string>
     <string name="side_account_management">Account Management</string>
     <string name="side_credit_hour_categories">Credit Hour Categories</string>
@@ -304,13 +302,13 @@
     <string name="reports_total_regular_pioneer">Total Regular Pioneer: %1$d</string>
     <string name="reports_total_special_pioneer">Total Special Pioneer: %1$d</string>
     <string name="reports_total_auxiliary_pioneer">Total Auxiliary Pioneer: %1$d</string>
-    <string name="reports_total_regular_publisher">Total Regular Publisher: %1$d</string>
+    <string name="reports_total_regular_publisher">Total Publisher: %1$d</string>
     <string name="reports_total_unbaptized_publisher">Total Unbaptized Publisher: %1$d</string>
     <string name="reports_total_bible_studies_for">Total Bible Studies for %1$s: %2$d</string>
     <string name="reports_total_hours_for">Total Hours for %1$s: %2$s</string>
     <string name="reports_group_total_hours">Total Hours for this Group (All Categories): %1$s</string>
-    <string name="reports_all_congregations_groups">All Congregations/Groups</string>
-    <string name="reports_congregation_group_label">Congregation/Group</string>
+    <string name="reports_all_congregations_groups">All Congregations</string>
+    <string name="reports_congregation_group_label">Congregation</string>
     <string name="reports_group_label">Field Service Group</string>
     <string name="reports_select_a_group">Select a Field Service Group</string>
     <string name="reports_no_groups_yet">No field service groups yet</string>
@@ -327,7 +325,7 @@
 
     <!-- Consolidated Monthly Report. -->
     <string name="consolidated_title">Consolidated Monthly Report</string>
-    <string name="consolidated_all_congregations">ALL CONGREGATIONS/GROUPS</string>
+    <string name="consolidated_all_congregations">ALL CONGREGATIONS</string>
     <string name="consolidated_stat_bible_studies">Bible Studies</string>
     <string name="consolidated_stat_preaching_hours">Preaching Hours</string>
     <string name="consolidated_stat_participated_ministry">Participated in Ministry</string>
@@ -357,23 +355,18 @@
     <string name="dashboard_no_congregation_data">No congregation data available yet.</string>
     <string name="dashboard_description">Bible Studies and Preaching Hours reflect the selected period above. Publisher/Elder counts always reflect current status. \"Total Elders\" counts Coordinator Elders, Regular Elders, and Service Overseers, and \"Total Ministerial\" counts Ministerial Servants — anyone holding more than one of the roles within a card\'s own count is counted once.</string>
     <string name="dashboard_overview">Overview</string>
-    <string name="dashboard_preaching_hours_title">Preaching Hours</string>
-    <string name="dashboard_publishers_per_congregation">Publishers per Congregation/Group</string>
-    <string name="dashboard_publishers_per_congregation_hint">Tap a bar to drill into that congregation.</string>
-    <string name="dashboard_elders_per_congregation">Elders per Congregation/Group</string>
-    <string name="dashboard_elders_per_congregation_hint">Regular Elders only. Tap a bar to drill into that congregation.</string>
 
     <!-- Manage Publisher Reports. -->
     <string name="manage_reports_title">Publisher Reports</string>
     <string name="manage_reports_show_label">Show</string>
     <string name="manage_reports_all">All</string>
     <string name="manage_reports_by_publisher">By Publisher</string>
-    <string name="manage_reports_by_congregation">By Congregation/Group</string>
+    <string name="manage_reports_by_congregation">By Congregation</string>
     <string name="manage_reports_search_label">Search: Name, Status</string>
     <string name="manage_reports_classification_label">Classification</string>
     <string name="manage_reports_status_label">Status</string>
     <string name="manage_reports_reset_filters">Reset Filters</string>
-    <string name="manage_reports_search_label_with_congregation">Search: Name, Status, Congregation/Group</string>
+    <string name="manage_reports_search_label_with_congregation">Search: Name, Status, Congregation</string>
     <string name="manage_reports_post_button">POST %1$d Submitted Report%2$s</string>
     <string name="manage_reports_no_reports">No reports for this period.</string>
     <string name="manage_reports_edit_cd">Edit report</string>
@@ -383,7 +376,7 @@
     <string name="manage_reports_status_prefix">Status: %1$s</string>
     <string name="manage_reports_bible_study_hours">Bible Study: %1$d    Hours: %2$s</string>
     <string name="manage_reports_bible_study_participate">Bible Study: %1$d    Participate in Preaching: %2$s</string>
-    <string name="manage_reports_congregation_prefix">Congregation/Group: %1$s</string>
+    <string name="manage_reports_congregation_prefix">Congregation: %1$s</string>
     <string name="manage_reports_return_visits_prefix">Return Visits: %1$d</string>
     <string name="manage_reports_posted_locked">Posted — locked for the publisher</string>
     <string name="manage_reports_submitted_editable">Submitted — still editable by the publisher</string>

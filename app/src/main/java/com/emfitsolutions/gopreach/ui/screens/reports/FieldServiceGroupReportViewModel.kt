@@ -75,7 +75,7 @@ class FieldServiceGroupReportViewModel @Inject constructor(
             visibleCongregations.flatMap { congregation ->
                 groups
                     .filter { it.congregationId == congregation.id && it.status == RecordStatus.ACTIVE }
-                    .sortedBy { it.name }
+                    .sortedWith(com.emfitsolutions.gopreach.domain.GroupNameOrder)
                     .map { group ->
                         val members = assignments
                             .filter { assignment ->

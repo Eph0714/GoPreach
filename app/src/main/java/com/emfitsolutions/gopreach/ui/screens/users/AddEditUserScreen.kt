@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.users
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.NameFieldsInOrder
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -113,19 +114,25 @@ fun AddEditUserScreen(
                 // permissions/scope/status — Personal Information is editable;
                 // Username/Date Added are system-generated and shown read-only.
                 Text("Personal Information", style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(
-                    value = uiState.firstName,
-                    onValueChange = viewModel::onFirstNameChange,
-                    label = { Text("First Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = uiState.lastName,
-                    onValueChange = viewModel::onLastNameChange,
-                    label = { Text("Last Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                NameFieldsInOrder(
+                    first = {
+                        OutlinedTextField(
+                        value = uiState.firstName,
+                        onValueChange = viewModel::onFirstNameChange,
+                        label = { Text("First Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    },
+                    last = {
+                        OutlinedTextField(
+                        value = uiState.lastName,
+                        onValueChange = viewModel::onLastNameChange,
+                        label = { Text("Last Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    },
                 )
                 OutlinedTextField(
                     value = uiState.address,
@@ -174,12 +181,12 @@ fun AddEditUserScreen(
             HorizontalDivider()
             Text("Access Scope", style = MaterialTheme.typography.titleMedium)
             ScopeRadioRow(
-                label = "All Congregations/Groups",
+                label = "All Congregations",
                 selected = uiState.scopeType == ScopeType.ALL_CONGREGATIONS,
                 onClick = { viewModel.onScopeTypeChange(ScopeType.ALL_CONGREGATIONS) },
             )
             ScopeRadioRow(
-                label = "Selected Congregations/Groups",
+                label = "Selected Congregations",
                 selected = uiState.scopeType == ScopeType.SELECTED_CONGREGATIONS,
                 onClick = { viewModel.onScopeTypeChange(ScopeType.SELECTED_CONGREGATIONS) },
             )
@@ -298,10 +305,10 @@ private fun NewUserCredentialsCard(credentials: TempCredentials, onDone: () -> U
 }
 
 private fun Permission.displayLabel(): String = when (this) {
-    Permission.VIEW_CONGREGATIONS -> "View Congregations/Groups"
-    Permission.ADD_CONGREGATIONS -> "Add Congregations/Groups"
-    Permission.EDIT_CONGREGATIONS -> "Edit Congregations/Groups"
-    Permission.DELETE_CONGREGATIONS -> "Delete Congregations/Groups"
+    Permission.VIEW_CONGREGATIONS -> "View Congregations"
+    Permission.ADD_CONGREGATIONS -> "Add Congregations"
+    Permission.EDIT_CONGREGATIONS -> "Edit Congregations"
+    Permission.DELETE_CONGREGATIONS -> "Delete Congregations"
     Permission.VIEW_ELDERS -> "View Elders"
     Permission.MANAGE_ELDERS -> "Manage Elders"
     Permission.VIEW_GROUPS -> "View Field Service Groups"
@@ -312,7 +319,7 @@ private fun Permission.displayLabel(): String = when (this) {
     Permission.MANAGE_PUBLISHERS -> "Manage Publishers"
     Permission.VIEW_PUBLISHER_REPORTS -> "View Publisher Reports"
     Permission.VIEW_GROUP_REPORTS -> "View Group Reports"
-    Permission.VIEW_CONGREGATION_REPORTS -> "View Congregation/Group Reports"
+    Permission.VIEW_CONGREGATION_REPORTS -> "View Congregation Reports"
     Permission.PRINT_REPORTS -> "Print Reports"
     Permission.EXPORT_REPORTS -> "Export Reports"
     Permission.MANAGE_USERS -> "Manage Users"

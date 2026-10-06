@@ -116,7 +116,7 @@ class TerritoryMapViewModel @Inject constructor(
     fun groupsFor(congregationId: String?): Flow<List<Group>> =
         groupRepository.observeAll().map { list ->
             if (congregationId == null) emptyList()
-            else list.filter { it.status == RecordStatus.ACTIVE && it.congregationId == congregationId }.sortedBy { it.name }
+            else list.filter { it.status == RecordStatus.ACTIVE && it.congregationId == congregationId }.sortedWith(com.emfitsolutions.gopreach.domain.GroupNameOrder)
         }
 
     /** The FS Group [personId] currently belongs to (Publisher or Regular

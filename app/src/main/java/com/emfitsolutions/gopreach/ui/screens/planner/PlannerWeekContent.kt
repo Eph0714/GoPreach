@@ -135,6 +135,7 @@ internal fun PlannerWeekContent(
                     categoryName = categoryName,
                     onOpenCredit = { creditDialogs.detail = it },
                     onAddCredit = { creditDialogs.addingForDay = defaultEntryDay(bounds, weekStart) },
+                    periodLocked = LocalPlannerLock.current.isLocked(weekStart) && LocalPlannerLock.current.isLocked(weekEnd),
                     onOpenPerson = onOpenPerson,
                     onOpenPersonList = onOpenPersonList,
                     onOpenDay = onOpenDay,

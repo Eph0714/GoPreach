@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Print
+import androidx.compose.material.icons.rounded.Streetview
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -51,6 +52,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -82,6 +84,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material.icons.rounded.NearMe
+import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.rounded.Directions
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.automirrored.rounded.ViewList
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Map
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -97,6 +113,10 @@ import com.emfitsolutions.gopreach.data.repository.MapPinResult
 import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.GroupColorPalette
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
+import com.emfitsolutions.gopreach.ui.components.map.Mapillary
+import com.emfitsolutions.gopreach.ui.components.map.MapillaryImage
+import com.emfitsolutions.gopreach.ui.components.map.StreetViewDialog
+import com.emfitsolutions.gopreach.ui.components.map.StreetViewSetupDialog
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelinePersonDetailScreen
 import com.emfitsolutions.gopreach.ui.screens.pipeline.PipelineViewModel
 import com.emfitsolutions.gopreach.ui.screens.territoryassignments.BarangayBoundaryDialog
@@ -235,6 +255,10 @@ fun TerritoryMapScreen(
     var isSavingPin by remember { mutableStateOf(false) }
     var selectedPinId by remember { mutableStateOf<String?>(null) }
     var barangayDialogArea by remember { mutableStateOf<TerritoryArea?>(null) }
+    // Street View (Mapillary).
+    var streetView by remember { mutableStateOf(false) }
+    var streetImages by remember { mutableStateOf<List<MapillaryImage>?>(null) }
+    var showStreetViewSetup by remember { mutableStateOf(false) }
 
     // ---- Territories + records of the selected group only -----------------
     // Every loaded dataset is tagged with the group it was loaded for, and only
@@ -380,6 +404,8 @@ fun TerritoryMapScreen(
             context,
             ReportTable(
                 title = "Territory Map - " + (selectedGroup?.name ?: "FS Group"),
+                count = recordsWithDistance.size,
+                countLabel = "Total Records",
                 columns = listOf("Type", "Name", "Barangay", "Municipality", "Distance", "FS Group"),
                 rows = recordsWithDistance.map {
                     listOf(it.record.type.label, it.record.name, it.record.barangay.orEmpty(), it.record.municipality.orEmpty(), formatDistance(it.meters), it.record.groupName.orEmpty())
@@ -435,11 +461,12 @@ fun TerritoryMapScreen(
                     add(GroupScope.ALL)
                 }
                 SegmentedPair(
+                    icons = scopeOptions.map { when (it) { GroupScope.MINE -> Icons.Rounded.Person; GroupScope.OTHER -> Icons.Rounded.Groups; GroupScope.ALL -> Icons.Rounded.Public } },
                     labels = scopeOptions.map {
                         when (it) {
                             GroupScope.MINE -> "My FS Group"
                             GroupScope.OTHER -> "Other FS Group"
-                            GroupScope.ALL -> "Show All FS Groups"
+                            GroupScope.ALL -> "Show FS Group"
                         }
                     },
                     selected = scopeOptions.indexOf(effectiveScope).coerceAtLeast(0),
@@ -473,14 +500,24 @@ fun TerritoryMapScreen(
                         TextButton(onClick = { showGroupPicker = true }) { Text(if (selectedGroup == null) "Choose FS Group" else "Change") }
                     }
                 }
-                SegmentedPair(
-                    labels = ViewMode.entries.map { it.label },
-                    selected = viewMode.ordinal,
-                    onSelect = { viewMode = ViewMode.entries[it] },
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StepButton("Show Next Nearest", active = stepOrder == SortOrder.NEAREST, onClick = { stepTo(SortOrder.NEAREST) }, modifier = Modifier.weight(1f))
-                    StepButton("Show Next Farthest", active = stepOrder == SortOrder.FARTHEST, onClick = { stepTo(SortOrder.FARTHEST) }, modifier = Modifier.weight(1f))
+                // Compact controls: view switcher and nearest/farthest stepping, wrapping instead of scrolling on narrow screens.
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    SegmentedPair(
+                        labels = ViewMode.entries.map { it.label },
+                        icons = listOf(Icons.Rounded.Map, Icons.AutoMirrored.Rounded.ViewList),
+                        selected = viewMode.ordinal,
+                        onSelect = { viewMode = ViewMode.entries[it] },
+                    )
+                    SegmentedPair(
+                        labels = listOf("Next Nearest", "Next Farthest"),
+                        icons = listOf(Icons.Rounded.NearMe, Icons.Rounded.Explore),
+                        selected = when (stepOrder) { SortOrder.NEAREST -> 0; SortOrder.FARTHEST -> 1; else -> -1 },
+                        onSelect = { stepTo(if (it == 0) SortOrder.NEAREST else SortOrder.FARTHEST) },
+                    )
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -556,6 +593,15 @@ fun TerritoryMapScreen(
                         onLongPress = { lat, lng -> longPressPoint = lat to lng },
                         pins = pins,
                         onPinTap = { selectedPinId = it },
+                        streetView = streetView,
+                        onStreetViewTap = { lat, lng ->
+                            coroutineScope.launch {
+                                Toast.makeText(context, "Looking for street-level photos...", Toast.LENGTH_SHORT).show()
+                                val found = Mapillary.imagesNear(lat, lng)
+                                if (found.isEmpty()) Toast.makeText(context, "No street-level photos here. Tap near a green line.", Toast.LENGTH_LONG).show()
+                                else streetImages = found
+                            }
+                        },
                         onLoadStateChange = { mapLoadState = it },
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -565,23 +611,34 @@ fun TerritoryMapScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalAlignment = Alignment.End,
                     ) {
-                        FilledTonalIconButton(
+                        MapToolButton(
+                            icon = if (fullScreenActive) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
+                            label = if (fullScreenActive) "Exit" else "Full screen",
                             onClick = { fullScreen = !fullScreen },
-                            modifier = Modifier.size(48.dp),
-                        ) {
-                            Icon(
-                                if (fullScreenActive) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
-                                contentDescription = if (fullScreenActive) "Exit full screen" else "Full screen",
-                            )
-                        }
-                        FilledTonalIconButton(
+                        )
+                        MapToolButton(
+                            icon = Icons.Rounded.Streetview,
+                            label = "Street View",
+                            active = streetView,
+                            onClick = {
+                                if (!Mapillary.isConfigured) {
+                                    showStreetViewSetup = true
+                                } else {
+                                    streetView = !streetView
+                                    if (streetView) Toast.makeText(context, "Street View: tap the map near a green line.", Toast.LENGTH_LONG).show()
+                                }
+                            },
+                        )
+                        MapToolButton(
+                            icon = Icons.Rounded.Layers,
+                            label = basemap.label,
                             onClick = { basemap = TerritoryBasemap.entries[(basemap.ordinal + 1) % TerritoryBasemap.entries.size] },
-                            modifier = Modifier.size(48.dp),
-                        ) { Icon(Icons.Rounded.Layers, contentDescription = "Change map style (${basemap.label})") }
-                        FilledTonalIconButton(
+                        )
+                        MapToolButton(
+                            icon = Icons.Rounded.MyLocation,
+                            label = "My location",
                             onClick = { if (myLocation != null) recenterToken++ else locationRefreshKey++ },
-                            modifier = Modifier.size(48.dp),
-                        ) { Icon(Icons.Rounded.MyLocation, contentDescription = "My location") }
+                        )
                     }
                     // Full screen: the controls above the map are hidden, so keep the
                     // essentials floating on it — exit, which group this is, and the
@@ -592,9 +649,7 @@ fun TerritoryMapScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilledTonalIconButton(onClick = { fullScreen = false }, modifier = Modifier.size(48.dp)) {
-                                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Exit full screen")
-                                }
+                                MapToolButton(icon = Icons.AutoMirrored.Rounded.ArrowBack, label = "Exit", onClick = { fullScreen = false })
                                 if (selectedGroup != null) {
                                     Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f), shadowElevation = 3.dp) {
                                         Row(
@@ -685,6 +740,9 @@ fun TerritoryMapScreen(
             }
         }
     }
+
+    streetImages?.let { StreetViewDialog(it, onDismiss = { streetImages = null }) }
+    if (showStreetViewSetup) StreetViewSetupDialog(onDismiss = { showStreetViewSetup = false })
 
     // A tapped barangay: that barangay only, in its FS Group's color.
     barangayDialogArea?.let { a ->
@@ -858,29 +916,43 @@ fun TerritoryMapScreen(
     }
 }
 
-/** Two large, always-visible options — no menus, easy to hit in the field. */
+/** Compact segmented control: small icon + short label, ~34dp tall, the selected segment in the primary colour. */
 @Composable
-private fun SegmentedPair(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+private fun SegmentedPair(
+    labels: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    icons: List<androidx.compose.ui.graphics.vector.ImageVector?> = emptyList(),
+) {
     Row(
-        modifier = modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+        modifier = modifier.height(34.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)).padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         labels.forEachIndexed { i, label ->
             val isSelected = i == selected
-            Box(
+            val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            val scale by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.95f else 1f, androidx.compose.animation.core.tween(90), label = "segPress")
+            val container by androidx.compose.animation.animateColorAsState(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent, androidx.compose.animation.core.tween(160), label = "segBg")
+            val tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+            Row(
                 modifier = Modifier
-                    .weight(1f)
                     .fillMaxHeight()
-                    .padding(3.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
-                    .clickable { onSelect(i) },
-                contentAlignment = Alignment.Center,
+                    .graphicsLayer { scaleX = scale; scaleY = scale }
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(container)
+                    .clickable(interactionSource = interaction, indication = null) { onSelect(i) }
+                    .padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
+                icons.getOrNull(i)?.let { Icon(it, contentDescription = null, modifier = Modifier.size(16.dp), tint = tint) }
                 Text(
                     label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                    color = tint,
                     maxLines = 1,
                 )
             }
@@ -954,16 +1026,19 @@ private fun CenterState(content: @Composable () -> Unit) {
     }
 }
 
-/** One of the two "Show Next ..." buttons — filled while that direction is the one being stepped. */
+/** Compact labelled map tool: a small icon over a one-word caption, so each button says what it does. */
 @Composable
-private fun StepButton(label: String, active: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    if (active) {
-        Button(onClick = onClick, modifier = modifier.height(46.dp), contentPadding = PaddingValues(horizontal = 8.dp)) {
-            Text(label, maxLines = 1, style = MaterialTheme.typography.labelLarge)
-        }
-    } else {
-        FilledTonalButton(onClick = onClick, modifier = modifier.height(46.dp), contentPadding = PaddingValues(horizontal = 8.dp)) {
-            Text(label, maxLines = 1, style = MaterialTheme.typography.labelLarge)
+private fun MapToolButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, active: Boolean = false) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        shadowElevation = 3.dp,
+        modifier = Modifier.width(58.dp).height(46.dp),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(18.dp), tint = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
+            Text(label, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -1095,7 +1170,7 @@ private fun RecordListView(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        (if (showAllGroups) "All FS Groups · " else "") + sorted.size + " location" + (if (sorted.size == 1) "" else "s"),
+                        (if (showAllGroups) "All FS Groups · " else "") + com.emfitsolutions.gopreach.ui.components.recordFoundText(sorted.size),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                     )
@@ -1221,8 +1296,12 @@ private fun RecordSheet(item: RecordWithDistance, onDismiss: () -> Unit, onViewD
             r.groupName?.let { Text("FS Group: $it", style = MaterialTheme.typography.bodyMedium) }
             r.territoryName?.let { Text("Territory: $it", style = MaterialTheme.typography.bodyMedium) }
             Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onNavigate, modifier = Modifier.weight(1f).height(48.dp)) { Text("Navigate") }
-                Button(onClick = onViewDetails, modifier = Modifier.weight(1f).height(48.dp)) { Text("View Details") }
+                OutlinedButton(onClick = onNavigate, modifier = Modifier.weight(1f).height(44.dp)) {
+                    Icon(Icons.Rounded.Directions, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Navigate")
+                }
+                Button(onClick = onViewDetails, modifier = Modifier.weight(1f).height(44.dp)) {
+                    Icon(Icons.Rounded.Info, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("View Details")
+                }
             }
         }
     }

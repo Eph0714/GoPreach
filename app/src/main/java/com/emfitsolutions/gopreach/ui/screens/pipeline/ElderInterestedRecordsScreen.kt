@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.pipeline
 
 import androidx.compose.foundation.clickable
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -132,6 +133,7 @@ fun ElderInterestedRecordsScreen(
             }
             if (people.isEmpty()) {
                 Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    RecordFound(0)
                     Text("No ${stage.label()} records found in this scope.", style = MaterialTheme.typography.bodyMedium)
                 }
             } else {
@@ -140,6 +142,7 @@ fun ElderInterestedRecordsScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    item { RecordFound(people.size) }
                     items(people, key = { it.id }) { person ->
                         val publisherName by remember(person.publisherPersonId) { viewModel.personName(person.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
                         Card(modifier = Modifier.fillMaxWidth().clickable { selectedPerson = person }) {

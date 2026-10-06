@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.enrollment
 
 import androidx.compose.foundation.verticalScroll
+import com.emfitsolutions.gopreach.ui.components.NameFieldsInOrder
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -87,21 +88,27 @@ fun MinisterialServantEnrollmentScreen(
                 TempCredentialsResultCard(credentials = uiState.result!!, onDone = onDone)
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    OutlinedTextField(
-                        value = uiState.lastName,
-                        onValueChange = viewModel::onLastNameChange,
-                        label = { Text("Last Name") },
-                        singleLine = true,
-                        visualTransformation = VisualTransformation.None,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = uiState.firstName,
-                        onValueChange = viewModel::onFirstNameChange,
-                        label = { Text("First Name") },
-                        singleLine = true,
-                        visualTransformation = VisualTransformation.None,
-                        modifier = Modifier.fillMaxWidth(),
+                    NameFieldsInOrder(
+                        first = {
+                            OutlinedTextField(
+                            value = uiState.firstName,
+                            onValueChange = viewModel::onFirstNameChange,
+                            label = { Text("First Name") },
+                            singleLine = true,
+                            visualTransformation = VisualTransformation.None,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        },
+                        last = {
+                            OutlinedTextField(
+                            value = uiState.lastName,
+                            onValueChange = viewModel::onLastNameChange,
+                            label = { Text("Last Name") },
+                            singleLine = true,
+                            visualTransformation = VisualTransformation.None,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        },
                     )
                     OutlinedTextField(
                         value = uiState.address,
@@ -177,7 +184,7 @@ fun MinisterialServantEnrollmentScreen(
                         onCheckedChange = { viewModel.onPublisherCategoryToggled(PublisherCategory.AUXILIARY_PIONEER, it) },
                     )
                     RoleCheckboxRow(
-                        label = "Regular Publisher",
+                        label = "Publisher",
                         checked = uiState.publisherCategory == PublisherCategory.REGULAR_PUBLISHER,
                         enabled = uiState.publisherCategory == null || uiState.publisherCategory == PublisherCategory.REGULAR_PUBLISHER,
                         onCheckedChange = { viewModel.onPublisherCategoryToggled(PublisherCategory.REGULAR_PUBLISHER, it) },

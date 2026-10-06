@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.territoryassignments
 
 import androidx.compose.foundation.background
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +68,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.repository.TerritoryAssignmentResult
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 import com.emfitsolutions.gopreach.ui.components.GroupColorPalette
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 
@@ -92,12 +95,14 @@ fun TerritoryAssignmentsScreen(
     viewModel: TerritoryAssignmentsViewModel = hiltViewModel(),
 ) {
     val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("territory_assignments")
     val effectiveCongregationId = fixedCongregationId ?: congregationFilter
     var searchQuery by remember { mutableStateOf("") }
     var provinceFilter by remember { mutableStateOf<Int?>(null) }
     var sortOption by remember { mutableStateOf(TerritorySortOption.GROUP_NAME) }
-    val rowsFlow = remember(effectiveCongregationId, searchQuery, provinceFilter, sortOption) {
+    val needsCongregation = fixedCongregationId == null && congregationFilter == null
+    val rowsFlow = remember(effectiveCongregationId, searchQuery, provinceFilter, sortOption, needsCongregation) {
+        if (needsCongregation) return@remember kotlinx.coroutines.flow.flowOf(emptyList())
         viewModel.rowsFor(effectiveCongregationId, searchQuery, provinceFilter, sortOption)
     }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -165,6 +170,8 @@ fun TerritoryAssignmentsScreen(
             context,
             ReportTable(
                 title = "Territory Assignments",
+                count = totalMunicipalities,
+                countLabel = "Total Municipalities",
                 columns = listOf("FS Group", "Province", "Municipality", "Barangays"),
                 rows = rows.flatMap { row ->
                     row.municipalities.map { m ->
@@ -259,12 +266,15 @@ fun TerritoryAssignmentsScreen(
             }
 
             } }
-            if (rows.isEmpty()) {
+            if (needsCongregation) {
+              item(key = "select_congregation") { SelectCongregationPrompt(Modifier.fillMaxWidth()) }
+            } else if (rows.isEmpty()) {
               item(key = "empty") {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    RecordFound(0)
                     Text(
                         if (searchQuery.isBlank() && provinceFilter == null) {
                             "No territory assignments yet. Tap + to add one."
@@ -276,6 +286,7 @@ fun TerritoryAssignmentsScreen(
                 }
               }
             } else {
+                    item { RecordFound(rows.size) }
                     items(rows, key = { it.groupId to it.provinceId }) { row ->
                         val key = row.groupId to row.provinceId
                         val isExpanded = expandedKey == key

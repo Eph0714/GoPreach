@@ -138,9 +138,24 @@ fun SessionTimeoutHost(viewModel: SessionTimeoutViewModel = hiltViewModel()) {
     // A fresh sign-in (or a settings change) starts a fresh idle window.
     LaunchedEffect(signedIn) { if (signedIn) viewModel.resetIdle() }
 
+    // Shown first; the sign-out (back to the login screen) only happens once the user acknowledges it.
+    var showExpiredDialog by remember { mutableStateOf(false) }
     val expire by rememberUpdatedState {
-        viewModel.signOut()
-        Toast.makeText(context, "Session expired due to inactivity. Please log in again.", Toast.LENGTH_LONG).show()
+        showExpiredDialog = true
+    }
+    if (showExpiredDialog) {
+        androidx.compose.material3.AlertDialog(
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = false),
+            onDismissRequest = {},
+            title = { Text("Session Expired") },
+            text = { Text("Session Expired, Please re-login") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    showExpiredDialog = false
+                    viewModel.signOut()
+                }) { Text("OK") }
+            },
+        )
     }
 
     LaunchedEffect(active, limitMillis) {

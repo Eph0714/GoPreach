@@ -120,7 +120,7 @@ class TerritoryAssignmentsViewModel @Inject constructor(
                 }
                 .let { rows ->
                     when (sortOption) {
-                        TerritorySortOption.GROUP_NAME -> rows.sortedBy { it.group?.name ?: "" }
+                        TerritorySortOption.GROUP_NAME -> rows.sortedWith(com.emfitsolutions.gopreach.domain.NaturalOrder.by { it.group?.name ?: "" })
                         TerritorySortOption.MUNICIPALITY_COUNT -> rows.sortedByDescending { it.municipalities.size }
                         TerritorySortOption.BARANGAY_COUNT -> rows.sortedByDescending { it.totalBarangays }
                         TerritorySortOption.PROVINCE -> rows.sortedBy { it.provinceName }

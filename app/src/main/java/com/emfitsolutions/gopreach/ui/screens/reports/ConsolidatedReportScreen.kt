@@ -1,6 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.reports
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
+import com.emfitsolutions.gopreach.data.model.displayName
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -187,9 +189,12 @@ fun ConsolidatedReportScreen(
             }
             if (uiState.isLoading) {
                 item { Text(stringResource(R.string.consolidated_loading), style = MaterialTheme.typography.bodyMedium) }
+            } else if (uiState.needsCongregation) {
+                item { com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt(Modifier.fillMaxWidth()) }
             } else if (uiState.visibleEntries.isEmpty()) {
                 item { Text(stringResource(R.string.consolidated_no_publishers_found), style = MaterialTheme.typography.bodyMedium) }
             }
+            item { RecordFound(uiState.visibleEntries.size) }
             items(uiState.visibleEntries, key = { it.person.id }) { entry ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -198,7 +203,7 @@ fun ConsolidatedReportScreen(
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(entry.person.fullName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(
-                            "${entry.category.name.replace('_', ' ')} · ${entry.congregationName}",
+                            "${entry.category.displayName} · ${entry.congregationName}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -239,16 +244,18 @@ private fun consolidatedReportTableFor(uiState: ConsolidatedReportUiState): Repo
     val periodLabel = "${dateFormat.format(Date(uiState.dateRange.startMillis))} - ${dateFormat.format(Date(uiState.dateRange.endMillis))}"
     return ReportTable(
         title = "GoPreach Consolidated Monthly Report ($periodLabel)",
+        count = uiState.visibleEntries.size,
+        countLabel = "Total Publishers",
         // My Planner / Reporting upgrade spec §37 — fixes a pre-existing
         // mislabel: this column was called "Status" but always held the
         // publisher's Classification, never a report ReportStatus (this
         // screen shows a multi-report date-range aggregate per publisher, so
         // there's no single report status to show here at all).
-        columns = listOf("Publisher", "Classification", "Congregation/Group", "Bible Studies", "Return Visits", "Preaching Hours", "Participated in Ministry"),
+        columns = listOf("Publisher", "Classification", "Congregation", "Bible Studies", "Return Visits", "Preaching Hours", "Participated in Ministry"),
         rows = uiState.visibleEntries.map { entry ->
             listOf(
                 entry.person.fullName,
-                entry.category.name.replace('_', ' '),
+                entry.category.displayName,
                 entry.congregationName,
                 entry.bibleStudiesCount.toString(),
                 entry.returnVisitsCount.toString(),
@@ -268,8 +275,7 @@ private fun consolidatedReportTableFor(uiState: ConsolidatedReportUiState): Repo
 @Composable
 private fun CongregationScopeDropdown(congregationNames: List<Pair<String, String>>, selectedId: String?, onSelected: (String?) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val allCongregationsLabel = stringResource(R.string.consolidated_all_congregations)
-    val selectedName = congregationNames.firstOrNull { it.first == selectedId }?.second ?: allCongregationsLabel
+    val selectedName = congregationNames.firstOrNull { it.first == selectedId }?.second ?: "Select Congregation"
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
             value = selectedName,
@@ -281,7 +287,6 @@ private fun CongregationScopeDropdown(congregationNames: List<Pair<String, Strin
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text(allCongregationsLabel) }, onClick = { onSelected(null); expanded = false })
             congregationNames.forEach { (id, name) ->
                 DropdownMenuItem(text = { Text(name) }, onClick = { onSelected(id); expanded = false })
             }

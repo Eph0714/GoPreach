@@ -57,6 +57,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -176,6 +183,8 @@ fun AdminHomeScreen(
     // Overseer already does everywhere else in this app.
     val canManageHouseholderAssignment = role == AdminRole.SUPER_ADMIN || role == AdminRole.ADMIN_PER_CONGREGATION ||
         role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY
+    // Recently Visited needs somewhere to open a record: the Publisher Assignment module, or the scoped read-only list.
+    val showRecentlyVisited = canManageHouseholderAssignment || role == AdminRole.COORDINATOR_ELDER
     // "Manage Publisher Report" module — Super-Admin (every congregation),
     // Admin/Coordinator Elder/Service Overseer (own congregation only); same
     // access set as the Consolidated Report. A Circuit Overseer with any of
@@ -330,7 +339,7 @@ fun AdminHomeScreen(
     // surfaces existing access, it never grants new access of its own.
     val showNotificationBell = role != AdminRole.CIRCUIT_OVERSEER
     val notificationItemsFlow = remember(visibleCongregationIds, canManagePublisherReports) {
-        notificationCenterViewModel.itemsForAdmin(visibleCongregationIds, canManagePublisherReports)
+        notificationCenterViewModel.itemsForAdmin(visibleCongregationIds, false)
     }
     val visibleNotificationItemsFlow = remember(notificationItemsFlow, currentPersonId) {
         notificationCenterViewModel.visibleItemsFor(notificationItemsFlow, currentPersonId)
@@ -442,6 +451,10 @@ fun AdminHomeScreen(
     // Refresh actually still does.
     var isRefreshing by remember { mutableStateOf(false) }
 
+    // Drag from the side panel to Quick Access: shared drag state, the modules the side panel currently offers, and the overlay origin.
+    val dragState = remember { QuickAccessDragState() }
+    var sideItems by remember { mutableStateOf<List<com.emfitsolutions.gopreach.ui.components.SideItem>>(emptyList()) }
+    var contentOrigin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -452,9 +465,9 @@ fun AdminHomeScreen(
                 canEnrollServiceOverseer = canEnrollServiceOverseer,
                 canEnrollMinisterialServant = canEnrollMinisterialServant,
                 canManageAnnouncements = canManageAnnouncements,
-                canViewConsolidatedReport = canViewConsolidatedReport,
-                canViewFieldServiceGroupReport = canViewFieldServiceGroupReport,
-                canManagePublisherReports = canManagePublisherReports,
+                canViewFieldServiceReport = canViewFieldServiceGroupReport,
+                // Deleted Records: Super-Admin and the roles that can manage their congregation's records.
+                canViewDeletedRecords = isSuperAdmin || canEnrollPublisher,
                 canViewForwardRequests = canViewForwardRequests,
                 canManageHouseholderAssignment = canManageHouseholderAssignment,
                 canEnrollRegularElderOrPublisher = canManageRegularEldersForDrawer,
@@ -473,6 +486,7 @@ fun AdminHomeScreen(
                 // Same role set: Super-Admin, Admin, Coordinator Elder, Regular
                 // Elder, Service Overseer, Secretary.
                 canManageSessionTimeout = canViewContactRecord,
+                canEnterManualFieldService = role in com.emfitsolutions.gopreach.ui.screens.manualreport.ManualEntryRoles,
                 canViewInterestedPeopleScope = canViewInterestedPeopleScope,
                 onSwitchToPublisher = onSwitchToPublisher?.let { switchAction ->
                     { coroutineScope.launch { drawerState.close() }; switchAction() }
@@ -484,6 +498,9 @@ fun AdminHomeScreen(
                     coroutineScope.launch { drawerState.close() }
                     onNavigate(route)
                 },
+                onItemsAvailable = { sideItems = it },
+                dragState = dragState,
+                onDragStarted = { coroutineScope.launch { drawerState.close() } },
                 onSignOut = {
                     coroutineScope.launch { drawerState.close() }
                     viewModel.signOut()
@@ -491,6 +508,7 @@ fun AdminHomeScreen(
             )
         },
     ) {
+        Box(modifier = Modifier.fillMaxSize().onGloballyPositioned { contentOrigin = it.positionInRoot() }) {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
@@ -591,7 +609,49 @@ fun AdminHomeScreen(
                     // Panel, Sign Out, ...) moved to the Side Panel, but the
                     // dashboard's own reporting content stays front and center here.
                     if (hideMainFormButtons) {
-                        DashboardStatsContent(visibleCongregationIds = visibleCongregationIds)
+                        DashboardStatsContent(
+                            visibleCongregationIds = visibleCongregationIds,
+                            recentlyVisited = if (!showRecentlyVisited) null else { stats ->
+                                // Super-Admin: nothing is shown until a Congregation is selected (stats.congregationId is blank for "All").
+                                val viewer = stats.congregationId.takeIf { it.isNotBlank() }?.let { RecentlyVisitedViewer.Admin(it) }
+                                DashboardActivitySections(
+                                    viewer = viewer,
+                                    onOpen = { item ->
+                                        if (canManageHouseholderAssignment) {
+                                            com.emfitsolutions.gopreach.ui.screens.pipeline.PublisherAssignmentPreset.set(item.person.id)
+                                            com.emfitsolutions.gopreach.ui.components.CongregationContextStore.set("publisher_assignment", item.person.congregationId)
+                                            onNavigate(Destinations.PUBLISHER_ASSIGNMENT)
+                                        } else {
+                                            onNavigate(Destinations.SCOPED_INTERESTED_RECORDS)
+                                        }
+                                    },
+                                )
+                            },
+                            quickAccess = { stats ->
+                                val allowedQuickAccess = buildSet {
+                                    if (canManageTerritoryAssignments) add(QuickAccessItem.TERRITORY_ASSIGNMENT)
+                                    if (canViewTerritoryMap) add(QuickAccessItem.TERRITORY_MAP)
+                                    if (canManageHouseholderAssignment) add(QuickAccessItem.PUBLISHER_ASSIGNMENT)
+                                    if (canManageHouseholderAssignment) add(QuickAccessItem.COMPARATIVE_REPORT)
+                                    if (canEnrollPublisher) addAll(listOf(QuickAccessItem.PUBLISHER_MODULE, QuickAccessItem.REGULAR_PIONEERS, QuickAccessItem.AUXILIARY_PIONEERS, QuickAccessItem.SPECIAL_PIONEERS, QuickAccessItem.UNBAPTIZED_PUBLISHERS))
+                                    if (canViewFieldServiceGroupReport) add(QuickAccessItem.FIELD_SERVICE_REPORT)
+                                    if (canManageRegularEldersForDrawer) add(QuickAccessItem.TOTAL_ELDERS)
+                                    if (canEnrollMinisterialServant) add(QuickAccessItem.TOTAL_MINISTERIAL)
+                                }
+                                QuickAccessSection(
+                                    personId = currentPersonId,
+                                    stats = stats,
+                                    allowed = allowedQuickAccess,
+                                    sideItems = sideItems,
+                                    dragState = dragState,
+                                    onOpen = { entry ->
+                                        // Pioneer cards open the Publishers list already filtered to that category; every other card is plain navigation.
+                                        com.emfitsolutions.gopreach.ui.screens.publishers.PublisherListPreset.set(entry.category)
+                                        onNavigate(entry.route)
+                                    },
+                                )
+                            },
+                        )
                     }
 
                     if (!hideMainFormButtons) {
@@ -625,7 +685,6 @@ fun AdminHomeScreen(
                         if (role != null) {
                             DashboardSection(stringResource(R.string.dashboard_section_ministry)) {
                                 DashboardTile(stringResource(R.string.side_group_chat_setting), Icons.Rounded.Chat, { onNavigate(Destinations.GROUP_CHAT_SETTING) })
-                                DashboardTile(stringResource(R.string.side_reports_summary), Icons.Rounded.Assessment, { onNavigate(Destinations.REPORTS) })
                                 DashboardTile(stringResource(R.string.dashboard_tile_share_location), Icons.Rounded.LocationOn, { onNavigate(Destinations.SHARE_LOCATION) })
                                 DashboardTile(stringResource(R.string.home_tile_find_location_title), Icons.Rounded.Navigation, { onNavigate(Destinations.FIND_LOCATION) })
                                 DashboardTile(stringResource(R.string.home_nav_calendar), Icons.Rounded.CalendarMonth, { onNavigate(Destinations.CALENDAR) })
@@ -688,6 +747,26 @@ fun AdminHomeScreen(
                 }
             }
         }
+        // Chip that follows the finger while a side-panel module is dragged toward Quick Access.
+        dragState.item?.let { dragged ->
+            androidx.compose.material3.Surface(
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                shadowElevation = 12.dp,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.offset {
+                    androidx.compose.ui.unit.IntOffset(
+                        (dragState.rootPos.x - contentOrigin.x).toInt() - 24.dp.roundToPx(),
+                        (dragState.rootPos.y - contentOrigin.y).toInt() - 56.dp.roundToPx(),
+                    )
+                },
+            ) {
+                Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(dragged.icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(dragged.label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+        }
+        } // drag overlay Box
     }
 }
 

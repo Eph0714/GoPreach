@@ -22,6 +22,7 @@ private const val COLLECTION = "plannerDays"
 class PlannerDayRepository @Inject constructor(
     private val offline: OfflineFirestoreRepository,
     private val firestore: FirebaseFirestore,
+    private val monthlyReportRepository: MonthlyReportRepository,
     @ApplicationScope private val appScope: CoroutineScope,
 ) {
     fun observeForPublisher(publisherPersonId: String): Flow<List<PlannerDay>> =
@@ -52,6 +53,8 @@ class PlannerDayRepository @Inject constructor(
      * [observeDay]'s own id derivation. Never negative (spec §18/§29). */
     suspend fun addMinutes(publisherPersonId: String, dayStart: Long, additionalMinutes: Int) {
         val alignedDayStart = com.emfitsolutions.gopreach.domain.DayBounds.of(dayStart).startInclusive
+        // A month whose report is already submitted is closed — no more ministry time (Timer included).
+        if (monthlyReportRepository.isMonthSubmitted(publisherPersonId, alignedDayStart)) return
         val current = observeDay(publisherPersonId, alignedDayStart).first()
         val newTotal = ((current?.totalMinutes ?: 0) + additionalMinutes).coerceAtLeast(0)
         val base = current ?: PlannerDay(

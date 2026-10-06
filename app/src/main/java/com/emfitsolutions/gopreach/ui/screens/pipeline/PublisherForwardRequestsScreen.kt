@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.pipeline
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -64,6 +65,7 @@ fun PublisherForwardRequestsScreen(
     ) { padding ->
         if (requests.isEmpty()) {
             Column(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                RecordFound(0)
                 Text("No pending records forwarded to you.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
@@ -72,6 +74,7 @@ fun PublisherForwardRequestsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(requests.size) }
                 items(requests, key = { it.id }) { request ->
                     val personFlow = remember(request.interestedPersonId) { viewModel.personFor(request.interestedPersonId) }
                     val person by personFlow.collectAsStateWithLifecycle(initialValue = null)

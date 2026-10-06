@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.components
 
 import android.util.Log
+import com.emfitsolutions.gopreach.data.model.displayName
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -82,7 +83,7 @@ data class OnlineUserRow(
 
 private data class PresenceRow(val personId: String, val congregationId: String?, val lastSeen: Long)
 
-private fun PublisherCategory.displayLabel(): String = name.replace('_', ' ')
+private fun PublisherCategory.displayLabel(): String = displayName
     .lowercase().split(' ').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
 
 @HiltViewModel

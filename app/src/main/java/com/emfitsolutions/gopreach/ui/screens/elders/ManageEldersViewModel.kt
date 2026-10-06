@@ -85,6 +85,7 @@ class ManageEldersViewModel @Inject constructor(
     private val groupRepository: GroupRepository,
     private val congregationRepository: CongregationRepository,
     private val auditLogRepository: AuditLogRepository,
+    private val recycleBinRepository: com.emfitsolutions.gopreach.data.repository.RecycleBinRepository,
 ) : ViewModel() {
 
     /** "For Super Admin: Congregation: [All Congregations]" — the filter
@@ -327,9 +328,35 @@ class ManageEldersViewModel @Inject constructor(
     fun permanentlyDelete(row: EldersRow, actorPersonId: String) {
         viewModelScope.launch {
             val personId = row.person.id
-            groupRepository.observeAll().first()
+            val groupsHeldBefore = groupRepository.observeAll().first()
                 .filter { it.overseerPersonId == personId || it.servantPersonId == personId || it.assistantPersonId == personId || it.regularElderPersonId == personId }
-                .forEach { group ->
+            val allAssignmentsBefore = roleAssignmentRepository.observeForPerson(personId).first()
+            val assignmentsToTrash = allAssignmentsBefore.filter {
+                (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role in ELDER_PRIMARY_ROLES ||
+                    (it.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
+            }
+            val othersLeft = roleAssignmentRepository.observeAll().first().count { it.personId == personId && it.id !in assignmentsToTrash.map { a -> a.id } }
+            // Kept whole in Deleted Records first: the Elder's assignments, the Person (if nothing else remains) and
+            // the Group slots they held (put back on restore only if still empty).
+            recycleBinRepository.moveToTrash(
+                recordType = "Elder",
+                module = "Elders",
+                label = row.person.fullName,
+                congregationId = row.congregationId,
+                originalCreatedAt = row.person.createdAt,
+                deletedByPersonId = actorPersonId,
+                items = buildList {
+                    assignmentsToTrash.forEach { add(recycleBinRepository.item("roleAssignments", it.id, it)) }
+                    if (othersLeft == 0) add(recycleBinRepository.item("people", personId, row.person))
+                    groupsHeldBefore.forEach { g ->
+                        if (g.overseerPersonId == personId) add(recycleBinRepository.relationshipItem("groups", g.id, g, "overseerPersonId"))
+                        if (g.servantPersonId == personId) add(recycleBinRepository.relationshipItem("groups", g.id, g, "servantPersonId"))
+                        if (g.assistantPersonId == personId) add(recycleBinRepository.relationshipItem("groups", g.id, g, "assistantPersonId"))
+                        if (g.regularElderPersonId == personId) add(recycleBinRepository.relationshipItem("groups", g.id, g, "regularElderPersonId"))
+                    }
+                },
+            )
+            groupsHeldBefore.forEach { group ->
                     groupRepository.save(
                         group.copy(
                             overseerPersonId = if (group.overseerPersonId == personId) null else group.overseerPersonId,

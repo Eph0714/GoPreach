@@ -38,6 +38,7 @@ class ManageAdminsViewModel @Inject constructor(
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val auditLogRepository: AuditLogRepository,
+    private val recycleBinRepository: com.emfitsolutions.gopreach.data.repository.RecycleBinRepository,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -93,8 +94,21 @@ class ManageAdminsViewModel @Inject constructor(
      * still-referenced Person. */
     fun permanentlyDelete(row: AdminRow, actorPersonId: String) {
         viewModelScope.launch {
+            val remaining = roleAssignmentRepository.observeAll().first().count { it.personId == row.person.id && it.id != row.assignment.id }
+            recycleBinRepository.moveToTrash(
+                recordType = "Admin",
+                module = "Admins",
+                label = row.person.fullName,
+                congregationId = row.assignment.congregationId,
+                originalCreatedAt = row.person.createdAt,
+                originalModifiedAt = row.assignment.lastEditedAt,
+                deletedByPersonId = actorPersonId,
+                items = buildList {
+                    add(recycleBinRepository.item("roleAssignments", row.assignment.id, row.assignment))
+                    if (remaining == 0) add(recycleBinRepository.item("people", row.person.id, row.person))
+                },
+            )
             roleAssignmentRepository.delete(row.assignment.id)
-            val remaining = roleAssignmentRepository.observeAll().first().count { it.personId == row.person.id }
             if (remaining == 0) personRepository.delete(row.person.id)
             auditLogRepository.log(
                 actorPersonId = actorPersonId,

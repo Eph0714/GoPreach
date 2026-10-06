@@ -461,7 +461,13 @@ fun PublisherHomeScreen(
                         returnVisits = moduleLayout.isPlannerSectionVisible(PlannerSection.RETURN_VISITS),
                         bibleStudies = moduleLayout.isPlannerSectionVisible(PlannerSection.BIBLE_STUDIES),
                     )
+                    // Months whose report is already submitted are closed in My Planner.
+                    val plannerReportViewModel: com.emfitsolutions.gopreach.ui.screens.planner.PlannerReportViewModel = hiltViewModel()
+                    val submittedMonths by remember(currentPersonId) { plannerReportViewModel.submittedMonths(currentPersonId) }
+                        .collectAsStateWithLifecycle(initialValue = emptyMap())
+                    val plannerLock = remember(submittedMonths) { com.emfitsolutions.gopreach.ui.screens.planner.PlannerLock(submittedMonths) }
                     CompositionLocalProvider(
+                        com.emfitsolutions.gopreach.ui.screens.planner.LocalPlannerLock provides plannerLock,
                         LocalPlannerVisibility provides plannerVisibility,
                         LocalOpenCreditCategoryManager provides
                             if (canManageCreditHourCategories) ({ onNavigate(Destinations.CREDIT_HOUR_CATEGORIES) }) else null,
@@ -547,6 +553,23 @@ fun PublisherHomeScreen(
                     // one now, so it only shows while Today is the active
                     // view — same underlying Firestore-backed session either
                     // way, this just stops it appearing twice at once.
+                }
+
+                // "Recently Visited" — the latest Return Visit / Bible Study visits this Publisher is allowed to see
+                // (same visibility rules as the modules); opening one goes through the module, which re-checks access.
+                ownPublisherAssignment?.congregationId?.let { publisherCongregationId ->
+                    DashboardActivitySections(
+                        viewer = RecentlyVisitedViewer.Publisher(currentPersonId, publisherCongregationId),
+                        onOpen = { item ->
+                            onNavigate(
+                                when (item.person.pipelineStage) {
+                                    com.emfitsolutions.gopreach.data.model.PipelineStage.BIBLE_STUDY -> Destinations.bibleStudyPerson(item.person.id)
+                                    com.emfitsolutions.gopreach.data.model.PipelineStage.RETURN_VISIT -> Destinations.returnVisitPerson(item.person.id)
+                                    com.emfitsolutions.gopreach.data.model.PipelineStage.SEARCHING -> Destinations.searchingPerson(item.person.id)
+                                },
+                            )
+                        },
+                    )
                 }
 
                 FeatureTileGrid(

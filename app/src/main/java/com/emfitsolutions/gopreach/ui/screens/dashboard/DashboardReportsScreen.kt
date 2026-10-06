@@ -57,8 +57,6 @@ import com.emfitsolutions.gopreach.data.print.ReportTable
 import com.emfitsolutions.gopreach.ui.components.DateRange
 import com.emfitsolutions.gopreach.ui.components.DateRangeFilterBar
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
-import com.emfitsolutions.gopreach.ui.components.charts.BarSlice
-import com.emfitsolutions.gopreach.ui.components.charts.SimpleBarChart
 import com.emfitsolutions.gopreach.ui.components.charts.StatCard
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -68,11 +66,6 @@ import androidx.compose.ui.window.DialogProperties
 // A fixed color code shared between the KPI cards and the donut chart, so
 // "Regular Pioneers" (say) always reads as the same color everywhere on this
 // dashboard — the explicit "add a color code" request.
-private val COLOR_PUBLISHERS: Color get() = Color(0xFF1565C0)
-private val COLOR_ELDERS: Color get() = Color(0xFF6A1B9A)
-private val COLOR_REGULAR_PIONEER: Color get() = Color(0xFF2E7D32)
-private val COLOR_SPECIAL_PIONEER: Color get() = Color(0xFF00897B)
-private val COLOR_AUXILIARY_PIONEER: Color get() = Color(0xFF66BB6A)
 private val COLOR_HOURS: Color get() = Color(0xFFE0A526)
 
 /** What the details dialog shows for one tapped [StatCard] — spec: "make the
@@ -131,7 +124,7 @@ private fun buildStatCards(displayed: CongregationStats): List<StatDetail> {
         StatDetail(
             "Total Publishers", displayed.totalPublishers.toString(),
             breakdown = listOf(
-                "Regular Publishers" to displayed.regularPublishers.toString(),
+                "Publishers" to displayed.regularPublishers.toString(),
                 "Regular Pioneers" to displayed.regularPioneers.toString(),
                 "Special Pioneers" to displayed.specialPioneers.toString(),
                 "Auxiliary Pioneers" to displayed.auxiliaryPioneers.toString(),
@@ -182,6 +175,10 @@ private fun buildStatCards(displayed: CongregationStats): List<StatDetail> {
 @Composable
 fun DashboardStatsContent(
     visibleCongregationIds: Set<String>?,
+    /** Non-null replaces the Overview stat cards with this Quick Access content for the displayed stats. */
+    quickAccess: (@Composable (CongregationStats) -> Unit)? = null,
+    /** Rendered where the removed charts used to be: the Recently Visited section for the displayed stats. */
+    recentlyVisited: (@Composable (CongregationStats) -> Unit)? = null,
     modifier: Modifier = Modifier,
     viewModel: DashboardStatsViewModel = hiltViewModel(),
 ) {
@@ -304,7 +301,7 @@ fun DashboardStatsContent(
             )
         }
 
-        Text(stringResource(R.string.dashboard_overview), style = MaterialTheme.typography.titleMedium)
+        Text(if (quickAccess != null) "Quick Access" else stringResource(R.string.dashboard_overview), style = MaterialTheme.typography.titleMedium)
         // Per explicit request: no icons, no per-item color coding on these
         // cards — Total Publishers and Total Elders are also their own
         // separate cards here now, not one combined "Publishers vs Elders"
@@ -317,7 +314,7 @@ fun DashboardStatsContent(
         // row, regardless of screen width, rather than reflowing to 3+ on a
         // wider phone/tablet. Chunked manually (9 cards is small enough that
         // a LazyVerticalGrid would be more machinery than this needs).
-        statCards.chunked(2).forEach { rowItems ->
+        if (quickAccess != null) quickAccess(displayed) else statCards.chunked(2).forEach { rowItems ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 rowItems.forEach { detail ->
                     StatCard(detail.label, detail.value, onClick = { selectedDetail = detail }, modifier = Modifier.weight(1f))
@@ -347,6 +344,8 @@ fun DashboardStatsContent(
             val memberReportTable = remember(detail, matchingMembers) {
                 ReportTable(
                     title = detail.label,
+                    count = matchingMembers.size,
+                    countLabel = "Total Members",
                     // "add also status" — its own column here (rather than
                     // folded into Name, as the on-screen dialog shows it),
                     // since a spreadsheet/PDF export reads better as
@@ -442,72 +441,9 @@ fun DashboardStatsContent(
             )
         }
 
-        // "Publisher Status Breakdown" donut chart removed per explicit
-        // request — the same per-category numbers (Regular Publisher/
-        // Regular Pioneer/Auxiliary Pioneer/Unbaptized/Inactive) are still
-        // available via the "Total Publishers" stat card's own tap-to-see
-        // breakdown dialog above, so no data was lost, just this redundant
-        // second visualization of it.
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(stringResource(R.string.dashboard_preaching_hours_title), style = MaterialTheme.typography.titleMedium)
-                SimpleBarChart(
-                    slices = listOf(
-                        BarSlice("Regular Pioneers", displayed.regularPioneerHours.toFloat(), COLOR_REGULAR_PIONEER),
-                        BarSlice("Special Pioneers", displayed.specialPioneerHours.toFloat(), COLOR_SPECIAL_PIONEER),
-                        BarSlice("Auxiliary Pioneers", displayed.auxiliaryPioneerHours.toFloat(), COLOR_AUXILIARY_PIONEER),
-                    ),
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-        }
-
-        if (isMultiCongregation && uiState.selectedCongregationId == null) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(stringResource(R.string.dashboard_publishers_per_congregation), style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        stringResource(R.string.dashboard_publishers_per_congregation_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    SimpleBarChart(
-                        slices = uiState.all.map { BarSlice(it.congregationName, it.totalPublishers.toFloat(), COLOR_PUBLISHERS) },
-                        modifier = Modifier.padding(top = 8.dp),
-                        onBarTap = { slice ->
-                            uiState.all.firstOrNull { it.congregationName == slice.label }?.let { viewModel.selectCongregation(it.congregationId) }
-                        },
-                    )
-                }
-            }
-
-            // "Group them per congregation in Super-Admin account" — explicit
-            // request. Only a Super-Admin (or anyone else who happens to be
-            // scoped to more than one congregation) ever sees this; an
-            // Admin/Coordinator Elder is always scoped to exactly their own
-            // congregation upstream (visibleCongregationIds — see
-            // AdminHomeScreen/GoPreachNavGraph), so `isMultiCongregation` is
-            // false for them and they never see anything beyond their own
-            // congregation's single Total Elders card above.
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(stringResource(R.string.dashboard_elders_per_congregation), style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        stringResource(R.string.dashboard_elders_per_congregation_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    SimpleBarChart(
-                        slices = uiState.all.map { BarSlice(it.congregationName, it.totalElders.toFloat(), COLOR_ELDERS) },
-                        modifier = Modifier.padding(top = 8.dp),
-                        onBarTap = { slice ->
-                            uiState.all.firstOrNull { it.congregationName == slice.label }?.let { viewModel.selectCongregation(it.congregationId) }
-                        },
-                    )
-                }
-            }
-        }
+        // The Preaching Hours / Publishers per Congregation / Elders per Congregation charts are gone; recent Return
+        // Visit and Bible Study activity takes their place.
+        recentlyVisited?.invoke(displayed)
     }
 }
 

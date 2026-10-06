@@ -1,6 +1,9 @@
 package com.emfitsolutions.gopreach.ui.screens.householdervisithistory
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.emfitsolutions.gopreach.ui.components.RecordFound
+import com.emfitsolutions.gopreach.data.print.OrientationMode
+import com.emfitsolutions.gopreach.data.print.PrintOptions
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -160,6 +163,8 @@ fun HouseholderVisitHistoryScreen(
     val exportTable = remember(uiState.rows, personNames) {
         ReportTable(
             title = "House Holder Visit History",
+            count = uiState.rows.size,
+            countLabel = "Total House Holders",
             columns = listOf(
                 "House Holder", "Status", "Assigned Publisher", "Congregation", "Place of Origin",
                 "Province", "Municipality/City", "Barangay", "House Holder GPS",
@@ -221,7 +226,7 @@ fun HouseholderVisitHistoryScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { ReportPrinter.printHtml(context, "House Holder Visit History", buildHouseholderVisitHistoryPrintHtml(uiState.rows, personNames)) },
+                        onClick = { ReportPrinter.printHtml(context, "House Holder Visit History", buildHouseholderVisitHistoryPrintHtml(uiState.rows, personNames), PrintOptions(OrientationMode.LANDSCAPE)) },
                         enabled = uiState.rows.isNotEmpty(),
                     ) {
                         Icon(Icons.Rounded.PictureAsPdf, contentDescription = "Print / Export as PDF")
@@ -263,12 +268,16 @@ fun HouseholderVisitHistoryScreen(
                 )
             }
             HorizontalDivider()
-            if (uiState.rows.isEmpty()) {
+            if (congregationId == null && uiState.congregationFilter == null) {
+                com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt()
+            } else if (uiState.rows.isEmpty()) {
                 Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
+                    RecordFound(0)
                     Text("No house holder records found.", style = MaterialTheme.typography.bodyMedium)
                 }
             } else {
                 LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item { RecordFound(uiState.rows.size) }
                     items(uiState.rows, key = { it.person.id }) { row ->
                         HouseholderCard(row, onClick = { selectedRow = row })
                     }

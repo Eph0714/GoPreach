@@ -16,6 +16,7 @@ import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
 import com.emfitsolutions.gopreach.domain.PermissionChecker
+import com.emfitsolutions.gopreach.ui.components.PublisherFormState
 import com.emfitsolutions.gopreach.data.repository.TempCredentials
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,30 +31,18 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class PublisherEnrollmentUiState(
-    val lastName: String = "",
-    val firstName: String = "",
-    val address: String = "",
-    /** "Add a dropdown for City, Municipalities, Town Barangay" — see
-     * [Person.province]'s own doc comment; [isCapturingLocation]/
-     * [locationError] back the optional "Use Current Location" button that
-     * fills these three automatically (best-effort, still editable). */
-    val province: String? = null,
-    val cityMunicipality: String? = null,
-    val barangay: String? = null,
-    val gpsLat: Double? = null,
-    val gpsLng: Double? = null,
+    /** Every Publisher field — the same set the Edit Publisher dialog uses (see [PublisherFormState]). */
+    val form: PublisherFormState = PublisherFormState(),
+    /** [isCapturingLocation]/[locationError] back the optional "Use Current Location" button that
+     * fills the address levels and coordinates automatically (best-effort, still editable). */
     val isCapturingLocation: Boolean = false,
     val locationError: String? = null,
-    val contact: String = "",
-    val email: String = "",
-    val category: PublisherCategory? = null,
     /** Super-Admin-only — narrows [PublisherEnrollmentViewModel.groups] to
      * that congregation's groups. Anyone scoped to a single fixed
      * congregation (Admin/Coordinator Elder/Service Overseer) never sets
      * this directly; it's derived from
      * [PublisherEnrollmentViewModel.fixedCongregationId] instead. */
     val selectedCongregationId: String? = null,
-    val selectedGroupId: String? = null,
     val isSaving: Boolean = false,
     val errorMessage: String? = null,
     val result: TempCredentials? = null,
@@ -78,6 +67,7 @@ class PublisherEnrollmentViewModel @Inject constructor(
     private val locationTracker: LocationTracker,
     private val philippineLocationRepository: PhilippineLocationRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
+    private val publisherCongregationContext: com.emfitsolutions.gopreach.data.repository.PublisherCongregationContext,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -95,8 +85,16 @@ class PublisherEnrollmentViewModel @Inject constructor(
     var fixedCongregationId: String? = null
         private set
 
+    /** [congregationId] non-null: fixed to that congregation (their own). Null: a Super-Admin, who starts in the
+     * congregation they are working in inside the Publisher module, and can still change it here. */
     fun restrictTo(congregationId: String?) {
         fixedCongregationId = congregationId
+        val start = congregationId ?: publisherCongregationContext.selectedCongregationId.value
+        _uiState.update {
+            // Keep a congregation the user already picked on this form.
+            if (it.selectedCongregationId != null && congregationId == null) it
+            else it.copy(selectedCongregationId = start, form = it.form.copy(congregationId = start))
+        }
     }
 
     private val _uiState = MutableStateFlow(PublisherEnrollmentUiState())
@@ -113,17 +111,9 @@ class PublisherEnrollmentViewModel @Inject constructor(
         if (congregationId == null) emptyList() else all.filter { it.congregationId == congregationId }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun onLastNameChange(v: String) = _uiState.update { it.copy(lastName = v.uppercase(), errorMessage = null) }
-    fun onFirstNameChange(v: String) = _uiState.update { it.copy(firstName = v.uppercase(), errorMessage = null) }
-    fun onAddressChange(v: String) = _uiState.update { it.copy(address = v.uppercase(), errorMessage = null) }
-    fun onContactChange(v: String) = _uiState.update { it.copy(contact = v.uppercase(), errorMessage = null) }
-    fun onEmailChange(v: String) = _uiState.update { it.copy(email = v, errorMessage = null) }
-
-    /** "Add a dropdown for City, Municipalities, Town Barangay. The
-     * publisher will browse manually" — the manual half, wired to
-     * [com.emfitsolutions.gopreach.ui.components.PhilippineAddressPicker]. */
-    fun onAddressLevelsChanged(province: String?, cityMunicipality: String?, barangay: String?) = _uiState.update {
-        it.copy(province = province, cityMunicipality = cityMunicipality, barangay = barangay, errorMessage = null)
+    fun onFormChange(form: PublisherFormState) = _uiState.update {
+        // The form's Congregation field is the source of truth for which congregation's groups are offered.
+        it.copy(form = form, selectedCongregationId = form.congregationId ?: it.selectedCongregationId, errorMessage = null)
     }
 
     fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
@@ -146,22 +136,16 @@ class PublisherEnrollmentViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     isCapturingLocation = false,
-                    gpsLat = location.lat,
-                    gpsLng = location.lng,
-                    province = resolved?.provinceName ?: it.province,
-                    cityMunicipality = resolved?.muncityName ?: it.cityMunicipality,
-                    barangay = resolved?.barangayName ?: it.barangay,
+                    form = it.form.copy(
+                        latitudeText = location.lat.toString(),
+                        longitudeText = location.lng.toString(),
+                        province = resolved?.provinceName ?: it.form.province,
+                        cityMunicipality = resolved?.muncityName ?: it.form.cityMunicipality,
+                        barangay = resolved?.barangayName ?: it.form.barangay,
+                    ),
                 )
             }
         }
-    }
-
-    /** STATUS is a single choice among all eight categories (spec: checking
-     * one disables and unchecks every other one) — a single nullable field
-     * naturally gives that behavior, same pattern used by every other
-     * enrollment screen's mutually-exclusive checkbox group. */
-    fun onCategoryToggled(category: PublisherCategory, checked: Boolean) = _uiState.update {
-        it.copy(category = if (checked) category else if (it.category == category) null else it.category, errorMessage = null)
     }
 
     /** Super-Admin only — picking a different Congregation clears whatever
@@ -169,10 +153,8 @@ class PublisherEnrollmentViewModel @Inject constructor(
      * previous congregation and silently keeping it would let a Publisher
      * end up in a Group that doesn't match their selected Congregation. */
     fun onCongregationSelected(id: String) = _uiState.update {
-        it.copy(selectedCongregationId = id, selectedGroupId = null, errorMessage = null)
+        it.copy(selectedCongregationId = id, form = it.form.copy(groupId = null), errorMessage = null)
     }
-
-    fun onGroupSelected(id: String) = _uiState.update { it.copy(selectedGroupId = id, errorMessage = null) }
 
     fun save(enrollingPersonId: String) {
         val state = _uiState.value
@@ -183,14 +165,16 @@ class PublisherEnrollmentViewModel @Inject constructor(
             _uiState.update { it.copy(errorMessage = "Select a congregation.") }
             return
         }
-        if (state.lastName.isBlank() || state.firstName.isBlank() || state.address.isBlank() || state.contact.isBlank() ||
-            state.selectedGroupId == null || state.category == null ||
-            state.province.isNullOrBlank() || state.cityMunicipality.isNullOrBlank() || state.barangay.isNullOrBlank()
+        val form = state.form
+        if (form.lastName.isBlank() || form.firstName.isBlank() || form.address.isBlank() || form.contact.isBlank() ||
+            form.groupId == null || form.category == null ||
+            form.province.isNullOrBlank() || form.cityMunicipality.isNullOrBlank() || form.barangay.isNullOrBlank()
         ) {
-            _uiState.update { it.copy(errorMessage = "Last name, first name, address, Province, Municipality/City, Barangay, contact, group, and status are all required.") }
+            _uiState.update { it.copy(errorMessage = "First name, last name, full address, Province, Municipality/City, Barangay, contact, category and group are all required.") }
             return
         }
-        val group = groups.value.firstOrNull { it.id == state.selectedGroupId }
+        form.formProblem?.let { problem -> _uiState.update { it.copy(errorMessage = problem) }; return }
+        val group = groups.value.firstOrNull { it.id == form.groupId }
         if (group == null || (fixedCongregationId != null && group.congregationId != fixedCongregationId)) {
             // The second half of that check is a defense-in-depth guard, not
             // just a UI nicety: it's the same "never trust a caller-supplied
@@ -200,7 +184,7 @@ class PublisherEnrollmentViewModel @Inject constructor(
             _uiState.update { it.copy(errorMessage = "Selected group not found.") }
             return
         }
-        val category = state.category
+        val category = form.category ?: return
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
         viewModelScope.launch {
             try {
@@ -210,18 +194,7 @@ class PublisherEnrollmentViewModel @Inject constructor(
                     return@launch
                 }
                 val credentials = authRepository.createAccountWithTempCredentials(
-                    person = Person(
-                        lastName = state.lastName.trim(),
-                        firstName = state.firstName.trim(),
-                        address = state.address.trim(),
-                        province = state.province,
-                        cityMunicipality = state.cityMunicipality,
-                        barangay = state.barangay,
-                        gpsLat = state.gpsLat,
-                        gpsLng = state.gpsLng,
-                        contact = state.contact.trim(),
-                        email = state.email.trim().ifBlank { null },
-                    ),
+                    person = form.applyTo(Person()),
                     roleAssignment = { personId ->
                         RoleAssignment(
                             personId = personId,

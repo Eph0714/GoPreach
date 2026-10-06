@@ -275,7 +275,7 @@ private fun com.emfitsolutions.gopreach.data.model.PublisherCategory.displayLabe
     com.emfitsolutions.gopreach.data.model.PublisherCategory.REGULAR_PIONEER -> "Regular Pioneer"
     com.emfitsolutions.gopreach.data.model.PublisherCategory.SPECIAL_PIONEER -> "Special Pioneer"
     com.emfitsolutions.gopreach.data.model.PublisherCategory.AUXILIARY_PIONEER -> "Auxiliary Pioneer"
-    com.emfitsolutions.gopreach.data.model.PublisherCategory.REGULAR_PUBLISHER -> "Regular Publisher"
+    com.emfitsolutions.gopreach.data.model.PublisherCategory.REGULAR_PUBLISHER -> "Publisher"
     com.emfitsolutions.gopreach.data.model.PublisherCategory.UNBAPTIZED_PUBLISHER -> "Unbaptized Publisher"
     com.emfitsolutions.gopreach.data.model.PublisherCategory.IRREGULAR_PUBLISHER -> "Irregular Publisher"
     com.emfitsolutions.gopreach.data.model.PublisherCategory.INACTIVE_PUBLISHER -> "Inactive Publisher"

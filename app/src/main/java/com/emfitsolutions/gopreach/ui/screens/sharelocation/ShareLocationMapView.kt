@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.sharelocation
 
 import android.graphics.Bitmap
+import com.emfitsolutions.gopreach.data.model.displayName
 import android.graphics.Canvas
 import android.graphics.Paint
 import androidx.compose.foundation.background
@@ -438,13 +439,13 @@ private fun SharePointDetailsSheet(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        row.category?.name?.replace('_', ' ')?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Publisher",
+                        row.category?.displayName?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "Publisher",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            DetailRow(label = "Congregation/Group", value = row.congregationName)
+            DetailRow(label = "Congregation", value = row.congregationName)
             DetailRow(label = "Coordinates", value = formatCoordinatesDms(row.location.lat, row.location.lng))
             DetailRow(label = "Last Updated", value = formatShareRelativeTime(row.location.updatedAt))
             Button(onClick = onOpenTerritoryMap, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {

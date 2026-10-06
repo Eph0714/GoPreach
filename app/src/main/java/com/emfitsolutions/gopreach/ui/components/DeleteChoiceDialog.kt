@@ -49,6 +49,10 @@ fun DeleteChoiceDialog(
     onDeletePermanently: () -> Unit,
     permanentDeleteBlockedReason: String? = null,
     permanentDeleteImpactSummary: String? = null,
+    /** Non-null turns the second confirmation into a strong warning: this title, [permanentDeleteImpactSummary] as the
+     * whole body, and [permanentConfirmLabel] on the confirm button. */
+    permanentWarningTitle: String? = null,
+    permanentConfirmLabel: String? = null,
 ) {
     var showPermanentConfirm by remember { mutableStateOf(false) }
     // "Prevent Double Submission" — every Manage screen's Delete flow goes
@@ -70,7 +74,7 @@ fun DeleteChoiceDialog(
             text = {
                 Text(
                     "Move to Inactive keeps the record and its history, hidden from normal active lists, and can be restored later. " +
-                        "Delete Permanently cannot be undone.",
+                        "Delete moves the record to Deleted Records, where it can be restored or permanently deleted.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             },
@@ -93,7 +97,7 @@ fun DeleteChoiceDialog(
                             onClick = { showPermanentConfirm = true },
                             enabled = !hasActed,
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        ) { Text("Delete Permanently") }
+                        ) { Text("Delete") }
                     }
                 }
             },
@@ -105,12 +109,12 @@ fun DeleteChoiceDialog(
         AlertDialog(
             properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = true),
             onDismissRequest = onDismiss,
-            title = { Text("Permanently Delete Record?") },
+            title = { Text(permanentWarningTitle ?: "Move this record to Deleted Records?") },
             text = {
                 Text(
                     permanentDeleteBlockedReason
-                        ?: listOfNotNull(
-                            "This action cannot be undone. All associated information that is permitted to be permanently deleted will be removed.",
+                        ?: if (permanentWarningTitle != null) permanentDeleteImpactSummary.orEmpty() else listOfNotNull(
+                            "\"$recordLabel\" will be moved to Deleted Records. You can restore it, or delete it permanently, from there.",
                             permanentDeleteImpactSummary,
                         ).joinToString(" "),
                     style = MaterialTheme.typography.bodyMedium,
@@ -132,12 +136,12 @@ fun DeleteChoiceDialog(
                                 if (!hasActed) {
                                     hasActed = true
                                     onDeletePermanently()
-                                    showToast("\"$recordLabel\" permanently deleted.")
+                                    showToast(if (permanentWarningTitle != null) "\"$recordLabel\" deleted. Their records are now unassigned." else "\"$recordLabel\" moved to Deleted Records.")
                                     onDismiss()
                                 }
                             },
                             enabled = !hasActed,
-                        ) { Text("Delete Permanently") }
+                        ) { Text(permanentConfirmLabel ?: "Move to Deleted Records") }
                     }
                     TextButton(
                         onClick = { if (permanentDeleteBlockedReason != null) onDismiss() else showPermanentConfirm = false },

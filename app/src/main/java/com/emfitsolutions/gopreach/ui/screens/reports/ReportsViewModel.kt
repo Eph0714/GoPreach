@@ -191,7 +191,7 @@ class ReportsViewModel @Inject constructor(
      * at once before a congregation is actually chosen/known). */
     fun groupsFor(congregationId: String?): Flow<List<Group>> =
         groupRepository.observeAll().map { groups ->
-            if (congregationId == null) emptyList() else groups.filter { it.congregationId == congregationId }.sortedBy { it.name }
+            if (congregationId == null) emptyList() else groups.filter { it.congregationId == congregationId }.sortedWith(com.emfitsolutions.gopreach.domain.GroupNameOrder)
         }
 
     /** [visibleGroupId] narrows further for a Regular Elder (own group only, spec
@@ -256,7 +256,7 @@ class ReportsViewModel @Inject constructor(
                         rows = rowsByGroupId[group.id].orEmpty().sortedBy { it.person.fullName },
                     )
                 }
-                .sortedBy { it.groupName }
+                .sortedWith(com.emfitsolutions.gopreach.domain.NaturalOrder.by { it.groupName })
 
             // A Publisher whose RoleAssignment.groupId points at a Group this
             // caller isn't scoped to see (or that no longer exists) still

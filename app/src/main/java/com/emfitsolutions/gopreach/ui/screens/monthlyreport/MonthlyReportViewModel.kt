@@ -5,21 +5,15 @@ import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.MonthlyReport
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.ReportStatus
-import com.emfitsolutions.gopreach.data.model.RoleType
-import com.emfitsolutions.gopreach.data.repository.CreditHourCategoryRepository
-import com.emfitsolutions.gopreach.data.repository.CreditHourRecordRepository
-import com.emfitsolutions.gopreach.data.repository.InterestedPersonRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
-import com.emfitsolutions.gopreach.data.repository.PlannerDayRepository
-import com.emfitsolutions.gopreach.data.repository.PreachingTimeRecordRepository
-import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
-import com.emfitsolutions.gopreach.data.repository.VisitRepository
-import com.emfitsolutions.gopreach.domain.MonthBounds
 import com.emfitsolutions.gopreach.domain.MonthlyReportCalculator
+import com.emfitsolutions.gopreach.domain.PublisherReport
+import com.emfitsolutions.gopreach.domain.PublisherReportCalculator
+import com.emfitsolutions.gopreach.domain.PublisherReportService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.util.Calendar
 import javax.inject.Inject
@@ -49,18 +43,10 @@ private fun daysUntilMonthEnd(): Int {
 
 private fun isPioneer(category: PublisherCategory?) = MonthlyReportCalculator.isPioneerCategory(category)
 
-/** hours+minutes → the one decimal value actually stored/compared
- * ([MonthlyReport.hoursRendered]/[MonthlyReport.systemCalculatedHours]) —
- * the form always shows two separate fields (spec: "Hours"/"Minutes" as
- * their own editable fields), this is only ever the storage conversion. */
-private fun toDecimalHours(hoursText: String, minutesText: String): Double =
-    (hoursText.toIntOrNull() ?: 0) + (minutesText.toIntOrNull() ?: 0) / 60.0
-
-private fun hoursPartOf(decimal: Double): String = decimal.toInt().toString()
-private fun minutesPartOf(decimal: Double): String = Math.round((decimal - decimal.toInt()) * 60).toString()
-
 data class MonthlyReportUiState(
     val category: PublisherCategory? = null,
+    val firstName: String = "",
+    val lastName: String = "",
     val congregationId: String? = null,
     val existingReport: MonthlyReport? = null,
     val selectedPeriodMonth: Long = currentMonthStart(),
@@ -142,7 +128,17 @@ data class MonthlyReportUiState(
 
     val isPioneer: Boolean get() = isPioneer(category)
 
-    val reportedHoursDecimal: Double get() = toDecimalHours(hoursText, minutesText)
+    /** The month's total ministry time — hours and minutes as one figure. */
+    val totalMinutes: Int get() = (hoursText.toIntOrNull() ?: 0) * 60 + (minutesText.toIntOrNull() ?: 0)
+
+    /** What gets stored as [MonthlyReport.hoursRendered]: a Pioneer's converted hours
+     * (the same figure Preview and Send as Text show), everyone else's raw hours. */
+    val reportedHoursDecimal: Double
+        get() = if (isPioneer) PublisherReportCalculator.convertToHours(totalMinutes) else totalMinutes / 60.0
+
+    /** The finished report — the Preview text and Send as Text come from this alone. */
+    val report: PublisherReport
+        get() = PublisherReportCalculator.build(firstName, lastName, category, selectedPeriodMonth, totalMinutes, bibleStudiesRendered.toIntOrNull() ?: 0, remarks)
 
     /** Spec §10/§19 — a Pioneer's manual hours differing from the system
      * total is what actually *requires* [MonthlyReport.hoursConfirmed] +
@@ -155,9 +151,8 @@ data class MonthlyReportUiState(
     val hoursDifferFromSystem: Boolean get() {
         if (!isPioneer) return false
         val system = systemCalculatedHours ?: return false
-        val reportedMinutes = Math.round(reportedHoursDecimal * 60)
-        val systemMinutes = Math.round(system * 60)
-        return reportedMinutes != systemMinutes
+        // Both sides are converted hours, so 15:28 vs a system 15:28 never reads as "differs".
+        return Math.round(reportedHoursDecimal * 60) != Math.round(system * 60)
     }
 
     /** Spec §12 — non-negative, valid numbers; shown beside the relevant
@@ -200,13 +195,7 @@ data class MonthlyReportUiState(
 @HiltViewModel
 class MonthlyReportViewModel @Inject constructor(
     private val monthlyReportRepository: MonthlyReportRepository,
-    private val roleAssignmentRepository: RoleAssignmentRepository,
-    private val interestedPersonRepository: InterestedPersonRepository,
-    private val visitRepository: VisitRepository,
-    private val preachingTimeRecordRepository: PreachingTimeRecordRepository,
-    private val plannerDayRepository: PlannerDayRepository,
-    private val creditHourRecordRepository: CreditHourRecordRepository,
-    private val creditHourCategoryRepository: CreditHourCategoryRepository,
+    private val publisherReportService: PublisherReportService,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MonthlyReportUiState())
@@ -227,133 +216,37 @@ class MonthlyReportViewModel @Inject constructor(
      * newest — never a month later than the current month. */
     val availableMonths: List<Long> = (MONTHS_BACK downTo 0).map(::monthStart)
 
-    fun load(publisherPersonId: String) {
+    /** [useStoredValues] — an Elder correcting a report keeps its saved figures; every
+     * other entry recalculates from the latest records each time (see
+     * [PublisherReportService]), so a stale figure can never be submitted. */
+    fun load(publisherPersonId: String, useStoredValues: Boolean = false) {
         viewModelScope.launch {
-            combine(
-                roleAssignmentRepository.observeForPerson(publisherPersonId),
-                monthlyReportRepository.observeAll(),
-                interestedPersonRepository.observeAll(),
-                visitRepository.observeAllForPublisher(publisherPersonId),
-                preachingTimeRecordRepository.observeForPublisher(publisherPersonId),
-                plannerDayRepository.observeForPublisher(publisherPersonId),
-                creditHourRecordRepository.observeForPublisher(publisherPersonId),
-                creditHourCategoryRepository.observeAll(),
-                _selectedPeriodMonth,
-            ) { flows ->
-                @Suppress("UNCHECKED_CAST")
-                val assignments = flows[0] as List<com.emfitsolutions.gopreach.data.model.RoleAssignment>
-                @Suppress("UNCHECKED_CAST")
-                val reports = flows[1] as List<MonthlyReport>
-                @Suppress("UNCHECKED_CAST")
-                val interestedPeople = flows[2] as List<com.emfitsolutions.gopreach.data.model.InterestedPerson>
-                @Suppress("UNCHECKED_CAST")
-                val visits = flows[3] as List<com.emfitsolutions.gopreach.data.model.Visit>
-                @Suppress("UNCHECKED_CAST")
-                val preachingTimeRecords = flows[4] as List<com.emfitsolutions.gopreach.data.model.PreachingTimeRecord>
-                @Suppress("UNCHECKED_CAST")
-                val plannerDays = flows[5] as List<com.emfitsolutions.gopreach.data.model.PlannerDay>
-                @Suppress("UNCHECKED_CAST")
-                val creditRecords = flows[6] as List<com.emfitsolutions.gopreach.data.model.CreditHourRecord>
-                @Suppress("UNCHECKED_CAST")
-                val creditCategories = flows[7] as List<com.emfitsolutions.gopreach.data.model.CreditHourCategory>
-                val selectedPeriodMonth = flows[8] as Long
-
-                val publisherAssignment = assignments.firstOrNull { it.resolvedRoleTypeOrNull() is RoleType.Publisher }
-                val category = (publisherAssignment?.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category
-                val congregationId = publisherAssignment?.congregationId
-                val existing = reports.firstOrNull {
-                    it.publisherPersonId == publisherPersonId && it.periodMonth == selectedPeriodMonth
-                }
-                val isPioneerCategory = isPioneer(category)
-                val bounds = MonthBounds.of(selectedPeriodMonth)
-
-                // Spec §5/§6 — ownership + congregation scoping, applied once
-                // here before anything is handed to the pure calculator:
-                // every one of this Publisher's own pipeline people (not just
-                // Bible Study stage — MinistryStatisticsService does its own
-                // per-stage filtering for both Bible Studies and Return
-                // Visits), in their own congregation.
-                val ownPeople = interestedPeople.filter {
-                    it.publisherPersonId == publisherPersonId && (congregationId == null || it.congregationId == congregationId)
-                }
-                val ownPreachingTimeRecords = preachingTimeRecords.filter {
-                    congregationId == null || it.congregationId == congregationId
-                }
-
-                val calc = MonthlyReportCalculator.calculate(
-                    publisherPersonId = publisherPersonId,
-                    category = category,
-                    ownPeople = ownPeople,
-                    allVisitsForPublisher = visits,
-                    preachingTimeRecords = ownPreachingTimeRecords,
-                    periodMonthStart = selectedPeriodMonth,
-                )
-
-                // My Planner's own logged ministry minutes for this month —
-                // a Non-Pioneer's Hours/Minutes default (new field for them,
-                // spec §3C/§3D) and folded into "did you participate"
-                // (spec §3B: "at least one ... record containing Hours
-                // and/or Minutes"). A Pioneer's own Hours/Minutes default
-                // still comes from the existing Preaching Time Record total
-                // ([calc.systemCalculatedHours]) — the established "official"
-                // source that differs-from-system confirmation already keys
-                // off; switching that source too would silently change what
-                // that existing safety check compares against.
-                val plannerMinutesForMonth = plannerDays.filter { bounds.contains(it.dayStart) }.sumOf { it.totalMinutes }
-
-                // Spec §4E — a Pioneer's Remarks default: the distinct Credit
-                // Hour categories actually logged this month, "Credit Hour:
-                // X" (or "X, Y" for more than one); blank if none.
-                val monthCreditCategoryNames = creditRecords
-                    .filter { it.publisherPersonId == publisherPersonId && bounds.contains(it.resolvedDayStart()) }
-                    .mapNotNull { record -> creditCategories.firstOrNull { it.id == record.categoryId }?.name }
-                    .distinct()
-                val defaultRemarks = if (isPioneerCategory && monthCreditCategoryNames.isNotEmpty()) {
-                    "Credit Hour: ${monthCreditCategoryNames.joinToString(", ")}"
-                } else {
-                    ""
-                }
-
-                val defaultHoursDecimal = existing?.hoursRendered
-                    ?: if (isPioneerCategory) calc.systemCalculatedHours ?: 0.0 else plannerMinutesForMonth / 60.0
-                val defaultParticipated = existing?.participatedInPreaching
-                    ?: (calc.participatedInPreaching || (!isPioneerCategory && plannerMinutesForMonth > 0))
-
-                // Spec §14 — a report already saved for this exact period
-                // keeps its own stored values (what was actually submitted/
-                // locked); anything not yet saved for this period always
-                // shows the fresh calculation, never a stale value carried
-                // over from whichever period was selected before. Spec §21 —
-                // once existing==POSTED, isLocked already prevents further
-                // edits regardless of what's displayed here.
+            publisherReportService.observe(publisherPersonId, _selectedPeriodMonth, useStoredValues).map { source ->
                 MonthlyReportUiState(
-                    category = category,
-                    congregationId = congregationId,
-                    existingReport = existing,
-                    selectedPeriodMonth = selectedPeriodMonth,
-                    bibleStudiesRendered = (existing?.bibleStudiesCount ?: calc.bibleStudiesConducted).toString(),
-                    returnVisitsRendered = (existing?.returnVisitsCount ?: calc.returnVisitsConducted).toString(),
+                    category = source.category,
+                    firstName = source.person?.firstName.orEmpty(),
+                    lastName = source.person?.lastName.orEmpty(),
+                    congregationId = source.congregationId,
+                    existingReport = source.existingReport,
+                    selectedPeriodMonth = source.periodMonth,
+                    bibleStudiesRendered = source.bibleStudies.toString(),
+                    returnVisitsRendered = source.returnVisits.toString(),
                     calculationFailed = false,
                     isCalculating = false,
-                    participatedInPreaching = defaultParticipated,
-                    systemCalculatedHours = existing?.systemCalculatedHours ?: calc.systemCalculatedHours,
-                    hoursText = hoursPartOf(defaultHoursDecimal),
-                    minutesText = minutesPartOf(defaultHoursDecimal),
-                    remarks = existing?.remarks ?: defaultRemarks,
+                    participatedInPreaching = source.totalMinutes > 0,
+                    systemCalculatedHours = source.systemMinutes?.let { PublisherReportCalculator.convertToHours(it) },
+                    hoursText = (source.totalMinutes / 60).toString(),
+                    minutesText = (source.totalMinutes % 60).toString(),
+                    remarks = source.defaultRemarks,
                 )
             }.collect { fresh ->
-                // "Never overwrite a value after the Publisher manually
-                // edits it" — whichever fields are in [touchedFields] keep
-                // their current on-screen value; everything else (category,
-                // existingReport, calculation status, ...) always takes the
-                // fresh recalculation.
+                // Only an Elder correcting a report can touch a figure; those edits survive
+                // a recalculation. Everyone else's figures always come from the Monthly Report.
                 val current = _uiState.value
                 _uiState.value = fresh.copy(
                     hoursText = if ("hours" in touchedFields) current.hoursText else fresh.hoursText,
                     minutesText = if ("minutes" in touchedFields) current.minutesText else fresh.minutesText,
                     bibleStudiesRendered = if ("bibleStudies" in touchedFields) current.bibleStudiesRendered else fresh.bibleStudiesRendered,
-                    returnVisitsRendered = if ("returnVisits" in touchedFields) current.returnVisitsRendered else fresh.returnVisitsRendered,
-                    participatedInPreaching = if ("participated" in touchedFields) current.participatedInPreaching else fresh.participatedInPreaching,
                     remarks = if ("remarks" in touchedFields) current.remarks else fresh.remarks,
                     showingPreview = current.showingPreview,
                 )
@@ -443,7 +336,8 @@ class MonthlyReportViewModel @Inject constructor(
                 } else {
                     null
                 },
-                participatedInPreaching = if (state.isPioneer) null else state.participatedInPreaching,
+                // Attended in Preaching follows from the month's hours, never a manual answer.
+                participatedInPreaching = if (state.isPioneer) null else state.totalMinutes > 0,
                 // My Planner / Reporting upgrade spec §35 — a report the
                 // Publisher is resubmitting after it was RETURNED becomes
                 // CORRECTED instead of a plain SUBMITTED, so the report's own

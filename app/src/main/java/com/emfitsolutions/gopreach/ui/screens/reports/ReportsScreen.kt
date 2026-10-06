@@ -1,6 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.reports
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.emfitsolutions.gopreach.ui.components.RecordFound
+import com.emfitsolutions.gopreach.data.model.displayName
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -69,7 +71,7 @@ import java.util.Locale
  * every Group's section combined, same as before this filter existed. */
 private enum class GroupFilterMode { ALL_GROUPS, PER_GROUP }
 
-private fun PublisherCategory.displayLabel(): String = name.replace('_', ' ')
+private fun PublisherCategory.displayLabel(): String = displayName
     .lowercase().split(' ').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
 
 /** Spec §5.1 — Total Bible Studies / Interested People / preaching hours, per
@@ -95,7 +97,8 @@ fun ReportsScreen(
     // Screen's own CongregationFilterDropdown already uses. `null` here
     // means "All Congregations," same default as before this filter
     // existed.
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by com.emfitsolutions.gopreach.ui.components.rememberCongregationContext("reports")
+    val needsCongregation = visibleCongregationId == null && congregationFilter == null
     val effectiveCongregationId = visibleCongregationId ?: congregationFilter
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
 
@@ -130,7 +133,8 @@ fun ReportsScreen(
     // [DateRangeFilterBar] below — nothing extra needed here for that.
     val dateRange by viewModel.dateRange.collectAsStateWithLifecycle()
 
-    val rowsFlow = remember(effectiveCongregationId, effectiveGroupId, dateRange) {
+    val rowsFlow = remember(effectiveCongregationId, effectiveGroupId, dateRange, needsCongregation) {
+        if (needsCongregation) return@remember kotlinx.coroutines.flow.flowOf(emptyList())
         viewModel.rowsFor(effectiveCongregationId, effectiveGroupId, dateRange)
     }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -272,7 +276,9 @@ fun ReportsScreen(
             onRangeChange = viewModel::setDateRange,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
-        if (rows.isEmpty()) {
+        if (needsCongregation) {
+            com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt()
+        } else if (rows.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -371,6 +377,7 @@ fun ReportsScreen(
                         }
                     }
                 }
+                item { RecordFound(sections.sumOf { it.rows.size }) }
                 items(sections, key = { it.groupId ?: "unassigned" }) { section ->
                     GroupReportCard(section, dateRange, canEditReports, onEditPublisher)
                 }
@@ -393,8 +400,7 @@ private fun ReportsCongregationDropdown(
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val allCongregationsGroupsLabel = stringResource(R.string.reports_all_congregations_groups)
-    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: allCongregationsGroupsLabel
+    val selectedName = congregations.firstOrNull { it.id == selectedId }?.name ?: "Select Congregation"
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         OutlinedTextField(
             value = selectedName,
@@ -406,7 +412,6 @@ private fun ReportsCongregationDropdown(
             modifier = Modifier.fillMaxWidth().menuAnchor(),
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text(allCongregationsGroupsLabel) }, onClick = { onSelected(null); expanded = false })
             congregations.forEach { c ->
                 DropdownMenuItem(text = { Text(c.name) }, onClick = { onSelected(c.id); expanded = false })
             }
@@ -612,6 +617,8 @@ private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateR
     val hoursByCategory = allRows.categoryHours()
     return ReportTable(
         title = reportHeaderFor(congregationName, dateRange),
+        count = allRows.size,
+        countLabel = "Total Publishers",
         columns = columns,
         rows = rows,
         totals = listOf(
@@ -625,7 +632,7 @@ private fun reportsTableFor(sections: List<GroupReportSection>, dateRange: DateR
             // each Group's own SUMMARY TOTAL block above already listed
             // these via categoryCounts; this overall totals row only had
             // the two Pioneer counts explicitly called out.
-            "Total Regular Publisher" to (countsByCategory[PublisherCategory.REGULAR_PUBLISHER] ?: 0).toString(),
+            "Total Publisher" to (countsByCategory[PublisherCategory.REGULAR_PUBLISHER] ?: 0).toString(),
             "Total Unbaptized Publisher" to (countsByCategory[PublisherCategory.UNBAPTIZED_PUBLISHER] ?: 0).toString(),
             "Total Bible Studies for Regular Pioneer" to (bibleStudiesByCategory[PublisherCategory.REGULAR_PIONEER] ?: 0).toString(),
             "Total Bible Studies for Special Pioneer" to (bibleStudiesByCategory[PublisherCategory.SPECIAL_PIONEER] ?: 0).toString(),

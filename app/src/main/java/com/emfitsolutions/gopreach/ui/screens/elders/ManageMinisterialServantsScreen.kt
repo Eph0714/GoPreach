@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.elders
 
 import androidx.compose.foundation.layout.Row
+import com.emfitsolutions.gopreach.ui.components.NameFieldsInOrder
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
@@ -28,6 +29,7 @@ import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.PublisherCategory
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
@@ -46,14 +48,15 @@ fun ManageMinisterialServantsScreen(
     viewModel: ManageMinisterialServantsViewModel = hiltViewModel(),
 ) {
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("ministerial_servants")
+    val needsCongregation = fixedCongregationId == null && congregationFilter == null
     val effectiveCongregationId = fixedCongregationId ?: congregationFilter
-    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
+    val rowsFlow = remember(effectiveCongregationId, needsCongregation) { if (needsCongregation) kotlinx.coroutines.flow.flowOf(emptyList()) else viewModel.rowsFor(effectiveCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     ElderListScreen(
         title = "Ministerial Servants",
-        scopeLabel = "Congregation/Group",
+        scopeLabel = "Congregation",
         rows = rows,
         canPermanentlyDelete = canPermanentlyDelete,
         readOnly = readOnly,
@@ -62,6 +65,7 @@ fun ManageMinisterialServantsScreen(
         onSetActive = { row, active -> viewModel.setActive(row.assignment, active, currentPersonId) },
         onEdit = { _, updated -> viewModel.updatePerson(updated) },
         onPermanentlyDelete = { row -> viewModel.permanentlyDelete(row, currentPersonId) },
+        needsCongregation = needsCongregation,
         congregationFilterContent = if (fixedCongregationId == null) {
             {
                 CongregationFilterDropdown(
@@ -145,7 +149,7 @@ private fun MinisterialServantEditDialog(
             "Last Name" to lastName.isNotBlank(),
             "Address" to address.isNotBlank(),
             "Contact" to contact.isNotBlank(),
-            "Congregation/Group" to (resolvedCongregationId != null),
+            "Congregation" to (resolvedCongregationId != null),
         )
         if (message != null) {
             errorMessage = message
@@ -181,21 +185,27 @@ private fun MinisterialServantEditDialog(
             groupRole != initialGroupRole || publisherCategory != initialPublisherCategory,
     ) {
                 EditSectionHeader("Personal Information")
-                OutlinedTextField(
-                    value = firstName,
-                    onValueChange = { firstName = it.uppercase() },
-                    label = { Text("First Name") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = lastName,
-                    onValueChange = { lastName = it.uppercase() },
-                    label = { Text("Last Name") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
+                NameFieldsInOrder(
+                    first = {
+                        OutlinedTextField(
+                        value = firstName,
+                        onValueChange = { firstName = it.uppercase() },
+                        label = { Text("First Name") },
+                        singleLine = true,
+                        visualTransformation = VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    },
+                    last = {
+                        OutlinedTextField(
+                        value = lastName,
+                        onValueChange = { lastName = it.uppercase() },
+                        label = { Text("Last Name") },
+                        singleLine = true,
+                        visualTransformation = VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    },
                 )
                 OutlinedTextField(
                     value = address,
@@ -229,7 +239,7 @@ private fun MinisterialServantEditDialog(
                         onSelected = { pickedCongregationId = it },
                     )
                 } else {
-                    ReadOnlyField("Congregation/Group", row.scopeName)
+                    ReadOnlyField("Congregation", row.scopeName)
                 }
 
                 HorizontalDivider()
@@ -269,7 +279,7 @@ private fun MinisterialServantEditDialog(
                     onCheckedChange = { checked -> publisherCategory = if (checked) PublisherCategory.AUXILIARY_PIONEER else null },
                 )
                 MinisterialServantRoleCheckboxRow(
-                    label = "Regular Publisher",
+                    label = "Publisher",
                     checked = publisherCategory == PublisherCategory.REGULAR_PUBLISHER,
                     enabled = publisherCategory == null || publisherCategory == PublisherCategory.REGULAR_PUBLISHER,
                     onCheckedChange = { checked -> publisherCategory = if (checked) PublisherCategory.REGULAR_PUBLISHER else null },
@@ -292,7 +302,7 @@ private fun MinisterialServantCongregationDropdown(congregations: List<Congregat
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation/Group") },
+            label = { Text("Congregation") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

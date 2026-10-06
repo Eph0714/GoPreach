@@ -54,7 +54,8 @@ class GroupRepository @Inject constructor(
 ) {
     private val collection = "groups"
 
-    fun observeAll(): Flow<List<Group>> = offline.observeCollection(collection)
+    /** Field Service Groups, alphabetically (FS GROUP 2 before FS GROUP 10) — so every dropdown and list that reads them is in order. */
+    fun observeAll(): Flow<List<Group>> = offline.observeCollection<Group>(collection).map { list -> list.sortedWith(com.emfitsolutions.gopreach.domain.GroupNameOrder) }
 
     suspend fun save(group: Group): Group {
         val id = group.id.ifBlank { firestore.collection(collection).document().id }

@@ -67,6 +67,38 @@ object ComparativeReportPdfExporter {
         context.startActivity(Intent.createChooser(intent, "Share or Print Comparative Report"))
     }
 
+    /** Two-range comparison: one page per range (titled with the actual dates and its totals), same layout as [export]. */
+    fun exportPeriods(context: Context, labelA: String, rowsA: List<ComparativeMonthRow>, labelB: String, rowsB: List<ComparativeMonthRow>) {
+        val document = PdfDocument()
+        listOf(labelA to rowsA, labelB to rowsB).forEachIndexed { index, (subtitle, rows) ->
+            val page = document.startPage(PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, index + 1).create())
+            val canvas = page.canvas
+            canvas.drawText("Comparative Report", 32f, 40f, Paint().apply { color = Color.BLACK; textSize = 20f; isFakeBoldText = true })
+            val subtitlePaint = Paint().apply { color = Color.DKGRAY; textSize = 12f }
+            canvas.drawText(subtitle, 32f, 60f, subtitlePaint)
+            val minutes = rows.sumOf { it.totalMinutes }
+            canvas.drawText(
+                "Total: ${minutes / 60}h ${minutes % 60}m · Return Visits ${rows.sumOf { it.returnVisitCount }} · Bible Studies ${rows.sumOf { it.bibleStudyCount }}",
+                32f, 76f, subtitlePaint,
+            )
+            drawLegend(canvas, 32f, 96f)
+            drawChart(canvas, rows, top = 112f, height = 210f, left = 32f, right = PAGE_WIDTH - 32f)
+            drawTable(canvas, rows, top = 345f, left = 32f)
+            document.finishPage(page)
+        }
+        val dir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val file = File(dir, "gopreach-comparative-periods-${System.currentTimeMillis()}.pdf")
+        FileOutputStream(file).use { document.writeTo(it) }
+        document.close()
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Share or Print Comparative Report"))
+    }
+
     private fun drawLegend(canvas: android.graphics.Canvas, left: Float, top: Float) {
         val labelPaint = Paint().apply { color = Color.BLACK; textSize = 11f }
         var x = left

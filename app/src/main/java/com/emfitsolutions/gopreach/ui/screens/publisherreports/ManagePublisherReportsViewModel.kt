@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.publisherreports
 
 import androidx.lifecycle.ViewModel
+import com.emfitsolutions.gopreach.data.model.displayName
 import androidx.lifecycle.viewModelScope
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.MonthlyReport
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -90,6 +92,7 @@ class ManagePublisherReportsViewModel @Inject constructor(
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val congregationRepository: CongregationRepository,
     private val auditLogRepository: AuditLogRepository,
+    private val recycleBinRepository: com.emfitsolutions.gopreach.data.repository.RecycleBinRepository,
 ) : ViewModel() {
 
     /** Set once, from the nav graph, before this screen is ever composed —
@@ -120,7 +123,6 @@ class ManagePublisherReportsViewModel @Inject constructor(
         _dateRange.update { DateRange.thisMonth() }
         _showMode.update { ReportShowMode.ALL }
         _selectedPublisherId.update { null }
-        _selectedCongregationId.update { null }
         _selectedClassification.update { null }
         _selectedStatus.update { null }
         _searchQuery.update { "" }
@@ -201,7 +203,7 @@ class ManagePublisherReportsViewModel @Inject constructor(
 
         val rows = raw.reports
             .filter { fixedCongregationId == null || it.congregationId == fixedCongregationId }
-            .filter { f.selectedCongregationId == null || it.congregationId == f.selectedCongregationId }
+            .filter { fixedCongregationId != null || (f.selectedCongregationId != null && it.congregationId == f.selectedCongregationId) }
             .filter { f.showMode != ReportShowMode.BY_PUBLISHER || f.selectedPublisherId == null || it.publisherPersonId == f.selectedPublisherId }
             .filter { f.dateRange.overlapsMonth(it.periodMonth) }
             .filter { f.selectedClassification == null || it.category == f.selectedClassification }
@@ -214,7 +216,7 @@ class ManagePublisherReportsViewModel @Inject constructor(
             .filter { row ->
                 f.searchQuery.isBlank() ||
                     row.person.fullName.contains(f.searchQuery, ignoreCase = true) ||
-                    row.category.name.replace('_', ' ').contains(f.searchQuery, ignoreCase = true) ||
+                    row.category.displayName.contains(f.searchQuery, ignoreCase = true) ||
                     row.congregationName.contains(f.searchQuery, ignoreCase = true)
             }
             .sortedWith(compareBy({ it.congregationName }, { it.person.fullName }))
@@ -399,6 +401,19 @@ class ManagePublisherReportsViewModel @Inject constructor(
      * record. */
     fun permanentlyDelete(report: MonthlyReport, actorPersonId: String) {
         viewModelScope.launch {
+            val publisherName = personRepository.get(report.publisherPersonId)?.fullName.orEmpty()
+            val period = java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(report.periodMonth))
+            val groupId = roleAssignmentRepository.observeForPerson(report.publisherPersonId).first().firstOrNull { it.groupId != null }?.groupId
+            recycleBinRepository.moveToTrash(
+                recordType = "Monthly Report",
+                module = "Publisher Reports",
+                label = if (publisherName.isBlank()) period else "$publisherName — $period",
+                congregationId = report.congregationId,
+                groupId = groupId,
+                originalModifiedAt = report.lastEditedAt ?: report.submittedAt,
+                deletedByPersonId = actorPersonId,
+                items = listOf(recycleBinRepository.item("monthlyReports", report.id, report)),
+            )
             monthlyReportRepository.delete(report.id)
             auditLogRepository.log(
                 actorPersonId = actorPersonId,

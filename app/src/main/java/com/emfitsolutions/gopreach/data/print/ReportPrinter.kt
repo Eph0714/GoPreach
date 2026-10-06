@@ -1,7 +1,6 @@
 package com.emfitsolutions.gopreach.data.print
 
 import android.content.Context
-import android.print.PrintAttributes
 import android.print.PrintManager
 import android.util.Log
 import android.webkit.WebView
@@ -24,42 +23,60 @@ data class ReportTable(
     /** Rendered as its own small summary block below the table — e.g.
      * "Total Bible Study" to "12". */
     val totals: List<Pair<String, String>> = emptyList(),
-)
+    /** Reporting period / congregation, shown under the title ("October 2026 • Solano Tagalog Congregation"). */
+    val subtitle: String? = null,
+    /** Names under signature lines ("Prepared by", "Noted by"); the block is kept together on one page. */
+    val signatureLabels: List<String> = emptyList(),
+    /**
+     * How many records this report covers — taken by each report from the same filtered data it lists (never
+     * deleted records, never anything outside the selected congregation / filters). Shown under the title when
+     * printed or saved as PDF and in [shareText]. Null for a report that is a set of figures rather than a list.
+     */
+    val count: Int? = null,
+    /** What is being counted, e.g. "Total Publishers" or "Total Bible Studies". */
+    val countLabel: String = "Total Records",
+) {
+    /** "Total Publishers: 35", or null when the report has no record count. */
+    val countText: String? get() = count?.let { "$countLabel: $it" }
+
+    /** A concise plain-text version for Send As Text: title, period, count. */
+    fun shareText(): String = listOfNotNull(title, subtitle?.takeIf { it.isNotBlank() }, countText).joinToString("\n")
+}
 
 /**
  * "Make all reports have a print preview" — Android's own [PrintManager] +
- * a throwaway [WebView], no third-party PDF library needed (same "no new
- * dependency" approach [com.emfitsolutions.gopreach.ui.screens.reports
- * .writeReportsCsv]'s CSV export already uses). Every Android print dialog
- * shows its own print preview before anything is sent anywhere, and offers
- * "Save as PDF" out of the box alongside every installed printer — this one
- * hand-off covers both "print preview" and "export as PDF" at once.
+ * a throwaway [WebView], no third-party PDF library needed. Every Android
+ * print dialog shows its own print preview (the real pages, paper size,
+ * orientation and margins, re-laid-out when any of them change) before
+ * anything is sent anywhere, and offers "Save as PDF" out of the box.
+ *
+ * Every report — table-based or bespoke HTML — prints through here, and so through [PrintLayout]: one place
+ * decides paper size, orientation, margins, type scale, spacing and page-break rules.
  */
 object ReportPrinter {
 
     /** Holds every in-flight [WebView] until its print hand-off completes —
-     * bug fix ("I cannot see any PDF or Excel"): [print] used to create the
-     * WebView as a bare local variable with nothing else referencing it.
-     * `loadDataWithBaseURL` is asynchronous, and a WebView that's never
-     * attached to any view hierarchy is otherwise unreachable from GC roots
-     * the moment [print] returns — on a device under memory pressure (or
-     * just unlucky timing), the WebView could be collected before
-     * `onPageFinished` ever fires, so the print dialog silently never
-     * appeared and nothing told the caller why. Keeping a strong reference
-     * here until the callback actually runs (success or failure) removes
-     * that race entirely. */
+     * a WebView that's never attached to any view hierarchy is otherwise
+     * unreachable from GC roots the moment [printHtml] returns, so the print
+     * dialog could silently never appear. */
     private val inFlightWebViews = mutableSetOf<WebView>()
 
-    fun print(context: Context, table: ReportTable) = printHtml(context, table.title, buildHtml(table))
+    /** Prints a [ReportTable] in the standard compact layout. */
+    fun print(context: Context, table: ReportTable, options: PrintOptions = PrintOptions()) {
+        val (html, landscape) = PrintLayout.tableDocument(context, table, options)
+        handOff(context, table.title, html, landscape)
+    }
 
-    /** The actual WebView-to-PrintManager hand-off, generalized to any raw
-     * HTML string — [print] is just [buildHtml] plus this. Pulled out so a
-     * screen with its own bespoke, non-tabular layout (e.g. the Midweek
-     * Meeting Schedule's own print redesign — see MeetingAssignmentsScreen's
-     * `buildMidweekPrintHtml`) can still reuse this same print-preview/
-     * save-as-PDF plumbing instead of being forced into [ReportTable]'s
-     * plain title+columns+rows shape. */
-    fun printHtml(context: Context, title: String, html: String) {
+    /**
+     * Prints a report that builds its own HTML. The central page rules (repeating table headers, no split rows,
+     * headings kept with their content) are added, and the paper size / margins / orientation come from
+     * [PrintLayout]. Pass `PrintOptions(LANDSCAPE)` for a wide sheet.
+     */
+    fun printHtml(context: Context, title: String, html: String, options: PrintOptions = PrintOptions()) {
+        handOff(context, title, PrintLayout.withPageRules(html), PrintLayout.isLandscape(context, options))
+    }
+
+    private fun handOff(context: Context, title: String, html: String, landscape: Boolean) {
         val webView = WebView(context)
         inFlightWebViews += webView
         webView.webViewClient = object : WebViewClient() {
@@ -72,7 +89,7 @@ object ReportPrinter {
                         return
                     }
                     val adapter = view.createPrintDocumentAdapter(title)
-                    printManager.print(title, adapter, PrintAttributes.Builder().build())
+                    printManager.print(title, adapter, PrintLayout.attributes(context, landscape))
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to open print dialog", e)
                     Toast.makeText(context, "Couldn't open the print dialog: ${e.localizedMessage ?: "unknown error"}", Toast.LENGTH_LONG).show()
@@ -90,32 +107,8 @@ object ReportPrinter {
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
     }
 
-    private fun buildHtml(table: ReportTable): String = buildString {
-        append("<html><head><meta charset=\"utf-8\"><style>")
-        append("body{font-family:sans-serif;font-size:12px;} h2{text-align:center;} ")
-        append("table{width:100%;border-collapse:collapse;margin-top:12px;} ")
-        append("th,td{border:1px solid #333;padding:4px 8px;text-align:left;} th{background:#eee;} ")
-        append("p.total{font-weight:bold;}")
-        append("</style></head><body>")
-        append("<h2>").append(escapeHtml(table.title)).append("</h2>")
-        append("<table><thead><tr>")
-        table.columns.forEach { append("<th>").append(escapeHtml(it)).append("</th>") }
-        append("</tr></thead><tbody>")
-        table.rows.forEach { row ->
-            append("<tr>")
-            row.forEach { cell -> append("<td>").append(escapeHtml(cell)).append("</td>") }
-            append("</tr>")
-        }
-        append("</tbody></table>")
-        table.totals.forEach { (label, value) ->
-            append("<p class=\"total\">").append(escapeHtml(label)).append(": ").append(escapeHtml(value)).append("</p>")
-        }
-        append("</body></html>")
-    }
-
     /** Not private — reused by any caller of [printHtml] building its own
-     * bespoke HTML (see [printHtml]'s own doc comment) so every print path
-     * escapes user-entered text the same way. */
+     * bespoke HTML so every print path escapes user-entered text the same way. */
     fun escapeHtml(text: String): String = text
         .replace("&", "&amp;")
         .replace("<", "&lt;")

@@ -1,6 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.publisherreports
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
+import com.emfitsolutions.gopreach.data.model.displayName
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -261,7 +263,7 @@ fun ManagePublisherReportsScreen(
                         FilterChip(
                             selected = uiState.selectedClassification == category,
                             onClick = { viewModel.selectClassification(category) },
-                            label = { Text(category.name.replace('_', ' ')) },
+                            label = { Text(category.displayName) },
                         )
                     }
                 }
@@ -301,8 +303,11 @@ fun ManagePublisherReportsScreen(
                 }
             }
 
-            if (uiState.rows.isEmpty()) {
+            if (fixedCongregationId == null && uiState.selectedCongregationId == null) {
+                com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt()
+            } else if (uiState.rows.isEmpty()) {
                 Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    RecordFound(0)
                     Text(stringResource(R.string.manage_reports_no_reports), style = MaterialTheme.typography.bodyMedium)
                 }
             } else {
@@ -316,6 +321,7 @@ fun ManagePublisherReportsScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    item { RecordFound(uiState.rows.size) }
                     items(uiState.rows, key = { it.report.id }) { row ->
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -357,7 +363,11 @@ fun ManagePublisherReportsScreen(
                                         }
                                     }
                                 }
-                                Text(stringResource(R.string.manage_reports_status_prefix, row.category.name.replace('_', ' ')), style = MaterialTheme.typography.bodySmall)
+                                if (row.report.isManualEntry) {
+                                    // Administrative detail only: this report was entered on the publisher's behalf.
+                                    Text("Source: Manual Entry", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Text(stringResource(R.string.manage_reports_status_prefix, row.category.displayName), style = MaterialTheme.typography.bodySmall)
                                 Text(
                                     if (row.isPioneer) {
                                         stringResource(R.string.manage_reports_bible_study_hours, row.report.bibleStudiesCount, (row.report.hoursRendered ?: 0.0).toString())
@@ -500,7 +510,7 @@ private fun publisherReportTable(title: String, uiState: ManagePublisherReportsU
         listOf(
             (index + 1).toString(),
             row.person.fullName,
-            row.category.name.replace('_', ' '),
+            row.category.displayName,
             row.report.bibleStudiesCount.toString(),
             row.report.returnVisitsCount.toString(),
             if (row.isPioneer) formatHoursForExport(row.report.hoursRendered ?: 0.0) else "N/A",
@@ -512,9 +522,11 @@ private fun publisherReportTable(title: String, uiState: ManagePublisherReportsU
     }
     return ReportTable(
         title = title,
+        count = rows.size,
+        countLabel = "Total Publisher Reports",
         columns = listOf(
             "#", "Publisher", "Classification", "Bible Study", "Return Visits", "Hours",
-            "Participate in Preaching", "Congregation/Group", "Status", "Submission Date",
+            "Participate in Preaching", "Congregation", "Status", "Submission Date",
         ),
         rows = rows,
         totals = listOf(

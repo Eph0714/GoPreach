@@ -60,7 +60,7 @@ class TerritoryAssignmentWizardViewModel @Inject constructor(
 
     fun groupsFor(congregationId: String): Flow<List<Group>> =
         groupRepository.observeAll().map { groups ->
-            groups.filter { it.congregationId == congregationId && it.status == RecordStatus.ACTIVE }.sortedBy { it.name }
+            groups.filter { it.congregationId == congregationId && it.status == RecordStatus.ACTIVE }.sortedWith(com.emfitsolutions.gopreach.domain.GroupNameOrder)
         }
 
     suspend fun searchProvinces(query: String): List<PsgcOption> = philippineLocationRepository.searchProvinces(query)

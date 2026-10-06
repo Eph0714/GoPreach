@@ -136,6 +136,11 @@ enum class PublisherCategory {
     REMOVED_PUBLISHER,
 }
 
+/** The category as shown to people. A plain Publisher (stored as REGULAR_PUBLISHER) is just "PUBLISHER"; the
+ * stored value is unchanged, so no data needs migrating. */
+val PublisherCategory.displayName: String
+    get() = if (this == PublisherCategory.REGULAR_PUBLISHER) "PUBLISHER" else name.replace('_', ' ')
+
 /**
  * A [RoleAssignment.roleType] is either one of the [AdminRole]s or "the person is a
  * publisher in this [PublisherCategory]" — a Person can hold several RoleAssignments

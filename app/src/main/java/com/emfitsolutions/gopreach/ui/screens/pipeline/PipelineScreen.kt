@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.pipeline
 
 import android.Manifest
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -185,7 +186,7 @@ fun PipelineScreen(
     var selectedPerson by remember { mutableStateOf<InterestedPerson?>(null) }
     var initialPersonResolved by remember { mutableStateOf(initialPersonId == null) }
     if (!initialPersonResolved) {
-        val people by remember(publisherPersonId, stage) { viewModel.peopleFor(publisherPersonId, stage) }
+        val people by remember(publisherPersonId, congregationId, stage) { viewModel.visibleFor(publisherPersonId, congregationId, stage) }
             .collectAsStateWithLifecycle(initialValue = null)
         LaunchedEffect(people) {
             val loaded = people ?: return@LaunchedEffect
@@ -233,7 +234,7 @@ private fun PipelineListScreen(
     onOpenPerson: (InterestedPerson) -> Unit,
     viewModel: PipelineViewModel,
 ) {
-    val peopleFlow = remember(publisherPersonId, stage) { viewModel.peopleFor(publisherPersonId, stage) }
+    val peopleFlow = remember(publisherPersonId, congregationId, stage) { viewModel.visibleFor(publisherPersonId, congregationId, stage) }
     val allPeople by peopleFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showInactive by remember { mutableStateOf(false) }
     val people = allPeople.filter { showInactive || it.status == RecordStatus.ACTIVE }
@@ -278,6 +279,7 @@ private fun PipelineListScreen(
             }
             if (people.isEmpty()) {
                 Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    RecordFound(0)
                     Text("No records yet.", style = MaterialTheme.typography.bodyMedium)
                 }
             } else {
@@ -286,6 +288,7 @@ private fun PipelineListScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    item { RecordFound(people.size) }
                     items(people, key = { it.id }) { person ->
                         Card(modifier = Modifier.fillMaxWidth().clickable { onOpenPerson(person) }) {
                             Row(
@@ -296,6 +299,14 @@ private fun PipelineListScreen(
                                 Column {
                                     Text(person.name, style = MaterialTheme.typography.titleMedium)
                                     Text(person.address, style = MaterialTheme.typography.bodySmall)
+                                    if (person.publisherPersonId != publisherPersonId) {
+                                        val ownerName by remember(person.publisherPersonId) { viewModel.personName(person.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
+                                        Text(
+                                            if (person.publisherPersonId.isBlank()) "Unassigned" else "Assigned to: ${ownerName ?: "—"}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                     if (person.status == RecordStatus.INACTIVE) {
                                         Text("Inactive", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                                     }
@@ -306,7 +317,9 @@ private fun PipelineListScreen(
                                         PublisherForwardStatusBadge(person = person, viewModel = viewModel)
                                     }
                                 }
-                                if (person.status == RecordStatus.ACTIVE) {
+                                if (person.publisherPersonId != publisherPersonId) {
+                                    // Someone else's (or an unassigned) record: view / add visit only, never delete or reactivate.
+                                } else if (person.status == RecordStatus.ACTIVE) {
                                     IconButton(onClick = { pendingDelete = person }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete") }
                                 } else {
                                     IconButton(onClick = { viewModel.setStatus(person, RecordStatus.ACTIVE, currentPersonId); showToast("\"${person.name}\" reactivated.") }) {
@@ -716,6 +729,9 @@ private fun AssignPublisherPicker(publishers: List<Person>, selectedId: String, 
             }
         }
     }
+    publishers.firstOrNull { it.id == selectedId }?.remarks?.trim()?.takeIf { it.isNotEmpty() }?.let {
+        Text("Remarks: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     if (publishers.isEmpty()) {
         Text("No publishers available in this congregation.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -797,7 +813,7 @@ internal fun PipelinePersonDetailScreen(
     val visitsFlow = remember(person.id) { viewModel.visitsFor(person.id) }
     val visits by visitsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val livePersonFlow = remember(person.id) {
-        viewModel.peopleFor(person.publisherPersonId, stage).map { list -> list.firstOrNull { it.id == person.id } ?: person }
+        viewModel.observePerson(person.id).map { it ?: person }
     }
     val livePerson by livePersonFlow.collectAsStateWithLifecycle(initialValue = person)
     var showAddVisit by remember { mutableStateOf(false) }
@@ -840,7 +856,7 @@ internal fun PipelinePersonDetailScreen(
     val isOwner = currentPersonId == livePerson.publisherPersonId
     val canManageParent = isOwner || canManageAllVisitHistory
     val canAddVisit = when (stage) {
-        PipelineStage.SEARCHING -> false
+        PipelineStage.SEARCHING -> true
         PipelineStage.BIBLE_STUDY -> canManageParent
         PipelineStage.RETURN_VISIT -> true
     }
@@ -896,6 +912,8 @@ internal fun PipelinePersonDetailScreen(
                 // letting another Publisher see whose record this is), never
                 // implied to change just because someone else opened it.
                 Text("Assigned Publisher: ${assignedPublisherName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
+                val assignedRemarks by remember(livePerson.publisherPersonId) { viewModel.personRemarks(livePerson.publisherPersonId) }.collectAsStateWithLifecycle(initialValue = null)
+                assignedRemarks?.let { Text("Publisher Remarks: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 Text("Gender: ${livePerson.gender?.name?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Spouse: ${livePerson.spouse ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 // "Although the filter is simplified... the record must
@@ -920,7 +938,7 @@ internal fun PipelinePersonDetailScreen(
                 Text("Age: ${livePerson.ageYears ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Language: ${livePerson.language ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 Text("Literature Place: ${livePerson.literaturePlace ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-                Text("Congregation/Group: $congregationName", style = MaterialTheme.typography.bodyMedium)
+                Text("Congregation: $congregationName", style = MaterialTheme.typography.bodyMedium)
                 Text("Remarks: ${livePerson.remarks ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 SupportingImagePreview(livePerson.primarySupportingImage)
             }
@@ -966,7 +984,7 @@ internal fun PipelinePersonDetailScreen(
                     )
                 }
             }
-            if (stage != PipelineStage.SEARCHING) {
+            run {
                 item { EditSectionHeader("System Information", modifier = Modifier.padding(top = 16.dp))
                     Text("Date Created: ${formatRecordTimestamp(livePerson.createdAt)}", style = MaterialTheme.typography.bodyMedium)
                     Text("Date Updated: ${formatRecordTimestamp(livePerson.updatedAt)}", style = MaterialTheme.typography.bodyMedium)
@@ -1020,12 +1038,6 @@ internal fun PipelinePersonDetailScreen(
                             }
                         }
                     }
-                }
-            } else {
-                item { EditSectionHeader("System Information", modifier = Modifier.padding(top = 16.dp))
-                    Text("Date Created: ${formatRecordTimestamp(livePerson.createdAt)}", style = MaterialTheme.typography.bodyMedium)
-                    Text("Date Updated: ${formatRecordTimestamp(livePerson.updatedAt)}", style = MaterialTheme.typography.bodyMedium)
-                    Text("Created By: ${createdByName ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }
@@ -1232,7 +1244,7 @@ private fun PipelineActionButtons(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(Icons.Rounded.SwapHoriz, contentDescription = null, modifier = iconModifier)
-            Text("Forward to Other Congregation/Group")
+            Text("Forward to Other Congregation")
         }
         // "Use the same logic in transferring to other publisher in Return
         // Visit and Bible Study" — Searching now offers the exact same
@@ -1260,10 +1272,10 @@ private fun ForwardStatusLine(r: ForwardRequest?, onCancel: () -> Unit) {
     if (r == null) return
     Text(
         when (r.status) {
-            ForwardRequestStatus.PENDING -> "Forward to congregation/group: Pending — sent to ${r.toCongregationNameSnapshot}"
-            ForwardRequestStatus.ACCEPTED -> "Forward to congregation/group: Accepted by ${r.toCongregationNameSnapshot} — assigned to ${r.assignedToPublisherNameSnapshot ?: "—"}"
-            ForwardRequestStatus.DECLINED -> "Forward to congregation/group: Declined by ${r.toCongregationNameSnapshot}"
-            ForwardRequestStatus.CANCELLED -> "Forward to congregation/group: Cancelled"
+            ForwardRequestStatus.PENDING -> "Forward to congregation: Pending — sent to ${r.toCongregationNameSnapshot}"
+            ForwardRequestStatus.ACCEPTED -> "Forward to congregation: Accepted by ${r.toCongregationNameSnapshot} — assigned to ${r.assignedToPublisherNameSnapshot ?: "—"}"
+            ForwardRequestStatus.DECLINED -> "Forward to congregation: Declined by ${r.toCongregationNameSnapshot}"
+            ForwardRequestStatus.CANCELLED -> "Forward to congregation: Cancelled"
         },
         style = MaterialTheme.typography.bodySmall,
     )
@@ -1317,7 +1329,7 @@ private fun ForwardToCongregationDialog(
 
     fun submit() {
         val target = selected
-        val message = requiredFieldsMessage("Congregation/Group" to (target != null))
+        val message = requiredFieldsMessage("Congregation" to (target != null))
         if (message != null) {
             errorMessage = message
             return
@@ -1329,7 +1341,7 @@ private fun ForwardToCongregationDialog(
 
     FormDialog(
         onDismissRequest = onDismiss,
-        title = "Forward to Other Congregation/Group",
+        title = "Forward to Other Congregation",
         onConfirm = ::submit,
         confirmLabel = "Send Request",
         errorMessage = errorMessage,
@@ -1339,7 +1351,7 @@ private fun ForwardToCongregationDialog(
         OutlinedTextField(
             value = query,
             onValueChange = { query = it; selected = null },
-            label = { Text("Search by congregation/group name or language") },
+            label = { Text("Search by congregation name or language") },
             singleLine = true,
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth(),
@@ -1356,7 +1368,7 @@ private fun ForwardToCongregationDialog(
                     }
                 }
             }
-            if (filtered.isEmpty()) item { Text("No matching congregation/group.", style = MaterialTheme.typography.bodySmall) }
+            if (filtered.isEmpty()) item { Text("No matching congregation.", style = MaterialTheme.typography.bodySmall) }
         }
     }
 }

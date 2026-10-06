@@ -73,6 +73,26 @@ async function run() {
       periodMonth: 1, bibleStudiesCount: 2,
     });
 
+    // Submitted / Draft reports of pubA for the duplicate-submission lock tests.
+    await setDoc(doc(db, "monthlyReports", "pubA_202608"), {
+      publisherPersonId: "pubA", congregationId: "congA", status: "SUBMITTED",
+      periodMonth: 1, bibleStudiesCount: 3, hoursRendered: 15.5,
+    });
+    await setDoc(doc(db, "monthlyReports", "pubA_202609"), {
+      publisherPersonId: "pubA", congregationId: "congA", status: "DRAFT",
+      periodMonth: 2, bibleStudiesCount: 1, hoursRendered: 10,
+    });
+
+    // Deleted Records: one deleted by pubA (congA) and one deleted by someone in congB.
+    await setDoc(doc(db, "deletedRecords", "trashA"), {
+      status: "deleted", recordType: "Return Visit", module: "Return Visit / Bible Study", label: "Juan",
+      congregationId: "congA", deletedByPersonId: "pubA", deletedAt: 1, itemsJson: "[]",
+    });
+    await setDoc(doc(db, "deletedRecords", "trashB"), {
+      status: "deleted", recordType: "Publisher", module: "Publishers", label: "Pedro",
+      congregationId: "congB", deletedByPersonId: "pubOtherCong", deletedAt: 1, itemsJson: "[]",
+    });
+
     // A plain RoleAssignment (Coordinator Elder) in congA, for privilege tests.
     await setDoc(doc(db, "roleAssignments", "ra1"), {
       personId: "someoneA", roleType: "ADMIN:COORDINATOR_ELDER", congregationId: "congA", status: "ACTIVE",
@@ -109,6 +129,73 @@ async function run() {
     await assertSucceeds(updateDoc(ref, { bibleStudiesCount: 7 }));
     record("Secretary can edit another publisher's Monthly Report in own congregation (Service-Overseer parity)", true);
   })().catch((e) => record("Secretary can edit another publisher's Monthly Report in own congregation (Service-Overseer parity)", false, e.message));
+
+  // ============ Duplicate-submission lock on Monthly Reports ============
+  await (async () => {
+    const ref = doc(asPubA, "monthlyReports", "pubA_202608");
+    await assertFails(setDoc(ref, {
+      publisherPersonId: "pubA", congregationId: "congA", status: "SUBMITTED",
+      periodMonth: 1, bibleStudiesCount: 9, hoursRendered: 40,
+    }));
+    record("Publisher CANNOT overwrite their own already-SUBMITTED report (duplicate submission rejected)", true);
+  })().catch((e) => record("Publisher CANNOT overwrite their own already-SUBMITTED report (duplicate submission rejected)", false, e.message));
+
+  await (async () => {
+    const ref = doc(asPubA, "monthlyReports", "pubA_202608");
+    await assertSucceeds(setDoc(ref, {
+      publisherPersonId: "pubA", congregationId: "congA", status: "SUBMITTED",
+      periodMonth: 1, bibleStudiesCount: 3, hoursRendered: 15.5,
+    }));
+    record("An identical re-write of a SUBMITTED report is accepted (retried sync is not an error)", true);
+  })().catch((e) => record("An identical re-write of a SUBMITTED report is accepted (retried sync is not an error)", false, e.message));
+
+  await (async () => {
+    const ref = doc(asPubA, "monthlyReports", "pubA_202609");
+    await assertSucceeds(updateDoc(ref, { status: "SUBMITTED", hoursRendered: 12 }));
+    record("Publisher CAN submit their own DRAFT report", true);
+  })().catch((e) => record("Publisher CAN submit their own DRAFT report", false, e.message));
+
+  await (async () => {
+    const ref = doc(asSecretaryA, "monthlyReports", "pubA_202608");
+    await assertSucceeds(updateDoc(ref, { status: "DRAFT" }));
+    const again = doc(asPubA, "monthlyReports", "pubA_202608");
+    await assertSucceeds(updateDoc(again, { status: "SUBMITTED", hoursRendered: 16 }));
+    record("An admin can unlock a SUBMITTED report, after which the publisher can resubmit it", true);
+  })().catch((e) => record("An admin can unlock a SUBMITTED report, after which the publisher can resubmit it", false, e.message));
+
+  // ============ Deleted Records (recycle bin) ============
+  const trashTest = async (name, fn) => {
+    try { await fn(); record(name, true); } catch (e) { record(name, false, e.message); }
+  };
+  await trashTest("Publisher CAN move their own record to Deleted Records", () =>
+    assertSucceeds(setDoc(doc(asPubA, "deletedRecords", "trashNew"), {
+      status: "deleted", recordType: "Return Visit", module: "x", label: "Maria", congregationId: "congA",
+      deletedByPersonId: "pubA", deletedAt: 2, itemsJson: "[]",
+    })));
+  await trashTest("Publisher CANNOT file a deleted record as someone else", () =>
+    assertFails(setDoc(doc(asPubA, "deletedRecords", "trashForged"), {
+      status: "deleted", recordType: "x", module: "x", label: "x", congregationId: "congA",
+      deletedByPersonId: "adminA", deletedAt: 2, itemsJson: "[]",
+    })));
+  await trashTest("Publisher CAN read and restore (delete the entry of) their own deleted record", async () => {
+    await assertSucceeds(getDoc(doc(asPubA, "deletedRecords", "trashA")));
+  });
+  await trashTest("Publisher CANNOT read another congregation's deleted record", () =>
+    assertFails(getDoc(doc(asPubA, "deletedRecords", "trashB"))));
+  await trashTest("Publisher CANNOT permanently delete a record they didn't delete", () =>
+    assertFails(deleteDoc(doc(asPubA, "deletedRecords", "trashB"))));
+  await trashTest("Admin CAN read their congregation's deleted records", () =>
+    assertSucceeds(getDoc(doc(asAdminA, "deletedRecords", "trashA"))));
+  await trashTest("Admin CANNOT read another congregation's deleted records", () =>
+    assertFails(getDoc(doc(asAdminA, "deletedRecords", "trashB"))));
+  await trashTest("Admin CANNOT permanently delete another congregation's deleted record", () =>
+    assertFails(deleteDoc(doc(asAdminA, "deletedRecords", "trashB"))));
+  await trashTest("Nobody can edit a deleted record in place", () =>
+    assertFails(updateDoc(doc(asAdminA, "deletedRecords", "trashA"), { label: "changed" })));
+  await trashTest("Super Admin CAN permanently delete any deleted record", () =>
+    assertSucceeds(deleteDoc(doc(asSuperAdmin, "deletedRecords", "trashB"))));
+  await trashTest("Admin CAN permanently delete their congregation's deleted record", () =>
+    assertSucceeds(deleteDoc(doc(asAdminA, "deletedRecords", "trashA"))));
 
   // ============ TEST 3: Congregation Admin scoping ============
   await (async () => {

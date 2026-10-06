@@ -81,6 +81,27 @@ class AppSettingsRepository @Inject constructor(
         )
     }
 
+    /** "Automatically Permanently Delete Deleted Records" — on/off and the retention period in days. */
+    suspend fun saveTrashRetention(enabled: Boolean, days: Int, updatedByPersonId: String) {
+        val current = observe().first()
+        val safeDays = if (days in AppSettings.TRASH_RETENTION_OPTIONS) days else AppSettings.DEFAULT_TRASH_RETENTION_DAYS
+        offline.save(
+            COLLECTION,
+            AppSettings.GLOBAL_ID,
+            current.copy(
+                trashAutoDeleteEnabled = enabled,
+                trashRetentionDays = safeDays,
+                updatedAt = System.currentTimeMillis(),
+                updatedByPersonId = updatedByPersonId,
+            ),
+        )
+        auditLogRepository.log(
+            actorPersonId = updatedByPersonId,
+            action = "UPDATE_DELETED_RECORDS_RETENTION",
+            details = "autoDelete=$enabled, days=$safeDays",
+        )
+    }
+
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, AppSettings::class.java) { it.id }
 }

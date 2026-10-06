@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.accountmanagement
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -49,6 +50,8 @@ import com.emfitsolutions.gopreach.data.model.AccountStatus
 import com.emfitsolutions.gopreach.data.model.AdminRole
 import com.emfitsolutions.gopreach.data.repository.AuthResult
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.ReadOnlyField
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -79,13 +82,14 @@ fun AccountManagementScreen(
     val availableTypes = remember(actingRole) { viewModel.availableAccountTypes(actingRole) }
     var selectedType by remember(availableTypes) { mutableStateOf(availableTypes.firstOrNull()) }
     val isSuperAdmin = actingRole == AdminRole.SUPER_ADMIN
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("account_management")
+    val needsCongregation = isSuperAdmin && congregationFilter == null
     var searchQuery by remember { mutableStateOf("") }
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
 
     val type = selectedType
-    val rowsFlow = remember(actingRole, actingCongregationId, type, congregationFilter, searchQuery) {
-        if (type == null) flowOf(emptyList()) else
+    val rowsFlow = remember(actingRole, actingCongregationId, type, congregationFilter, searchQuery, needsCongregation) {
+        if (type == null || needsCongregation) flowOf(emptyList()) else
             viewModel.rowsFor(actingRole, actingCongregationId, type, congregationFilter, searchQuery)
     }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -137,11 +141,14 @@ fun AccountManagementScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
 
-            if (rows.isEmpty()) {
+            if (needsCongregation) {
+                SelectCongregationPrompt()
+            } else if (rows.isEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxSize().padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    RecordFound(0)
                     Text(
                         if (type == null) "No account types available for your role." else "No accounts found.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -153,6 +160,7 @@ fun AccountManagementScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    item { RecordFound(rows.size) }
                     items(rows, key = { it.person.id }) { row ->
                         AccountRowCard(
                             row = row,

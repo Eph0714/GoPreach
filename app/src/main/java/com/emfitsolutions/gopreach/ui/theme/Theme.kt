@@ -80,6 +80,7 @@ fun GoPreachTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = GoPreachTypography,
+        shapes = GoPreachShapes,
         content = content,
     )
 }

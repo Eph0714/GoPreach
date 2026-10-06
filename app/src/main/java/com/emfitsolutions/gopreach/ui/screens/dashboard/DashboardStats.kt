@@ -155,7 +155,7 @@ fun computeStatMembers(
                     PublisherCategory.INACTIVE_PUBLISHER -> "Inactive Publisher"
                     PublisherCategory.REPROOF_PUBLISHER -> "Reproof Publisher"
                     PublisherCategory.REMOVED_PUBLISHER -> "Removed Publisher"
-                    PublisherCategory.REGULAR_PUBLISHER -> "Regular Publisher"
+                    PublisherCategory.REGULAR_PUBLISHER -> "Publisher"
                 }
                 null -> null
             }
@@ -368,7 +368,7 @@ data class CongregationStats(
             val scopedReports = reports.filter { it.congregationId in congregationIds }
             return CongregationStats(
                 congregationId = "",
-                congregationName = "All Congregations/Groups",
+                congregationName = "All Congregations",
                 totalPublishers = publisherAssignments.count {
                     (it.resolvedRoleTypeOrNull() as? RoleType.Publisher)?.category != PublisherCategory.REMOVED_PUBLISHER
                 },

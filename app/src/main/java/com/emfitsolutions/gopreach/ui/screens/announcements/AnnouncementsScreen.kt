@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.announcements
 
 import android.net.Uri
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -61,6 +62,8 @@ import com.emfitsolutions.gopreach.data.export.CsvExporter
 import com.emfitsolutions.gopreach.data.model.Announcement
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -87,9 +90,10 @@ fun AnnouncementsScreen(
 ) {
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
     // "Add a filter for Congregation" (Super-Admin only).
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("announcements")
     val effectiveCongregationId = fixedCongregationId ?: congregationFilter
-    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
+    val needsCongregation = fixedCongregationId == null && congregationFilter == null
+    val rowsFlow = remember(effectiveCongregationId, needsCongregation) { if (needsCongregation) kotlinx.coroutines.flow.flowOf(emptyList()) else viewModel.rowsFor(effectiveCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingEdit by remember { mutableStateOf<Announcement?>(null) }
@@ -131,11 +135,14 @@ fun AnnouncementsScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        if (rows.isEmpty()) {
+        if (needsCongregation) {
+            SelectCongregationPrompt()
+        } else if (rows.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                RecordFound(0)
                 Text(
                     if (readOnly) "No announcements yet." else "No announcements yet. Tap + to add one.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -147,6 +154,7 @@ fun AnnouncementsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(rows.size) }
                 items(rows, key = { it.id }) { announcement ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
@@ -299,7 +307,7 @@ private fun AnnouncementDialog(
     // this file's own `congregationId` val — a real, confirmed-on-device
     // Compose staleness where that kind of pre-computed val can go stale
     // inside a local closure even though the live picked-id state stays correct.
-    var pickedCongregationId by rememberSaveable { mutableStateOf(existing?.congregationId ?: fixedCongregationId) }
+    var pickedCongregationId by rememberSaveable { mutableStateOf(existing?.congregationId ?: fixedCongregationId ?: com.emfitsolutions.gopreach.ui.components.CongregationContextStore.get("announcements")) }
     var pickedImageUri by remember { mutableStateOf<Uri?>(null) }
     var removeImage by remember { mutableStateOf(false) }
     // "Allow to add files like pdf, word and excel" — a document attachment,
@@ -337,7 +345,7 @@ private fun AnnouncementDialog(
         val message = requiredFieldsMessage(
             "Announcement Title" to title.isNotBlank(),
             "Announcement Details" to details.isNotBlank(),
-            "Congregation/Group" to (resolvedCongregationId != null),
+            "Congregation" to (resolvedCongregationId != null),
         )
         if (message != null) {
             errorMessage = message
@@ -455,7 +463,7 @@ private fun CongregationPickerDropdown(congregations: List<Congregation>, select
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation/Group") },
+            label = { Text("Congregation") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

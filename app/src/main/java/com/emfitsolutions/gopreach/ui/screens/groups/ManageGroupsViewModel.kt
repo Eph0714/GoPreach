@@ -58,6 +58,7 @@ class ManageGroupsViewModel @Inject constructor(
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val auditLogRepository: AuditLogRepository,
+    private val recycleBinRepository: com.emfitsolutions.gopreach.data.repository.RecycleBinRepository,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -106,6 +107,24 @@ class ManageGroupsViewModel @Inject constructor(
                         assignment.personId !in excludePersonIds
                 }
                 .mapNotNull { assignment -> people.firstOrNull { it.id == assignment.personId } }
+        }
+
+    /** "Get the Group Servant dropdown from the Ministerial Servant list" — the active Ministerial
+     * Servants of [congregationId] (minus whoever already holds another role in this group).
+     * Picking one only records them as this group's servant; their own role stays Ministerial
+     * Servant — nothing here ever turns them into a Regular Elder. */
+    fun availableMinisterialServantsFor(congregationId: String, excludePersonIds: Set<String> = emptySet()): Flow<List<Person>> =
+        combine(personRepository.observeAll(), roleAssignmentRepository.observeAll()) { people, assignments ->
+            assignments
+                .filter { assignment ->
+                    assignment.status == RoleAssignmentStatus.ACTIVE &&
+                        assignment.congregationId == congregationId &&
+                        (assignment.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.MINISTERIAL_SERVANT &&
+                        assignment.personId !in excludePersonIds
+                }
+                .mapNotNull { assignment -> people.firstOrNull { it.id == assignment.personId } }
+                .distinctBy { it.id }
+                .sortedBy { it.fullName }
         }
 
     /** "'Group Assistant' can be browse from Publishers Record" — unlike
@@ -216,7 +235,7 @@ class ManageGroupsViewModel @Inject constructor(
                         assistantName = people.firstOrNull { it.id == group.assistantPersonId }?.fullName,
                     )
                 }
-                .sortedBy { it.group.name }
+                .sortedWith(com.emfitsolutions.gopreach.domain.NaturalOrder.by { it.group.name })
         }
 
     /** Saves the Group, then mirrors each role slot onto that Elder's own
@@ -263,16 +282,20 @@ class ManageGroupsViewModel @Inject constructor(
      * from this role slot instead; [regularElderRole] is never written onto a
      * Publisher's assignment, since that field only has meaning for an Elder. */
     private suspend fun setPersonGroup(personId: String, groupId: String?, role: RegularElderRole?) {
-        val assignment = roleAssignmentRepository.observeForPerson(personId).first()
-            .firstOrNull { assignment ->
-                val roleType = assignment.resolvedRoleTypeOrNull()
-                (roleType as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER || roleType is RoleType.Publisher
-            } ?: return
-        val isElder = (assignment.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role == AdminRole.REGULAR_ELDER
+        val assignments = roleAssignmentRepository.observeForPerson(personId).first()
+        fun adminRole(a: com.emfitsolutions.gopreach.data.model.RoleAssignment) = (a.resolvedRoleTypeOrNull() as? RoleType.Admin)?.role
+        // A Regular Elder's own assignment first, then a Ministerial Servant's (which already carries
+        // its own group role, see the Ministerial Servant screen), then a Publisher's. No assignment's
+        // role type is ever changed — a Ministerial Servant stays a Ministerial Servant.
+        val assignment = assignments.firstOrNull { adminRole(it) == AdminRole.REGULAR_ELDER }
+            ?: assignments.firstOrNull { adminRole(it) == AdminRole.MINISTERIAL_SERVANT }
+            ?: assignments.firstOrNull { it.resolvedRoleTypeOrNull() is RoleType.Publisher }
+            ?: return
+        val carriesGroupRole = adminRole(assignment) == AdminRole.REGULAR_ELDER || adminRole(assignment) == AdminRole.MINISTERIAL_SERVANT
         roleAssignmentRepository.save(
             assignment.copy(
                 groupId = groupId,
-                regularElderRole = if (isElder) (role ?: assignment.regularElderRole) else assignment.regularElderRole,
+                regularElderRole = if (carriesGroupRole) (role ?: assignment.regularElderRole) else assignment.regularElderRole,
             ),
         )
     }
@@ -315,6 +338,23 @@ class ManageGroupsViewModel @Inject constructor(
             // whose RoleAssignment.groupId still points at this group.
             val group = groupRepository.observeAll().first().firstOrNull { it.id == groupId }
             if (group != null) {
+                // The group, plus every member whose group link is about to be cleared (put back on restore only
+                // if that person still has no group).
+                val members = roleAssignmentRepository.observeAll().first().filter { it.groupId == groupId }
+                recycleBinRepository.moveToTrash(
+                    recordType = "Field Service Group",
+                    module = "Field Service Groups",
+                    label = group.name,
+                    congregationId = group.congregationId,
+                    groupId = group.id,
+                    groupName = group.name,
+                    originalCreatedAt = group.createdAt,
+                    deletedByPersonId = actorPersonId,
+                    items = buildList {
+                        add(recycleBinRepository.item("groups", group.id, group))
+                        members.forEach { add(recycleBinRepository.relationshipItem("roleAssignments", it.id, it, "groupId")) }
+                    },
+                )
                 listOfNotNull(group.overseerPersonId, group.servantPersonId, group.assistantPersonId, group.regularElderPersonId)
                     .distinct()
                     .forEach { setPersonGroup(it, null, null) }

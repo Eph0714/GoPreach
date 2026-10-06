@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.territoryassignments
 
 import androidx.compose.foundation.clickable
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -89,6 +90,7 @@ class PublisherTerritoryAssignmentViewModel @Inject constructor(
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val interestedPersonRepository: InterestedPersonRepository,
     private val philippineLocationRepository: PhilippineLocationRepository,
+    private val recycleBinRepository: com.emfitsolutions.gopreach.data.repository.RecycleBinRepository,
     congregationRepository: CongregationRepository,
 ) : ViewModel() {
 
@@ -157,6 +159,20 @@ class PublisherTerritoryAssignmentViewModel @Inject constructor(
             if (PermissionChecker.fullCrudAssignment(actorAssignments) == null) {
                 onNoAccess()
                 return@launch
+            }
+            // Deleting moves it to Deleted Records (kept whole, restorable); it only disappears for good from there.
+            val assignment = repository.observeAll().first().firstOrNull { it.id == assignmentId }
+            if (assignment != null) {
+                recycleBinRepository.moveToTrash(
+                    recordType = "Per Publisher Territory Assignment",
+                    module = "Territory Assignment",
+                    label = "${assignment.publisherName} — ${assignment.barangayName}, ${assignment.muncityName}",
+                    congregationId = assignment.congregationId,
+                    originalCreatedAt = assignment.createdAt,
+                    originalModifiedAt = assignment.updatedAt,
+                    deletedByPersonId = actorPersonId,
+                    items = listOf(recycleBinRepository.item("publisherTerritoryAssignments", assignment.id, assignment)),
+                )
             }
             repository.delete(assignmentId)
         }
@@ -235,6 +251,8 @@ fun PublisherTerritoryAssignmentsScreen(
                             context,
                             ReportTable(
                                 title = "Per Publisher Territory Assignments",
+                                count = rows.size,
+                                countLabel = "Total Assignments",
                                 columns = listOf("Publisher", "Barangay", "Municipality", "Province", "Return Visits"),
                                 rows = rows.map { listOf(it.publisherName, it.barangayName, it.muncityName, it.provinceName, it.returnVisitNames.joinToString(", ")) },
                                 totals = listOf("Assignments" to rows.size.toString()),
@@ -253,17 +271,20 @@ fun PublisherTerritoryAssignmentsScreen(
         },
     ) { padding ->
         if (rows.isEmpty()) {
-            Text(
-                "No per-publisher territory assignments yet.",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(padding).padding(16.dp),
-            )
+            Column(modifier = Modifier.padding(padding).padding(16.dp)) {
+                RecordFound(0)
+                Text(
+                    "No per-publisher territory assignments yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                item { RecordFound(rows.size) }
                 items(rows, key = { it.id }) { row ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -163,7 +163,7 @@ class AddEditUserViewModel @Inject constructor(
             return
         }
         if (state.scopeType == ScopeType.SELECTED_CONGREGATIONS && state.selectedCongregationIds.isEmpty()) {
-            _uiState.update { it.copy(errorMessage = "Select at least one congregation/group, or choose All Congregations/Groups.") }
+            _uiState.update { it.copy(errorMessage = "Select at least one congregation, or choose All Congregations.") }
             return
         }
         if (state.scopeType == ScopeType.SELECTED_GROUPS && state.selectedGroupIds.isEmpty()) {

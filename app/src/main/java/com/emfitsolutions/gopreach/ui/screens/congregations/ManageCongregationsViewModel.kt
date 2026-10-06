@@ -90,7 +90,7 @@ class ManageCongregationsViewModel @Inject constructor(
             if (groupCount > 0) add("$groupCount group(s)")
             if (assignmentCount > 0) add("$assignmentCount admin/elder/publisher record(s) (including inactive ones, and each publisher's monthly reports and interested person/Bible study records)")
         }
-        return "This will also permanently delete " + parts.joinToString(" and ") + "."
+        return "This will also permanently delete " + parts.joinToString(" and ") + " (congregations are not covered by Deleted Records yet)."
     }
 
     /** Super-Admin-only cascading delete (see [canPermanentlyDelete]):

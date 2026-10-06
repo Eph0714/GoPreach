@@ -1,6 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.monthlyreport
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
+import com.emfitsolutions.gopreach.data.model.displayName
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -74,6 +76,7 @@ fun MySubmittedReportsScreen(
                 modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                RecordFound(0)
                 Text(
                     stringResource(R.string.my_reports_empty),
                     style = MaterialTheme.typography.bodyMedium,
@@ -86,6 +89,7 @@ fun MySubmittedReportsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(reports.size) }
                 items(reports, key = { it.id }) { report ->
                     SubmittedReportCard(report)
                 }
@@ -111,7 +115,7 @@ private fun SubmittedReportCard(report: MonthlyReport) {
                 StatusChip(report.status)
             }
             Text(
-                report.category.name.replace('_', ' '),
+                report.category.displayName,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

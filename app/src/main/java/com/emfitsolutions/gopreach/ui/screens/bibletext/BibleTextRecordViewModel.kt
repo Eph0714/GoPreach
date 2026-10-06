@@ -81,6 +81,7 @@ val SUGGESTED_EVENTS: List<String> = listOf(
 class BibleTextRecordViewModel @Inject constructor(
     private val recordRepository: BibleTextRecordRepository,
     private val eventRepository: BibleTextCategoryRepository,
+    private val recycleBinRepository: com.emfitsolutions.gopreach.data.repository.RecycleBinRepository,
 ) : ViewModel() {
 
     fun recordsFor(publisherPersonId: String): Flow<List<BibleTextRecord>> =
@@ -93,8 +94,19 @@ class BibleTextRecordViewModel @Inject constructor(
         viewModelScope.launch { recordRepository.save(record) }
     }
 
-    fun deleteRecord(recordId: String) {
-        viewModelScope.launch { recordRepository.delete(recordId) }
+    fun deleteRecord(record: BibleTextRecord, label: String, actorPersonId: String) {
+        viewModelScope.launch {
+            recycleBinRepository.moveToTrash(
+                recordType = "Bible Text",
+                module = "My Bible Text Record",
+                label = label,
+                congregationId = null,
+                originalCreatedAt = record.createdAt,
+                deletedByPersonId = actorPersonId,
+                items = listOf(recycleBinRepository.item("bibleTextRecords", record.id, record)),
+            )
+            recordRepository.delete(record.id)
+        }
     }
 
     fun saveEvent(event: BibleTextCategory) {
@@ -118,6 +130,21 @@ class BibleTextRecordViewModel @Inject constructor(
         viewModelScope.launch {
             val toDelete = recordRepository.observeForPublisher(publisherPersonId).first()
                 .filter { it.categoryId == eventId }
+            val event = eventRepository.observeForPublisher(publisherPersonId).first().firstOrNull { it.id == eventId }
+            if (event != null) {
+                recycleBinRepository.moveToTrash(
+                    recordType = "Bible Text Event",
+                    module = "My Bible Text Record",
+                    label = event.event,
+                    congregationId = null,
+                    originalCreatedAt = event.createdAt,
+                    deletedByPersonId = publisherPersonId,
+                    items = buildList {
+                        add(recycleBinRepository.item("bibleTextCategories", event.id, event))
+                        toDelete.forEach { add(recycleBinRepository.item("bibleTextRecords", it.id, it)) }
+                    },
+                )
+            }
             toDelete.forEach { recordRepository.delete(it.id) }
             eventRepository.delete(eventId)
         }

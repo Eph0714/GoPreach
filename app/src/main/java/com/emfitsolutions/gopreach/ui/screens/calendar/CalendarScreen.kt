@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.calendar
 
 import androidx.compose.foundation.verticalScroll
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
@@ -44,6 +45,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Schedule
 import com.emfitsolutions.gopreach.data.model.ScheduleKind
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 import com.emfitsolutions.gopreach.ui.components.DateTimeField
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -72,10 +75,11 @@ fun CalendarScreen(
     // [scope] is already unscoped (AdminTrack with a null congregationId);
     // every other scope is already fixed to one congregation, so there's
     // nothing for them to filter.
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("calendar")
     val isSuperAdminScope = scope is CalendarScope.AdminTrack && scope.congregationId == null
     val effectiveScope = if (isSuperAdminScope) (scope as CalendarScope.AdminTrack).copy(congregationId = congregationFilter) else scope
-    val eventsFlow = remember(effectiveScope) { viewModel.eventsFor(effectiveScope, currentPersonId) }
+    val needsCongregation = isSuperAdminScope && congregationFilter == null
+    val eventsFlow = remember(effectiveScope, needsCongregation) { if (needsCongregation) kotlinx.coroutines.flow.flowOf(emptyList()) else viewModel.eventsFor(effectiveScope, currentPersonId) }
     val events by eventsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showCreateDialog by remember { mutableStateOf(false) }
     var pendingEdit by remember { mutableStateOf<Schedule?>(null) }
@@ -110,11 +114,14 @@ fun CalendarScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        if (events.isEmpty()) {
+        if (needsCongregation) {
+            SelectCongregationPrompt()
+        } else if (events.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                RecordFound(0)
                 Text("Nothing on the calendar yet.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
@@ -123,6 +130,7 @@ fun CalendarScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(events.size) }
                 items(events, key = { it.id }) { event ->
                     val editable = viewModel.canEdit(scope, event, currentPersonId)
                     Card(modifier = Modifier.fillMaxWidth()) {
@@ -192,8 +200,8 @@ fun CalendarScreen(
             text = { Text("This removes the calendar entry.") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.delete(toDelete.id)
-                    showToast("\"${toDelete.title}\" deleted.")
+                    viewModel.delete(toDelete, currentPersonId)
+                    showToast("\"${toDelete.title}\" moved to Deleted Records.")
                     pendingDelete = null
                 }) { Text("Delete") }
             },

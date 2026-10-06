@@ -1,6 +1,10 @@
 package com.emfitsolutions.gopreach.ui.screens.enrollment
 
 import androidx.compose.foundation.verticalScroll
+import com.emfitsolutions.gopreach.ui.components.PublisherFormFields
+import com.emfitsolutions.gopreach.ui.components.PublisherFormState
+import com.emfitsolutions.gopreach.data.model.displayName
+import com.emfitsolutions.gopreach.ui.components.NameFieldsInOrder
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -63,10 +67,7 @@ fun PublisherEnrollmentScreen(
     val groups by viewModel.groups.collectAsStateWithLifecycle()
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
 
-    val hasUnsavedChanges = uiState.result == null && (
-        uiState.firstName.isNotBlank() || uiState.lastName.isNotBlank() ||
-            uiState.address.isNotBlank() || uiState.contact.isNotBlank() || uiState.email.isNotBlank()
-        )
+    val hasUnsavedChanges = uiState.result == null && uiState.form != PublisherFormState()
     val guardedBack = rememberUnsavedChangesBackHandler(hasUnsavedChanges, onDiscard = onBack)
 
     Scaffold(
@@ -92,115 +93,29 @@ fun PublisherEnrollmentScreen(
                 TempCredentialsResultCard(credentials = uiState.result!!, onDone = onDone)
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    OutlinedTextField(
-                        value = uiState.lastName,
-                        onValueChange = viewModel::onLastNameChange,
-                        label = { Text("Last Name") },
-                        singleLine = true,
-                        visualTransformation = VisualTransformation.None,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = uiState.firstName,
-                        onValueChange = viewModel::onFirstNameChange,
-                        label = { Text("First Name") },
-                        singleLine = true,
-                        visualTransformation = VisualTransformation.None,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedTextField(
-                        value = uiState.address,
-                        onValueChange = viewModel::onAddressChange,
-                        label = { Text("Address") },
-                        visualTransformation = VisualTransformation.None,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    // "Add a dropdown for City, Municipalities, Town
-                    // Barangay... it can be automatic if the publisher will
-                    // capture the coordinates" — manual browsing via the
-                    // dropdowns, or tap "Use Current Location" to fill them
-                    // automatically (best-effort; still editable after).
-                    com.emfitsolutions.gopreach.ui.components.PhilippineAddressPicker(
-                        province = uiState.province,
-                        cityMunicipality = uiState.cityMunicipality,
-                        barangay = uiState.barangay,
-                        onChanged = viewModel::onAddressLevelsChanged,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
                     val locationPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                         androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
                     ) { granted -> if (granted) viewModel.captureLocation() }
-                    androidx.compose.material3.OutlinedButton(
-                        onClick = {
+
+                    // The same field set as the Edit Publisher dialog (see PublisherFormFields): names, middle
+                    // initial, extension, gender, contacts, address, province/municipality/barangay,
+                    // coordinates, email, category, field service group and status.
+                    PublisherFormFields(
+                        form = uiState.form,
+                        onChange = viewModel::onFormChange,
+                        groups = groups,
+                        // A Super-Admin's new publisher starts in the congregation they are working in and they may
+                        // change it; anyone else is fixed to their own congregation (shown, not editable).
+                        congregations = congregations,
+                        congregationEditable = visibleCongregationId == null,
+                        groupEnabled = visibleCongregationId != null || uiState.selectedCongregationId != null,
+                        capturingLocation = uiState.isCapturingLocation,
+                        locationError = uiState.locationError,
+                        onUseCurrentLocation = {
                             if (viewModel.hasLocationPermission()) viewModel.captureLocation()
                             else locationPermissionLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
                         },
-                        enabled = !uiState.isCapturingLocation,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        if (uiState.isCapturingLocation) {
-                            CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
-                            Text("Getting current location…")
-                        } else {
-                            Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                            Text("Use Current Location")
-                        }
-                    }
-                    if (uiState.locationError != null) {
-                        Text(uiState.locationError!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    }
-                    OutlinedTextField(
-                        value = uiState.contact,
-                        onValueChange = viewModel::onContactChange,
-                        label = { Text("Contact") },
-                        singleLine = true,
-                        visualTransformation = VisualTransformation.None,
-                        modifier = Modifier.fillMaxWidth(),
                     )
-                    OutlinedTextField(
-                        value = uiState.email,
-                        onValueChange = viewModel::onEmailChange,
-                        label = { Text("Email (optional)") },
-                        singleLine = true,
-                        visualTransformation = VisualTransformation.None,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
-                    // Super-Admin only — Admin/Coordinator Elder/Service
-                    // Overseer are already restricted to their own
-                    // congregation upstream (visibleCongregationId), so this
-                    // field would be both redundant and a way to imply a
-                    // choice they don't actually have; omitted entirely for
-                    // them instead of shown-but-disabled.
-                    if (visibleCongregationId == null) {
-                        CongregationDropdown(
-                            congregations = congregations,
-                            selectedId = uiState.selectedCongregationId,
-                            onSelected = viewModel::onCongregationSelected,
-                        )
-                    }
-
-                    GroupDropdown(
-                        groups = groups,
-                        selectedId = uiState.selectedGroupId,
-                        onSelected = viewModel::onGroupSelected,
-                        enabled = visibleCongregationId != null || uiState.selectedCongregationId != null,
-                    )
-
-                    HorizontalDivider()
-                    Text("Status", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Checking one status disables and unchecks every other one.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    PublisherCategory.entries.forEach { category ->
-                        RoleCheckboxRow(
-                            label = category.name.replace('_', ' '),
-                            checked = uiState.category == category,
-                            enabled = uiState.category == null || uiState.category == category,
-                            onCheckedChange = { viewModel.onCategoryToggled(category, it) },
-                        )
-                    }
 
                     if (uiState.errorMessage != null) {
                         Text(text = uiState.errorMessage!!, color = MaterialTheme.colorScheme.error)
@@ -226,34 +141,3 @@ fun PublisherEnrollmentScreen(
 // AdminEnrollmentScreen.kt — same package, same exact shape needed here, so
 // it's reused as-is rather than duplicated. RoleCheckboxRow is defined in
 // CoordinatorElderEnrollmentScreen.kt, same package, reused the same way.
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun GroupDropdown(groups: List<Group>, selectedId: String?, onSelected: (String) -> Unit, enabled: Boolean = true) {
-    var expanded by remember { mutableStateOf(false) }
-    val selectedName = groups.firstOrNull { it.id == selectedId }?.name ?: ""
-    ExposedDropdownMenuBox(expanded = expanded && enabled, onExpandedChange = { if (enabled) expanded = it }) {
-        OutlinedTextField(
-            value = selectedName,
-            onValueChange = {},
-            readOnly = true,
-            enabled = enabled,
-            label = { Text("Field Service Group") },
-            placeholder = { if (!enabled) Text("Select a congregation first") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded && enabled) },
-            visualTransformation = VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth().menuAnchor(),
-        )
-        ExposedDropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
-            groups.forEach { group ->
-                DropdownMenuItem(
-                    text = { Text(group.name) },
-                    onClick = {
-                        onSelected(group.id)
-                        expanded = false
-                    },
-                )
-            }
-        }
-    }
-}

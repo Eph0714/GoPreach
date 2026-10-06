@@ -101,6 +101,7 @@ class MeetingAssignmentsViewModel @Inject constructor(
     private val personRepository: PersonRepository,
     private val roleAssignmentRepository: RoleAssignmentRepository,
     private val auditLogRepository: AuditLogRepository,
+    private val recycleBinRepository: com.emfitsolutions.gopreach.data.repository.RecycleBinRepository,
 ) : ViewModel() {
 
     val congregations: StateFlow<List<Congregation>> =
@@ -218,6 +219,14 @@ class MeetingAssignmentsViewModel @Inject constructor(
 
     fun deletePublicTalkRow(row: PublicTalkScheduleRow, actorPersonId: String) {
         viewModelScope.launch {
+            recycleBinRepository.moveToTrash(
+                recordType = "Public Talk Schedule",
+                module = "Meeting Assignments",
+                label = "${row.theme.orEmpty()} ${java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault()).format(java.util.Date(row.date))}".trim(),
+                congregationId = row.congregationId,
+                deletedByPersonId = actorPersonId,
+                items = listOf(recycleBinRepository.item("publicTalkSchedules", row.id, row)),
+            )
             publicTalkRepository.delete(row.id)
             auditLogRepository.log(
                 actorPersonId = actorPersonId,
@@ -269,6 +278,14 @@ class MeetingAssignmentsViewModel @Inject constructor(
 
     fun deleteCartAssignment(row: CartAssignmentRow, actorPersonId: String) {
         viewModelScope.launch {
+            recycleBinRepository.moveToTrash(
+                recordType = "Cart Assignment",
+                module = "Meeting Assignments",
+                label = "${row.location} ${java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault()).format(java.util.Date(row.date))}".trim(),
+                congregationId = row.congregationId,
+                deletedByPersonId = actorPersonId,
+                items = listOf(recycleBinRepository.item("cartAssignments", row.id, row)),
+            )
             cartAssignmentRepository.delete(row.id)
             auditLogRepository.log(
                 actorPersonId = actorPersonId,

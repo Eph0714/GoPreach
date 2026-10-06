@@ -66,6 +66,7 @@ class PlannerDayViewModel @Inject constructor(
     private val visitRepository: VisitRepository,
     private val creditHourRecordRepository: CreditHourRecordRepository,
     private val monthlyGoalRepository: MonthlyPlannerGoalRepository,
+    private val monthlyReportRepository: com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository,
 ) : ViewModel() {
 
     private val _dayStart = MutableStateFlow(DayBounds.of(System.currentTimeMillis()).startInclusive)
@@ -166,6 +167,7 @@ class PlannerDayViewModel @Inject constructor(
     fun setHours(publisherPersonId: String, hours: Int) {
         viewModelScope.launch {
             val dayStart = _dayStart.value
+            if (monthlyReportRepository.isMonthSubmitted(publisherPersonId, dayStart)) return@launch
             val current = plannerDayRepository.observeDay(publisherPersonId, dayStart).first()
             val minutesPart = (current?.totalMinutes ?: 0) % 60
             savePlannerDay(publisherPersonId, dayStart, current) { it.copy(totalMinutes = hours.coerceAtLeast(0) * 60 + minutesPart) }
@@ -175,6 +177,7 @@ class PlannerDayViewModel @Inject constructor(
     fun setMinutes(publisherPersonId: String, minutes: Int) {
         viewModelScope.launch {
             val dayStart = _dayStart.value
+            if (monthlyReportRepository.isMonthSubmitted(publisherPersonId, dayStart)) return@launch
             val current = plannerDayRepository.observeDay(publisherPersonId, dayStart).first()
             val hoursPart = (current?.totalMinutes ?: 0) / 60
             savePlannerDay(publisherPersonId, dayStart, current) { it.copy(totalMinutes = hoursPart * 60 + minutes.coerceIn(0, 59)) }

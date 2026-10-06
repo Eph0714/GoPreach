@@ -7,6 +7,7 @@ import com.emfitsolutions.gopreach.di.ApplicationScope
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,6 +35,12 @@ class DashboardModuleLayoutRepository @Inject constructor(
         observeAll().map { list -> list.firstOrNull { it.personId == personId } ?: DashboardModuleLayout(personId = personId) }
 
     suspend fun save(layout: DashboardModuleLayout) = offline.save(COLLECTION, layout.personId, layout)
+
+    /** Saves only the Quick Access choice (ids in display order), leaving every other field of the person's layout document untouched. */
+    suspend fun saveQuickAccess(personId: String, order: List<String>, configured: Boolean) {
+        val current = observeFor(personId).first()
+        save(current.copy(quickAccessOrder = order, quickAccessConfigured = configured, updatedAt = System.currentTimeMillis()))
+    }
 
     fun startRemoteSync(): Flow<Unit> =
         mirrorFirestoreCollection(firestore, offline, appScope, COLLECTION, DashboardModuleLayout::class.java) { it.personId }

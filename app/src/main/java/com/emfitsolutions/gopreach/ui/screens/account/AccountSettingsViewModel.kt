@@ -6,6 +6,7 @@ import com.emfitsolutions.gopreach.data.model.PreachingDay
 import com.emfitsolutions.gopreach.data.repository.AuthRepository
 import com.emfitsolutions.gopreach.data.repository.AuthResult
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
+import com.emfitsolutions.gopreach.ui.components.PublisherFormState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,11 +20,13 @@ data class AccountSettingsUiState(
      * including a Super-Admin (spec request: "add a name of the Super-Admin"
      * in Account Settings). No current-password check here, unlike
      * username/password below — this is profile info, not a login credential. */
-    val firstName: String = "",
-    val lastName: String = "",
-    val isSavingName: Boolean = false,
-    val nameMessage: String? = null,
-    val nameError: String? = null,
+    /** The signed-in person's own basic details — name, contacts, address, location, email. */
+    val profile: PublisherFormState = PublisherFormState(),
+    val isSavingProfile: Boolean = false,
+    val profileMessage: String? = null,
+    val profileError: String? = null,
+    val capturingLocation: Boolean = false,
+    val locationError: String? = null,
 
     /** "Preaching Availability" module — only ever shown/editable for a
      * Publisher (see [AccountSettingsScreen]'s own `isPublisher` gate), but
@@ -58,7 +61,17 @@ data class AccountSettingsUiState(
 class AccountSettingsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val personRepository: PersonRepository,
+    private val credentialStore: com.emfitsolutions.gopreach.data.repository.CredentialStore,
+    private val quickLoginStore: com.emfitsolutions.gopreach.data.repository.QuickLoginStore,
+    private val locationTracker: com.emfitsolutions.gopreach.data.location.LocationTracker,
+    private val philippineLocationRepository: com.emfitsolutions.gopreach.data.repository.PhilippineLocationRepository,
 ) : ViewModel() {
+
+    /** Changing the username or password makes every saved sign-in (Remember me, Biometrics, PIN, Pattern)
+     * stale — each holds the old one — so all of them are cleared and must be set up again. */
+    private fun forgetSavedSignIns() {
+        runCatching { credentialStore.clearRemembered(); credentialStore.clearBiometric(); quickLoginStore.disableAll() }
+    }
 
     private val _uiState = MutableStateFlow(AccountSettingsUiState())
     val uiState: StateFlow<AccountSettingsUiState> = _uiState.asStateFlow()
@@ -69,8 +82,7 @@ class AccountSettingsViewModel @Inject constructor(
             if (person != null) {
                 _uiState.update {
                     it.copy(
-                        firstName = person.firstName,
-                        lastName = person.lastName,
+                        profile = PublisherFormState.from(person, null, null),
                         availableDays = person.preachingAvailableDays.mapNotNull { day ->
                             runCatching { PreachingDay.valueOf(day) }.getOrNull()
                         }.toSet(),
@@ -81,8 +93,36 @@ class AccountSettingsViewModel @Inject constructor(
         }
     }
 
-    fun onFirstNameChange(value: String) = _uiState.update { it.copy(firstName = value.uppercase(), nameError = null, nameMessage = null) }
-    fun onLastNameChange(value: String) = _uiState.update { it.copy(lastName = value.uppercase(), nameError = null, nameMessage = null) }
+    fun onProfileChange(profile: PublisherFormState) = _uiState.update { it.copy(profile = profile, profileError = null, profileMessage = null) }
+
+    fun hasLocationPermission(): Boolean = locationTracker.hasLocationPermission()
+
+    /** Fills the coordinates (and, when they can be matched, province / municipality / barangay) from GPS. */
+    fun captureLocation() {
+        _uiState.update { it.copy(capturingLocation = true, locationError = null) }
+        viewModelScope.launch {
+            val location = locationTracker.getCurrentLocation()
+            if (location == null) {
+                _uiState.update { it.copy(capturingLocation = false, locationError = "Could not get a GPS fix. Make sure location is turned on and try again.") }
+                return@launch
+            }
+            val geocoded = runCatching { locationTracker.reverseGeocodeAddress(location.lat, location.lng) }.getOrNull()
+            val resolved = geocoded?.let { philippineLocationRepository.resolveFromGeocode(it) }
+            _uiState.update {
+                it.copy(
+                    capturingLocation = false,
+                    profile = it.profile.copy(
+                        latitudeText = location.lat.toString(),
+                        longitudeText = location.lng.toString(),
+                        province = resolved?.provinceName ?: it.profile.province,
+                        cityMunicipality = resolved?.muncityName ?: it.profile.cityMunicipality,
+                        barangay = resolved?.barangayName ?: it.profile.barangay,
+                    ),
+                    profileMessage = null,
+                )
+            }
+        }
+    }
 
     /** "Available Days for Preaching" checkboxes — toggles [day] in the
      * current selection; nothing is saved until [saveAvailability]. */
@@ -119,25 +159,40 @@ class AccountSettingsViewModel @Inject constructor(
         }
     }
 
-    fun saveName() {
-        val state = _uiState.value
-        if (state.firstName.isBlank() || state.lastName.isBlank()) {
-            _uiState.update { it.copy(nameError = "First and last name are required.") }
+    /** Saves the person's own basic details. Only the personal fields change — never role, category, group, status or
+     * congregation, which an administrator controls; the same checks as the Edit Publisher form apply. */
+    fun saveProfile() {
+        val form = _uiState.value.profile
+        val problem = when {
+            form.firstName.isBlank() -> "First Name is required."
+            form.lastName.isBlank() -> "Last Name is required."
+            form.address.isBlank() -> "Full Address is required."
+            form.contact.isBlank() -> "Contact is required."
+            else -> form.formProblem
+        }
+        if (problem != null) {
+            _uiState.update { it.copy(profileError = problem, profileMessage = null) }
             return
         }
         val personId = authRepository.currentPersonId ?: run {
-            _uiState.update { it.copy(nameError = "Session expired — please log in again.") }
+            _uiState.update { it.copy(profileError = "Session expired — please log in again.") }
             return
         }
-        _uiState.update { it.copy(isSavingName = true, nameError = null, nameMessage = null) }
+        _uiState.update { it.copy(isSavingProfile = true, profileError = null, profileMessage = null) }
         viewModelScope.launch {
             val person = personRepository.get(personId)
             if (person == null) {
-                _uiState.update { it.copy(isSavingName = false, nameError = "Account record not found.") }
+                _uiState.update { it.copy(isSavingProfile = false, profileError = "Account record not found.") }
                 return@launch
             }
-            personRepository.save(person.copy(firstName = state.firstName.trim(), lastName = state.lastName.trim()))
-            _uiState.update { it.copy(isSavingName = false, nameMessage = "Name updated.") }
+            // Written onto the stored record, so everything else on it (username, roles' links, status, remarks) is untouched.
+            val updated = form.applyTo(person).copy(
+                gender = person.gender,
+                accountStatus = person.accountStatus,
+                remarks = person.remarks,
+            )
+            personRepository.save(updated)
+            _uiState.update { it.copy(isSavingProfile = false, profileMessage = "Your information was saved.") }
         }
     }
 
@@ -156,8 +211,11 @@ class AccountSettingsViewModel @Inject constructor(
         _uiState.update { it.copy(isSavingUsername = true, usernameError = null, usernameMessage = null) }
         viewModelScope.launch {
             when (val result = authRepository.changeUsername(state.newUsername, state.currentPasswordForUsername)) {
-                is AuthResult.Success -> _uiState.update {
-                    it.copy(isSavingUsername = false, usernameMessage = "Username updated.", newUsername = "", currentPasswordForUsername = "")
+                is AuthResult.Success -> {
+                    forgetSavedSignIns()
+                    _uiState.update {
+                        it.copy(isSavingUsername = false, usernameMessage = "Username updated. Saved logins (Remember me, Biometrics, PIN, Pattern) were cleared — set them up again.", newUsername = "", currentPasswordForUsername = "")
+                    }
                 }
                 is AuthResult.Error -> _uiState.update { it.copy(isSavingUsername = false, usernameError = result.message) }
             }
@@ -177,7 +235,10 @@ class AccountSettingsViewModel @Inject constructor(
         _uiState.update { it.copy(isSavingPassword = true, passwordError = null) }
         viewModelScope.launch {
             when (val result = authRepository.changePassword(state.currentPassword, state.newPassword)) {
-                is AuthResult.Success -> _uiState.update { it.copy(isSavingPassword = false, passwordChanged = true) }
+                is AuthResult.Success -> {
+                    forgetSavedSignIns()
+                    _uiState.update { it.copy(isSavingPassword = false, passwordChanged = true) }
+                }
                 is AuthResult.Error -> _uiState.update { it.copy(isSavingPassword = false, passwordError = result.message) }
             }
         }

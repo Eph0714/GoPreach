@@ -1,6 +1,5 @@
 package com.emfitsolutions.gopreach.ui.screens.login
 
-import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,11 +13,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Fingerprint
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Pin
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,43 +55,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.BuildConfig
 import com.emfitsolutions.gopreach.R
+import com.emfitsolutions.gopreach.data.repository.QuickLoginMethod
 import com.emfitsolutions.gopreach.ui.components.GradientHero
 import com.emfitsolutions.gopreach.ui.components.update.UpdateViewModel
 
 private val FieldShape = RoundedCornerShape(16.dp)
-
-/** Fires the system biometric prompt on top of [activity] and reports back through
- * plain callbacks — kept free of ViewModel/Compose state so it's a thin wrapper
- * around the androidx.biometric API. */
-private fun launchBiometricPrompt(
-    activity: FragmentActivity,
-    title: String,
-    subtitle: String,
-    negativeButtonText: String,
-    onSuccess: () -> Unit,
-    onError: (String) -> Unit,
-) {
-    val prompt = BiometricPrompt(
-        activity,
-        ContextCompat.getMainExecutor(activity),
-        object : BiometricPrompt.AuthenticationCallback() {
-            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onSuccess()
-            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                // errorCode 13 (ERROR_USER_CANCELED) / 10 (ERROR_NEGATIVE_BUTTON) are the
-                // user backing out on purpose — not worth surfacing as an error banner.
-                if (errorCode != BiometricPrompt.ERROR_USER_CANCELED && errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
-                    onError(errString.toString())
-                }
-            }
-        },
-    )
-    val promptInfo = BiometricPrompt.PromptInfo.Builder()
-        .setTitle(title)
-        .setSubtitle(subtitle)
-        .setNegativeButtonText(negativeButtonText)
-        .build()
-    prompt.authenticate(promptInfo)
-}
 
 /**
  * Login entry screen. Establishes the visual pattern used everywhere: plain-text
@@ -252,28 +223,62 @@ fun LoginScreen(
                     Text(stringResource(R.string.login_log_in), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
 
-                if (uiState.biometricSignInAvailable) {
-                    val biometricTitle = stringResource(R.string.login_biometric_prompt_title)
-                    val biometricSubtitle = stringResource(R.string.login_biometric_prompt_subtitle)
-                    val biometricUsePassword = stringResource(R.string.login_biometric_prompt_use_password)
-                    OutlinedButton(
-                        onClick = {
+                // Always shown — even right after a logout or an expired session. Whether it signs
+                // anyone in depends on biometric login having been explicitly set up for GoPreach
+                // on this device (see LoginViewModel.onBiometricButtonClick), not on the button's visibility.
+                val biometricTitle = stringResource(R.string.login_biometric_prompt_title)
+                val biometricSubtitle = stringResource(R.string.login_biometric_prompt_subtitle)
+                val biometricUsePassword = stringResource(R.string.login_biometric_prompt_use_password)
+                OutlinedButton(
+                    onClick = {
+                        if (viewModel.onBiometricButtonClick(deviceHasBiometrics(activity))) {
                             launchBiometricPrompt(
                                 activity = activity,
                                 title = biometricTitle,
                                 subtitle = biometricSubtitle,
                                 negativeButtonText = biometricUsePassword,
                                 onSuccess = viewModel::onBiometricAuthSucceeded,
-                                onError = { /* user-visible errors already filtered above; ignore transient hardware errors */ },
+                                onError = viewModel::onBiometricError,
                             )
-                        },
-                        enabled = !uiState.isLoading,
-                        shape = FieldShape,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(Icons.Rounded.Fingerprint, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text(stringResource(R.string.login_biometric_button))
-                    }
+                        }
+                    },
+                    enabled = !uiState.isLoading,
+                    shape = FieldShape,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Rounded.Fingerprint, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                    Text("Login with Biometrics")
+                }
+
+                // Every method is always listed; one that was never set up (or isn't available) explains
+                // itself when tapped instead of signing anyone in. Each one that is set up ends in the
+                // same server-verified sign-in as the password form above.
+                OutlinedButton(
+                    onClick = viewModel::onPasskeyClick,
+                    enabled = !uiState.isLoading,
+                    shape = FieldShape,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Rounded.Key, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                    Text("Login with Passkey")
+                }
+                OutlinedButton(
+                    onClick = { viewModel.onQuickLoginClick(QuickLoginMethod.PIN) },
+                    enabled = !uiState.isLoading,
+                    shape = FieldShape,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Rounded.Pin, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                    Text("Login with PIN")
+                }
+                OutlinedButton(
+                    onClick = { viewModel.onQuickLoginClick(QuickLoginMethod.PATTERN) },
+                    enabled = !uiState.isLoading,
+                    shape = FieldShape,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Rounded.Apps, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                    Text("Login with Pattern")
                 }
 
                 Column(
@@ -292,5 +297,32 @@ fun LoginScreen(
                     )
                 }
             }
+    }
+    uiState.quickLoginMethod?.let { method ->
+        QuickLoginDialog(
+            method = method,
+            username = remember(method) { viewModel.quickLoginUsername(method) },
+            error = uiState.quickLoginError,
+            lockedMs = uiState.quickLoginLockedMs,
+            busy = uiState.isLoading,
+            onSubmit = { viewModel.onQuickLoginSecret(method, it) },
+            onDismiss = viewModel::dismissQuickLogin,
+        )
+    }
+    uiState.notice?.let { (title, message) ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissNotice,
+            title = { Text(title) },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = viewModel::dismissNotice) { Text("OK") } },
+        )
+    }
+    if (uiState.showBiometricNotSetUp) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissBiometricNotSetUp,
+            title = { Text("Biometric Login Not Set Up") },
+            text = { Text("Please log in using your username and password first, then enable biometric login in Account/Security Settings.") },
+            confirmButton = { TextButton(onClick = viewModel::dismissBiometricNotSetUp) { Text("OK") } },
+        )
     }
 }

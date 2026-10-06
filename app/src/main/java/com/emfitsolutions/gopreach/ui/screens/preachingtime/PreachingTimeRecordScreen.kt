@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.preachingtime
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -134,6 +135,7 @@ fun PreachingTimeRecordScreen(
                     modifier = Modifier.fillMaxSize().padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    RecordFound(0)
                     Text("No preaching time records for this period. Tap Add Record to log one.", style = MaterialTheme.typography.bodyMedium)
                 }
             } else {
@@ -142,6 +144,7 @@ fun PreachingTimeRecordScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    item { RecordFound(records.size) }
                     items(records, key = { it.id }) { record ->
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Row(

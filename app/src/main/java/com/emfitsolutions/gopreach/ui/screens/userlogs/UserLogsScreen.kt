@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.userlogs
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -35,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -67,10 +70,11 @@ fun UserLogsScreen(
     // no fixed scope already (Super-Admin); an Admin/Coordinator Elder is
     // already scoped to their own congregation upstream via
     // [visibleCongregationId], so this stays unused for them.
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("user_logs")
     val effectiveCongregationId = visibleCongregationId ?: congregationFilter
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
-    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
+    val needsCongregation = visibleCongregationId == null && congregationFilter == null
+    val rowsFlow = remember(effectiveCongregationId, needsCongregation) { if (needsCongregation) kotlinx.coroutines.flow.flowOf(emptyList()) else viewModel.rowsFor(effectiveCongregationId) }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val dateFormat = remember { SimpleDateFormat("MMM d, yyyy h:mm a", Locale.getDefault()) }
     val showToast = rememberActionToast()
@@ -124,11 +128,14 @@ fun UserLogsScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        if (rows.isEmpty()) {
+        if (needsCongregation) {
+            SelectCongregationPrompt()
+        } else if (rows.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                RecordFound(0)
                 Text("No activity recorded yet.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
@@ -137,6 +144,7 @@ fun UserLogsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(rows.size) }
                 items(rows, key = { it.entry.id }) { row ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Row(

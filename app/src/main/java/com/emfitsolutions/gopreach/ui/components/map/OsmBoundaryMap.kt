@@ -36,6 +36,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
+import android.widget.Toast
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -175,6 +178,11 @@ fun OsmBoundaryMap(
 
     var selectedStyle by remember { mutableStateOf(MapStyle.STANDARD) }
     var is3d by remember { mutableStateOf(false) }
+    // Street View (Mapillary): coverage overlay + tap-for-photos.
+    var streetView by remember { mutableStateOf(false) }
+    var streetImages by remember { mutableStateOf<List<MapillaryImage>?>(null) }
+    var showStreetViewSetup by remember { mutableStateOf(false) }
+    val streetScope = rememberCoroutineScope()
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     // Bumped every time a style finishes loading — switching style wipes every
     // source/layer/image, so everything below re-adds itself off this.
@@ -191,6 +199,15 @@ fun OsmBoundaryMap(
     val latestOnPointNeedsLocation = rememberUpdatedState(onPointNeedsLocation)
     val latestOnBoundaryClick = rememberUpdatedState(onBoundaryClick)
     val latestOnOpenDirections = rememberUpdatedState(onOpenDirections)
+    val latestStreetView = rememberUpdatedState(streetView)
+    val latestOnStreetViewTap = rememberUpdatedState<(Double, Double) -> Unit> { lat, lng ->
+        streetScope.launch {
+            Toast.makeText(context, "Looking for street-level photos...", Toast.LENGTH_SHORT).show()
+            val found = Mapillary.imagesNear(lat, lng)
+            if (found.isEmpty()) Toast.makeText(context, "No street-level photos here. Tap near a green line.", Toast.LENGTH_LONG).show()
+            else streetImages = found
+        }
+    }
 
     val mapView = remember {
         MapView(context).apply {
@@ -217,6 +234,10 @@ fun OsmBoundaryMap(
                             latestOnBoundaryClick.value?.invoke(name)
                             return@addOnMapClickListener true
                         }
+                    }
+                    if (latestStreetView.value) {
+                        latestOnStreetViewTap.value(latLng.latitude, latLng.longitude)
+                        return@addOnMapClickListener true
                     }
                     if (!latestPickMode.value) return@addOnMapClickListener false
                     if (latestMyLocation.value == null) {
@@ -420,6 +441,13 @@ fun OsmBoundaryMap(
 
     // 3D: tilted camera + extruded buildings from the style's own vector
     // building data (where it has any — the satellite style usually doesn't).
+    // Street View: Mapillary coverage drawn under the boundary.
+    LaunchedEffect(map, styleVersion, streetView) {
+        val m = map ?: return@LaunchedEffect
+        val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
+        if (streetView) Mapillary.addCoverage(style, belowLayerId = LYR_BOUNDARY_FILL) else Mapillary.removeCoverage(style)
+    }
+
     LaunchedEffect(map, styleVersion, is3d) {
         val m = map ?: return@LaunchedEffect
         val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
@@ -503,6 +531,9 @@ fun OsmBoundaryMap(
         onPointDistanceComputed(origin.distanceTo(point))
     }
 
+    streetImages?.let { StreetViewDialog(it, onDismiss = { streetImages = null }) }
+    if (showStreetViewSetup) StreetViewSetupDialog(onDismiss = { showStreetViewSetup = false })
+
     Box(modifier = modifier) {
         AndroidView(factory = { mapView }, modifier = Modifier.matchParentSize())
         Column(
@@ -529,6 +560,21 @@ fun OsmBoundaryMap(
                     selected = is3d,
                     onClick = { is3d = !is3d },
                     label = { Text("3D") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+                )
+                FilterChip(
+                    selected = streetView,
+                    onClick = {
+                        if (!Mapillary.isConfigured) {
+                            showStreetViewSetup = true
+                        } else {
+                            streetView = !streetView
+                            if (streetView) Toast.makeText(context, "Street View: tap the map near a green line.", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    label = { Text("Street View") },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                     ),

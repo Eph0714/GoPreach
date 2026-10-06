@@ -23,6 +23,7 @@ import com.emfitsolutions.gopreach.data.model.MapPin
 import com.emfitsolutions.gopreach.ui.components.map.BoundaryGeometry
 import com.emfitsolutions.gopreach.ui.components.map.MapLibreHost
 import com.emfitsolutions.gopreach.ui.components.map.MapLoadState
+import com.emfitsolutions.gopreach.ui.components.map.Mapillary
 import com.emfitsolutions.gopreach.ui.components.map.maptilerStyleUrl
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -154,6 +155,9 @@ fun TerritoryMapCanvas(
     /** Text pins dropped by long-press ("Create a Pin"), saved online. */
     pins: List<MapPin>,
     onPinTap: (String) -> Unit,
+    /** Street View (Mapillary) mode: coverage is drawn and a tap asks for photos at that spot. */
+    streetView: Boolean,
+    onStreetViewTap: (lat: Double, lng: Double) -> Unit,
     selectedAreaId: String?,
     selectedRecordId: String?,
     myLocation: Pair<Double, Double>?,
@@ -183,6 +187,8 @@ fun TerritoryMapCanvas(
     val latestOnAreaTap = rememberUpdatedState(onAreaTap)
     val latestOnLongPress = rememberUpdatedState(onLongPress)
     val latestOnPinTap = rememberUpdatedState(onPinTap)
+    val latestStreetView = rememberUpdatedState(streetView)
+    val latestOnStreetViewTap = rememberUpdatedState(onStreetViewTap)
 
     MapLibreHost(
         styleUrl = maptilerStyleUrl(basemap.styleId),
@@ -199,6 +205,9 @@ fun TerritoryMapCanvas(
                 true
             } else if (pinId != null) {
                 latestOnPinTap.value(pinId)
+                true
+            } else if (latestStreetView.value) {
+                latestOnStreetViewTap.value(latLng.latitude, latLng.longitude)
                 true
             } else {
                 val areaId = m.queryRenderedFeatures(screen, LYR_AREA_FILL)
@@ -405,6 +414,13 @@ fun TerritoryMapCanvas(
             }
         }
         style.getSourceAs<GeoJsonSource>(SRC_RECORDS)?.setGeoJson(FeatureCollection.fromFeatures(features))
+    }
+
+    // Street View: Mapillary coverage under the territories.
+    LaunchedEffect(map, styleVersion, streetView) {
+        val m = map ?: return@LaunchedEffect
+        val style = m.style?.takeIf { it.isFullyLoaded } ?: return@LaunchedEffect
+        if (streetView) Mapillary.addCoverage(style, belowLayerId = LYR_AREA_FILL) else Mapillary.removeCoverage(style)
     }
 
     // Text pins.

@@ -38,6 +38,12 @@ object Destinations {
     const val MANAGE_ELDERS = "manage_elders"
     const val ENROLL_PUBLISHER = "enroll_publisher"
     const val CONSOLIDATED_REPORT = "consolidated_report"
+    // Admin "Comparative Report": Searching / Return Visit / Bible Study counts, one month against the month before.
+    const val COMPARATIVE_REPORT = "comparative_report"
+    // Manual Field Service Record: an authorized admin-track user enters a month of field service for a publisher or pioneer.
+    const val MANUAL_FIELD_SERVICE = "manual_field_service"
+    const val FIELD_SERVICE_REPORT = "field_service_report"
+    const val DELETED_RECORDS = "deleted_records"
     const val FIELD_SERVICE_GROUP_REPORT = "field_service_group_report"
     // "MINISTERIAL ACCOUNT" — multiple per congregation allowed.
     const val ENROLL_MINISTERIAL_SERVANT = "enroll_ministerial_servant"
@@ -93,10 +99,7 @@ object Destinations {
     // existing entry point (side panel, etc.) still navigates here.
     const val MANAGE_TERRITORY_ASSIGNMENTS = "manage_territory_assignments"
     // "FS Group Assignment" — the original Territory Assignment dashboard.
-    const val FS_GROUP_TERRITORY_ASSIGNMENTS = "fs_group_territory_assignments"
     // "Per Publisher Assignment" — list, then the add form.
-    const val PUBLISHER_TERRITORY_ASSIGNMENTS = "publisher_territory_assignments"
-    const val PUBLISHER_TERRITORY_ASSIGNMENT_FORM = "publisher_territory_assignment_form"
     // "new" sentinel in {congregationId}/{groupId}/{provinceId} means Add
     // rather than Edit (a brand-new session, nothing picked yet) — see
     // GoPreachNavGraph's own composable() block for this route. A Group's
@@ -162,6 +165,8 @@ object Destinations {
     // screen directly (visit history, edit, add visit) via this optional
     // query arg; every other caller keeps navigating to the plain routes
     // above and lands on the list, unchanged.
+    const val SEARCHING_ROUTE = "$SEARCHING?personId={personId}"
+    fun searchingPerson(personId: String) = "$SEARCHING?personId=$personId"
     const val RETURN_VISIT_ROUTE = "$RETURN_VISIT?personId={personId}"
     const val BIBLE_STUDY_ROUTE = "$BIBLE_STUDY?personId={personId}"
     fun returnVisitPerson(personId: String) = "$RETURN_VISIT?personId=$personId"
@@ -172,7 +177,8 @@ object Destinations {
     const val PUBLISHER_FORWARD_REQUESTS = "publisher_forward_requests"
     // "House Holder Assignment" module — the Service Overseer/Admin/Super-
     // Admin's own search-and-assign screen.
-    const val HOUSEHOLDER_ASSIGNMENT = "householder_assignment"
+    // "Publisher Assignment" — central Admin management of Searching / Return Visit / Bible Study records and their Publisher.
+    const val PUBLISHER_ASSIGNMENT = "publisher_assignment"
     // A Publisher's own incoming House Holder Assignment review queue.
     const val INCOMING_HOUSEHOLDER_ASSIGNMENTS = "incoming_householder_assignments"
 
@@ -223,14 +229,6 @@ object Destinations {
     // Searching/Return Visit/Bible Study record in every congregation, with
     // full Add/Edit/permanent-Delete access (unlike SEARCHING/RETURN_VISIT/
     // BIBLE_STUDY above, which are Publisher-only, own-records routes).
-    const val ALL_INTERESTED_RECORDS = "all_interested_records"
-
-    // "Preaching Time Records — Super Admin Management Module" — the
-    // Super-Admin's own "All Congregations" view of every Publisher's
-    // per-day Preaching Time log, with full Add/Edit/Delete/Force-Delete —
-    // same "Super-Admin only, unreachable for anyone else" convention as
-    // [ALL_INTERESTED_RECORDS] above.
-    const val ALL_PREACHING_TIME_RECORDS = "all_preaching_time_records"
 
     // Spec §15 — "Elders should be able to see Interested Person information
     // according to their existing Congregation/Group access scope": a

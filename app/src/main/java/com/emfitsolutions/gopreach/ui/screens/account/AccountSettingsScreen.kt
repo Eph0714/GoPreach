@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.account
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.PublisherFormFields
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -112,26 +113,32 @@ fun AccountSettingsScreen(
             modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Personal Information", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
-                value = uiState.firstName,
-                onValueChange = viewModel::onFirstNameChange,
-                label = { Text("First Name") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            Text("My Information", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Keep your details up to date. Your role, category, group and status are managed by your administrators.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedTextField(
-                value = uiState.lastName,
-                onValueChange = viewModel::onLastNameChange,
-                label = { Text("Last Name") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            val locationPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+            ) { granted -> if (granted) viewModel.captureLocation() }
+            PublisherFormFields(
+                form = uiState.profile,
+                onChange = viewModel::onProfileChange,
+                groups = emptyList(),
+                profileOnly = true,
+                capturingLocation = uiState.capturingLocation,
+                locationError = uiState.locationError,
+                onUseCurrentLocation = {
+                    if (viewModel.hasLocationPermission()) viewModel.captureLocation()
+                    else locationPermissionLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                },
             )
-            if (uiState.nameError != null) Text(uiState.nameError!!, color = MaterialTheme.colorScheme.error)
-            if (uiState.nameMessage != null) Text(uiState.nameMessage!!, color = MaterialTheme.colorScheme.primary)
-            Button(onClick = viewModel::saveName, enabled = !uiState.isSavingName, modifier = Modifier.fillMaxWidth()) {
-                if (uiState.isSavingName) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
-                Text("Save Name")
+            if (uiState.profileError != null) Text(uiState.profileError!!, color = MaterialTheme.colorScheme.error)
+            if (uiState.profileMessage != null) Text(uiState.profileMessage!!, color = MaterialTheme.colorScheme.primary)
+            Button(onClick = viewModel::saveProfile, enabled = !uiState.isSavingProfile, modifier = Modifier.fillMaxWidth()) {
+                if (uiState.isSavingProfile) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
+                Text("Save My Information")
             }
 
             // "Add Module: Preaching Availability" — Publisher-only. Saved
@@ -205,6 +212,10 @@ fun AccountSettingsScreen(
                 if (uiState.isSavingUsername) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
                 Text("Save Username")
             }
+
+            HorizontalDivider()
+
+            com.emfitsolutions.gopreach.ui.screens.login.LoginMethodsSection()
 
             HorizontalDivider()
 

@@ -568,6 +568,8 @@ internal fun PlannerRecordSections(
     categoryName: (String) -> String,
     onOpenCredit: (CreditHourRecord) -> Unit,
     onAddCredit: () -> Unit,
+    /** True when the period's month report is already submitted — Credit Hours can't be added and the full Return Visit / Bible Study lists are closed. */
+    periodLocked: Boolean = false,
     onOpenPerson: (PipelineStage, String) -> Unit,
     /** Opens the full Return Visit / Bible Study list (where new people
      * and visits are added). */
@@ -592,6 +594,10 @@ internal fun PlannerRecordSections(
             valueColumnWidth = valueColumnWidth,
         ) {
             if (records.hourDays.isEmpty()) PlannerEmptyHint("No ministry time logged in this period.")
+            // Hours already sent in a submitted report are shown as read-only "Submitted: …".
+            val plannerLock = LocalPlannerLock.current
+            records.hourDays.mapNotNull { plannerLock.submittedHoursLabel(it.dayStart) }.distinct()
+                .forEach { PlannerEmptyHint("$it (read-only)") }
             records.hourDays.forEach { day ->
                 PlannerRecordRow(
                     title = formatRecordDate(day.dayStart),
@@ -626,10 +632,14 @@ internal fun PlannerRecordSections(
                 onClick = { onOpenCredit(record) },
             )
         }
-        TextButton(onClick = onAddCredit, contentPadding = PaddingValues(horizontal = 8.dp)) {
-            Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("Add Credit Hours", style = MaterialTheme.typography.labelLarge)
+        if (periodLocked) {
+            PlannerEmptyHint(PLANNER_LOCKED_MESSAGE)
+        } else {
+            TextButton(onClick = onAddCredit, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Add Credit Hours", style = MaterialTheme.typography.labelLarge)
+            }
         }
     }
 
@@ -643,6 +653,7 @@ internal fun PlannerRecordSections(
         showDates = showDates,
         onOpen = { onOpenPerson(PipelineStage.RETURN_VISIT, it) },
         onOpenList = { onOpenPersonList(PipelineStage.RETURN_VISIT) },
+        listLocked = periodLocked,
         labelColumnWidth = labelColumnWidth,
         valueColumnWidth = valueColumnWidth,
     )
@@ -656,6 +667,7 @@ internal fun PlannerRecordSections(
         showDates = showDates,
         onOpen = { onOpenPerson(PipelineStage.BIBLE_STUDY, it) },
         onOpenList = { onOpenPersonList(PipelineStage.BIBLE_STUDY) },
+        listLocked = periodLocked,
         labelColumnWidth = labelColumnWidth,
         valueColumnWidth = valueColumnWidth,
     )
@@ -672,6 +684,8 @@ private fun PersonSection(
     showDates: Boolean,
     onOpen: (String) -> Unit,
     onOpenList: () -> Unit,
+    /** The period is inside a submitted month: the full list is closed. */
+    listLocked: Boolean = false,
     labelColumnWidth: Dp? = null,
     valueColumnWidth: Dp? = null,
 ) {
@@ -684,8 +698,12 @@ private fun PersonSection(
         valueColumnWidth = valueColumnWidth,
     ) {
         if (people.isEmpty()) PlannerEmptyHint(emptyText)
+        val plannerLock = LocalPlannerLock.current
         people.forEach { person ->
             val count = person.periodActivities
+            // A person whose visits fall in a month that was already reported stays visible for
+            // reference, marked Submitted — never selectable for another report.
+            val submitted = person.lastVisitDateInPeriod?.let(plannerLock::isLocked) == true
             val subtitle = buildList {
                 add("$count $activityNoun${if (count == 1) "" else "s"}")
                 if (showDates) person.lastVisitDateInPeriod?.let { add("last ${formatRecordDate(it)}") }
@@ -695,13 +713,15 @@ private fun PersonSection(
             PlannerRecordRow(
                 title = person.name.ifBlank { "(no name)" },
                 subtitle = subtitle,
+                trailing = if (submitted) "Submitted" else null,
                 onClickLabel = "Open ${person.name}",
                 onClick = { onOpen(person.interestedPersonId) },
             )
         }
-        TextButton(onClick = onOpenList, contentPadding = PaddingValues(horizontal = 8.dp)) {
+        TextButton(onClick = onOpenList, enabled = !listLocked, contentPadding = PaddingValues(horizontal = 8.dp)) {
             Text("Open all $title", style = MaterialTheme.typography.labelLarge)
         }
+        if (listLocked) PlannerEmptyHint(PLANNER_LOCKED_MESSAGE)
     }
 }
 

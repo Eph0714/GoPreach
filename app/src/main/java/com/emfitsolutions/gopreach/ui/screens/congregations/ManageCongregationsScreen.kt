@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.congregations
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -91,7 +92,7 @@ fun ManageCongregationsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Congregations/Groups") },
+                title = { Text("Congregations") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -102,7 +103,7 @@ fun ManageCongregationsScreen(
         floatingActionButton = {
             if (!readOnly) {
                 FloatingActionButton(onClick = onAddNew) {
-                    Icon(Icons.Rounded.Add, contentDescription = "New Congregation/Group")
+                    Icon(Icons.Rounded.Add, contentDescription = "New Congregation")
                 }
             }
         },
@@ -120,6 +121,7 @@ fun ManageCongregationsScreen(
                     modifier = Modifier.fillMaxSize().padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    RecordFound(0)
                     Text("No congregations yet. Tap + to add one.", style = MaterialTheme.typography.bodyMedium)
                 }
             } else {
@@ -128,6 +130,7 @@ fun ManageCongregationsScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    item { RecordFound(congregations.size) }
                     items(congregations, key = { it.id }) { congregation ->
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Row(
@@ -222,11 +225,11 @@ private fun EditCongregationDialog(
 
     fun submit() {
         val message = requiredFieldsMessage(
-            "Congregation/Group Name" to name.isNotBlank(),
+            "Congregation Name" to name.isNotBlank(),
             "Province" to !province.isNullOrBlank(),
             "Municipality / City" to !cityMunicipality.isNullOrBlank(),
             "Barangay" to !barangay.isNullOrBlank(),
-            "Congregation/Group Code" to code.isNotBlank(),
+            "Congregation Code" to code.isNotBlank(),
         )
         if (message != null) {
             errorMessage = message
@@ -249,7 +252,7 @@ private fun EditCongregationDialog(
 
     FormDialog(
         onDismissRequest = onDismiss,
-        title = "Edit Congregation/Group",
+        title = "Edit Congregation",
         onConfirm = ::submit,
         confirmLabel = "Save Changes",
         errorMessage = errorMessage,
@@ -258,11 +261,11 @@ private fun EditCongregationDialog(
             cityMunicipality != congregation.cityMunicipality || barangay != congregation.barangay ||
             code != congregation.code || languages != congregation.languages,
     ) {
-                EditSectionHeader("Congregation/Group Information")
+                EditSectionHeader("Congregation Information")
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.uppercase() },
-                    label = { Text("Congregation/Group Name") },
+                    label = { Text("Congregation Name") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),
@@ -280,7 +283,7 @@ private fun EditCongregationDialog(
                 OutlinedTextField(
                     value = code,
                     onValueChange = { code = it.uppercase() },
-                    label = { Text("Congregation/Group Code") },
+                    label = { Text("Congregation Code") },
                     singleLine = true,
                     visualTransformation = VisualTransformation.None,
                     modifier = Modifier.fillMaxWidth(),

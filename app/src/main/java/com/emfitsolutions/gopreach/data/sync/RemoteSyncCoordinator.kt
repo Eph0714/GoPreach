@@ -19,6 +19,7 @@ import com.emfitsolutions.gopreach.data.repository.MidweekMeetingScheduleReposit
 import com.emfitsolutions.gopreach.data.repository.MinistryTimerSessionRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyPlannerGoalRepository
 import com.emfitsolutions.gopreach.data.repository.MonthlyReportRepository
+import com.emfitsolutions.gopreach.data.repository.RecycleBinRepository
 import com.emfitsolutions.gopreach.data.repository.PublicTalkScheduleRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.PlannerDayRepository
@@ -104,6 +105,7 @@ class RemoteSyncCoordinator @Inject constructor(
     private val publisherForwardRequestRepository: PublisherForwardRequestRepository,
     private val householderAssignmentRepository: HouseholderAssignmentRepository,
     private val monthlyReportRepository: MonthlyReportRepository,
+    private val recycleBinRepository: RecycleBinRepository,
     private val auditLogRepository: AuditLogRepository,
     private val appSettingsRepository: AppSettingsRepository,
     private val sharedLocationRepository: SharedLocationRepository,
@@ -111,6 +113,7 @@ class RemoteSyncCoordinator @Inject constructor(
     private val preachingTimeRecordRepository: PreachingTimeRecordRepository,
     private val announcementRepository: AnnouncementRepository,
     private val locationSharingSettingsRepository: LocationSharingSettingsRepository,
+    private val publisherVisibilitySettingsRepository: com.emfitsolutions.gopreach.data.repository.PublisherVisibilitySettingsRepository,
     private val savedLocationRepository: SavedLocationRepository,
     private val mapPinRepository: com.emfitsolutions.gopreach.data.repository.MapPinRepository,
     private val bibleTextCategoryRepository: BibleTextCategoryRepository,
@@ -295,6 +298,7 @@ class RemoteSyncCoordinator @Inject constructor(
         publisherForwardRequestRepository.startRemoteSync().startTracked(uidChanged)
         householderAssignmentRepository.startRemoteSync().startTracked(uidChanged)
         monthlyReportRepository.startRemoteSync().startTracked(uidChanged)
+        recycleBinRepository.startRemoteSync().startTracked(uidChanged)
         auditLogRepository.startRemoteSync().startTracked(uidChanged)
         appSettingsRepository.startRemoteSync().startTracked(uidChanged)
         sharedLocationRepository.startRemoteSync().startTracked(uidChanged)
@@ -302,6 +306,7 @@ class RemoteSyncCoordinator @Inject constructor(
         preachingTimeRecordRepository.startRemoteSync().startTracked(uidChanged)
         announcementRepository.startRemoteSync().startTracked(uidChanged)
         locationSharingSettingsRepository.startRemoteSync().startTracked(uidChanged)
+        publisherVisibilitySettingsRepository.startRemoteSync().startTracked(uidChanged)
         savedLocationRepository.startRemoteSync().startTracked(uidChanged)
         mapPinRepository.startRemoteSync().startTracked(uidChanged)
         startTrackedForPublisher { pid -> bibleTextCategoryRepository.startRemoteSync(pid) }

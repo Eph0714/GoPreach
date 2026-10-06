@@ -29,6 +29,9 @@ import com.google.firebase.firestore.DocumentId
  * correction, not an original submission. */
 enum class ReportStatus { DRAFT, SUBMITTED, POSTED, RETURNED, CORRECTED }
 
+const val SOURCE_PUBLISHER = "PUBLISHER"
+const val SOURCE_MANUAL = "MANUAL"
+
 /**
  * One publisher's monthly ministry report (spec §5.2). Required fields differ by
  * [PublisherCategory] — the UI shows only the fields that category needs, but they
@@ -66,6 +69,9 @@ enum class ReportStatus { DRAFT, SUBMITTED, POSTED, RETURNED, CORRECTED }
  * do the same."
  *
  * Firestore collection: `monthlyReports/{reportId}`
+const val SOURCE_PUBLISHER = "PUBLISHER"
+const val SOURCE_MANUAL = "MANUAL"
+
  */
 data class MonthlyReport(
     @DocumentId val id: String = "",
@@ -150,6 +156,11 @@ data class MonthlyReport(
 
     val lastEditedByPersonId: String? = null,
     val lastEditedAt: Long? = null,
+    /** Where this report came from: "PUBLISHER" (entered by the publisher, the default) or "MANUAL" (entered on their behalf by an authorized admin-track user). */
+    val source: String = SOURCE_PUBLISHER,
+    /** Who first created the report and when — set for manual entries so an administrator can see who entered them. */
+    val createdByPersonId: String? = null,
+    val createdAt: Long? = null,
 ) {
     /** "Has this publisher actually submitted a report for this period" —
      * true for [ReportStatus.SUBMITTED], [ReportStatus.POSTED], and (My
@@ -170,6 +181,9 @@ data class MonthlyReport(
      * directly. */
     val isSubmittedOrPosted: Boolean
         get() = status == ReportStatus.SUBMITTED || status == ReportStatus.POSTED || status == ReportStatus.CORRECTED
+
+    /** Entered on the publisher's behalf by an authorized user rather than by the publisher. */
+    val isManualEntry: Boolean get() = source == SOURCE_MANUAL
 }
 
 /**

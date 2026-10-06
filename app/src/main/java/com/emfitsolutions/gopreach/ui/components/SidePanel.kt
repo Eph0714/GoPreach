@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AccountBalance
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.Assessment
+import androidx.compose.material.icons.rounded.RestoreFromTrash
 import androidx.compose.material.icons.rounded.Assignment
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.BarChart
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.Contacts
 import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Groups
@@ -56,10 +58,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.emfitsolutions.gopreach.R
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.LaunchedEffect
 import com.emfitsolutions.gopreach.ui.navigation.Destinations
 
 /** One leaf item in the Side Panel's treeview (spec §2). */
-private data class SideItem(val label: String, val icon: ImageVector, val route: String)
+data class SideItem(val label: String, val icon: ImageVector, val route: String)
 
 /** One collapsible group (spec §2: "Side Panel Treeview" — Enrollment / Control
  * Panel / Other modules), built from whichever [items] the caller already
@@ -85,9 +92,8 @@ fun GoPreachSidePanelContent(
     canEnrollServiceOverseer: Boolean,
     canEnrollMinisterialServant: Boolean,
     canManageAnnouncements: Boolean,
-    canViewConsolidatedReport: Boolean,
-    canViewFieldServiceGroupReport: Boolean,
-    canManagePublisherReports: Boolean,
+    canViewFieldServiceReport: Boolean,
+    canViewDeletedRecords: Boolean = false,
     canViewForwardRequests: Boolean,
     canManageHouseholderAssignment: Boolean,
     canEnrollRegularElderOrPublisher: Boolean,
@@ -136,6 +142,13 @@ fun GoPreachSidePanelContent(
     onSwitchToPublisher: (() -> Unit)?,
     onNavigate: (String) -> Unit,
     onSignOut: () -> Unit,
+    /** Super-Admin, Admin, Service Overseer, Secretary and Coordinator Elder may enter a field service record on a publisher's behalf. */
+    canEnterManualFieldService: Boolean = false,
+    /** Reports every module this session may open, so Quick Access can resolve (and permission-check) cards copied from here. */
+    onItemsAvailable: (List<SideItem>) -> Unit = {},
+    /** Long-press-and-drag a module toward Quick Access; null disables dragging. */
+    dragState: com.emfitsolutions.gopreach.ui.screens.home.QuickAccessDragState? = null,
+    onDragStarted: () -> Unit = {},
 ) {
     // "Admin Dashboard Menu Reorganization" spec — the drawer's existing
     // collapsible-section treeview (this composable already had exactly
@@ -198,19 +211,9 @@ fun GoPreachSidePanelContent(
             // grid used to give everyone, rather than stranding whoever's
             // tile grid gets hidden next.
             add(SideItem(stringResource(R.string.home_dashboard_header), Icons.Rounded.BarChart, Destinations.DASHBOARD_REPORTS))
-            add(SideItem(stringResource(R.string.side_reports_summary), Icons.Rounded.Assessment, Destinations.REPORTS))
-            if (canViewConsolidatedReport) {
-                add(SideItem(stringResource(R.string.side_consolidated_report), Icons.Rounded.Assessment, Destinations.CONSOLIDATED_REPORT))
-            }
-            if (canViewFieldServiceGroupReport) {
-                add(SideItem(stringResource(R.string.side_field_service_group_report), Icons.Rounded.Groups, Destinations.FIELD_SERVICE_GROUP_REPORT))
-            }
-            // "Manage Publisher Report" module — same access set as the
-            // Consolidated Report (Super-Admin/Admin/Coordinator Elder/
-            // Service Overseer).
-            if (canManagePublisherReports) {
-                add(SideItem(stringResource(R.string.side_publisher_reports), Icons.Rounded.Assessment, Destinations.MANAGE_PUBLISHER_REPORTS))
-            }
+            if (canViewFieldServiceReport) add(SideItem("Field Service Report", Icons.Rounded.Assessment, Destinations.FIELD_SERVICE_REPORT))
+            if (canEnterManualFieldService) add(SideItem("Manual Field Service Record", Icons.Rounded.EditNote, Destinations.MANUAL_FIELD_SERVICE))
+            if (canViewDeletedRecords) add(SideItem("Deleted Records", Icons.Rounded.RestoreFromTrash, Destinations.DELETED_RECORDS))
             // "Consolidate 'Forward Request' Modules for Super Admin" — one
             // entry only. For Super-Admin, GoPreachNavGraph passes
             // isSuperAdmin = true into this same destination, which then
@@ -224,7 +227,8 @@ fun GoPreachSidePanelContent(
             // Admin/Service Overseer only (see AdminHomeScreen's own
             // derivation of this flag for the exact access set).
             if (canManageHouseholderAssignment) {
-                add(SideItem(stringResource(R.string.side_householder_assignment), Icons.Rounded.AssignmentInd, Destinations.HOUSEHOLDER_ASSIGNMENT))
+                add(SideItem(stringResource(R.string.side_publisher_assignment), Icons.Rounded.AssignmentInd, Destinations.PUBLISHER_ASSIGNMENT))
+                add(SideItem("Comparative Report", Icons.Rounded.BarChart, Destinations.COMPARATIVE_REPORT))
             }
             if (canViewInterestedPeopleScope) add(SideItem(stringResource(R.string.side_interested_records_scoped), Icons.Rounded.Groups, Destinations.SCOPED_INTERESTED_RECORDS))
             // "The super admin can see all congregation Search[ing]/Bible
@@ -232,14 +236,10 @@ fun GoPreachSidePanelContent(
             // Delete the record" — Super-Admin only, unlike every other
             // Searching/Return Visit/Bible Study entry point in this app
             // (Publisher context, own records only).
-            if (isSuperAdmin) add(SideItem(stringResource(R.string.side_interested_records_all_congregations), Icons.Rounded.Groups, Destinations.ALL_INTERESTED_RECORDS))
             // "House Holder Visit History" — Super-Admin only in this
             // drawer; a Publisher reaches the same screen via their own Main
             // Form tile instead (see PublisherHomeScreen).
             if (isSuperAdmin) add(SideItem(stringResource(R.string.side_householder_visit_history), Icons.AutoMirrored.Rounded.ListAlt, Destinations.HOUSEHOLDER_VISIT_HISTORY))
-            // "Preaching Time Records — Super Admin Management Module" —
-            // same "Super-Admin only" gating as the item above.
-            if (isSuperAdmin) add(SideItem(stringResource(R.string.side_preaching_time_records_all_congregations), Icons.Rounded.Schedule, Destinations.ALL_PREACHING_TIME_RECORDS))
         }
         if (reportsItems.isNotEmpty()) add(SideSection(stringResource(R.string.side_section_reports), reportsItems))
 
@@ -275,6 +275,9 @@ fun GoPreachSidePanelContent(
         if (controlPanelItems.isNotEmpty()) add(SideSection(stringResource(R.string.side_section_control_panel), controlPanelItems))
     }
 
+    val availableItems = sections.flatMap { it.items }
+    LaunchedEffect(availableItems.map { it.route }) { onItemsAvailable(availableItems) }
+
     ModalDrawerSheet {
         Text(
             stringResource(R.string.app_name),
@@ -283,7 +286,7 @@ fun GoPreachSidePanelContent(
         )
         HorizontalDivider()
         LazyColumn {
-            items(sections) { section -> SidePanelSection(section, activeRoute, onNavigate) }
+            items(sections) { section -> SidePanelSection(section, activeRoute, onNavigate, dragState, onDragStarted) }
             item {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 NavigationDrawerItem(
@@ -315,7 +318,13 @@ fun GoPreachSidePanelContent(
 }
 
 @Composable
-private fun SidePanelSection(section: SideSection, activeRoute: String?, onNavigate: (String) -> Unit) {
+private fun SidePanelSection(
+    section: SideSection,
+    activeRoute: String?,
+    onNavigate: (String) -> Unit,
+    dragState: com.emfitsolutions.gopreach.ui.screens.home.QuickAccessDragState?,
+    onDragStarted: () -> Unit,
+) {
     var expanded by remember(section.title) { mutableStateOf(true) }
     Column {
         Row(
@@ -328,13 +337,7 @@ private fun SidePanelSection(section: SideSection, activeRoute: String?, onNavig
         }
         if (expanded) {
             section.items.forEach { item ->
-                NavigationDrawerItem(
-                    label = { SideItemLabel(item.label) },
-                    icon = { Icon(item.icon, contentDescription = null) },
-                    selected = activeRoute == item.route,
-                    onClick = { onNavigate(item.route) },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                )
+                SideDrawerItem(item, activeRoute, onNavigate, dragState, onDragStarted)
             }
         }
     }
@@ -347,4 +350,55 @@ private fun SidePanelSection(section: SideSection, activeRoute: String?, onNavig
 @Composable
 private fun SideItemLabel(text: String) {
     Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+/** One side-panel entry. Tap navigates; long-press-and-drag lifts it toward the Quick Access grid (the drawer closes so the
+ * grid is visible, and the finger keeps driving [dragState] in window coordinates until release). */
+@Composable
+private fun SideDrawerItem(
+    item: SideItem,
+    activeRoute: String?,
+    onNavigate: (String) -> Unit,
+    dragState: com.emfitsolutions.gopreach.ui.screens.home.QuickAccessDragState?,
+    onDragStarted: () -> Unit,
+) {
+    var coords by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    var lifted by remember { mutableStateOf(false) }
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (lifted) 1.06f else 1f, androidx.compose.animation.core.tween(140), label = "sideLift")
+    var modifier = Modifier
+        .padding(NavigationDrawerItemDefaults.ItemPadding)
+        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .onGloballyPositioned { coords = it }
+    if (dragState != null) {
+        modifier = modifier.pointerInput(item.route) {
+            detectDragGesturesAfterLongPress(
+                onDragStart = { offset ->
+                    lifted = true
+                    dragState.item = item
+                    coords?.let { dragState.rootPos = it.localToRoot(offset) }
+                    onDragStarted()
+                },
+                onDrag = { change, _ ->
+                    change.consume()
+                    coords?.let { dragState.rootPos = it.localToRoot(change.position) }
+                },
+                onDragEnd = {
+                    lifted = false
+                    dragState.item?.let { dragState.onDrop?.invoke(it, dragState.rootPos) }
+                    dragState.item = null
+                },
+                onDragCancel = {
+                    lifted = false
+                    dragState.item = null
+                },
+            )
+        }
+    }
+    NavigationDrawerItem(
+        label = { SideItemLabel(item.label) },
+        icon = { Icon(item.icon, contentDescription = null) },
+        selected = activeRoute == item.route,
+        onClick = { onNavigate(item.route) },
+        modifier = modifier,
+    )
 }

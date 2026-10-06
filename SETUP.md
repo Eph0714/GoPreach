@@ -112,3 +112,21 @@ For a genuine production release, generate a proper release keystore, add a
 version with that same key — otherwise devices that installed a
 debug-signed build can never auto-update to a release-signed one (Android
 will refuse the install; a manual uninstall/reinstall would be needed).
+
+## Release signing
+
+A production build must be signed with GoPreach's own release key, never the debug key.
+
+1. Create the key once and keep it (and its passwords) somewhere safe and backed up -- losing it means
+   no future update can ever be installed over existing installs:
+   `keytool -genkeypair -v -keystore gopreach-release.jks -alias gopreach -keyalg RSA -keysize 4096 -validity 10000`
+2. Create `keystore.properties` in the project root (it is gitignored, never commit it):
+   ```
+   storeFile=C:/path/to/gopreach-release.jks
+   storePassword=...
+   keyAlias=gopreach
+   keyPassword=...
+   ```
+3. `./gradlew assembleRelease` then signs with that key. Without `keystore.properties` the release build
+   still falls back to the debug key and prints a WARNING -- do not distribute that build.
+4. Always sign every future update with the same key.

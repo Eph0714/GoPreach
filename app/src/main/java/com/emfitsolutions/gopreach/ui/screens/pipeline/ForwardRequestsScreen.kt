@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.pipeline
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -48,6 +49,8 @@ import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.data.model.PublisherForwardRequest
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 import com.emfitsolutions.gopreach.ui.components.formatRecordTimestamp
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
 import androidx.compose.ui.window.DialogProperties
@@ -93,13 +96,15 @@ fun ForwardRequestsScreen(
 ) {
     val congregations by viewModel.congregations.collectAsStateWithLifecycle()
     // "Add a filter for Congregation" (Super-Admin only).
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("forward_requests")
     val effectiveCongregationIds = congregationFilter?.let { setOf(it) } ?: congregationIds
-    val requestsFlow = remember(effectiveCongregationIds, isSuperAdmin) {
+    val needsCongregation = congregationIds == null && congregationFilter == null
+    val requestsFlow = remember(effectiveCongregationIds, isSuperAdmin, needsCongregation) {
+        if (needsCongregation) return@remember kotlinx.coroutines.flow.flowOf(emptyList())
         if (isSuperAdmin) viewModel.allRequestsFor(effectiveCongregationIds) else viewModel.pendingRequestsFor(effectiveCongregationIds)
     }
     val requests by requestsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val publisherRequestsFlow = remember(effectiveCongregationIds) { publisherForwardViewModel.requestsFor(effectiveCongregationIds) }
+    val publisherRequestsFlow = remember(effectiveCongregationIds, needsCongregation) { if (needsCongregation) kotlinx.coroutines.flow.flowOf(emptyList()) else publisherForwardViewModel.requestsFor(effectiveCongregationIds) }
     val publisherRequests by publisherRequestsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var selected by remember { mutableStateOf<ForwardRequest?>(null) }
     val showToast = rememberActionToast()
@@ -169,8 +174,11 @@ fun ForwardRequestsScreen(
                 }
             }
         }
-        if (requests.isEmpty() && publisherRequests.isEmpty()) {
+        if (needsCongregation) {
+            SelectCongregationPrompt()
+        } else if (requests.isEmpty() && publisherRequests.isEmpty()) {
             Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                RecordFound(0)
                 Text("No forward requests.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
@@ -179,8 +187,9 @@ fun ForwardRequestsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(requests.size + publisherRequests.size) }
                 if (requests.isNotEmpty()) {
-                    item { Text("To Other Congregation/Group", style = MaterialTheme.typography.titleSmall) }
+                    item { Text("To Other Congregation", style = MaterialTheme.typography.titleSmall) }
                     items(requests, key = { it.id }) { request ->
                         val personFlow = remember(request.interestedPersonId) { viewModel.personFor(request.interestedPersonId) }
                         val person by personFlow.collectAsStateWithLifecycle(initialValue = null)
@@ -371,7 +380,7 @@ private fun ReviewForwardRequestDialog(
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("FORWARD REQUEST FROM:", style = MaterialTheme.typography.labelLarge)
                     Text("Publisher Name: ${request.fromPublisherNameSnapshot}")
-                    Text("Congregation/Group: ${request.fromCongregationNameSnapshot}")
+                    Text("Congregation: ${request.fromCongregationNameSnapshot}")
                     Text("—".repeat(20), style = MaterialTheme.typography.bodySmall)
                     Text("Name: ${request.personNameSnapshot}")
                     person?.let { p ->
@@ -394,7 +403,7 @@ private fun ReviewForwardRequestDialog(
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("FORWARD REQUEST FROM:", style = MaterialTheme.typography.labelLarge)
                 Text("Publisher Name: ${request.fromPublisherNameSnapshot}")
-                Text("Congregation/Group: ${request.fromCongregationNameSnapshot}")
+                Text("Congregation: ${request.fromCongregationNameSnapshot}")
                 Text("—".repeat(20), style = MaterialTheme.typography.bodySmall)
                 Text("Name: ${request.personNameSnapshot}")
                 person?.let { p ->

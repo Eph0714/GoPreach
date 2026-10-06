@@ -1,6 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.monthlyreport
 
 import android.content.Intent
+import com.emfitsolutions.gopreach.data.model.displayName
+import com.emfitsolutions.gopreach.domain.PublisherReportCalculator
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -65,7 +67,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.R
 import com.emfitsolutions.gopreach.data.model.ReportStatus
-import com.emfitsolutions.gopreach.domain.ReportShareText
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -111,7 +112,7 @@ fun MonthlyReportScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    LaunchedEffect(publisherPersonId) { viewModel.load(publisherPersonId) }
+    LaunchedEffect(publisherPersonId, allowEditWhenLocked) { viewModel.load(publisherPersonId, useStoredValues = allowEditWhenLocked) }
     // Applied once, right after load() establishes [viewModel.availableMonths]
     // — guarded to one of those real periods so an out-of-range month (e.g.
     // My Planner parked further back than the picker's lookback window)
@@ -222,31 +223,8 @@ fun MonthlyReportScreen(
 // Solid semantic colors (spec §10/§13 — "use solid colors, avoid gradients")
 // ---------------------------------------------------------------------------
 
-/** "The Text Preview must display the exact information that will be
- * submitted" — the one place this screen builds that text, read straight
- * from [uiState] (whatever the Publisher currently has entered, edited or
- * not); used identically by the Preview step's own text block, the Share
- * action, and (via [MonthlyReportViewModel.submit]'s own read of the same
- * state) is exactly what gets saved. Return Visit is deliberately never
- * part of it — see [ReportShareText]'s own doc comment. */
-private fun reportText(uiState: MonthlyReportUiState): String = if (uiState.isPioneer) {
-    ReportShareText.forPioneer(
-        uiState.selectedPeriodMonth,
-        uiState.hoursText.toIntOrNull() ?: 0,
-        uiState.minutesText.toIntOrNull() ?: 0,
-        uiState.bibleStudiesRendered.toIntOrNull() ?: 0,
-        uiState.remarks,
-    )
-} else {
-    ReportShareText.forNonPioneer(
-        uiState.selectedPeriodMonth,
-        uiState.hoursText.toIntOrNull() ?: 0,
-        uiState.minutesText.toIntOrNull() ?: 0,
-        uiState.bibleStudiesRendered.toIntOrNull() ?: 0,
-        uiState.participatedInPreaching,
-        uiState.remarks,
-    )
-}
+/** The Preview text and Send as Text — one calculation ([PublisherReport]), the same one Submit saves. */
+private fun reportText(uiState: MonthlyReportUiState): String = uiState.report.toText()
 
 private val SolidGreen = Color(0xFF2E7D32)
 private val SolidBlue = Color(0xFF1565C0)
@@ -308,7 +286,7 @@ private fun MonthlyReportForm(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                stringResource(R.string.monthly_report_category, uiState.category?.name?.replace('_', ' ') ?: stringResource(R.string.monthly_report_category_unknown)),
+                stringResource(R.string.monthly_report_category, uiState.category?.displayName ?: stringResource(R.string.monthly_report_category_unknown)),
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f),
             )
@@ -374,95 +352,56 @@ private fun MonthlyReportForm(
             }
         }
 
-        // Only the non-Pioneer categories (Regular Publisher, Unbaptized
-        // Publisher) are asked this — a Pioneer already reports actual
-        // hours below (spec §16 rule 1/2). The label always names the exact
-        // month selected above, never "this month" in the abstract, and
-        // updates the moment the month changes (spec §3B).
-        if (!isPioneer) {
-            Column {
-                Text(
-                    stringResource(R.string.monthly_report_participated_question, selectedMonthLabel),
-                    style = MaterialTheme.typography.bodyLarge,
+        if (allowEditWhenLocked) {
+            // An Elder correcting a report can still change its figures.
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = uiState.hoursText,
+                    onValueChange = viewModel::onHoursChange,
+                    label = { Text(stringResource(R.string.monthly_report_hours_label)) },
+                    singleLine = true,
+                    isError = uiState.hoursError != null,
+                    supportingText = uiState.hoursError?.let { { Text(it, color = SolidRed) } },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = !effectivelyLocked) { viewModel.onParticipatedChange(true) },
-                    ) {
-                        RadioButton(selected = uiState.participatedInPreaching, onClick = { viewModel.onParticipatedChange(true) }, enabled = !effectivelyLocked)
-                        Text("Yes")
-                    }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = !effectivelyLocked) { viewModel.onParticipatedChange(false) },
-                    ) {
-                        RadioButton(selected = !uiState.participatedInPreaching, onClick = { viewModel.onParticipatedChange(false) }, enabled = !effectivelyLocked)
-                        Text("No")
-                    }
-                }
+                OutlinedTextField(
+                    value = uiState.minutesText,
+                    onValueChange = viewModel::onMinutesChange,
+                    label = { Text(stringResource(R.string.monthly_report_minutes_label)) },
+                    singleLine = true,
+                    isError = uiState.minutesError != null,
+                    supportingText = uiState.minutesError?.let { { Text(it, color = SolidRed) } },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                )
             }
-        }
-
-        // Hours/Minutes — spec §1/§3C-D/§4B-C: shown and editable for every
-        // category now, not just Pioneers. Auto-filled from My Planner (a
-        // Pioneer's own default still comes from the existing Preaching
-        // Time Record total — see [MonthlyReportViewModel.load]'s own
-        // comment), but the retrieved value is only ever the *default*: the
-        // Publisher can freely change it, and that edit is never silently
-        // reverted (spec §5).
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = uiState.hoursText,
-                onValueChange = viewModel::onHoursChange,
-                label = { Text(stringResource(R.string.monthly_report_hours_label)) },
-                singleLine = true,
-                enabled = !effectivelyLocked,
-                isError = uiState.hoursError != null,
-                supportingText = uiState.hoursError?.let { { Text(it, color = SolidRed) } },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                visualTransformation = VisualTransformation.None,
-                modifier = Modifier.weight(1f),
-            )
-            OutlinedTextField(
-                value = uiState.minutesText,
-                onValueChange = viewModel::onMinutesChange,
-                label = { Text(stringResource(R.string.monthly_report_minutes_label)) },
-                singleLine = true,
-                enabled = !effectivelyLocked,
-                isError = uiState.minutesError != null,
-                supportingText = uiState.minutesError?.let { { Text(it, color = SolidRed) } },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                visualTransformation = VisualTransformation.None,
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        // Pre-filled from Bible Study records but still Publisher-editable,
-        // same "automatic but can be edited" treatment as Hours/Minutes
-        // above. Person-based counting (spec §9/§16): the same Bible Study
-        // person visited multiple times this month is still exactly one.
-        if (!uiState.calculationFailed) {
             OutlinedTextField(
                 value = uiState.bibleStudiesRendered,
                 onValueChange = viewModel::onBibleStudiesChange,
                 label = { Text(stringResource(R.string.monthly_report_bible_studies_label)) },
                 singleLine = true,
-                enabled = !effectivelyLocked,
                 isError = uiState.bibleStudiesError != null,
                 supportingText = uiState.bibleStudiesError?.let { { Text(it, color = SolidRed) } },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                visualTransformation = VisualTransformation.None,
                 modifier = Modifier.fillMaxWidth(),
             )
-            // "Remove Number of Return Visits ONLY from the Monthly Report
-            // Form" — Return Visit stays fully intact everywhere else (My
-            // Planner, Return Visit records/history, other reports); this
-            // screen simply no longer shows or edits it. It's still
-            // calculated and saved on the report document as before (see
-            // [MonthlyReportViewModel.submit]) — untouched downstream
-            // consumers (Consolidated Report, ...) keep reading a real,
-            // accurate value; only this form's own UI control is gone.
+        } else {
+            // Everyone else: the figures come straight from the Monthly Report and are
+            // shown as they will be sent - a Pioneer's converted Hours (no minutes), a
+            // non-Pioneer's Attended in Preaching (no hours or minutes), and Bible Study.
+            val report = uiState.report
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (report.isPioneer) {
+                        Text("Hours: ${PublisherReportCalculator.formatHours(report.hours ?: 0.0)}", style = MaterialTheme.typography.bodyLarge)
+                    } else {
+                        Text("Attended in Preaching: ${if (report.attendedInPreaching == true) "YES" else "NO"}", style = MaterialTheme.typography.bodyLarge)
+                    }
+                    Text("Bible Study: ${report.bibleStudies}", style = MaterialTheme.typography.bodyLarge)
+                    Text("From your Monthly Report for $selectedMonthLabel", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
 
         OutlinedTextField(
@@ -489,13 +428,19 @@ private fun MonthlyReportForm(
             )
         }
 
+        // A Publisher's own report that is already submitted can't be sent again (an
+        // Elder correcting it, or a Returned/Draft report, still can).
+        val alreadySubmitted = !allowEditWhenLocked && when (uiState.existingReport?.status) {
+            ReportStatus.SUBMITTED, ReportStatus.CORRECTED, ReportStatus.POSTED -> true
+            else -> false
+        }
         Button(
             onClick = viewModel::showPreview,
-            enabled = !uiState.isSaving && !effectivelyLocked && !submitBlockedByWindow && !uiState.hasValidationError,
+            enabled = !alreadySubmitted && !uiState.isSaving && !effectivelyLocked && !submitBlockedByWindow && !uiState.hasValidationError,
             colors = ButtonDefaults.buttonColors(containerColor = SolidBlue),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(stringResource(R.string.monthly_report_review_button))
+            Text(if (alreadySubmitted) "This Record is Already Submitted" else stringResource(R.string.monthly_report_review_button))
         }
     }
 }

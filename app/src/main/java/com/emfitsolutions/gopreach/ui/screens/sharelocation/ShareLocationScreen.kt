@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.sharelocation
 
 import android.Manifest
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -67,6 +68,8 @@ import com.emfitsolutions.gopreach.data.location.LatLng
 import com.emfitsolutions.gopreach.data.model.Congregation
 import com.emfitsolutions.gopreach.data.model.LocationSharingSettings
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 import com.emfitsolutions.gopreach.ui.components.FormDialog
 import com.emfitsolutions.gopreach.ui.components.openCoordinatesInMaps
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -130,9 +133,11 @@ fun ShareLocationScreen(
     // replacing the free-text "type the congregation name into Search"
     // behavior; only meaningful when [visibleCongregationId] is already
     // unscoped (Super-Admin).
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("share_location")
     val effectiveCongregationId = visibleCongregationId ?: congregationFilter
-    val rowsFlow = remember(effectiveCongregationId, searchQuery) {
+    val needsCongregation = visibleCongregationId == null && congregationFilter == null
+    val rowsFlow = remember(effectiveCongregationId, searchQuery, needsCongregation) {
+        if (needsCongregation) return@remember kotlinx.coroutines.flow.flowOf(emptyList())
         viewModel.rowsFor(effectiveCongregationId, searchQuery)
     }
     val rows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -423,11 +428,14 @@ fun ShareLocationScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 )
 
-                if (rows.isEmpty()) {
+                if (needsCongregation) {
+                    SelectCongregationPrompt()
+                } else if (rows.isEmpty()) {
                     Column(
                         modifier = Modifier.fillMaxSize().padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
+                        RecordFound(0)
                         Text("No one has shared their location yet.", style = MaterialTheme.typography.bodyMedium)
                     }
                 } else {
@@ -436,6 +444,7 @@ fun ShareLocationScreen(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
+                        item { RecordFound(rows.size) }
                         items(rows, key = { it.person.id }) { row ->
                             val isOwnRow = row.person.id == currentPersonId
                             Row(
@@ -582,7 +591,7 @@ private fun LocationSharingSettingsDialog(
         val duration = durationText.toIntOrNull()
         val accuracy = accuracyText.toIntOrNull()
         val message = requiredFieldsMessage(
-            "Congregation/Group" to (resolvedCongregationId != null),
+            "Congregation" to (resolvedCongregationId != null),
             "Location Sharing Time" to (duration != null && duration > 0),
             "Accuracy Radius" to (accuracy != null && accuracy > 0),
         )
@@ -658,7 +667,7 @@ private fun CongregationSettingsDropdown(congregations: List<Congregation>, sele
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation/Group") },
+            label = { Text("Congregation") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

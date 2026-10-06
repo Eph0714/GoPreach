@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.credithours
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -98,6 +99,7 @@ fun CreditHourCategoriesScreen(
         when {
             list == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             list.isEmpty() -> Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                RecordFound(0)
                 Text("No Credit Hour categories available.", style = MaterialTheme.typography.titleSmall)
                 Text("Tap Add Category to create the first one.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -113,6 +115,7 @@ fun CreditHourCategoriesScreen(
                     }
                     HorizontalDivider()
                 }
+                item { RecordFound(list.size) }
                 items(list, key = { it.id }) { category ->
                     CategoryRow(
                         category = category,

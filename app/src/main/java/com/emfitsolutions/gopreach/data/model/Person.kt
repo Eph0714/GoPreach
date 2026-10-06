@@ -28,6 +28,18 @@ data class Person(
     val contact: String = "",
     val contactPerson: String? = null,
     val contactPersonNumber: String? = null,
+    /** First-time Publisher setup: when the Publisher confirmed their details (after choosing their own
+     * username and password). Until they then sign in again with those credentials, [isTemporaryCredential]
+     * stays true, so setup is not finished by confirming alone. */
+    val setupConfirmedAt: Long? = null,
+    /** When the Publisher proved the new credentials by signing in again — first-time setup finished. */
+    val setupCompletedAt: Long? = null,
+    /** Free-text note about this person, entered when enrolling a Publisher (and editable afterwards). */
+    val remarks: String? = null,
+    /** Optional. Epoch millis at UTC midnight of the chosen date (what the date picker returns). The age is never stored — see [com.emfitsolutions.gopreach.domain.PersonDates]. */
+    val birthdate: Long? = null,
+    /** Optional, same encoding as [birthdate]. */
+    val baptismalDate: Long? = null,
     val gpsLat: Double? = null,
     val gpsLng: Double? = null,
     val email: String? = null,
@@ -130,7 +142,7 @@ data class Person(
      * notes" (spec's own wording). `null` means never set. */
     val preachingAvailabilityRemarks: String? = null,
 ) {
+    /** The name in the order the user picked in Settings ("Last name first" / "First name first"). */
     val fullName: String
-        get() = listOfNotNull(firstName, middleInitial?.let { "$it." }, lastName, extensionName)
-            .joinToString(" ")
+        get() = com.emfitsolutions.gopreach.domain.formatPersonName(firstName, middleInitial, lastName, extensionName)
 }

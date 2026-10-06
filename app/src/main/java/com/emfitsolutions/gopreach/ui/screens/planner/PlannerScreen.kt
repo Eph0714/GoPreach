@@ -63,7 +63,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.CreditHourRecord
 import com.emfitsolutions.gopreach.data.model.PipelineStage
 import com.emfitsolutions.gopreach.domain.DayBounds
-import com.emfitsolutions.gopreach.domain.ReportShareText
 import com.emfitsolutions.gopreach.domain.TimeBounds
 import com.emfitsolutions.gopreach.ui.components.MinistryTimerCard
 import com.emfitsolutions.gopreach.ui.components.rememberActionToast
@@ -150,7 +149,7 @@ internal fun CreditHourDialogsHost(
         CreditHourRecordDetailDialog(
             record = record,
             categoryName = categoryName(record.categoryId),
-            canEdit = record.publisherPersonId == currentPersonId,
+            canEdit = record.publisherPersonId == currentPersonId && !LocalPlannerLock.current.isLocked(record.resolvedDayStart()),
             onEdit = { state.detail = null; state.editing = record },
             onDelete = { state.detail = null; viewModel.delete(record) },
             onDismiss = { state.detail = null },
@@ -262,6 +261,10 @@ internal fun PlannerDayContent(currentPersonId: String, viewModel: PlannerDayVie
                     labelColumnWidth = labelColumnWidth,
                     valueColumnWidth = valueColumnWidth,
                 ) {
+                  if (LocalPlannerLock.current.isLocked(dayStart)) {
+                    PlannerEmptyHint(PLANNER_LOCKED_MESSAGE)
+                    LocalPlannerLock.current.submittedHoursLabel(dayStart)?.let { PlannerEmptyHint("$it (read-only)") }
+                  } else {
                     StepperRow(
                         label = "Hours",
                         value = state.hours.toString(),
@@ -280,6 +283,7 @@ internal fun PlannerDayContent(currentPersonId: String, viewModel: PlannerDayVie
                         onValueEntered = { viewModel.setMinutes(currentPersonId, it) },
                         labelColumnWidth = labelColumnWidth,
                     )
+                  }
                 }
 
                 PlannerRecordSections(
@@ -288,6 +292,7 @@ internal fun PlannerDayContent(currentPersonId: String, viewModel: PlannerDayVie
                     categoryName = categoryName,
                     onOpenCredit = { creditDialogs.detail = it },
                     onAddCredit = { creditDialogs.addingForDay = dayStart },
+                    periodLocked = LocalPlannerLock.current.isLocked(dayStart),
                     onOpenPerson = { stage, personId -> onNavigate(plannerPersonRoute(stage, personId)) },
                     onOpenPersonList = { onNavigate(plannerPersonListRoute(it)) },
                     onOpenDay = null,
@@ -311,7 +316,11 @@ internal fun PlannerDayContent(currentPersonId: String, viewModel: PlannerDayVie
                     labelColumnWidth = labelColumnWidth,
                     valueColumnWidth = valueColumnWidth,
                 ) {
-                    MinistryTimerCard(publisherPersonId = currentPersonId, showLabel = false, targetDayMillis = dayStart)
+                    if (LocalPlannerLock.current.isLocked(dayStart)) {
+                        PlannerEmptyHint(PLANNER_LOCKED_MESSAGE)
+                    } else {
+                        MinistryTimerCard(publisherPersonId = currentPersonId, showLabel = false, targetDayMillis = dayStart)
+                    }
                 }
             }
         }
@@ -431,30 +440,23 @@ internal fun PlannerMonthContent(
             // Shared by "Preview" and "Send as Text" — the dialog's own
             // Send button uses this exact same string, so what the Publisher
             // previews is guaranteed to be what actually goes out.
-            val reportText = remember(state.totalMinutes, state.bibleStudyCount, isPioneer, monthStart) {
-                val hours = state.totalMinutes / 60
-                val minutes = state.totalMinutes % 60
-                if (isPioneer) {
-                    ReportShareText.forPioneer(monthStart, hours, minutes, state.bibleStudyCount)
-                } else {
-                    // A non-Pioneer's Y/N question is "did you take part in
-                    // field ministry at all this month" — approximated here
-                    // from the Planner's own logged ministry minutes (the
-                    // Monthly Report screen's more precise, Preaching-Time-
-                    // Record-derived version is used instead when sharing
-                    // from there).
-                    ReportShareText.forNonPioneer(monthStart, hours, minutes, state.bibleStudyCount, state.totalMinutes > 0)
-                }
-            }
+            val reportViewModel: PlannerReportViewModel = hiltViewModel()
+            val reportText by remember(currentPersonId, monthStart) { reportViewModel.reportText(currentPersonId, monthStart) }
+                .collectAsStateWithLifecycle(initialValue = "")
+            val alreadySubmitted by remember(currentPersonId, monthStart) { reportViewModel.isSubmitted(currentPersonId, monthStart) }
+                .collectAsStateWithLifecycle(initialValue = false)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Button(
                     onClick = { showSendReportChooser = true },
+                    enabled = !alreadySubmitted,
                     shape = RoundedCornerShape(50),
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
                 ) {
-                    Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Send Report", style = MaterialTheme.typography.labelLarge)
+                    if (!alreadySubmitted) {
+                        Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    Text(if (alreadySubmitted) "This Record is Already Submitted" else "Send Report", style = MaterialTheme.typography.labelLarge)
                 }
             }
             if (showSendReportChooser) {
@@ -510,6 +512,7 @@ internal fun PlannerMonthContent(
                 categoryName = categoryName,
                 onOpenCredit = { creditDialogs.detail = it },
                 onAddCredit = { creditDialogs.addingForDay = defaultEntryDay(bounds, monthStart) },
+                periodLocked = LocalPlannerLock.current.isLocked(monthStart),
                 onOpenPerson = onOpenPerson,
                 onOpenPersonList = onOpenPersonList,
                 onOpenDay = onOpenDay,
@@ -1030,6 +1033,7 @@ internal fun PlannerYearContent(
                 categoryName = categoryName,
                 onOpenCredit = { creditDialogs.detail = it },
                 onAddCredit = { creditDialogs.addingForDay = defaultEntryDay(bounds, yearStart) },
+                periodLocked = false, // a year spans many months; the credit dialog still refuses submitted dates
                 onOpenPerson = onOpenPerson,
                 onOpenPersonList = onOpenPersonList,
                 onOpenDay = onOpenDay,

@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.users
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -90,6 +91,7 @@ fun ManageUsersScreen(
             }
         if (users.isEmpty()) {
             Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+                RecordFound(0)
                 Text(
                     "No Circuit Overseer or custom users yet. Tap + to add one — you'll choose exactly what they can see and where.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -101,6 +103,7 @@ fun ManageUsersScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                item { RecordFound(users.size) }
                 items(users, key = { it.person.id }) { row ->
                     var menuOpen by remember { mutableStateOf(false) }
                     Card(modifier = Modifier.fillMaxWidth()) {

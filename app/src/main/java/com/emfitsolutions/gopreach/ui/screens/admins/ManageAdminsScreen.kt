@@ -1,6 +1,8 @@
 package com.emfitsolutions.gopreach.ui.screens.admins
 
 import androidx.compose.foundation.clickable
+import com.emfitsolutions.gopreach.ui.components.RecordFound
+import com.emfitsolutions.gopreach.ui.components.NameFieldsInOrder
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -47,6 +49,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
@@ -76,10 +80,11 @@ fun ManageAdminsScreen(
     // scope at all (Manage Admins is Super-Admin only, always every
     // congregation), so this is purely a display filter, not a security
     // boundary; `null` (the default) means "All Congregations."
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("manage_admins")
+    val needsCongregation = congregationFilter == null
     val admins = allAdmins
         .filter { showInactive || it.isActive }
-        .filter { congregationFilter == null || it.assignment.congregationId == congregationFilter }
+        .filter { it.assignment.congregationId == congregationFilter }
     var lookupTarget by remember { mutableStateOf<Person?>(null) }
     var pendingEdit by remember { mutableStateOf<AdminRow?>(null) }
     var pendingDeactivate by remember { mutableStateOf<AdminRow?>(null) }
@@ -116,11 +121,14 @@ fun ManageAdminsScreen(
                 onSelected = { congregationFilter = it },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
-        if (admins.isEmpty()) {
+        if (needsCongregation) {
+            SelectCongregationPrompt()
+        } else if (admins.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                RecordFound(0)
                 Text("No admins enrolled yet. Tap + to enroll one.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
@@ -129,6 +137,7 @@ fun ManageAdminsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(admins.size) }
                 items(admins, key = { it.person.id }) { row ->
                     Card(
                         modifier = Modifier
@@ -138,7 +147,7 @@ fun ManageAdminsScreen(
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(row.person.fullName, style = MaterialTheme.typography.titleMedium)
-                                Text("Congregation/Group: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
+                                Text("Congregation: ${row.congregationName}", style = MaterialTheme.typography.bodySmall)
                                 Text("Contact: ${row.person.contact}", style = MaterialTheme.typography.bodySmall)
                                 Text(
                                     if (row.isActive) "Active" else "Inactive",
@@ -252,21 +261,27 @@ private fun EditAdminDialog(
             address != row.person.address || contact != row.person.contact || email != (row.person.email ?: ""),
     ) {
                 EditSectionHeader("Personal Information")
-                OutlinedTextField(
-                    value = firstName,
-                    onValueChange = { firstName = it.uppercase() },
-                    label = { Text("First Name") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = lastName,
-                    onValueChange = { lastName = it.uppercase() },
-                    label = { Text("Last Name") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
+                NameFieldsInOrder(
+                    first = {
+                        OutlinedTextField(
+                        value = firstName,
+                        onValueChange = { firstName = it.uppercase() },
+                        label = { Text("First Name") },
+                        singleLine = true,
+                        visualTransformation = VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    },
+                    last = {
+                        OutlinedTextField(
+                        value = lastName,
+                        onValueChange = { lastName = it.uppercase() },
+                        label = { Text("Last Name") },
+                        singleLine = true,
+                        visualTransformation = VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    },
                 )
                 OutlinedTextField(
                     value = address,
@@ -293,7 +308,7 @@ private fun EditAdminDialog(
                 )
 
                 EditSectionHeader("Assignment")
-                ReadOnlyField("Congregation/Group", row.congregationName)
+                ReadOnlyField("Congregation", row.congregationName)
                 ReadOnlyField("Role", "Admin")
 
                 EditSectionHeader("System Information")

@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.groups
 
 import androidx.compose.foundation.verticalScroll
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -67,6 +68,8 @@ import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
 import com.emfitsolutions.gopreach.ui.components.DeleteChoiceDialog
 import com.emfitsolutions.gopreach.ui.components.EditSectionHeader
 import com.emfitsolutions.gopreach.ui.components.FormDialog
@@ -97,9 +100,10 @@ fun ManageGroupsScreen(
 ) {
     val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
     // "Add a filter for Congregation" (Super-Admin only).
-    var congregationFilter by remember { mutableStateOf<String?>(null) }
+    var congregationFilter by rememberCongregationContext("field_service_groups")
     val effectiveCongregationId = fixedCongregationId ?: congregationFilter
-    val rowsFlow = remember(effectiveCongregationId) { viewModel.rowsFor(effectiveCongregationId) }
+    val needsCongregation = fixedCongregationId == null && congregationFilter == null
+    val rowsFlow = remember(effectiveCongregationId, needsCongregation) { if (needsCongregation) kotlinx.coroutines.flow.flowOf(emptyList()) else viewModel.rowsFor(effectiveCongregationId) }
     val allRows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showInactive by remember { mutableStateOf(false) }
     val rows = allRows.filter { showInactive || it.group.status == RecordStatus.ACTIVE }
@@ -144,11 +148,14 @@ fun ManageGroupsScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-        if (rows.isEmpty()) {
+        if (needsCongregation) {
+            SelectCongregationPrompt()
+        } else if (rows.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                RecordFound(0)
                 Text("No field service groups yet. Tap + to add one.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
@@ -157,6 +164,7 @@ fun ManageGroupsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(rows.size) }
                 items(rows, key = { it.group.id }) { row ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -344,7 +352,7 @@ private fun GroupDialog(
     // keyed on the list at all, and it survives a config change via the
     // instance-state Bundle the same way a plain text field's typed-in value
     // already does elsewhere in this app.
-    var pickedCongregationId by rememberSaveable { mutableStateOf(existingGroup?.congregationId) }
+    var pickedCongregationId by rememberSaveable { mutableStateOf(existingGroup?.congregationId ?: com.emfitsolutions.gopreach.ui.components.CongregationContextStore.get("field_service_groups")) }
     val pickedCongregation = congregations.firstOrNull { it.id == pickedCongregationId }
     // Scoped roles (Admin/Coordinator Elder) already have exactly one congregation;
     // only a Super-Admin needs to pick one here.
@@ -370,7 +378,8 @@ private fun GroupDialog(
     }.collectAsStateWithLifecycle(initialValue = emptyList())
     val servantCandidates by remember(congregationId, overseer, assistant) {
         if (congregationId != null) {
-            viewModel.availableEldersFor(congregationId, RegularElderRole.GROUP_SERVANT, setOfNotNull(overseer?.id, assistant?.id))
+            // The Group Servant comes from the Ministerial Servant list, not from the Regular Elders.
+            viewModel.availableMinisterialServantsFor(congregationId, setOfNotNull(overseer?.id, assistant?.id))
         } else kotlinx.coroutines.flow.flowOf(emptyList())
     }.collectAsStateWithLifecycle(initialValue = emptyList())
     // "'Group Assistant' can be browse from Publishers Record" — unlike
@@ -389,7 +398,10 @@ private fun GroupDialog(
     // exactly the "assign the appropriate role" gap the admin fills in manually below.
     if (!preselected && (overseerCandidates.isNotEmpty() || servantCandidates.isNotEmpty() || assistantCandidates.isNotEmpty())) {
         overseer = overseerCandidates.firstOrNull { it.id == existingGroup?.overseerPersonId }
+        // A group saved before this change may still name a Regular Elder as its servant — keep
+        // showing (and keeping) them until someone picks a Ministerial Servant instead.
         servant = servantCandidates.firstOrNull { it.id == existingGroup?.servantPersonId }
+            ?: (overseerCandidates + assistantCandidates.map { it.person }).firstOrNull { it.id == existingGroup?.servantPersonId }
         assistant = assistantCandidates.firstOrNull { it.person.id == existingGroup?.assistantPersonId }?.person
         initialOverseer = overseer
         initialServant = servant
@@ -447,7 +459,7 @@ private fun GroupDialog(
         val resolvedCongregationId = fixedCongregationId ?: pickedCongregationId ?: existingGroup?.congregationId
         val message = requiredFieldsMessage(
             "Field Service Group Name" to name.isNotBlank(),
-            "Congregation/Group" to (resolvedCongregationId != null),
+            "Congregation" to (resolvedCongregationId != null),
         )
         if (message != null) {
             errorMessage = message
@@ -494,11 +506,7 @@ private fun GroupDialog(
                     CongregationPickerDropdown(
                         congregations = congregations,
                         selected = pickedCongregation,
-                        onSelected = {
-                            // TEMPORARY diagnostic logging — see submit()'s own comment.
-                            android.util.Log.d("GroupDialog", "onSelected: picked id='${it.id}' name='${it.name}'")
-                            pickedCongregationId = it.id
-                        },
+                        onSelected = { pickedCongregationId = it.id },
                     )
                 }
                 OutlinedTextField(
@@ -626,7 +634,7 @@ private fun CongregationPickerDropdown(
             value = selected?.name ?: "",
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation/Group") },
+            label = { Text("Congregation") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),

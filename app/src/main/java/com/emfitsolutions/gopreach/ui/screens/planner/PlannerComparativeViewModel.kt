@@ -85,6 +85,23 @@ class PlannerComparativeViewModel @Inject constructor(
         PlannerComparativeUiState(startMonth = start, endMonth = end, rows = rows, isLoading = false)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PlannerComparativeUiState())
 
+    /** Month-by-month figures for one [range] — the same computation as the single-range report, so Period A and Period B always agree with it. */
+    fun rowsFor(publisherPersonId: String, range: com.emfitsolutions.gopreach.ui.components.MonthRange): kotlinx.coroutines.flow.Flow<List<ComparativeMonthRow>> = combine(
+        plannerDayRepository.observeForPublisher(publisherPersonId),
+        interestedPersonRepository.observeAll(),
+        visitRepository.observeAllForPublisher(publisherPersonId),
+    ) { allDays, people, visits ->
+        range.months().map { monthStart ->
+            val bounds = MonthBounds.of(monthStart)
+            ComparativeMonthRow(
+                monthStart = monthStart,
+                totalMinutes = allDays.filter { bounds.contains(it.dayStart) }.sumOf { it.totalMinutes },
+                returnVisitCount = MinistryStatisticsService.getMonthlyUniqueReturnVisits(publisherPersonId, people, visits, monthStart),
+                bibleStudyCount = MinistryStatisticsService.getMonthlyUniqueBibleStudies(publisherPersonId, people, visits, monthStart),
+            )
+        }
+    }
+
     private fun monthsBetween(start: Long, end: Long): List<Long> {
         val result = mutableListOf<Long>()
         var cursor = start

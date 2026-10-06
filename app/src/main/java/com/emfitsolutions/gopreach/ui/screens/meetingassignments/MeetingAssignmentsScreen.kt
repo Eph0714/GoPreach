@@ -198,7 +198,7 @@ private fun CongregationDropdown(congregations: List<Congregation>, selectedId: 
             value = selectedName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Congregation/Group") },
+            label = { Text("Congregation") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             visualTransformation = VisualTransformation.None,
             modifier = Modifier.fillMaxWidth().menuAnchor(),
@@ -1006,6 +1006,8 @@ private fun publicTalkReportTable(congregationName: String, rows: List<PublicTal
     }
     return ReportTable(
         title = "Public Talk and Watchtower Study Schedule — $congregationName",
+        count = rows.size,
+        countLabel = "Total Schedules",
         columns = listOf("Date", "Theme", "Speaker", "Chairman", "Watchtower Conductor", "Watchtower Reader", "Mic Servers"),
         rows = tableRows,
     )
@@ -1020,6 +1022,8 @@ private fun cartAssignmentReportTable(congregationName: String, rows: List<CartA
     val tableRows = rows.map { row -> listOf(dateFormat.format(Date(row.date)), row.location, row.publishers) }
     return ReportTable(
         title = "Cart Assignment — $congregationName",
+        count = rows.size,
+        countLabel = "Total Assignments",
         columns = listOf("Date", "Location", "Publishers"),
         rows = tableRows,
     )

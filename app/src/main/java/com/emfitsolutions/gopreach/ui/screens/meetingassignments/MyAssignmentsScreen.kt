@@ -1,6 +1,7 @@
 package com.emfitsolutions.gopreach.ui.screens.meetingassignments
 
 import androidx.compose.foundation.layout.Arrangement
+import com.emfitsolutions.gopreach.ui.components.RecordFound
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -70,6 +71,7 @@ fun MyAssignmentsScreen(
             }
         } else if (rows.isEmpty()) {
             Column(modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp)) {
+                RecordFound(0)
                 Text(
                     "You have no Midweek, Public Talk, or Cart assignments yet.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -82,6 +84,7 @@ fun MyAssignmentsScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(rows.size) }
                 items(rows, key = { it.rowKey() }) { row -> MyAssignmentCard(row, dateFormat) }
             }
         }

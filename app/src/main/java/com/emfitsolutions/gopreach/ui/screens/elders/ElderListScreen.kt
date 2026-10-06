@@ -1,6 +1,9 @@
 package com.emfitsolutions.gopreach.ui.screens.elders
 
 import androidx.compose.foundation.clickable
+import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
+import com.emfitsolutions.gopreach.ui.components.RecordFound
+import com.emfitsolutions.gopreach.ui.components.NameFieldsInOrder
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -108,6 +111,8 @@ fun ElderListScreen(
      * this composable — this slot only renders the control, it doesn't
      * filter anything itself. */
     congregationFilterContent: (@Composable () -> Unit)? = null,
+    /** Super-Admin has not yet selected a Congregation: show the prompt instead of records. */
+    needsCongregation: Boolean = false,
 ) {
     var showInactive by remember { mutableStateOf(false) }
     val visibleRows = rows.filter { showInactive || it.isActive }
@@ -148,11 +153,14 @@ fun ElderListScreen(
                     congregationFilterContent()
                 }
             }
-        if (visibleRows.isEmpty()) {
+        if (needsCongregation) {
+            SelectCongregationPrompt()
+        } else if (visibleRows.isEmpty()) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                RecordFound(0)
                 Text("None enrolled yet. Tap + to enroll one.", style = MaterialTheme.typography.bodyMedium)
             }
         } else {
@@ -161,6 +169,7 @@ fun ElderListScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { RecordFound(visibleRows.size) }
                 items(visibleRows, key = { it.person.id }) { row ->
                     Card(
                         modifier = Modifier
@@ -295,21 +304,27 @@ private fun EditElderDialog(
         maxContentHeight = 520.dp,
     ) {
                 EditSectionHeader("Personal Information")
-                OutlinedTextField(
-                    value = firstName,
-                    onValueChange = { firstName = it.uppercase() },
-                    label = { Text("First Name") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = lastName,
-                    onValueChange = { lastName = it.uppercase() },
-                    label = { Text("Last Name") },
-                    singleLine = true,
-                    visualTransformation = VisualTransformation.None,
-                    modifier = Modifier.fillMaxWidth(),
+                NameFieldsInOrder(
+                    first = {
+                        OutlinedTextField(
+                        value = firstName,
+                        onValueChange = { firstName = it.uppercase() },
+                        label = { Text("First Name") },
+                        singleLine = true,
+                        visualTransformation = VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    },
+                    last = {
+                        OutlinedTextField(
+                        value = lastName,
+                        onValueChange = { lastName = it.uppercase() },
+                        label = { Text("Last Name") },
+                        singleLine = true,
+                        visualTransformation = VisualTransformation.None,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    },
                 )
                 OutlinedTextField(
                     value = address,
