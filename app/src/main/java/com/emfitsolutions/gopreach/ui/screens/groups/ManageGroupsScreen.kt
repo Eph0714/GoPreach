@@ -67,6 +67,7 @@ import com.emfitsolutions.gopreach.data.model.Group
 import com.emfitsolutions.gopreach.data.model.Person
 import com.emfitsolutions.gopreach.data.model.RecordStatus
 import com.emfitsolutions.gopreach.data.model.RegularElderRole
+import com.emfitsolutions.gopreach.domain.GroupAccessScope
 import com.emfitsolutions.gopreach.ui.components.CongregationFilterDropdown
 import com.emfitsolutions.gopreach.ui.components.SelectCongregationPrompt
 import com.emfitsolutions.gopreach.ui.components.rememberCongregationContext
@@ -95,15 +96,19 @@ fun ManageGroupsScreen(
     /** A restricted user with `VIEW_GROUPS` but not `MANAGE_GROUPS` — hides
      * Add/Edit/Delete/Reactivate. */
     readOnly: Boolean = false,
+    /** RBAC scope — a group-level user (Overseer/Servant/Assistant only) sees and edits just their own group
+     * and can never add, deactivate or delete one. Null keeps the legacy behaviour (grant-based users). */
+    scope: GroupAccessScope? = null,
     onBack: () -> Unit,
     viewModel: ManageGroupsViewModel = hiltViewModel(),
 ) {
+    val canAddOrRemove = !readOnly && (scope == null || scope.canAddOrRemoveGroups)
     val congregations by viewModel.congregations.collectAsStateWithLifecycle(initialValue = emptyList())
     // "Add a filter for Congregation" (Super-Admin only).
     var congregationFilter by rememberCongregationContext("field_service_groups")
     val effectiveCongregationId = fixedCongregationId ?: congregationFilter
     val needsCongregation = fixedCongregationId == null && congregationFilter == null
-    val rowsFlow = remember(effectiveCongregationId, needsCongregation) { if (needsCongregation) kotlinx.coroutines.flow.flowOf(emptyList()) else viewModel.rowsFor(effectiveCongregationId) }
+    val rowsFlow = remember(effectiveCongregationId, needsCongregation, scope) { if (needsCongregation) kotlinx.coroutines.flow.flowOf(emptyList()) else viewModel.rowsFor(effectiveCongregationId, scope) }
     val allRows by rowsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showInactive by remember { mutableStateOf(false) }
     val rows = allRows.filter { showInactive || it.group.status == RecordStatus.ACTIVE }
@@ -125,7 +130,7 @@ fun ManageGroupsScreen(
             )
         },
         floatingActionButton = {
-            if (!readOnly) {
+            if (canAddOrRemove) {
                 FloatingActionButton(onClick = { showCreateDialog = true }) {
                     Icon(Icons.Rounded.Add, contentDescription = "New Field Service Group")
                 }
@@ -191,7 +196,9 @@ fun ManageGroupsScreen(
                                         IconButton(onClick = { pendingEdit = row.group }) {
                                             Icon(Icons.Rounded.Edit, contentDescription = "Edit field service group")
                                         }
-                                        if (row.group.status == RecordStatus.ACTIVE) {
+                                        if (!canAddOrRemove) {
+                                            // group-level user: edit own group only
+                                        } else if (row.group.status == RecordStatus.ACTIVE) {
                                             IconButton(onClick = { pendingDelete = row.group }) {
                                                 Icon(Icons.Rounded.Delete, contentDescription = "Delete field service group")
                                             }

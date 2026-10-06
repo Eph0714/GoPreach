@@ -54,6 +54,13 @@ async function run() {
       isSuperAdmin: true, activeAdminRole: "SUPER_ADMIN", activeCongregationId: null,
     });
 
+    // FS Group RBAC seed
+    await setDoc(doc(db, "groups", "g1"), { congregationId: "congA", name: "G1", status: "ACTIVE", overseerPersonId: "elderRegA" });
+    await setDoc(doc(db, "groups", "g2"), { congregationId: "congA", name: "G2", status: "ACTIVE", overseerPersonId: "someoneElse" });
+    await setDoc(doc(db, "roleAssignments", "ra_m1"), { personId: "pubB", congregationId: "congA", roleType: "PUBLISHER:REGULAR_PUBLISHER", status: "ACTIVE", groupId: null });
+    await setDoc(doc(db, "roleAssignments", "ra_m2"), { personId: "pubA", congregationId: "congA", roleType: "PUBLISHER:REGULAR_PUBLISHER", status: "ACTIVE", groupId: "g2" });
+    await setDoc(doc(db, "roleAssignments", "ra_m3"), { personId: "pubA", congregationId: "congA", roleType: "PUBLISHER:REGULAR_PUBLISHER", status: "ACTIVE", groupId: "g2" });
+
     // A Return Visit owned by pubA, in congA.
     await setDoc(doc(db, "interestedPeople", "rv1"), {
       publisherPersonId: "pubA", congregationId: "congA", pipelineStage: "RETURN_VISIT", name: "Juan",
@@ -542,6 +549,27 @@ async function run() {
     await assertSucceeds(deleteDoc(doc(asAdminA, "mapPins", "pin1")));
     record("Admin CAN delete a pin in their congregation", true);
   })().catch((e) => record("Admin CAN delete a pin in their congregation", false, e.message));
+
+  // ============ FS Group RBAC ============
+  const gt = async (name, op, ok) => {
+    try { await (ok ? assertSucceeds(op()) : assertFails(op())); record(name, true); } catch (e) { record(name, false, e.message); }
+  };
+  await gt("Admin CAN edit a group in own congregation", () => updateDoc(doc(asAdminA, "groups", "g2"), { name: "G2b" }), true);
+  await gt("Admin CAN create a group in own congregation", () => setDoc(doc(asAdminA, "groups", "g3"), { congregationId: "congA", name: "G3", status: "ACTIVE" }), true);
+  await gt("Admin CANNOT create a group in another congregation", () => setDoc(doc(asAdminA, "groups", "g4"), { congregationId: "congB", name: "G4", status: "ACTIVE" }), false);
+  await gt("Secretary CAN edit any group in own congregation", () => updateDoc(doc(asSecretaryA, "groups", "g1"), { name: "G1b" }), true);
+  await gt("Super Admin CAN create a group in any congregation", () => setDoc(doc(asSuperAdmin, "groups", "g5"), { congregationId: "congB", name: "G5", status: "ACTIVE" }), true);
+  await gt("Group Overseer CAN edit own group", () => updateDoc(doc(asElderRegA, "groups", "g1"), { name: "Mine" }), true);
+  await gt("Group Overseer CANNOT edit another group", () => updateDoc(doc(asElderRegA, "groups", "g2"), { name: "Nope" }), false);
+  await gt("Group Overseer CANNOT deactivate own group", () => updateDoc(doc(asElderRegA, "groups", "g1"), { status: "INACTIVE" }), false);
+  await gt("Group Overseer CANNOT delete own group", () => deleteDoc(doc(asElderRegA, "groups", "g1")), false);
+  await gt("Group Overseer CANNOT create a group", () => setDoc(doc(asElderRegA, "groups", "g6"), { congregationId: "congA", name: "G6", status: "ACTIVE" }), false);
+  await gt("Group Overseer CANNOT move own group to another congregation", () => updateDoc(doc(asElderRegA, "groups", "g1"), { congregationId: "congB" }), false);
+  await gt("Group Overseer CAN add a member to own group", () => updateDoc(doc(asElderRegA, "roleAssignments", "ra_m1"), { groupId: "g1" }), true);
+  await gt("Group Overseer CAN transfer a member from another group into own group", () => updateDoc(doc(asElderRegA, "roleAssignments", "ra_m2"), { groupId: "g1" }), true);
+  await gt("Group Overseer CANNOT touch a member of another group without moving them in", () => updateDoc(doc(asElderRegA, "roleAssignments", "ra_m3"), { groupId: "g2", lastEditedAt: 1 }), false);
+  await gt("Group Overseer CANNOT change a member's role type", () => updateDoc(doc(asElderRegA, "roleAssignments", "ra_m1"), { roleType: "ADMIN:SUPER_ADMIN" }), false);
+  await gt("Publisher CANNOT edit a group", () => updateDoc(doc(asPubA, "groups", "g1"), { name: "x" }), false);
 
   await testEnv.cleanup();
 

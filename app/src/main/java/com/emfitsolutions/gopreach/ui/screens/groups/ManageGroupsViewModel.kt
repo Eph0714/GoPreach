@@ -16,6 +16,8 @@ import com.emfitsolutions.gopreach.data.repository.CongregationRepository
 import com.emfitsolutions.gopreach.data.repository.GroupRepository
 import com.emfitsolutions.gopreach.data.repository.PersonRepository
 import com.emfitsolutions.gopreach.data.repository.RoleAssignmentRepository
+import com.emfitsolutions.gopreach.domain.GroupAccessScope
+import com.emfitsolutions.gopreach.domain.allows
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -223,10 +225,11 @@ class ManageGroupsViewModel @Inject constructor(
         }
     }
 
-    fun rowsFor(congregationId: String?): Flow<List<GroupRow>> =
+    fun rowsFor(congregationId: String?, scope: GroupAccessScope? = null): Flow<List<GroupRow>> =
         combine(groupRepository.observeAll(), personRepository.observeAll()) { groups, people ->
             groups
                 .filter { congregationId == null || it.congregationId == congregationId }
+                .filter { scope == null || scope.allows(it) }
                 .map { group ->
                     GroupRow(
                         group = group,

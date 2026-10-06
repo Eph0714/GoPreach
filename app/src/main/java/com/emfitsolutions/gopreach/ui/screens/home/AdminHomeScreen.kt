@@ -244,8 +244,11 @@ fun AdminHomeScreen(
     // "CREATING GROUPS" spec — Service Overseer can also create/manage
     // Groups under their own congregation, same as Coordinator Elder,
     // without gaining the wider Publisher-management access above.
+    // RBAC: resolved from every role the user holds, so a Group Overseer/Servant/Assistant (own group only)
+    // reaches the screen too; the screen itself narrows what they can see and do.
     val canManageGroups = canManagePublishersAndGroups || role == AdminRole.SERVICE_OVERSEER || role == AdminRole.SECRETARY ||
-        Permission.MANAGE_GROUPS in grantPermissions
+        Permission.MANAGE_GROUPS in grantPermissions ||
+        com.emfitsolutions.gopreach.domain.GroupAccessScope.resolve(session.person, session.roleAssignments).canOpen
     // Territory Assignment module — same five built-in roles as the spec
     // calls for (Super-Admin/Admin/Coordinator Elder via
     // canManagePublishersAndGroups, plus Service Overseer/Secretary), same

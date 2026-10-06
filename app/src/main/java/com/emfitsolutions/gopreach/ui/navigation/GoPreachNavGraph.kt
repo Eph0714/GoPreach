@@ -471,9 +471,17 @@ fun GoPreachNavGraph(
             )
         }
         composable(Destinations.MANAGE_GROUPS) {
+            // Highest scope across ALL the user's roles, not only the one picked at login.
+            val groupScope = com.emfitsolutions.gopreach.domain.GroupAccessScope.resolve(session.person, session.roleAssignments)
             ManageGroupsScreen(
-                fixedCongregationId = ownCongregationId,
+                fixedCongregationId = when (groupScope) {
+                    is com.emfitsolutions.gopreach.domain.GroupAccessScope.AllCongregations -> null
+                    is com.emfitsolutions.gopreach.domain.GroupAccessScope.Congregation -> groupScope.congregationId
+                    is com.emfitsolutions.gopreach.domain.GroupAccessScope.OwnGroup -> groupScope.congregationId
+                    else -> ownCongregationId
+                },
                 currentPersonId = currentPersonId,
+                scope = groupScope.takeIf { it.canOpen },
                 canPermanentlyDelete = currentRole == AdminRole.SUPER_ADMIN,
                 onBack = { navController.popBackStack() },
             )

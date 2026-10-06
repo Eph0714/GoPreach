@@ -138,6 +138,16 @@ function canManageTrashFor(db, congregationId) {
   );
 }
 
+// FS Group RBAC — true when the caller holds the Overseer/Servant/Assistant slot of group [groupId].
+function isSlotHolderOfGroup(db, groupId) {
+  return isSignedIn() && groupId != null && exists(/databases/$(db)/documents/groups/$(groupId)) &&
+    personIdFromToken() in [
+      get(/databases/$(db)/documents/groups/$(groupId)).data.get('overseerPersonId', ''),
+      get(/databases/$(db)/documents/groups/$(groupId)).data.get('servantPersonId', ''),
+      get(/databases/$(db)/documents/groups/$(groupId)).data.get('assistantPersonId', '')
+    ];
+}
+
 function canManageTerritoryAssignmentsFor(db, congregationId) {
   return isSignedIn() && exists(/databases/$(db)/documents/people/$(personIdFromToken())) && (
     isSuperAdmin(db) || (
@@ -375,10 +385,23 @@ service cloud.firestore {
       allow delete: if restrictedAllows(database, 'DELETE_CONGREGATIONS', congregationId);
     }
 
+    // FS Group RBAC — Super-Admin: every group; Admin / Coordinator Elder / Service Overseer / Secretary
+    // (active role): groups of their own congregation; a Group Overseer/Servant/Assistant: may update (never
+    // create, delete or deactivate) only the group whose slot they hold. Each arm is gated behind
+    // `!hasGrant` / `hasGrant` for the same reason as /roleAssignments below. Reads stay as before.
     match /groups/{groupId} {
       allow read: if restrictedAllows(database, 'VIEW_GROUPS', resource.data.get('congregationId', null));
-      allow create: if restrictedAllows(database, 'MANAGE_GROUPS', request.resource.data.get('congregationId', null));
-      allow update, delete: if restrictedAllows(database, 'MANAGE_GROUPS', resource.data.get('congregationId', null));
+      allow create: if (!hasGrant(database) && canManageRoleAssignmentsFor(database, request.resource.data.get('congregationId', null))) ||
+        (hasGrant(database) && restrictedAllows(database, 'MANAGE_GROUPS', request.resource.data.get('congregationId', null)));
+      allow update: if (!hasGrant(database) &&
+          request.resource.data.get('congregationId', null) == resource.data.get('congregationId', null) &&
+          (canManageRoleAssignmentsFor(database, resource.data.get('congregationId', null)) ||
+            (isSignedIn() && personIdFromToken() in [resource.data.get('overseerPersonId', ''),
+              resource.data.get('servantPersonId', ''), resource.data.get('assistantPersonId', '')] &&
+              request.resource.data.get('status', 'ACTIVE') == resource.data.get('status', 'ACTIVE')))) ||
+        (hasGrant(database) && restrictedAllows(database, 'MANAGE_GROUPS', resource.data.get('congregationId', null)));
+      allow delete: if (!hasGrant(database) && canManageRoleAssignmentsFor(database, resource.data.get('congregationId', null))) ||
+        (hasGrant(database) && restrictedAllows(database, 'MANAGE_GROUPS', resource.data.get('congregationId', null)));
     }
 
     // Territory Assignment module — see [canManageTerritoryAssignmentsFor]'s
@@ -518,6 +541,13 @@ service cloud.firestore {
         (hasGrant(database) && (
           restrictedAllows(database, 'MANAGE_ELDERS', resource.data.get('congregationId', null)) ||
           restrictedAllows(database, 'MANAGE_PUBLISHERS', resource.data.get('congregationId', null))));
+      // FS Group RBAC — a Group Overseer/Servant/Assistant managing their own group's members: may change ONLY the
+      // group link fields, and only moving someone into or out of a group whose slot they hold.
+      allow update: if !hasGrant(database) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['groupId', 'regularElderRole', 'lastEditedByPersonId', 'lastEditedAt']) &&
+        (isSlotHolderOfGroup(database, resource.data.get('groupId', null)) ||
+          isSlotHolderOfGroup(database, request.resource.data.get('groupId', null)));
     }
 
     match /monthlyReports/{reportId} {
