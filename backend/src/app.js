@@ -21,13 +21,13 @@ const ID_RE = /^[^/\\\s][^/\\]{0,189}$/;
  * Every push op is authorized individually (role → congregation → FS Group → territory); a denied op never writes
  * and never blocks the others. Every pull is filtered to what the caller may read.
  */
-export function createApp(store, { devAuth = false } = {}) {
+export function createApp(store, { devAuth = false, health = () => ({}) } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet());
   app.use(express.json({ limit: '2mb' }));
 
-  app.get('/v1/health', (req, res) => res.json({ ok: true }));
+  app.get('/v1/health', (req, res) => res.json({ ok: true, ...health() }));
 
   const auth = authenticate({ devMode: devAuth });
 
