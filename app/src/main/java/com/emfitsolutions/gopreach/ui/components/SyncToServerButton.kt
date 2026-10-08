@@ -215,6 +215,13 @@ fun SyncToServerButton(
             SyncStatusIndicator(modifier = Modifier.padding(bottom = 4.dp))
         }
 
+        Text(
+            "Firebase Server Used for this version",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+        )
+
         Button(
             onClick = viewModel::syncToServer,
             enabled = syncing == null,
